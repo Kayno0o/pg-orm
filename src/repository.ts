@@ -1,8 +1,3 @@
-/**
- * Modern flattened repository with Bun SQL helpers
- * Replaces the 5-level inheritance chain with a single, organized class
- */
-
 import type { SQL } from 'bun'
 import type { AbstractEntity } from './entity'
 import type { ColumnMetadata, EntityMetadata } from './metadata'
@@ -13,11 +8,6 @@ import { getColumnMetadata, getEntityMetadata } from './metadata'
 
 type EntityConstructor<T extends AbstractEntity> = new () => T
 
-/**
- * Repository providing all CRUD operations and query methods
- * Uses composition over inheritance for cleaner, more maintainable code
- * Can be used directly or extended for custom repository methods
- */
 export class AbstractRepository<T extends AbstractEntity> {
   public db!: SQL
   public EntityClass: EntityConstructor<T>
@@ -41,10 +31,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     this._columnMetadataCache = getColumnMetadata(entityClass)
   }
 
-  // ============================================================================
-  // Configuration & Setup
-  // ============================================================================
-
   setDB(db: SQL): void {
     this.db = db
   }
@@ -65,22 +51,16 @@ export class AbstractRepository<T extends AbstractEntity> {
     return this._entityMetadataCache!
   }
 
-  // ============================================================================
-  // Data Mapping & Serialization
-  // ============================================================================
-
   public mapRowToEntity(row: DatabaseRow): T {
     const entity = new this.EntityClass()
     const columnsMetadata = this.getColumnsMetadata()
     const deserializedRow: Record<string, unknown> = {}
 
-    // Deserialize arrays properly
     for (const [key, value] of Object.entries(row)) {
       const columnMeta = columnsMetadata.get(key)
 
       if (columnMeta?.type === 'array' && value !== null && value !== undefined) {
         if (Array.isArray(value)) {
-          // PostgreSQL text arrays come back with quotes, remove them
           if (columnMeta.arrayType === 'text') {
             deserializedRow[key] = value.map((v) => {
               if (typeof v === 'string' && v.startsWith('"') && v.endsWith('"')) {
@@ -95,7 +75,6 @@ export class AbstractRepository<T extends AbstractEntity> {
           }
         }
         else if (ArrayBuffer.isView(value)) {
-          // Convert typed arrays (Int32Array, Float64Array, etc) to regular arrays
           deserializedRow[key] = Array.from(value as unknown as ArrayLike<unknown>)
         }
         else {
@@ -112,10 +91,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return entity
   }
 
-  /**
-   * Prepare data for database operations
-   * Validates enums and handles special column types
-   */
   public prepareData(data: Record<string, unknown>): Record<string, unknown> {
     const columnsMetadata = this.getColumnsMetadata()
     const prepared: Record<string, unknown> = {}
@@ -123,7 +98,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     for (const [key, value] of Object.entries(data)) {
       const columnMeta = columnsMetadata.get(key)
 
-      // Validate enum values
       if (columnMeta?.type === 'enum' && value !== null && value !== undefined) {
         if (columnMeta.enumValues && !columnMeta.enumValues.includes(String(value))) {
           throw new Error(
@@ -138,9 +112,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return prepared
   }
 
-  /**
-   * Find entity by ID
-   */
   async find(id: number): Promise<T | null> {
     const db = this.getDBContext()
 
@@ -164,9 +135,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     }
   }
 
-  /**
-   * Find all entities
-   */
   async findAll(): Promise<T[]> {
     const db = this.getDBContext()
     const results = await db`SELECT * FROM ${db(this.tableName)}`
@@ -174,17 +142,12 @@ export class AbstractRepository<T extends AbstractEntity> {
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
-  /**
-   * Create new entity using modern sql(object) helper
-   * Special handling for arrays using sql.array()
-   */
   async create(data: Partial<Omit<T, 'id' | 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>): Promise<T> {
     const db = this.getDBContext()
 
     try {
       const preparedData = this.prepareData(data as Record<string, unknown>)
 
-      // Check if there are any array columns
       const hasArrays = Object.entries(preparedData).some(([key, value]) => {
         const columnMeta = this.getColumnsMetadata().get(key)
 
@@ -192,7 +155,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       })
 
       if (hasArrays) {
-        // Build query manually for arrays
         const columns: string[] = []
         const values: any[] = []
 
@@ -202,7 +164,6 @@ export class AbstractRepository<T extends AbstractEntity> {
           columns.push(key)
 
           if (columnMeta?.type === 'array' && Array.isArray(value)) {
-            // Add type cast for integer and float arrays
             const arrayType = columnMeta.arrayType || 'text'
 
             if (arrayType === 'int') {
@@ -237,7 +198,6 @@ export class AbstractRepository<T extends AbstractEntity> {
         return this.mapRowToEntity(result)
       }
 
-      // Use Bun's sql(object) helper for clean, safe inserts
       const [result] = await db`
           INSERT INTO ${db(this.tableName)} ${db(preparedData)}
           RETURNING *
@@ -256,10 +216,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     }
   }
 
-  /**
-   * Update entity using modern sql(object, ...columns) helper
-   * Special handling for arrays using sql.array()
-   */
   async update(
     id: number,
     data: Partial<Omit<T, 'id' | 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>,
@@ -274,7 +230,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       const preparedData = this.prepareData(data as Record<string, unknown>)
       const columnsMetadata = this.getColumnsMetadata()
 
-      // Check for auto-update fields (like updated_at)
       const autoUpdateFields: string[] = []
 
       for (const [key, columnMeta] of columnsMetadata.entries()) {
@@ -283,7 +238,6 @@ export class AbstractRepository<T extends AbstractEntity> {
         }
       }
 
-      // Check if there are any array columns
       const hasArrays = Object.entries(preparedData).some(([key, value]) => {
         const columnMeta = columnsMetadata.get(key)
 
@@ -293,7 +247,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       let result: DatabaseRow
 
       if (hasArrays) {
-        // Build SET clause manually for arrays
         let query = db`UPDATE ${db(this.tableName)} SET `
         const keys = Object.keys(preparedData)
         let first = true
@@ -309,7 +262,6 @@ export class AbstractRepository<T extends AbstractEntity> {
           first = false
 
           if (columnMeta?.type === 'array' && Array.isArray(value)) {
-            // Add type cast for integer and float arrays
             const arrayType = columnMeta.arrayType || 'text'
 
             if (arrayType === 'int') {
@@ -339,7 +291,6 @@ export class AbstractRepository<T extends AbstractEntity> {
         result = row
       }
       else if (autoUpdateFields.length > 0) {
-        // Build SET clause with auto-update fields
         const autoUpdateParts = autoUpdateFields.map(field => `${field} = NOW()`).join(', ')
         const [row] = await db`
           UPDATE ${db(this.tableName)}
@@ -351,7 +302,6 @@ export class AbstractRepository<T extends AbstractEntity> {
         result = row
       }
       else {
-        // Simple update using sql(object)
         const [row] = await db`
           UPDATE ${db(this.tableName)}
           SET ${db(preparedData)}
@@ -379,18 +329,12 @@ export class AbstractRepository<T extends AbstractEntity> {
     }
   }
 
-  /**
-   * Delete entity by ID
-   */
   async delete(id: number): Promise<void> {
     const db = this.getDBContext()
 
     await db`DELETE FROM ${db(this.tableName)} WHERE id = ${id}`
   }
 
-  /**
-   * Insert or update based on id presence
-   */
   async persist(data: Partial<Omit<T, 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>): Promise<T> {
     const dataWithId = data as Partial<T> & { id?: number }
     const { id, ...updateData } = dataWithId
@@ -402,14 +346,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return await this.create(updateData as Partial<Omit<T, 'id' | 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>)
   }
 
-  // ============================================================================
-  // Bulk Operations
-  // ============================================================================
-
-  /**
-   * Create many entities at once using sql([objects])
-   * Significantly faster than individual creates
-   */
   async createMany(dataArray: Partial<Omit<T, 'id' | 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>[]): Promise<T[]> {
     if (dataArray.length === 0) {
       return []
@@ -417,10 +353,8 @@ export class AbstractRepository<T extends AbstractEntity> {
 
     const db = this.getDBContext()
 
-    // Prepare all data
     const preparedArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
-    // Use Bun's sql([objects]) for bulk insert
     const results = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
       RETURNING *
@@ -429,9 +363,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
-  /**
-   * Delete multiple entities by ID using sql(array)
-   */
   async deleteMany(ids: number[]): Promise<void> {
     if (ids.length === 0) {
       return
@@ -439,13 +370,9 @@ export class AbstractRepository<T extends AbstractEntity> {
 
     const db = this.getDBContext()
 
-    // Use sql(array) for efficient IN clause
     await db`DELETE FROM ${db(this.tableName)} WHERE id IN ${db(ids)}`
   }
 
-  /**
-   * Update multiple entities (uses transaction for atomicity)
-   */
   async updateMany(updates: (Partial<Omit<T, 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>> & { id: number })[]): Promise<T[]> {
     if (updates.length === 0) {
       return []
@@ -478,13 +405,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return results
   }
 
-  // ============================================================================
-  // Query Operations
-  // ============================================================================
-
-  /**
-   * Find entities with conditions, ordering, and pagination
-   */
   async findAllBy(options: QueryOptions<T>): Promise<T[]> {
     const db = this.getDBContext()
     const results = await this.buildAndExecuteSelectQuery(db, options)
@@ -492,9 +412,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
-  /**
-   * Find one entity matching conditions
-   */
   async findOneBy(options: QueryOptions<T>): Promise<T | null> {
     const db = this.getDBContext()
     const results = await this.buildAndExecuteSelectQuery(db, options, 1)
@@ -503,9 +420,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return result ? this.mapRowToEntity(result) : null
   }
 
-  /**
-   * Build and execute SELECT query with WHERE, ORDER BY, LIMIT, OFFSET
-   */
   public async buildAndExecuteSelectQuery(
     db: SQL,
     options: QueryOptions<T>,
@@ -514,13 +428,11 @@ export class AbstractRepository<T extends AbstractEntity> {
     let query: SQLFragment = db`SELECT * FROM ${db(this.tableName)}`
     const whereFragments: SQLFragment[] = []
 
-    // Build WHERE clauses
     if (options.where) {
       for (const [key, value] of Object.entries(options.where)) {
         this.validateColumnName(key)
 
         if (Array.isArray(value)) {
-          // Use sql(array) for IN clauses
           whereFragments.push(db`${db(key)} IN ${db(value)}`)
         }
         else {
@@ -529,7 +441,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       }
     }
 
-    // Build IS NULL / IS NOT NULL clauses
     if (options.notNull) {
       for (const [key, isNotNull] of Object.entries(options.notNull)) {
         this.validateColumnName(key)
@@ -543,7 +454,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       }
     }
 
-    // Combine WHERE fragments with AND
     if (whereFragments.length > 0) {
       let whereClause: SQLFragment = whereFragments[0]!
 
@@ -553,7 +463,6 @@ export class AbstractRepository<T extends AbstractEntity> {
       query = db`${query} WHERE ${whereClause}`
     }
 
-    // Add ORDER BY
     if (options.order) {
       const orderParts: string[] = []
 
@@ -569,14 +478,12 @@ export class AbstractRepository<T extends AbstractEntity> {
       }
     }
 
-    // Add LIMIT
     const finalLimit = limit !== undefined ? limit : options.limit
 
     if (finalLimit !== undefined) {
       query = db`${query} LIMIT ${finalLimit}`
     }
 
-    // Add OFFSET
     if (options.offset !== undefined) {
       query = db`${query} OFFSET ${options.offset}`
     }
@@ -584,9 +491,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return await (query as Promise<DatabaseRow[]>)
   }
 
-  /**
-   * Validate column name to prevent SQL injection
-   */
   public validateColumnName(columnName: string): void {
     const columns = this.getColumnsMetadata()
 
@@ -597,13 +501,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     }
   }
 
-  // ============================================================================
-  // Helper Methods
-  // ============================================================================
-
-  /**
-   * Count entities with optional filters
-   */
   async count(options?: QueryOptions<T>): Promise<number> {
     const db = this.getDBContext()
 
@@ -622,9 +519,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return results.length
   }
 
-  /**
-   * Check if entity exists by ID
-   */
   async exists(id: number): Promise<boolean> {
     const db = this.getDBContext()
     const [result] = await db`SELECT 1 FROM ${db(this.tableName)} WHERE id = ${id} LIMIT 1`
@@ -632,18 +526,12 @@ export class AbstractRepository<T extends AbstractEntity> {
     return Boolean(result)
   }
 
-  /**
-   * Check if entity exists matching conditions
-   */
   async existsBy(options: QueryOptions<T>): Promise<boolean> {
     const result = await this.findOneBy(options)
 
     return result !== null
   }
 
-  /**
-   * Find entity by ID or throw EntityNotFoundError
-   */
   async findOrFail(id: number): Promise<T> {
     const entity = await this.find(id)
 
@@ -656,9 +544,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return entity
   }
 
-  /**
-   * Find one entity by conditions or throw EntityNotFoundError
-   */
   async findByOrFail(options: QueryOptions<T>): Promise<T> {
     const entity = await this.findOneBy(options)
 
@@ -671,9 +556,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return entity
   }
 
-  /**
-   * Paginate results with metadata
-   */
   async paginate(options: {
     page: number
     pageSize: number
@@ -711,9 +593,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     }
   }
 
-  /**
-   * Insert or update based on unique constraint conflict
-   */
   async upsert(data: Partial<Omit<T, 'id' | 'save' | 'reload' | 'remove' | 'toObject' | 'toJSON'>>): Promise<T> {
     const db = this.getDBContext()
 
@@ -760,14 +639,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     return this.mapRowToEntity(result)
   }
 
-  // ============================================================================
-  // Transaction Support
-  // ============================================================================
-
-  /**
-   * Execute operations within a transaction
-   * Automatically commits on success, rolls back on error
-   */
   async transaction<R>(callback: () => Promise<R>): Promise<R> {
     return await this.db.begin(async (tx) => {
       const previousTx = this.txContext
@@ -783,10 +654,6 @@ export class AbstractRepository<T extends AbstractEntity> {
     })
   }
 
-  /**
-   * Create a repository instance with a transaction context
-   * Useful for passing transactional repositories to other functions
-   */
   withTransaction(tx: SQL): this {
     const repo = Object.create(this) as this
 

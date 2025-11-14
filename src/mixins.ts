@@ -2,45 +2,26 @@ import type { AbstractEntity } from './entity'
 import type { AbstractRepository } from './repository'
 import type { QueryOptions } from './types'
 
-// Type helper for constructor
 type Constructor<T = object> = new (...args: any[]) => T
 
-/**
- * Soft Delete Mixin
- * Adds soft delete functionality to entities
- * Marks entities as deleted instead of actually removing them
- */
 export function withSoftDelete<T extends AbstractEntity, TBase extends Constructor<AbstractRepository<T>>>(
   Base: TBase,
 ) {
   return class SoftDeletableRepository extends Base {
-    /**
-     * Soft delete: marks entity as deleted instead of removing
-     */
     override async delete(id: number): Promise<void> {
-      // Override delete to set deleted_at timestamp
       await this.update(id, { deleted_at: new Date() } as any)
     }
 
-    /**
-     * Permanently delete entity from database
-     */
     async forceDelete(id: number): Promise<void> {
       const db = this.getDBContext()
 
       await db`DELETE FROM ${db((this as any).tableName)} WHERE id = ${id}`
     }
 
-    /**
-     * Restore soft-deleted entity
-     */
     async restore(id: number): Promise<T> {
       return await this.update(id, { deleted_at: null } as any)
     }
 
-    /**
-     * Find all non-deleted entities
-     */
     override async findAll(): Promise<T[]> {
       const db = this.getDBContext()
       const results = await db`
@@ -51,9 +32,6 @@ export function withSoftDelete<T extends AbstractEntity, TBase extends Construct
       return results.map((row: any) => (this as any).mapRowToEntity(row))
     }
 
-    /**
-     * Find entity by ID (only non-deleted)
-     */
     override async find(id: number): Promise<T | null> {
       const db = this.getDBContext()
       const [result] = await db`
@@ -65,23 +43,14 @@ export function withSoftDelete<T extends AbstractEntity, TBase extends Construct
       return result ? (this as any).mapRowToEntity(result) : null
     }
 
-    /**
-     * Find all entities including soft-deleted ones
-     */
     async findAllWithTrashed(): Promise<T[]> {
       return super.findAll()
     }
 
-    /**
-     * Find entity by ID including soft-deleted ones
-     */
     async findWithTrashed(id: number): Promise<T | null> {
       return super.find(id)
     }
 
-    /**
-     * Find only soft-deleted entities
-     */
     async findOnlyTrashed(): Promise<T[]> {
       const db = this.getDBContext()
       const results = await db`
@@ -92,9 +61,6 @@ export function withSoftDelete<T extends AbstractEntity, TBase extends Construct
       return results.map((row: any) => (this as any).mapRowToEntity(row))
     }
 
-    /**
-     * Count non-deleted entities
-     */
     override async count(options?: QueryOptions<T>): Promise<number> {
       const db = this.getDBContext()
 
@@ -107,32 +73,23 @@ export function withSoftDelete<T extends AbstractEntity, TBase extends Construct
         return result?.count || 0
       }
 
-      // Build query with deleted_at IS NULL filter
       const results = await this.buildAndExecuteSelectQuery(db, {
         ...options,
         limit: undefined,
         offset: undefined,
       })
 
-      // Filter out soft-deleted results
       const filtered = results.filter((row: any) => row.deleted_at === null || row.deleted_at === undefined)
 
       return filtered.length
     }
 
-    /**
-     * Count including soft-deleted entities
-     */
     async countWithTrashed(options?: QueryOptions<T>): Promise<number> {
       return super.count(options)
     }
   }
 }
 
-/**
- * Timestamps Mixin
- * Automatically manages created_at and updated_at timestamps
- */
 export function withTimestamps<T extends AbstractEntity, TBase extends Constructor<AbstractRepository<T>>>(
   Base: TBase,
 ) {
@@ -172,21 +129,12 @@ export function withTimestamps<T extends AbstractEntity, TBase extends Construct
   }
 }
 
-/**
- * Paranoid Mixin
- * Combines soft delete with automatic timestamps
- * Named after Sequelize's paranoid mode
- */
 export function withParanoid<T extends AbstractEntity, TBase extends Constructor<AbstractRepository<T>>>(
   Base: TBase,
 ) {
   return withSoftDelete(withTimestamps(Base))
 }
 
-/**
- * Query Scopes Mixin
- * Adds common query scopes for filtering
- */
 export function withScopes<T extends AbstractEntity, TBase extends Constructor<AbstractRepository<T>>>(
   Base: TBase,
 ) {
@@ -233,20 +181,12 @@ export function withScopes<T extends AbstractEntity, TBase extends Constructor<A
   }
 }
 
-/**
- * Custom Mixin Builder
- * Allows creating custom mixins with typed methods
- */
 export function createMixin<T extends AbstractEntity>() {
   return <TBase extends Constructor<AbstractRepository<T>>>(
     enhancer: (Base: TBase) => TBase,
   ) => enhancer
 }
 
-/**
- * Compose multiple mixins together
- * Example: compose(withSoftDelete, withTimestamps, withScopes)(AbstractRepository)
- */
 export function compose<T extends AbstractEntity>(
   ...mixins: ((base: any) => any)[]
 ) {

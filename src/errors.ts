@@ -1,7 +1,3 @@
-/**
- * Custom error classes for the ORM
- */
-
 import type { ValidationErrorDetail } from './types'
 
 export class EntityNotFoundError extends Error {

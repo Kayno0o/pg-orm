@@ -1,5 +1,3 @@
-/** Base entity class for all entities */
-
 import type { Identifiable } from './types'
 import { getRepository } from './db'
 import { EntityNotFoundError } from './errors'
@@ -7,7 +5,6 @@ import { EntityNotFoundError } from './errors'
 export abstract class AbstractEntity implements Identifiable {
   id!: number
 
-  /** Insert if new, update if exists */
   async save(): Promise<this> {
     const repository = getRepository(this.constructor as any)
     const saved = await repository.persist(this as any)
@@ -44,7 +41,6 @@ export abstract class AbstractEntity implements Identifiable {
     await repository.delete(this.id)
   }
 
-  /** Excludes methods */
   toObject(): Record<string, unknown> {
     const obj: Record<string, unknown> = {}
     const proto = Object.getPrototypeOf(this)

@@ -21,7 +21,6 @@ export class QueryBuilder<T = unknown> {
     this.db = getDB()
   }
 
-  /** Prevents SQL injection */
   private validateIdentifier(identifier: string): void {
     if (!(/^[\w.*]+$/).test(identifier)) {
       throw new Error(
@@ -50,14 +49,12 @@ export class QueryBuilder<T = unknown> {
     return this
   }
 
-  /** @example qb.where(db`age > ${18}`) */
   where(fragment: SQLFragment): this {
     this.whereFragments.push(fragment)
 
     return this
   }
 
-  /** @example qb.whereEquals('name', 'John') */
   whereEquals(field: string, value: unknown): this {
     this.whereFragments.push(this.db`${this.db(field)} = ${value}`)
 
@@ -73,7 +70,6 @@ export class QueryBuilder<T = unknown> {
     return this
   }
 
-  /** Requires GROUP BY; @example qb.groupBy('status').having(db`COUNT(*) > ${10}`) */
   having(fragment: SQLFragment): this {
     this.havingFragments.push(fragment)
 
@@ -221,14 +217,12 @@ export class QueryBuilder<T = unknown> {
     return this
   }
 
-  /** Case-insensitive LIKE */
   whereILike(field: string, pattern: string): this {
     this.whereFragments.push(this.db`${this.db(field)} ILIKE ${pattern}`)
 
     return this
   }
 
-  /** JSONB contains */
   whereJsonContains(field: string, value: unknown): this {
     const jsonValue = JSON.stringify(value)
 
@@ -237,28 +231,24 @@ export class QueryBuilder<T = unknown> {
     return this
   }
 
-  /** JSONB has key */
   whereJsonHasKey(field: string, key: string): this {
     this.whereFragments.push(this.db`${this.db(field)} ? ${key}`)
 
     return this
   }
 
-  /** Array contains value */
   whereArrayContains(field: string, value: unknown): this {
     this.whereFragments.push(this.db`${this.db(field)} @> ${(this.db as any).array([value])}`)
 
     return this
   }
 
-  /** Array overlaps */
   whereArrayOverlaps(field: string, values: unknown[]): this {
     this.whereFragments.push(this.db`${this.db(field)} && ${(this.db as any).array(values)}`)
 
     return this
   }
 
-  /** Full-text search */
   whereFullText(field: string, query: string, language = 'english'): this {
     this.whereFragments.push(
       this.db`to_tsvector(${this.db.unsafe(`'${language}'`)}, ${this.db(field)}) @@ plainto_tsquery(${this.db.unsafe(`'${language}'`)}, ${query})`,
@@ -297,7 +287,6 @@ export class QueryBuilder<T = unknown> {
     return this
   }
 
-  /** For inspection or manual execution */
   build(): SQLFragment {
     return this.buildQuery()
   }

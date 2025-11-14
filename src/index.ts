@@ -1,8 +1,3 @@
-/**
- * @kaynooo/orm-v2
- * Lightweight ORM for Bun SQL with PostgreSQL support
- */
-
 export { closeDB, getDB, getRepository, initDB, transaction } from './db'
 
 export {

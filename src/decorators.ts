@@ -84,7 +84,6 @@ export function EnumColumn(
   enumValues: string[] | Record<string, string | number>,
   options?: Omit<ColumnOptions, 'arrayType' | 'enumValues'>,
 ) {
-  // Extract values from enum object if needed
   const values = Array.isArray(enumValues)
     ? enumValues
     : Object.values(enumValues).filter(v => typeof v === 'string') as string[]
@@ -104,11 +103,6 @@ export function UpdatedAt(options?: Omit<ColumnOptions, 'default' | 'autoUpdate'
   return Column('timestamp', { ...options, default: 'NOW()', autoUpdate: true })
 }
 
-/**
- * Marks an entity as soft deletable
- * Adds a deleted_at timestamp column for soft delete functionality
- * Use with withSoftDelete() mixin on the repository
- */
 export function SoftDelete(options?: Omit<ColumnOptions, 'default' | 'autoUpdate' | 'arrayType' | 'enumValues'>) {
   return Column('timestamp', { ...options, nullable: true, default: null })
 }
