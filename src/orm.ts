@@ -94,14 +94,14 @@ export class ORM {
     this.plugins.push(plugin)
 
     // Apply to existing entities
-    for (const [_key, _entityDef] of this.entities) {
+    for (const [_key, _entityDef] of Array.from(this.entities)) {
       if (plugin.applyToEntity) {
         // plugin.applyToEntity(entityDef)
       }
     }
 
     // Apply to existing repositories
-    for (const [_key, repository] of this.repositories) {
+    for (const [_key, repository] of Array.from(this.repositories)) {
       if (plugin.applyToRepository) {
         plugin.applyToRepository(repository)
       }

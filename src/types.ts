@@ -146,7 +146,7 @@ export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
                 : T extends EnumFieldConfig
                   ? T['values'][number]
                   : T extends BlobFieldConfig
-                    ? Buffer
+                    ? Uint8Array
                     : never
 
 // Make nullable if field is nullable
@@ -235,9 +235,9 @@ export type BeforeUpdateHook<T extends EntitySchema> = (id: number, data: InferU
 
 export type AfterUpdateHook<T extends EntitySchema> = (entity: InferEntity<T>) => void | Promise<void>
 
-export type BeforeDeleteHook<T extends EntitySchema> = (id: number) => void | Promise<void>
+export type BeforeDeleteHook<_T extends EntitySchema> = (id: number) => void | Promise<void>
 
-export type AfterDeleteHook<T extends EntitySchema> = (id: number) => void | Promise<void>
+export type AfterDeleteHook<_T extends EntitySchema> = (id: number) => void | Promise<void>
 
 export interface EntityHooks<T extends EntitySchema> {
   beforeCreate: BeforeCreateHook<T>[]
@@ -266,8 +266,8 @@ export interface TraitDefinition<Methods extends TraitMethods = TraitMethods> {
 
 export interface Plugin {
   name: string
-  applyToEntity?: <T extends EntitySchema>(entity: EntityDefinition<T>) => void
-  applyToRepository?: <T extends EntitySchema>(repository: any) => void
+  applyToEntity?: <_T extends EntitySchema>(entity: EntityDefinition<_T>) => void
+  applyToRepository?: <_T extends EntitySchema>(repository: any) => void
 }
 
 // ============================================================================

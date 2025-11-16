@@ -38,10 +38,10 @@ export class Repository<T extends EntitySchema> {
 
     try {
       const [result] = await db`
-				SELECT * FROM ${db(this.tableName)}
-				WHERE id = ${id}
-				LIMIT 1
-			`
+        SELECT * FROM ${db(this.tableName)}
+        WHERE id = ${id}
+        LIMIT 1
+      `
 
       return result ? this.mapRowToEntity(result) : null
     }
@@ -70,9 +70,9 @@ export class Repository<T extends EntitySchema> {
     try {
       const preparedData = this.prepareData(data as Record<string, unknown>)
       const [result] = await db`
-				INSERT INTO ${db(this.tableName)} ${db(preparedData)}
-				RETURNING *
-			`
+        INSERT INTO ${db(this.tableName)} ${db(preparedData)}
+        RETURNING *
+      `
 
       const entity = this.mapRowToEntity(result)
 
@@ -111,11 +111,11 @@ export class Repository<T extends EntitySchema> {
       }
 
       const [result] = await db`
-				UPDATE ${db(this.tableName)}
-				SET ${db(preparedData)}
-				WHERE id = ${id}
-				RETURNING *
-			`
+        UPDATE ${db(this.tableName)}
+        SET ${db(preparedData)}
+        WHERE id = ${id}
+        RETURNING *
+      `
 
       if (!result) {
         throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
@@ -149,9 +149,9 @@ export class Repository<T extends EntitySchema> {
 
     try {
       await db`
-				DELETE FROM ${db(this.tableName)}
-				WHERE id = ${id}
-			`
+        DELETE FROM ${db(this.tableName)}
+        WHERE id = ${id}
+      `
 
       // Execute after hooks
       for (const hook of this.definition.hooks.afterDelete) {
@@ -254,9 +254,9 @@ export class Repository<T extends EntitySchema> {
       const preparedArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
       const results = await db`
-				INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
-				RETURNING *
-			`
+        INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
+        RETURNING *
+      `
 
       return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
     }
@@ -272,9 +272,9 @@ export class Repository<T extends EntitySchema> {
 
     try {
       await db`
-				DELETE FROM ${db(this.tableName)}
-				WHERE id IN ${db(ids)}
-			`
+        DELETE FROM ${db(this.tableName)}
+        WHERE id IN ${db(ids)}
+      `
     }
     catch (error) {
       this.handleError(error, 'deleteMany')

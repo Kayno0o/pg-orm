@@ -4,7 +4,6 @@ import type {
   BooleanFieldConfig,
   DateFieldConfig,
   EnumFieldConfig,
-  FieldConfig,
   JsonFieldConfig,
   NumberFieldConfig,
   SQLValue,
@@ -14,38 +13,12 @@ import type {
 } from './types'
 
 // ============================================================================
-// Base Field Builder
-// ============================================================================
-
-class BaseFieldBuilder<T extends FieldConfig> {
-  constructor(protected config: T) {}
-
-  nullable(): any {
-    return new (this.constructor as any)({ ...this.config, nullable: true })
-  }
-
-  unique(): any {
-    return new (this.constructor as any)({ ...this.config, unique: true })
-  }
-
-  default(value: SQLValue): any {
-    return new (this.constructor as any)({ ...this.config, default: value })
-  }
-
-  column(name: string): any {
-    return new (this.constructor as any)({ ...this.config, columnName: name })
-  }
-
-  toConfig(): T {
-    return this.config
-  }
-}
-
-// ============================================================================
 // String Field Builder
 // ============================================================================
 
-class StringFieldBuilder extends BaseFieldBuilder<StringFieldConfig> {
+export class StringFieldBuilder {
+  constructor(private config: StringFieldConfig) {}
+
   maxLength(length: number) {
     return new StringFieldBuilder({ ...this.config, maxLength: length })
   }
@@ -53,13 +26,35 @@ class StringFieldBuilder extends BaseFieldBuilder<StringFieldConfig> {
   minLength(length: number) {
     return new StringFieldBuilder({ ...this.config, minLength: length })
   }
+
+  nullable() {
+    return new StringFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  unique() {
+    return new StringFieldBuilder({ ...this.config, unique: true })
+  }
+
+  default(value: string) {
+    return new StringFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new StringFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): StringFieldConfig {
+    return this.config
+  }
 }
 
 // ============================================================================
 // Number Field Builder
 // ============================================================================
 
-class NumberFieldBuilder extends BaseFieldBuilder<NumberFieldConfig> {
+export class NumberFieldBuilder {
+  constructor(private config: NumberFieldConfig) {}
+
   min(value: number) {
     return new NumberFieldBuilder({ ...this.config, min: value })
   }
@@ -71,27 +66,105 @@ class NumberFieldBuilder extends BaseFieldBuilder<NumberFieldConfig> {
   integer() {
     return new NumberFieldBuilder({ ...this.config, integer: true })
   }
+
+  nullable() {
+    return new NumberFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  unique() {
+    return new NumberFieldBuilder({ ...this.config, unique: true })
+  }
+
+  default(value: number) {
+    return new NumberFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new NumberFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): NumberFieldConfig {
+    return this.config
+  }
 }
 
 // ============================================================================
 // Boolean Field Builder
 // ============================================================================
 
-class BooleanFieldBuilder extends BaseFieldBuilder<BooleanFieldConfig> {}
+export class BooleanFieldBuilder {
+  constructor(private config: BooleanFieldConfig) {}
+
+  nullable() {
+    return new BooleanFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  default(value: boolean) {
+    return new BooleanFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new BooleanFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): BooleanFieldConfig {
+    return this.config
+  }
+}
 
 // ============================================================================
 // JSON Field Builder
 // ============================================================================
 
-class JsonFieldBuilder<T = unknown> extends BaseFieldBuilder<JsonFieldConfig<T>> {}
+export class JsonFieldBuilder<T = unknown> {
+  constructor(private config: JsonFieldConfig<T>) {}
+
+  nullable() {
+    return new JsonFieldBuilder<T>({ ...this.config, nullable: true })
+  }
+
+  default(value: T) {
+    return new JsonFieldBuilder<T>({ ...this.config, default: value as SQLValue })
+  }
+
+  column(name: string) {
+    return new JsonFieldBuilder<T>({ ...this.config, columnName: name })
+  }
+
+  toConfig(): JsonFieldConfig<T> {
+    return this.config
+  }
+}
 
 // ============================================================================
 // UUID Field Builder
 // ============================================================================
 
-class UuidFieldBuilder extends BaseFieldBuilder<UuidFieldConfig> {
+export class UuidFieldBuilder {
+  constructor(private config: UuidFieldConfig) {}
+
   autoGenerate() {
     return new UuidFieldBuilder({ ...this.config, autoGenerate: true })
+  }
+
+  nullable() {
+    return new UuidFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  unique() {
+    return new UuidFieldBuilder({ ...this.config, unique: true })
+  }
+
+  default(value: string) {
+    return new UuidFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new UuidFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): UuidFieldConfig {
+    return this.config
   }
 }
 
@@ -99,9 +172,27 @@ class UuidFieldBuilder extends BaseFieldBuilder<UuidFieldConfig> {
 // Timestamp Field Builder
 // ============================================================================
 
-class TimestampFieldBuilder extends BaseFieldBuilder<TimestampFieldConfig> {
+export class TimestampFieldBuilder {
+  constructor(private config: TimestampFieldConfig) {}
+
   autoUpdate() {
     return new TimestampFieldBuilder({ ...this.config, autoUpdate: true })
+  }
+
+  nullable() {
+    return new TimestampFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  default(value: SQLValue) {
+    return new TimestampFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new TimestampFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): TimestampFieldConfig {
+    return this.config
   }
 }
 
@@ -109,25 +200,93 @@ class TimestampFieldBuilder extends BaseFieldBuilder<TimestampFieldConfig> {
 // Date Field Builder
 // ============================================================================
 
-class DateFieldBuilder extends BaseFieldBuilder<DateFieldConfig> {}
+export class DateFieldBuilder {
+  constructor(private config: DateFieldConfig) {}
+
+  nullable() {
+    return new DateFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  default(value: SQLValue) {
+    return new DateFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new DateFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): DateFieldConfig {
+    return this.config
+  }
+}
 
 // ============================================================================
 // Array Field Builder
 // ============================================================================
 
-class ArrayFieldBuilder extends BaseFieldBuilder<ArrayFieldConfig> {}
+export class ArrayFieldBuilder {
+  constructor(private config: ArrayFieldConfig) {}
+
+  nullable() {
+    return new ArrayFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  default(value: SQLValue) {
+    return new ArrayFieldBuilder({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new ArrayFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): ArrayFieldConfig {
+    return this.config
+  }
+}
 
 // ============================================================================
 // Enum Field Builder
 // ============================================================================
 
-class EnumFieldBuilder<_T extends readonly string[]> extends BaseFieldBuilder<EnumFieldConfig> {}
+export class EnumFieldBuilder<_T extends readonly string[]> {
+  constructor(private config: EnumFieldConfig) {}
+
+  nullable() {
+    return new EnumFieldBuilder<_T>({ ...this.config, nullable: true })
+  }
+
+  default(value: _T[number]) {
+    return new EnumFieldBuilder<_T>({ ...this.config, default: value })
+  }
+
+  column(name: string) {
+    return new EnumFieldBuilder<_T>({ ...this.config, columnName: name })
+  }
+
+  toConfig(): EnumFieldConfig {
+    return this.config
+  }
+}
 
 // ============================================================================
 // Blob Field Builder
 // ============================================================================
 
-class BlobFieldBuilder extends BaseFieldBuilder<BlobFieldConfig> {}
+export class BlobFieldBuilder {
+  constructor(private config: BlobFieldConfig) {}
+
+  nullable() {
+    return new BlobFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  column(name: string) {
+    return new BlobFieldBuilder({ ...this.config, columnName: name })
+  }
+
+  toConfig(): BlobFieldConfig {
+    return this.config
+  }
+}
 
 // ============================================================================
 // Field Factory Functions
@@ -198,7 +357,7 @@ export const field = {
       unique: false,
     }),
 
-  enum: <T extends readonly string[]>(values: T) =>
+  enum: <_T extends readonly string[]>(values: _T) =>
     new EnumFieldBuilder<_T>({
       type: 'enum',
       values,
@@ -212,19 +371,4 @@ export const field = {
       nullable: false,
       unique: false,
     }),
-}
-
-// Export builders for advanced usage
-export {
-  ArrayFieldBuilder,
-  BaseFieldBuilder,
-  BlobFieldBuilder,
-  BooleanFieldBuilder,
-  DateFieldBuilder,
-  EnumFieldBuilder,
-  JsonFieldBuilder,
-  NumberFieldBuilder,
-  StringFieldBuilder,
-  TimestampFieldBuilder,
-  UuidFieldBuilder,
 }
