@@ -1,62 +1,180 @@
-import type { Identifiable } from './types'
-import { getRepository } from './db'
-import { EntityNotFoundError } from './errors'
+import type {
+  AfterCreateHook,
+  AfterDeleteHook,
+  AfterUpdateHook,
+  BeforeCreateHook,
+  BeforeDeleteHook,
+  BeforeUpdateHook,
+  EntityDefinition,
+  EntityHooks,
+  EntitySchema,
+  FieldConfig,
+  InferEntity,
+  TraitDefinition,
+} from './types'
 
-export abstract class AbstractEntity implements Identifiable {
-  id!: number
+// ============================================================================
+// Entity Builder
+// ============================================================================
 
-  async save(): Promise<this> {
-    const repository = getRepository(this.constructor as any)
-    const saved = await repository.persist(this as any)
+export class EntityBuilder<T extends EntitySchema> {
+  private _hooks: EntityHooks<T>
+  private _traits: TraitDefinition[]
+  private _unique?: string[][]
 
-    Object.assign(this, saved)
-
-    return this
+  constructor(
+    private readonly tableName: string,
+    private readonly schema: T,
+  ) {
+    this._hooks = {
+      beforeCreate: [],
+      afterCreate: [],
+      beforeUpdate: [],
+      afterUpdate: [],
+      beforeDelete: [],
+      afterDelete: [],
+    }
+    this._traits = []
   }
 
-  async reload(): Promise<this> {
-    if (!this.id) {
-      throw new Error('Cannot reload entity without id')
+  // ========================================================================
+  // Lifecycle Hooks
+  // ========================================================================
+
+  beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.beforeCreate.push(hook)
+
+    return newBuilder
+  }
+
+  afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.afterCreate.push(hook)
+
+    return newBuilder
+  }
+
+  beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.beforeUpdate.push(hook)
+
+    return newBuilder
+  }
+
+  afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.afterUpdate.push(hook)
+
+    return newBuilder
+  }
+
+  beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.beforeDelete.push(hook)
+
+    return newBuilder
+  }
+
+  afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._hooks.afterDelete.push(hook)
+
+    return newBuilder
+  }
+
+  // ========================================================================
+  // Traits
+  // ========================================================================
+
+  use<Methods extends Record<string, (this: InferEntity<T>, ...args: any[]) => any>>(
+    trait: TraitDefinition<Methods>,
+  ): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._traits.push(trait)
+
+    // Merge trait fields into schema
+    if (trait.fields) {
+      Object.assign(newBuilder.schema, trait.fields)
     }
 
-    const repository = getRepository(this.constructor as any)
-    const fresh = await repository.find(this.id)
-
-    if (!fresh) {
-      throw new EntityNotFoundError(this.constructor.name, this.id)
+    // Merge trait hooks
+    if (trait.methods) {
+      // Methods will be injected into entity instances by the repository
     }
 
-    Object.assign(this, fresh)
-
-    return this
+    return newBuilder
   }
 
-  async remove(): Promise<void> {
-    if (!this.id) {
-      throw new Error('Cannot remove entity without id')
+  // ========================================================================
+  // Constraints
+  // ========================================================================
+
+  unique(...columns: (keyof T)[][]): EntityBuilder<T> {
+    const newBuilder = this.clone()
+
+    newBuilder._unique = columns.map(cols => cols.map(String))
+
+    return newBuilder
+  }
+
+  // ========================================================================
+  // Build Final Definition
+  // ========================================================================
+
+  build(): EntityDefinition<T> {
+    return Object.freeze({
+      tableName: this.tableName,
+      schema: this.schema,
+      hooks: this._hooks,
+      traits: this._traits,
+      unique: this._unique,
+    })
+  }
+
+  // ========================================================================
+  // Internal Helpers
+  // ========================================================================
+
+  private clone(): EntityBuilder<T> {
+    const cloned = new EntityBuilder(this.tableName, { ...this.schema })
+
+    cloned._hooks = {
+      beforeCreate: [...this._hooks.beforeCreate],
+      afterCreate: [...this._hooks.afterCreate],
+      beforeUpdate: [...this._hooks.beforeUpdate],
+      afterUpdate: [...this._hooks.afterUpdate],
+      beforeDelete: [...this._hooks.beforeDelete],
+      afterDelete: [...this._hooks.afterDelete],
     }
+    cloned._traits = [...this._traits]
+    cloned._unique = this._unique
 
-    const repository = getRepository(this.constructor as any)
+    return cloned
+  }
+}
 
-    await repository.delete(this.id)
+// ============================================================================
+// Helper: Extract schema from field builders
+// ============================================================================
+
+export function createEntitySchema<T extends Record<string, { toConfig: () => FieldConfig }>>(
+  fields: T,
+): {
+  [K in keyof T]: ReturnType<T[K]['toConfig']>
+} {
+  const schema: any = {}
+
+  for (const [key, builder] of Object.entries(fields)) {
+    schema[key] = builder.toConfig()
   }
 
-  toObject(): Record<string, unknown> {
-    const obj: Record<string, unknown> = {}
-    const proto = Object.getPrototypeOf(this)
-
-    for (const key of Object.keys(this)) {
-      const descriptor = Object.getOwnPropertyDescriptor(proto, key)
-
-      if (!descriptor || typeof descriptor.value !== 'function') {
-        obj[key] = (this as any)[key]
-      }
-    }
-
-    return obj
-  }
-
-  toJSON(): Record<string, unknown> {
-    return this.toObject()
-  }
+  return schema
 }

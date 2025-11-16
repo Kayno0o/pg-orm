@@ -1,8 +1,8 @@
-# ORM Architecture Guide
+# ORM v2 Architecture Guide
 
 ## High-Level Overview
 
-**@kaynooo/pg-orm** is a lightweight, type-safe Object-Relational Mapping (ORM) library built specifically for Bun's SQL API with PostgreSQL support. It provides decorator-based entity definitions and a repository pattern for clean database abstraction.
+**@kaynooo/pg-orm** is a lightweight, fully type-safe Object-Relational Mapping (ORM) library built specifically for Bun's SQL API with PostgreSQL support. It provides a modern builder pattern API inspired by Zod and Elysia for clean, type-inferred entity definitions.
 
 **Project Type:** Database ORM Library
 **Target Runtime:** Bun
@@ -12,24 +12,26 @@
 
 ## Key Differentiators
 
+- **Builder Pattern:** Elysia-like object-based configuration with full type inference
+- **Fully Type-Safe:** Complete TypeScript type inference - no type annotations needed
 - **Bun-Native:** Leverages Bun's native SQL API with tagged template literals for SQL injection protection
-- **Fully Async:** All operations return Promises - no synchronous database calls
-- **PostgreSQL-First:** Optimized for PostgreSQL-specific features (arrays, RETURNING clauses, etc.)
-- **Type-Safe:** Full TypeScript support with automatic type inference
-- **Decorator-Based:** Clean entity definition syntax using TypeScript decorators
-- **Minimal Dependencies:** Only depends on @kaynooo/utils and bun-types
+- **PostgreSQL-First:** Optimized for PostgreSQL-specific features (arrays, JSONB, full-text search, etc.)
+- **Plugin System:** Global and per-entity plugins via `.use()` for composable behaviors
+- **Auto-Generated Repositories:** Repositories with `.extend()` capability for custom methods
+- **Lifecycle Hooks:** Event-based hooks (beforeCreate, afterUpdate, etc.)
+- **Composable Traits:** Mixin system for reusable entity behaviors
+- **Zero Magic:** All operations explicit, no hidden query generation or auto-joins
+- **Minimal Dependencies:** Only depends on bun-types
 
 ## Technology Stack
 
 ### Runtime & Build
 - **Bun** - JavaScript runtime, test runner, and bundler
-- **TypeScript** - Language for type safety
+- **TypeScript** - Language for type safety (with experimental decorators **disabled**)
 - **ESNext** - Target module system
 
 ### Key Dependencies
 - **bun-types** - Type definitions for Bun API
-- **@kaynooo/utils** - Utility functions
-- **@kaynooo/eslint** - ESLint configuration
 
 ### Database
 - **Bun's SQL API** - Native SQL support with prepared statements, connection pooling
@@ -37,206 +39,433 @@
 
 ### Development & Testing
 - **Docker Compose** - PostgreSQL test environment (postgres:16-alpine)
-- **bun:test** - Native test runner (no external test framework)
+- **bun:test** - Native test runner
 - **ESLint** - Code linting
 
-## Build & Script Configuration
+## New API Architecture
 
-### package.json Scripts
-```json
-{
-  "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-  "dev": "bun --watch ./src/index.ts",
-  "example": "bun run example.ts",
-  "test": "bun test",
-  "test:watch": "bun test --watch",
-  "check": "tsc --noEmit --strict",
-  "lint:fix": "bunx eslint . --fix",
-  "db:up": "docker-compose up -d",
-  "db:down": "docker-compose down",
-  "db:reset": "docker-compose down -v && docker-compose up -d"
+### Core Components
+
+```
+src/
+├── orm.ts          # Main ORM class with singleton instance
+├── entity.ts       # EntityBuilder for defining schemas
+├── field.ts        # Field type builders (string, number, etc.)
+├── repository.ts   # Auto-generated Repository class
+├── query.ts        # Fluent QueryBuilder
+├── traits.ts       # Built-in traits and trait builder
+├── db.ts           # Database connection management
+├── types.ts        # TypeScript type system
+├── errors.ts       # Error classes
+└── index.ts        # Main exports
+```
+
+## API Examples
+
+### 1. Entity Definition (Elysia-like Builder)
+
+```typescript
+import { orm, timestamps } from '@kaynooo/orm'
+
+const User = orm
+  .entity('users', {
+    name: orm.string(),
+    email: orm.string().unique(),
+    age: orm.number().nullable(),
+    role: orm.enum(['admin', 'user', 'moderator']),
+    metadata: orm.jsonb<UserMeta>(),
+    tags: orm.array('string'),
+  })
+  .use(timestamps()) // Adds createdAt, updatedAt
+  .beforeCreate((data) => {
+    data.email = data.email.toLowerCase()
+  })
+  .build()
+
+// Type inference works automatically:
+// typeof User = EntityDefinition<{
+//   name: string,
+//   email: string,
+//   age: number | null,
+//   role: 'admin' | 'user' | 'moderator',
+//   metadata: UserMeta,
+//   tags: string[],
+//   createdAt: Date,
+//   updatedAt: Date
+// }>
+```
+
+### 2. Field Builders
+
+```typescript
+// String fields
+orm.string().maxLength(255).minLength(3).unique()
+
+// Number fields
+orm.number().integer().min(0).max(100).default(0)
+
+// Boolean fields
+orm.boolean().default(false)
+
+// JSON/JSONB fields
+orm.jsonb<CustomType>().nullable()
+orm.json<any>()
+
+// UUID fields
+orm.uuid().unique().autoGenerate()
+
+// Timestamp fields
+orm.timestamp().default('NOW()').autoUpdate()
+
+// Date fields
+orm.date().nullable()
+
+// Array fields
+orm.array('string') // TEXT[]
+orm.array('number') // INTEGER[]
+orm.array('boolean') // BOOLEAN[]
+
+// Enum fields
+orm.enum(['value1', 'value2', 'value3'])
+
+// Blob fields
+orm.blob().nullable()
+
+// Column name override
+orm.string().column('custom_column_name')
+```
+
+### 3. Global & Per-Entity Plugins
+
+```typescript
+// Global plugins (apply to all entities)
+orm.use(timestampsPlugin())
+orm.use(softDeletePlugin())
+
+// Per-entity plugins
+const Post = orm
+  .entity('posts', { ... })
+  .use(timestamps())
+  .use(sluggable())
+  .build()
+```
+
+### 4. Lifecycle Hooks
+
+```typescript
+const User = orm
+  .entity('users', { ... })
+  .beforeCreate((data) => {
+    data.email = data.email.toLowerCase()
+  })
+  .afterCreate(async (entity) => {
+    await sendWelcomeEmail(entity.email)
+  })
+  .beforeUpdate((id, data) => {
+    data.updatedAt = new Date()
+  })
+  .afterUpdate(async (entity) => {
+    await clearCache(entity.id)
+  })
+  .beforeDelete(async (id) => {
+    await cleanupFiles(id)
+  })
+  .afterDelete(async (id) => {
+    await logDeletion(id)
+  })
+  .build()
+```
+
+### 5. Traits/Mixins
+
+```typescript
+import { createTrait, timestamps, softDelete, paranoid } from '@kaynooo/orm'
+
+// Built-in traits
+orm.entity('users', { ... }).use(timestamps())
+orm.entity('posts', { ... }).use(softDelete())
+orm.entity('comments', { ... }).use(paranoid()) // timestamps + softDelete
+
+// Custom traits
+const publishable = createTrait({
+  name: 'publishable',
+  fields: {
+    published: orm.boolean().default(false),
+    publishedAt: orm.timestamp().nullable(),
+  },
+  methods: {
+    async publish(this: Entity) {
+      // Implementation injected by repository
+    },
+    isPublished(this: Entity): boolean {
+      return this.published
+    }
+  }
+})
+
+const Post = orm.entity('posts', { ... }).use(publishable)
+```
+
+### 6. Auto-Generated Repositories
+
+```typescript
+// Basic repository
+const users = orm.repo(User)
+
+// Extended repository with custom methods
+const users = orm.repo(User).extend({
+  async findByEmail(email: string) {
+    return this.findOneBy({ where: { email } })
+  },
+
+  async findAdmins() {
+    return this.findBy({ where: { role: 'admin' } })
+  },
+
+  async activate(id: number) {
+    return this.update(id, { isActive: true })
+  }
+})
+
+// All standard repository methods available:
+// - find(id)
+// - findAll()
+// - findBy(options)
+// - findOneBy(options)
+// - create(data)
+// - update(id, data)
+// - delete(id)
+// - count(options)
+// - exists(id)
+// - paginate({ page, pageSize, where, order })
+// - createMany(dataArray)
+// - deleteMany(ids)
+// - query() // Returns QueryBuilder
+// - transaction(callback)
+// - withTransaction(tx)
+```
+
+### 7. Type-Safe Queries
+
+```typescript
+// Simple queries
+await users.findBy({
+  where: { role: 'admin', isActive: true },
+  order: { createdAt: 'DESC' },
+  limit: 10
+})
+
+// Advanced where conditions
+await users.findBy({
+  where: {
+    age: { gte: 18, lte: 65 },
+    role: { in: ['admin', 'moderator'] },
+    email: { like: '%@example.com' },
+    name: { ilike: '%john%' }
+  }
+})
+
+// Pagination
+const result = await users.paginate({
+  page: 1,
+  pageSize: 20,
+  where: { isActive: true },
+  order: { name: 'ASC' }
+})
+// result.data, result.total, result.page, result.pageSize, result.totalPages
+```
+
+### 8. Query Builder
+
+```typescript
+// Fluent API
+const result = await users.query()
+  .where('age', '>=', 18)
+  .whereIn('role', ['admin', 'moderator'])
+  .whereNotNull('email')
+  .orderBy('name', 'ASC')
+  .limit(10)
+  .offset(20)
+  .execute()
+
+// PostgreSQL-specific operators
+await users.query()
+  .whereJsonContains('metadata', { role: 'admin' })
+  .whereJsonHasKey('metadata', 'preferences')
+  .whereArrayContains('tags', 'developer')
+  .whereArrayOverlaps('tags', ['admin', 'moderator'])
+  .execute()
+
+// Helper methods
+await users.query().latest() // ORDER BY id DESC LIMIT 1
+await users.query().oldest() // ORDER BY id ASC LIMIT 1
+await users.query().random(5) // ORDER BY RANDOM() LIMIT 5
+await users.query().count() // SELECT COUNT(*)
+```
+
+### 9. Transactions
+
+```typescript
+// Repository-scoped transaction
+await users.transaction(async (txUsers) => {
+  const user = await txUsers.create({ ... })
+  await txUsers.update(user.id, { ... })
+  // Auto-commit on success, auto-rollback on error
+})
+
+// Global transaction with multiple repositories
+await orm.transaction(async (tx) => {
+  const txUsers = users.withTransaction(tx)
+  const txPosts = posts.withTransaction(tx)
+
+  const user = await txUsers.create({ ... })
+  await txPosts.create({ authorId: user.id, ... })
+})
+```
+
+### 10. Database Connection
+
+```typescript
+// Connect
+await orm.connect(process.env.DATABASE_URL!)
+// or
+await orm.connect({
+  hostname: 'localhost',
+  port: 5432,
+  database: 'mydb',
+  username: 'user',
+  password: 'pass'
+})
+
+// Get raw database instance
+const db = orm.getDB()
+await db`SELECT * FROM custom_table`
+
+// Disconnect
+await orm.disconnect()
+```
+
+## Type System
+
+The ORM uses advanced TypeScript mapped types for full type inference:
+
+```typescript
+type InferEntity<T extends EntitySchema> = {
+  readonly id: number
+} & {
+  [K in keyof T]: InferField<T[K]>
 }
+
+type InferCreateData<T extends EntitySchema> = {
+  [K in keyof T as T[K]['nullable'] extends true ? never : K]: InferField<T[K]>
+} & {
+  [K in keyof T as T[K]['nullable'] extends true ? K : never]?: InferField<T[K]>
+}
+
+type InferUpdateData<T extends EntitySchema> = Partial<{
+  [K in keyof T]: InferField<T[K]>
+}>
 ```
 
-### Build Artifacts
-- **dist/** - Output directory (not in repo - generated by `bun build`)
-  - dist/index.js - Built JavaScript
-  - dist/index.d.ts - TypeScript type definitions
+This means:
+- **Entity types** are automatically inferred from schema
+- **Create operations** require non-nullable fields, optional nullable fields
+- **Update operations** make all fields optional
+- **Query operations** are fully type-safe with autocomplete
 
-### TypeScript Configuration (tsconfig.json)
-- **Target:** ESNext
-- **Module:** ESNext with bundler resolution
-- **Strict Mode:** Enabled
-- **Decorators:** Experimental decorators enabled
-- **Declaration:** True (generates .d.ts files)
-- **No Emit:** For type checking only (build handles compilation)
+## Migration from v1 (Decorator-Based)
 
-## Configuration Files
+### Old API (Decorators)
+```typescript
+@Entity('users')
+class User extends AbstractEntity {
+  @Column('text')
+  name!: string
 
-### .env / .env.example
+  @Column('text', { unique: true })
+  email!: string
+
+  @CreatedAt()
+  createdAt!: Date
+}
+
+const userRepo = new UserRepository(User)
+await initDB(connectionString, [userRepo])
 ```
-DATABASE_URL=postgres://test:test@localhost:5432/orm_test
+
+### New API (Builder)
+```typescript
+const User = orm.entity('users', {
+  name: orm.string(),
+  email: orm.string().unique(),
+}).use(timestamps()).build()
+
+await orm.connect(connectionString)
+const users = orm.repo(User)
 ```
-Used for database connection during testing and development.
 
-### docker-compose.yml
-- PostgreSQL 16 Alpine image
-- Container: orm-v2-postgres
-- Port: 5432 (local)
-- Health checks enabled
-- Persistent volume: postgres_data
+### Breaking Changes
+- **No decorators** - Use builder pattern instead
+- **No AbstractEntity** - Entities are plain objects
+- **No explicit repository classes** - Use `.extend()` for custom methods
+- **Different imports** - Import from single `orm` instance
+- **Schema-first** - Define schema, get types automatically
 
-### eslint.config.js
-- Uses @kaynooo/eslint TypeScript preset
-- Ignores markdown files
+## File Structure
 
-## Testing Architecture
+### Core Files (Always Read These)
+- `src/orm.ts` - Main ORM class
+- `src/entity.ts` - Entity builder
+- `src/field.ts` - Field builders
+- `src/repository.ts` - Repository implementation
+- `src/types.ts` - Type system
+- `example.ts` - Usage examples
 
-### Test Setup (test/setup.ts)
-- `setupTestDB()` - Initialize ORM with test repositories
-- `teardownTestDB()` - Close database connection
-- `createTables()` - Create tag and user tables for tests
-- `cleanTables()` - Truncate tables and reset sequences
+### Supporting Files (Read as Needed)
+- `src/query.ts` - Query builder
+- `src/traits.ts` - Trait system
+- `src/db.ts` - Database connection
+- `src/errors.ts` - Error classes
 
-### Test Entities
-- **Tag** - Simple entity with name and description
-- **User** - Entity with foreign key reference to Tag
-
-### Test Files
-- **entity.test.ts** - Entity persistence and initialization
-- **repository.test.ts** - CRUD operations and query options
-- **queryBuilder.test.ts** - Complex query building and execution
-
-## Example Usage Pattern
-
-The `example.ts` file demonstrates:
-1. Entity definition with decorators
-2. Custom repository extension
-3. Database initialization
-4. CRUD operations
-5. Query builder usage
-6. Transaction handling
+### Never Read (Unless Debugging)
+- `dist/` - Build output
+- `node_modules/` - Dependencies
+- `.env` - Environment config
+- `docker-compose.yml` - Infrastructure config
 
 ## Development Workflow
 
-1. Modify source in `src/`
-2. Run `bun run check` to validate TypeScript
-3. Run `bun run test:watch` for test-driven development
-4. Run `bun run db:up` to start PostgreSQL
-5. Run `bun run lint:fix` to format code
-6. Run `bun run build` to create distribution
+1. **Define entities** using builder pattern
+2. **Run type check**: `bun run check`
+3. **Test with watch**: `bun run test:watch`
+4. **Run example**: `bun run example`
+5. **Lint code**: `bun run lint:fix`
+6. **Build distribution**: `bun run build`
 
 ## Claude Code Token Optimization
 
-### Context Window Strategy
+**Total src/ size:** ~50KB (~1000 lines across 11 files)
 
-This project is designed for efficient Claude Code usage with compact, focused files. The entire `src/` directory is lean (~1500 lines total) and can fit comfortably within Claude's context window.
+**Read in this order:**
+1. `src/types.ts` - Type system (foundation)
+2. `src/field.ts` - Field builders
+3. `src/entity.ts` - Entity builder
+4. `src/orm.ts` - Main ORM class
+5. `src/repository.ts` - Repository implementation
+6. `example.ts` - See it all in action
 
-### File Reading Guidelines
+**Avoid reading:**
+- Old test files (will be rewritten)
+- Build output (`dist/`)
+- Dependencies (`node_modules/`)
+- Infrastructure configs
 
-**ALWAYS READ FIRST:**
-- `src/` - Core implementation files (read all when working on features)
-- `test/` - Test files (read relevant test when modifying features)
-- `example.ts` - Usage examples for understanding API patterns
+## Key Design Principles
 
-**READ SELECTIVELY:**
-- `test/entities/` - Only when working on entity-related features
-- `test/setup.ts` - Only when modifying test infrastructure
-- Specific test files based on the feature being modified
-
-**AVOID READING (unless explicitly requested):**
-- `node_modules/` - Never read unless debugging dependency issues
-- `dist/` - Generated build artifacts, not source code
-- `.env` - Environment config, not code
-- `docker-compose.yml` - Infrastructure config
-- `bun.lock` - Dependency lock file
-- `README.md`, `IMPROVEMENT_PLAN.md` - Documentation files
-- `bun.sql.md` - Reference documentation (only if needed)
-
-### Optimization Best Practices
-
-**Compact File Structure:**
-- This project maintains lean, single-purpose files
-- Each `src/` file has a clear responsibility
-- Average file size: ~200-300 lines
-- No file exceeds 500 lines
-
-**Batch Related Changes:**
-- When modifying features, batch all related edits together
-- Example: When updating a decorator, edit both `decorators.ts` and relevant tests in one go
-- Minimize back-and-forth file reads
-
-**Explicit Task Instructions:**
-- Provide numbered steps for complex changes
-- Specify exactly which files need modification
-- Example: "1. Update AbstractRepository in src/repository.ts, 2. Add test in test/repository.test.ts, 3. Update types in src/types.ts"
-
-**Avoid Unnecessary Context:**
-- Don't read all test files when working on a single feature
-- Don't read configuration files unless modifying build/test setup
-- Don't explore documentation files during code changes
-
-### Directory Boundaries
-
-**Core Implementation (Primary Context):**
-```
-src/*
-```
-
-**Test Suite (Secondary Context):**
-```
-test/*
-```
-
-**Forbidden Directories (Never Read):**
-- `node_modules/`
-- `dist/`
-- `.git/`
-
-### Token Efficiency Tips
-
-1. **Start Small:** Read only the specific file mentioned in the task
-2. **Expand Deliberately:** Only read additional files if needed for context
-3. **Use Grep Strategically:** Search for symbols/functions before reading entire files
-4. **Leverage Type Info:** TypeScript types provide context without reading implementations
-5. **Trust Architecture:** This CLAUDE.md provides architectural overview - don't re-explore
-
-### Common Task Patterns
-
-**Adding a New Feature:**
-1. Read relevant `src/` file(s) only
-2. Read corresponding test file
-3. Make changes
-4. Run tests
-
-**Fixing a Bug:**
-1. Read the specific file with the bug
-2. Read the failing test (if exists)
-3. Fix and verify
-
-**Refactoring:**
-1. Read only affected files in `src/`
-2. Read related tests
-3. Make atomic changes
-4. Verify tests pass
-
-### Why This Matters
-
-This ORM library is intentionally compact to:
-- **Reduce API Costs:** Fewer tokens per operation
-- **Improve Response Quality:** Focused context leads to better Claude understanding
-- **Maintain Speed:** Less context processing = faster responses
-- **Ensure Consistency:** Claude sees only relevant code
-
-### MCP Server Optimization
-
-If using Claude Code with MCP servers enabled, disable any unused servers with `/mcp` or `@server-name disable` to free up context space for this project's code.
-
-## Notable Implementation Details
-
-- **Global Registry:** Repositories are registered globally in a Map keyed by entity class
-- **Metadata Caching:** Column and entity metadata is cached in repositories for performance
-- **Transaction Context:** Repositories support tx context switching for transaction handling
-- **Safe SQL Composition:** All queries use tagged template literals for SQL injection protection
-- **RETURNING Clause:** Insert/update operations use RETURNING for single-query results
-- **Array IN Clauses:** Where conditions with arrays use PostgreSQL's ANY(ARRAY[...]) syntax
+✅ **Full type inference** - No manual type annotations
+✅ **Immutable schemas** - Entity definitions frozen after `.build()`
+✅ **Explicit operations** - No magic, all operations visible
+✅ **PostgreSQL-first** - Leverage Bun SQL + PostgreSQL features
+✅ **Composable** - Plugins, traits, hooks all composable
+✅ **DX-focused** - Minimal boilerplate, excellent autocomplete
+✅ **Builder pattern** - Chainable, discoverable API

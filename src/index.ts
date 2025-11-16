@@ -1,80 +1,108 @@
-export { closeDB, getDB, getRepository, initDB, transaction } from './db'
+// ============================================================================
+// Core ORM
+// ============================================================================
 
-export {
-  ArrayColumn,
-  Column,
-  CreatedAt,
-  Entity,
-  EnumColumn,
-  JsonColumn,
-  SoftDelete,
-  TimestampColumn,
-  UpdatedAt,
-  UuidColumn,
-} from './decorators'
+export { closeDatabase, getDatabase, initializeDatabase, sql, SQL, transaction } from './db'
 
-export type { ColumnOptions, EntityOptions } from './decorators'
+// ============================================================================
+// Database
+// ============================================================================
 
-export { AbstractEntity } from './entity'
+export { createEntitySchema, EntityBuilder } from './entity'
 
-export {
-  DatabaseError,
-  EntityNotFoundError,
-  OptimisticLockError,
-  QueryError,
-  ValidationError,
-} from './errors'
+// ============================================================================
+// Field Builders
+// ============================================================================
 
-export {
-  getAllEntities,
-  getColumnMetadata,
-  getColumnMetadataByKey,
-  getEntityMetadata,
-  mapColumnTypeToPostgres,
-} from './metadata'
+export { DatabaseError, EntityNotFoundError, OptimisticLockError, QueryError, ValidationError } from './errors'
+export { field } from './field'
 
-export type { ColumnMetadata, EntityMetadata } from './metadata'
-
-export {
-  compose,
-  createMixin,
-  withParanoid,
-  withScopes,
-  withSoftDelete,
-  withTimestamps,
-} from './mixins'
-
-export { QueryBuilder, queryBuilder } from './queryBuilder'
-
-export { AbstractRepository } from './repository'
+// ============================================================================
+// Entity Builder
+// ============================================================================
 
 export type {
-  DBField,
-  HookMetadata,
-  HookType,
-  Identifiable,
-  PaginatedResult,
-  PaginationMeta,
-  PartialRecord,
-  QueryOptions,
-  SQLQueryBindings,
-  TransactionContext,
-  ValidationConstraint,
-  ValidationErrorDetail,
-  ValidationMetadata,
-} from './types'
+  ArrayFieldBuilder,
+  BlobFieldBuilder,
+  BooleanFieldBuilder,
+  DateFieldBuilder,
+  EnumFieldBuilder,
+  JsonFieldBuilder,
+  NumberFieldBuilder,
+  StringFieldBuilder,
+  TimestampFieldBuilder,
+  UuidFieldBuilder,
+} from './field'
+
+// ============================================================================
+// Repository
+// ============================================================================
+
+export { ORM, orm } from './orm'
+
+// ============================================================================
+// Query Builder
+// ============================================================================
+
+export { QueryBuilder } from './query'
+
+// ============================================================================
+// Traits
+// ============================================================================
+
+export { Repository } from './repository'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
+
+// ============================================================================
+// Errors
+// ============================================================================
 
 export type {
-  ColumnName,
-  CreateData,
+  AfterCreateHook,
+  AfterDeleteHook,
+  AfterUpdateHook,
+  ArrayFieldConfig,
+  BaseFieldConfig,
+  BeforeCreateHook,
+  BeforeDeleteHook,
+  BeforeUpdateHook,
+  BlobFieldConfig,
+  BooleanFieldConfig,
   DatabaseRow,
-  DataColumnName,
-  EntityData,
-  OrderOptions,
-  PropertyName,
-  SelectFields,
-  SQLFragment,
+  DateFieldConfig,
+  EntityDefinition,
+  EntityHooks,
+  EntityMetadata,
+  EntitySchema,
+  EnumFieldConfig,
+  FieldConfig,
+  FieldType,
+  InferCreateData,
+  InferEntity,
+  InferField,
+  InferFieldType,
+  InferUpdateData,
+  JsonFieldConfig,
+  NumberFieldConfig,
+  OrderBy,
+  OrderDirection,
+  PaginationResult,
+  Plugin,
+  QueryOptions,
   SQLInstance,
-  UpdateData,
-  WhereConditions,
-} from './types/'
+  SQLValue,
+  StringFieldConfig,
+  TimestampFieldConfig,
+  TraitDefinition,
+  TraitMethods,
+  UuidFieldConfig,
+  WhereCondition,
+  WhereOperator,
+  WhereValue,
+} from './types'
+export type { ValidationErrorDetail } from './types'
