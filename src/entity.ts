@@ -93,10 +93,13 @@ export class EntityBuilder<T extends EntitySchema> {
   // Traits
   // ========================================================================
 
-  use<Methods extends Record<string, (this: InferEntity<T>, ...args: any[]) => any>>(
-    trait: TraitDefinition<Methods>,
-  ): EntityBuilder<T> {
-    const newBuilder = this.clone()
+  use<
+    TraitFields extends EntitySchema,
+    Methods extends Record<string, (this: InferEntity<T & TraitFields>, ...args: any[]) => any>,
+  >(
+    trait: TraitDefinition<Methods> & { fields?: TraitFields },
+  ): EntityBuilder<T & TraitFields> {
+    const newBuilder = this.clone() as any
 
     newBuilder._traits.push(trait)
 
@@ -110,7 +113,7 @@ export class EntityBuilder<T extends EntitySchema> {
       // Methods will be injected into entity instances by the repository
     }
 
-    return newBuilder
+    return newBuilder as EntityBuilder<T & TraitFields>
   }
 
   // ========================================================================

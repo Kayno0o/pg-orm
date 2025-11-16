@@ -4,16 +4,25 @@ import { orm, timestamps } from './src'
 // 1. Define Entities with Builder Pattern
 // ============================================================================
 
-// Simple entity definition
+// Define typed metadata for better type safety
+interface UserMetadata {
+  preferences: Record<string, string>
+  settings?: {
+    theme: 'light' | 'dark'
+    notifications: boolean
+  }
+}
+
+// Simple entity definition with improved type safety
 const User = orm
   .entity('users', {
-    name: orm.string(),
-    email: orm.string().unique(),
-    age: orm.number().nullable(),
-    role: orm.enum(['admin', 'user', 'moderator']),
-    isActive: orm.boolean().default(true),
-    metadata: orm.jsonb<{ preferences: Record<string, string> }>().nullable(),
-    tags: orm.array('string'),
+    name: orm.string(), // Required by default (no undefined in type)
+    email: orm.string().unique(), // Required, unique constraint
+    age: orm.number().nullable(), // Optional (can be null or undefined in create)
+    role: orm.enum(['admin', 'user', 'moderator']), // Required enum
+    isActive: orm.boolean().default(true), // Optional (has default)
+    metadata: orm.jsonb<UserMetadata>().nullable(), // Typed JSON, optional
+    tags: orm.array('string'), // Typed string array, required
   })
   .use(timestamps()) // Add createdAt and updatedAt
   .beforeCreate((data) => {
@@ -123,15 +132,38 @@ const posts = orm.repo(Post).extend({
 async function basicCRUD() {
   console.log('\n=== Basic CRUD ===')
 
-  // Create
+  // Create - Demonstrates improved type safety:
+  // - name, email, role, tags are REQUIRED (TypeScript enforces this)
+  // - age, metadata are OPTIONAL (can be omitted)
+  // - isActive is OPTIONAL (has default value)
   const user = await users.create({
     name: 'John Doe',
     email: 'JOHN@EXAMPLE.COM', // Will be lowercased by beforeCreate hook
     role: 'admin',
     tags: ['developer', 'admin'],
+    // age is optional - we can omit it
+    // metadata is optional - we can omit it
+    // isActive will use default value (true)
   })
 
   console.log('Created user:', user)
+
+  // Create with typed metadata - autocomplete and type checking work!
+  const userWithMetadata = await users.create({
+    name: 'Jane Doe',
+    email: 'jane@example.com',
+    role: 'user',
+    tags: ['frontend'],
+    metadata: {
+      preferences: { language: 'en', timezone: 'UTC' },
+      settings: {
+        theme: 'dark', // TypeScript knows valid values!
+        notifications: true,
+      },
+    },
+  })
+
+  console.log('Created user with metadata:', userWithMetadata)
 
   // Read
   const foundUser = await users.find(user.id)
@@ -266,7 +298,7 @@ async function customRepositoryMethods() {
   console.log('Published posts:', published)
 
   // Increment views
-  const post = await posts.incrementViews(authorPosts[0].id)
+  const post = authorPosts[0] ? await posts.incrementViews(authorPosts[0].id) : null
 
   console.log('Post with incremented views:', post)
 }

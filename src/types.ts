@@ -80,9 +80,9 @@ export interface DateFieldConfig extends BaseFieldConfig {
   type: 'date'
 }
 
-export interface ArrayFieldConfig extends BaseFieldConfig {
+export interface ArrayFieldConfig<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean'> extends BaseFieldConfig {
   type: 'array'
-  arrayType: 'string' | 'number' | 'boolean'
+  arrayType: ArrayType
 }
 
 export interface EnumFieldConfig extends BaseFieldConfig {
@@ -122,7 +122,7 @@ export interface EntityMetadata {
 // Type Inference from Schema
 // ============================================================================
 
-// Map field config to TypeScript type
+// Map field config to TypeScript type (base type without null)
 export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
   ? string
   : T extends NumberFieldConfig
@@ -142,7 +142,9 @@ export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
                   ? string[]
                   : T['arrayType'] extends 'number'
                     ? number[]
-                    : boolean[]
+                    : T['arrayType'] extends 'boolean'
+                      ? boolean[]
+                      : never
                 : T extends EnumFieldConfig
                   ? T['values'][number]
                   : T extends BlobFieldConfig
@@ -152,27 +154,42 @@ export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
 // Make nullable if field is nullable
 export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null : T
 
-// Infer complete field type with nullability
+// Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
 
 // Infer entity type from schema
-export type InferEntity<T extends EntitySchema> = {
+export type InferEntity<T extends EntitySchema> = Prettify<{
   readonly id: number
 } & {
   [K in keyof T]: InferField<T[K]>
-}
-
-// Create data (without id, optional nullable fields)
-export type InferCreateData<T extends EntitySchema> = {
-  [K in keyof T as T[K]['nullable'] extends true ? never : K]: InferField<T[K]>
-} & {
-  [K in keyof T as T[K]['nullable'] extends true ? K : never]?: InferField<T[K]>
-}
-
-// Update data (all fields optional)
-export type InferUpdateData<T extends EntitySchema> = Partial<{
-  [K in keyof T]: InferField<T[K]>
 }>
+
+// Helper: Check if field has a default value
+type HasDefault<T extends FieldConfig> = T['default'] extends undefined ? false : true
+
+// Create data (without id, required fields are non-nullable, optional/nullable fields are optional)
+export type InferCreateData<T extends EntitySchema> = Prettify<
+  {
+    // Required fields: not nullable AND no default
+    [K in keyof T as T[K]['nullable'] extends true
+      ? never
+      : HasDefault<T[K]> extends true
+        ? never
+        : K]: InferFieldType<T[K]>
+  } & {
+    // Optional fields: nullable OR has default
+    [K in keyof T as T[K]['nullable'] extends true
+      ? K
+      : HasDefault<T[K]> extends true
+        ? K
+        : never]?: InferField<T[K]>
+  }
+>
+
+// Update data (all fields optional, preserve nullability)
+export type InferUpdateData<T extends EntitySchema> = Prettify<Partial<{
+  [K in keyof T]: InferField<T[K]>
+}>>
 
 // ============================================================================
 // Query Types
@@ -189,14 +206,16 @@ export type WhereCondition<T extends EntitySchema> = {
     | {
       eq?: InferField<T[K]>
       ne?: InferField<T[K]>
-      gt?: InferField<T[K]>
-      gte?: InferField<T[K]>
-      lt?: InferField<T[K]>
-      lte?: InferField<T[K]>
-      in?: InferField<T[K]>[]
-      notIn?: InferField<T[K]>[]
+      gt?: InferFieldType<T[K]>
+      gte?: InferFieldType<T[K]>
+      lt?: InferFieldType<T[K]>
+      lte?: InferFieldType<T[K]>
+      in?: InferFieldType<T[K]>[]
+      notIn?: InferFieldType<T[K]>[]
       like?: string
       ilike?: string
+      isNull?: boolean
+      isNotNull?: boolean
       contains?: InferField<T[K]> extends (infer U)[] ? U : never
       overlaps?: InferField<T[K]> extends (infer U)[] ? U[] : never
     }
@@ -286,13 +305,35 @@ export interface EntityDefinition<T extends EntitySchema> {
 // Utility Types
 // ============================================================================
 
+// Flatten intersection types for better IDE display
 export type Prettify<T> = {
   [K in keyof T]: T[K]
 } & {}
 
+// Deep readonly for immutable structures
 export type DeepReadonly<T> = {
   readonly [K in keyof T]: T[K] extends object ? DeepReadonly<T[K]> : T[K]
 }
+
+// Extract non-nullable type
+export type NonNullable<T> = T extends null | undefined ? never : T
+
+// Check if a field is required
+export type IsRequired<T extends FieldConfig> = T['nullable'] extends true
+  ? false
+  : T['default'] extends undefined
+    ? true
+    : false
+
+// Get all required field names from schema
+export type RequiredFieldNames<T extends EntitySchema> = {
+  [K in keyof T]: IsRequired<T[K]> extends true ? K : never
+}[keyof T]
+
+// Get all optional field names from schema
+export type OptionalFieldNames<T extends EntitySchema> = {
+  [K in keyof T]: IsRequired<T[K]> extends false ? K : never
+}[keyof T]
 
 // ============================================================================
 // Validation Types

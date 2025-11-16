@@ -31,6 +31,10 @@ export class StringFieldBuilder {
     return new StringFieldBuilder({ ...this.config, nullable: true })
   }
 
+  required() {
+    return new StringFieldBuilder({ ...this.config, nullable: false })
+  }
+
   unique() {
     return new StringFieldBuilder({ ...this.config, unique: true })
   }
@@ -69,6 +73,10 @@ export class NumberFieldBuilder {
 
   nullable() {
     return new NumberFieldBuilder({ ...this.config, nullable: true })
+  }
+
+  required() {
+    return new NumberFieldBuilder({ ...this.config, nullable: false })
   }
 
   unique() {
@@ -121,6 +129,10 @@ export class JsonFieldBuilder<T = unknown> {
 
   nullable() {
     return new JsonFieldBuilder<T>({ ...this.config, nullable: true })
+  }
+
+  required() {
+    return new JsonFieldBuilder<T>({ ...this.config, nullable: false })
   }
 
   default(value: T) {
@@ -224,22 +236,22 @@ export class DateFieldBuilder {
 // Array Field Builder
 // ============================================================================
 
-export class ArrayFieldBuilder {
-  constructor(private config: ArrayFieldConfig) {}
+export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean'> {
+  constructor(private config: ArrayFieldConfig<ArrayType>) {}
 
   nullable() {
-    return new ArrayFieldBuilder({ ...this.config, nullable: true })
+    return new ArrayFieldBuilder<ArrayType>({ ...this.config, nullable: true })
   }
 
   default(value: SQLValue) {
-    return new ArrayFieldBuilder({ ...this.config, default: value })
+    return new ArrayFieldBuilder<ArrayType>({ ...this.config, default: value })
   }
 
   column(name: string) {
-    return new ArrayFieldBuilder({ ...this.config, columnName: name })
+    return new ArrayFieldBuilder<ArrayType>({ ...this.config, columnName: name })
   }
 
-  toConfig(): ArrayFieldConfig {
+  toConfig(): ArrayFieldConfig<ArrayType> {
     return this.config
   }
 }
@@ -319,6 +331,7 @@ export const field = {
       type: 'json',
       nullable: false,
       unique: false,
+      schema: undefined as T,
     }),
 
   jsonb: <T = unknown>() =>
@@ -326,6 +339,7 @@ export const field = {
       type: 'jsonb',
       nullable: false,
       unique: false,
+      schema: undefined as T,
     }),
 
   uuid: () =>
@@ -349,8 +363,8 @@ export const field = {
       unique: false,
     }),
 
-  array: (arrayType: 'string' | 'number' | 'boolean') =>
-    new ArrayFieldBuilder({
+  array: <T extends 'string' | 'number' | 'boolean'>(arrayType: T) =>
+    new ArrayFieldBuilder<T>({
       type: 'array',
       arrayType,
       nullable: false,
