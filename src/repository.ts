@@ -13,9 +13,10 @@ import { toSnake } from '@kaynooo/utils'
 import { SQL as BunSQL } from 'bun'
 import { getDatabase } from './db'
 import { QueryBuilder } from './query'
+import { ValidationError, Validator } from './validation'
 
 // ============================================================================
-// Base Repository
+// Base Repository (Secure & Optimized)
 // ============================================================================
 
 export class Repository<
@@ -26,11 +27,21 @@ export class Repository<
   private schema: T
   private definition: EntityDefinition<T, TTraits>
   private txContext?: SQL
+  private validator: Validator
+  private entityPrototype: any
+  private validColumnNames: Set<string>
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
+    this.validator = new Validator()
+
+    // Build entity prototype once for performance (instead of per-entity injection)
+    this.entityPrototype = this.buildEntityPrototype()
+
+    // Cache valid column names for security validation
+    this.validColumnNames = new Set(['id', ...Object.keys(this.schema).map(k => this.getColumnName(k))])
   }
 
   // ========================================================================
@@ -40,20 +51,13 @@ export class Repository<
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
-    try {
-      const [result] = await db`
-        SELECT * FROM ${db(this.tableName)}
-        WHERE id = ${id}
-        LIMIT 1
-      `
+    const [result] = await db`
+      SELECT * FROM ${db(this.tableName)}
+      WHERE id = ${id}
+      LIMIT 1
+    `
 
-      return result ? this.mapRowToEntity(result) : null
-    }
-    catch (error) {
-      this.handleError(error, 'find')
-
-      return null
-    }
+    return result ? this.mapRowToEntity(result) : null
   }
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
@@ -66,81 +70,69 @@ export class Repository<
   async create(data: InferCreateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
+    // Validate input data
+    this.validator.validate(data as Record<string, unknown>, this.schema, 'create')
+
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeCreate) {
       await hook(data)
     }
 
-    try {
-      const preparedData = this.prepareData(data as Record<string, unknown>)
-      const [result] = await db`
-        INSERT INTO ${db(this.tableName)} ${db(preparedData)}
-        RETURNING *
-      `
+    const preparedData = this.prepareData(data as Record<string, unknown>)
+    const [result] = await db`
+      INSERT INTO ${db(this.tableName)} ${db(preparedData)}
+      RETURNING *
+    `
 
-      const entity = this.mapRowToEntity(result)
+    const entity = this.mapRowToEntity(result)
 
-      // Execute after hooks
-      for (const hook of this.definition.hooks.afterCreate) {
-        await hook(entity as any)
-      }
-
-      // Inject trait methods
-      this.injectTraitMethods(entity)
-
-      return entity
+    // Execute after hooks
+    for (const hook of this.definition.hooks.afterCreate) {
+      await hook(entity as any)
     }
-    catch (error) {
-      this.handleError(error, 'create')
-      throw error
-    }
+
+    return entity
   }
 
   async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
+
+    // Validate input data
+    this.validator.validate(data as Record<string, unknown>, this.schema, 'update')
 
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeUpdate) {
       await hook(id, data)
     }
 
-    try {
-      const preparedData = this.prepareData(data as Record<string, unknown>)
+    const preparedData = this.prepareData(data as Record<string, unknown>)
 
-      // Handle auto-update fields
-      for (const [key, fieldConfig] of Object.entries(this.schema)) {
-        if (fieldConfig.type === 'timestamp' && (fieldConfig as any).autoUpdate) {
-          (preparedData as any)[key] = new Date()
-        }
+    // Handle auto-update fields
+    for (const [key, fieldConfig] of Object.entries(this.schema)) {
+      if (fieldConfig.type === 'timestamp' && (fieldConfig as any).autoUpdate) {
+        (preparedData as any)[this.getColumnName(key)] = new Date()
       }
-
-      const [result] = await db`
-        UPDATE ${db(this.tableName)}
-        SET ${db(preparedData)}
-        WHERE id = ${id}
-        RETURNING *
-      `
-
-      if (!result) {
-        throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
-      }
-
-      const entity = this.mapRowToEntity(result)
-
-      // Execute after hooks
-      for (const hook of this.definition.hooks.afterUpdate) {
-        await hook(entity as any)
-      }
-
-      // Inject trait methods
-      this.injectTraitMethods(entity)
-
-      return entity
     }
-    catch (error) {
-      this.handleError(error, 'update')
-      throw error
+
+    const [result] = await db`
+      UPDATE ${db(this.tableName)}
+      SET ${db(preparedData)}
+      WHERE id = ${id}
+      RETURNING *
+    `
+
+    if (!result) {
+      throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
     }
+
+    const entity = this.mapRowToEntity(result)
+
+    // Execute after hooks
+    for (const hook of this.definition.hooks.afterUpdate) {
+      await hook(entity as any)
+    }
+
+    return entity
   }
 
   async delete(id: number): Promise<void> {
@@ -151,19 +143,14 @@ export class Repository<
       await hook(id)
     }
 
-    try {
-      await db`
-        DELETE FROM ${db(this.tableName)}
-        WHERE id = ${id}
-      `
+    await db`
+      DELETE FROM ${db(this.tableName)}
+      WHERE id = ${id}
+    `
 
-      // Execute after hooks
-      for (const hook of this.definition.hooks.afterDelete) {
-        await hook(id)
-      }
-    }
-    catch (error) {
-      this.handleError(error, 'delete')
+    // Execute after hooks
+    for (const hook of this.definition.hooks.afterDelete) {
+      await hook(id)
     }
   }
 
@@ -173,17 +160,9 @@ export class Repository<
 
   async findBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits>[]> {
     const query = this.buildSelectQuery(options)
+    const results = await query
 
-    try {
-      const results = await query
-
-      return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
-    }
-    catch (error) {
-      this.handleError(error, 'findBy')
-
-      return []
-    }
+    return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
   async findOneBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits> | null> {
@@ -192,31 +171,45 @@ export class Repository<
     return results[0] || null
   }
 
-  async count(options?: QueryOptions<T>): Promise<number> {
+  async count(options?: QueryOptions<T>, exact = true): Promise<number> {
     const db = this.getDB()
 
-    try {
-      let query = db`SELECT COUNT(*) as count FROM ${db(this.tableName)}`
-
-      if (options?.where) {
-        query = this.applyWhereConditions(query, options.where)
+    // Fast estimation for large tables without WHERE clause
+    if (!exact && !options?.where) {
+      try {
+        const [result] = await db`
+          SELECT reltuples::bigint AS estimate
+          FROM pg_class
+          WHERE relname = ${this.tableName}
+        `
+        return Number(result.estimate)
       }
-
-      const [result] = await query
-
-      return Number(result.count)
+      catch {
+        // Fall back to exact count if estimation fails
+      }
     }
-    catch (error) {
-      this.handleError(error, 'count')
 
-      return 0
+    // Exact count
+    let query = db`SELECT COUNT(id) as count FROM ${db(this.tableName)}`
+
+    if (options?.where) {
+      query = this.applyWhereConditions(query, options.where)
     }
+
+    const [result] = await query
+
+    return Number(result.count)
   }
 
   async exists(id: number): Promise<boolean> {
-    const entity = await this.find(id)
+    const db = this.getDB()
+    const [result] = await db`
+      SELECT 1 FROM ${db(this.tableName)}
+      WHERE id = ${id}
+      LIMIT 1
+    `
 
-    return entity !== null
+    return result !== undefined
   }
 
   async paginate(options: {
@@ -254,35 +247,30 @@ export class Repository<
   async createMany(dataArray: InferCreateData<T>[]): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
 
-    try {
-      const preparedArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
-
-      const results = await db`
-        INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
-        RETURNING *
-      `
-
-      return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
+    // Validate all items
+    for (const data of dataArray) {
+      this.validator.validate(data as Record<string, unknown>, this.schema, 'create')
     }
-    catch (error) {
-      this.handleError(error, 'createMany')
 
-      return []
-    }
+    const preparedArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
+
+    const results = await db`
+      INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
+      RETURNING *
+    `
+
+    return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
   async deleteMany(ids: number[]): Promise<void> {
+    if (ids.length === 0) return
+
     const db = this.getDB()
 
-    try {
-      await db`
-        DELETE FROM ${db(this.tableName)}
-        WHERE id IN ${db(ids)}
-      `
-    }
-    catch (error) {
-      this.handleError(error, 'deleteMany')
-    }
+    await db`
+      DELETE FROM ${db(this.tableName)}
+      WHERE id IN ${db(ids)}
+    `
   }
 
   // ========================================================================
@@ -298,8 +286,8 @@ export class Repository<
   // ========================================================================
 
   withTransaction(tx: SQL): Repository<T, TTraits> {
-    const cloned = new Repository(this.definition)
-
+    const cloned = Object.create(Object.getPrototypeOf(this))
+    Object.assign(cloned, this)
     cloned.txContext = tx
 
     return cloned
@@ -332,6 +320,14 @@ export class Repository<
   }
 
   // ========================================================================
+  // Cleanup
+  // ========================================================================
+
+  cleanup(): void {
+    this.txContext = undefined
+  }
+
+  // ========================================================================
   // Internal Helpers
   // ========================================================================
 
@@ -351,8 +347,36 @@ export class Repository<
     return toSnake(fieldName)
   }
 
+  private validateColumnName(columnName: string): void {
+    if (!this.validColumnNames.has(columnName)) {
+      throw new Error(`Invalid column name: ${columnName}`)
+    }
+  }
+
+  private buildEntityPrototype(): any {
+    const prototype: any = {}
+
+    // Inject trait methods into prototype (performance optimization)
+    for (const trait of this.definition.traits) {
+      if (trait.methods) {
+        for (const [methodName, method] of Object.entries(trait.methods)) {
+          prototype[methodName] = function (this: any, ...args: any[]) {
+            // 'this' is bound to entity instance
+            // Pass repository as first argument to trait method
+            return (method as any).call(this, this.__repo__, ...args)
+          }
+        }
+      }
+    }
+
+    return prototype
+  }
+
   private mapRowToEntity(row: DatabaseRow): InferEntity<T, TTraits> {
-    const entity: any = { id: row.id }
+    // Use prototype for trait methods (performance optimization)
+    const entity: any = Object.create(this.entityPrototype)
+    entity.id = row.id
+    entity.__repo__ = this // Store repository reference for trait methods
 
     // Map database columns (snake_case) to entity fields (camelCase)
     for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
@@ -364,15 +388,7 @@ export class Repository<
 
       // Deserialize arrays
       if (fieldConfig?.type === 'array' && value !== null && value !== undefined) {
-        if (Array.isArray(value)) {
-          entity[fieldName] = value
-        }
-        else if (ArrayBuffer.isView(value)) {
-          entity[fieldName] = Array.from(value as unknown as ArrayLike<unknown>)
-        }
-        else {
-          entity[fieldName] = value
-        }
+        entity[fieldName] = Array.isArray(value) ? value : Array.from(value as any)
       }
       // Deserialize timestamps/dates
       else if (
@@ -387,9 +403,6 @@ export class Repository<
         entity[fieldName] = value
       }
     }
-
-    // Inject trait methods
-    this.injectTraitMethods(entity)
 
     return entity as InferEntity<T, TTraits>
   }
@@ -406,33 +419,9 @@ export class Repository<
       // Get the database column name (converts camelCase to snake_case)
       const columnName = this.getColumnName(key)
 
-      // Validate enums
-      if (fieldConfig.type === 'enum' && value !== null && value !== undefined) {
-        const enumValues = (fieldConfig as any).values
-
-        if (enumValues && !enumValues.includes(String(value))) {
-          throw new Error(
-            `Invalid enum value "${value}" for column "${key}". Allowed values: ${enumValues.join(', ')}`,
-          )
-        }
-      }
-
-      // Convert arrays to PostgreSQL array format
+      // Use native PostgreSQL array support (let Bun SQL handle it)
       if (fieldConfig.type === 'array' && Array.isArray(value)) {
-        // Convert JavaScript array to PostgreSQL array literal format
-        // e.g., ['a', 'b'] -> '{a,b}'
-        const elementType = (fieldConfig as any).elementType
-
-        if (elementType === 'string') {
-          // Escape quotes and backslashes in strings
-          const escaped = value.map(v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
-
-          prepared[columnName] = `{${escaped.join(',')}}`
-        }
-        else {
-          // For numbers and booleans, no escaping needed
-          prepared[columnName] = `{${value.join(',')}}`
-        }
+        prepared[columnName] = value
       }
       else {
         prepared[columnName] = value
@@ -455,6 +444,12 @@ export class Repository<
 
       for (const [key, direction] of Object.entries(options.order)) {
         const columnName = this.getColumnName(key)
+        this.validateColumnName(columnName)
+
+        // Validate direction
+        if (direction !== 'ASC' && direction !== 'DESC') {
+          throw new Error(`Invalid ORDER BY direction: ${direction}`)
+        }
 
         orderClauses.push(`${columnName} ${direction}`)
       }
@@ -490,20 +485,18 @@ export class Repository<
         continue
 
       const columnName = this.getColumnName(key)
+      this.validateColumnName(columnName)
+
       const prefix = conditionCount === 0 ? 'WHERE' : 'AND'
 
       // Simple equality or IN clause
       if (Array.isArray(condition)) {
-        // Build IN clause manually - PostgreSQL requires proper quoting
-        const quotedValues = condition.map((v) => {
-          if (typeof v === 'string') {
-            return `'${String(v).replace(/'/g, '\'\'')}'`
-          }
+        if (condition.length === 0) {
+          // Empty array - skip condition
+          continue
+        }
 
-          return String(v)
-        }).join(', ')
-
-        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} IN (${db.unsafe(quotedValues)})`
+        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} IN ${db(condition)}`
         conditionCount++
       }
       // Operator object
@@ -515,78 +508,72 @@ export class Repository<
           const opPrefix = conditionCount === 0 ? 'WHERE' : 'AND'
 
           switch (op) {
-          case 'eq':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
-            conditionCount++
-
-            break
-          case 'ne':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
-            conditionCount++
-
-            break
-          case 'gt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
-            conditionCount++
-
-            break
-          case 'gte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
-            conditionCount++
-
-            break
-          case 'lt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
-            conditionCount++
-
-            break
-          case 'lte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
-            conditionCount++
-
-            break
-          case 'in':
-            if (Array.isArray(value)) {
-              // Build IN clause manually - PostgreSQL requires proper quoting
-              const quotedValues = value.map((v) => {
-                if (typeof v === 'string') {
-                  return `'${String(v).replace(/'/g, '\'\'')}'`
-                }
-
-                return String(v)
-              }).join(', ')
-
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN (${db.unsafe(quotedValues)})`
+            case 'eq':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
               conditionCount++
-            }
-
-            break
-          case 'notIn':
-            if (Array.isArray(value)) {
-              // Build NOT IN clause manually - PostgreSQL requires proper quoting
-              const quotedValues = value.map((v) => {
-                if (typeof v === 'string') {
-                  return `'${String(v).replace(/'/g, '\'\'')}'`
-                }
-
-                return String(v)
-              }).join(', ')
-
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN (${db.unsafe(quotedValues)})`
+              break
+            case 'ne':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
               conditionCount++
-            }
-
-            break
-          case 'like':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
-            conditionCount++
-
-            break
-          case 'ilike':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
-            conditionCount++
-
-            break
+              break
+            case 'gt':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
+              conditionCount++
+              break
+            case 'gte':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
+              conditionCount++
+              break
+            case 'lt':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
+              conditionCount++
+              break
+            case 'lte':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
+              conditionCount++
+              break
+            case 'in':
+              if (Array.isArray(value) && value.length > 0) {
+                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN ${db(value)}`
+                conditionCount++
+              }
+              break
+            case 'notIn':
+              if (Array.isArray(value) && value.length > 0) {
+                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN ${db(value)}`
+                conditionCount++
+              }
+              break
+            case 'like':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
+              conditionCount++
+              break
+            case 'ilike':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
+              conditionCount++
+              break
+            case 'isNull':
+              if (value === true) {
+                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NULL`
+                conditionCount++
+              }
+              break
+            case 'isNotNull':
+              if (value === true) {
+                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NOT NULL`
+                conditionCount++
+              }
+              break
+            case 'contains':
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} @> ${db([value])}`
+              conditionCount++
+              break
+            case 'overlaps':
+              if (Array.isArray(value)) {
+                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} && ${db(value)}`
+                conditionCount++
+              }
+              break
           }
         }
       }
@@ -600,20 +587,11 @@ export class Repository<
     return whereClause
   }
 
-  private injectTraitMethods(entity: any): void {
-    for (const trait of this.definition.traits) {
-      if (trait.methods) {
-        for (const [methodName, method] of Object.entries(trait.methods)) {
-          // Bind method to entity and inject repository as first argument
-          entity[methodName] = (...args: any[]) => {
-            return (method as any).call(entity, this, ...args)
-          }
-        }
-      }
+  private handleError(error: unknown, operation: string): never {
+    if (error instanceof ValidationError) {
+      throw error
     }
-  }
 
-  private handleError(error: unknown, operation: string): void {
     if (error instanceof BunSQL.PostgresError) {
       throw new Error(
         `Failed to ${operation} in ${this.tableName}: ${error.message}\n`
@@ -626,3 +604,6 @@ export class Repository<
     throw error
   }
 }
+
+// Export ValidationError for user error handling
+export { ValidationError }

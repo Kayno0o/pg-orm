@@ -1,17 +1,60 @@
 import { sql as bunSql, SQL } from 'bun'
 
 // ============================================================================
+// Database Configuration
+// ============================================================================
+
+export interface DatabaseConfig {
+  // Connection string (alternative to individual connection parameters)
+  connectionString?: string
+
+  // Connection parameters
+  hostname?: string
+  port?: number
+  database?: string
+  username?: string
+  password?: string
+
+  // Connection pool settings
+  poolMin?: number
+  poolMax?: number
+  idleTimeout?: number
+  connectionTimeout?: number
+
+  // Additional PostgreSQL options
+  ssl?: boolean | object
+  max?: number
+  min?: number
+}
+
+// ============================================================================
 // Database Instance Management
 // ============================================================================
 
 let dbInstance: SQL | null = null
 
-export async function initializeDatabase(connectionString: string | SQL.Options): Promise<SQL> {
+export async function initializeDatabase(connectionString: string | DatabaseConfig): Promise<SQL> {
   if (typeof connectionString === 'string') {
     dbInstance = new SQL(connectionString)
   }
   else {
-    dbInstance = new SQL(connectionString)
+    // Apply defaults for connection pool
+    const {
+      poolMin = 2,
+      poolMax = 10,
+      idleTimeout = 30000,
+      connectionTimeout = 10000,
+      ...rest
+    } = connectionString
+
+    // If connectionString is provided in config, use it
+    if (rest.connectionString) {
+      dbInstance = new SQL(rest.connectionString)
+    }
+    else {
+      // Otherwise construct from individual parameters
+      dbInstance = new SQL(rest as any)
+    }
   }
 
   // Test connection

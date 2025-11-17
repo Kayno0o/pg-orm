@@ -2,7 +2,7 @@
 // Core ORM
 // ============================================================================
 
-export { closeDatabase, getDatabase, initializeDatabase, sql, SQL, transaction } from './db'
+export { closeDatabase, getDatabase, initializeDatabase, sql, SQL, transaction, type DatabaseConfig } from './db'
 
 // ============================================================================
 // Database
@@ -14,7 +14,7 @@ export { createEntitySchema, EntityBuilder } from './entity'
 // Field Builders
 // ============================================================================
 
-export { DatabaseError, EntityNotFoundError, OptimisticLockError, QueryError, ValidationError } from './errors'
+export { DatabaseError, EntityNotFoundError, OptimisticLockError, QueryError } from './errors'
 export { field } from './field'
 
 // ============================================================================
@@ -50,7 +50,7 @@ export { QueryBuilder } from './query'
 // Traits
 // ============================================================================
 
-export { Repository } from './repository'
+export { Repository, ValidationError } from './repository'
 
 // ============================================================================
 // Types

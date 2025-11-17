@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import type { EntityDefinition, EntitySchema, FieldConfig, Plugin } from './types'
-import { closeDatabase, getDatabase, initializeDatabase, transaction } from './db'
+import { closeDatabase, getDatabase, initializeDatabase, transaction, type DatabaseConfig } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
 import { Repository } from './repository'
@@ -12,20 +12,27 @@ import { createTrait } from './traits'
 
 export class ORM {
   private plugins: Plugin[] = []
-  private repositories = new Map<string, Repository<any>>()
-  private entities = new Map<string, EntityDefinition<any>>()
+  // Use WeakMap to prevent stale repository instances when entity definitions change
+  private repositories = new WeakMap<EntityDefinition<any>, Repository<any>>()
+  // Track all created repositories for cleanup
+  private allRepositories = new Set<Repository<any>>()
 
   // ========================================================================
   // Database Connection
   // ========================================================================
 
-  async connect(connectionString: string | SQL.Options): Promise<void> {
+  async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
   }
 
   async disconnect(options?: { timeout?: number }): Promise<void> {
+    // Cleanup all repositories
+    for (const repo of this.allRepositories) {
+      repo.cleanup()
+    }
+    this.allRepositories.clear()
+
     await closeDatabase(options)
-    this.repositories.clear()
   }
 
   getDB(): SQL {
@@ -66,18 +73,16 @@ export class ORM {
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[]>(
     entityDef: EntityDefinition<T, TTraits>,
   ): Repository<T, TTraits> {
-    const key = entityDef.tableName
-
-    // Return cached repository if exists
-    if (this.repositories.has(key)) {
-      return this.repositories.get(key)! as Repository<T, TTraits>
+    // Return cached repository if exists for this specific entity definition
+    if (this.repositories.has(entityDef)) {
+      return this.repositories.get(entityDef)! as Repository<T, TTraits>
     }
 
     // Create new repository
     const repository = new Repository(entityDef)
 
-    this.repositories.set(key, repository)
-    this.entities.set(key, entityDef)
+    this.repositories.set(entityDef, repository)
+    this.allRepositories.add(repository)
 
     // Apply global plugins
     for (const plugin of this.plugins) {
@@ -96,15 +101,8 @@ export class ORM {
   use(plugin: Plugin): this {
     this.plugins.push(plugin)
 
-    // Apply to existing entities
-    for (const [_key, _entityDef] of Array.from(this.entities)) {
-      if (plugin.applyToEntity) {
-        // plugin.applyToEntity(entityDef)
-      }
-    }
-
     // Apply to existing repositories
-    for (const [_key, repository] of Array.from(this.repositories)) {
+    for (const repository of this.allRepositories) {
       if (plugin.applyToRepository) {
         plugin.applyToRepository(repository)
       }

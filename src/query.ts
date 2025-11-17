@@ -3,12 +3,13 @@ import type { EntitySchema, InferEntity, OrderDirection } from './types'
 import { toSnake } from '@kaynooo/utils'
 
 // ============================================================================
-// Query Builder
+// Query Builder (Secure with Parameterized Queries)
 // ============================================================================
 
 export class QueryBuilder<T extends EntitySchema> {
   private selectFields: string[] = ['*']
   private whereConditions: string[] = []
+  private whereParams: any[] = []
   private orderByFields: { field: string, direction: OrderDirection }[] = []
   private limitValue?: number
   private offsetValue?: number
@@ -36,25 +37,42 @@ export class QueryBuilder<T extends EntitySchema> {
     return toSnake(fieldName)
   }
 
+  // Helper to validate column name (security: prevent SQL injection)
+  private validateColumnName(field: string): string {
+    const columnName = this.getColumnName(field)
+    const validColumns = ['id', ...Object.keys(this.schema).map(k => this.getColumnName(k))]
+
+    if (!validColumns.includes(columnName)) {
+      throw new Error(`Invalid column name: ${field}. Column not found in schema.`)
+    }
+
+    return columnName
+  }
+
+  // Helper to add parameter and return placeholder
+  private addParam(value: any): string {
+    this.whereParams.push(value)
+    return `$${this.whereParams.length}`
+  }
+
   // ========================================================================
   // Select
   // ========================================================================
 
   select(...fields: (keyof T | 'id')[]): this {
-    this.selectFields = fields.map(f => this.getColumnName(String(f)))
+    this.selectFields = fields.map(f => this.validateColumnName(String(f)))
 
     return this
   }
 
   // ========================================================================
-  // Where Clauses
+  // Where Clauses (Secure with Parameterization)
   // ========================================================================
 
   where(field: keyof T | 'id', operator: string, value: any): this {
-    const columnName = this.getColumnName(String(field))
-    // Use proper SQL escaping for values
-    const escapedValue = typeof value === 'string' ? `'${String(value).replace(/'/g, "''")}'` : String(value)
-    this.whereConditions.push(`${columnName} ${operator} ${escapedValue}`)
+    const columnName = this.validateColumnName(String(field))
+    const placeholder = this.addParam(value)
+    this.whereConditions.push(`${columnName} ${operator} ${placeholder}`)
 
     return this
   }
@@ -64,29 +82,28 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   whereIn(field: keyof T | 'id', values: any[]): this {
-    const columnName = this.getColumnName(String(field))
-    // Build IN clause manually - PostgreSQL requires proper quoting
-    const quotedValues = values.map(v => {
-      if (typeof v === 'string') {
-        return `'${String(v).replace(/'/g, "''")}'`
-      }
-      return String(v)
-    }).join(', ')
-    this.whereConditions.push(`${columnName} IN (${quotedValues})`)
+    if (values.length === 0) {
+      // Empty IN clause always returns false
+      this.whereConditions.push('FALSE')
+      return this
+    }
+
+    const columnName = this.validateColumnName(String(field))
+    const placeholders = values.map(v => this.addParam(v)).join(', ')
+    this.whereConditions.push(`${columnName} IN (${placeholders})`)
 
     return this
   }
 
   whereNotIn(field: keyof T | 'id', values: any[]): this {
-    const columnName = this.getColumnName(String(field))
-    // Build NOT IN clause manually - PostgreSQL requires proper quoting
-    const quotedValues = values.map(v => {
-      if (typeof v === 'string') {
-        return `'${String(v).replace(/'/g, "''")}'`
-      }
-      return String(v)
-    }).join(', ')
-    this.whereConditions.push(`${columnName} NOT IN (${quotedValues})`)
+    if (values.length === 0) {
+      // Empty NOT IN clause always returns true
+      return this
+    }
+
+    const columnName = this.validateColumnName(String(field))
+    const placeholders = values.map(v => this.addParam(v)).join(', ')
+    this.whereConditions.push(`${columnName} NOT IN (${placeholders})`)
 
     return this
   }
@@ -100,68 +117,73 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   whereNull(field: keyof T | 'id'): this {
-    const columnName = this.getColumnName(String(field))
+    const columnName = this.validateColumnName(String(field))
     this.whereConditions.push(`${columnName} IS NULL`)
 
     return this
   }
 
   whereNotNull(field: keyof T | 'id'): this {
-    const columnName = this.getColumnName(String(field))
+    const columnName = this.validateColumnName(String(field))
     this.whereConditions.push(`${columnName} IS NOT NULL`)
 
     return this
   }
 
   whereBetween(field: keyof T | 'id', min: any, max: any): this {
-    const columnName = this.getColumnName(String(field))
-    const escapedMin = typeof min === 'string' ? `'${String(min).replace(/'/g, "''")}'` : String(min)
-    const escapedMax = typeof max === 'string' ? `'${String(max).replace(/'/g, "''")}'` : String(max)
-    this.whereConditions.push(`${columnName} BETWEEN ${escapedMin} AND ${escapedMax}`)
+    const columnName = this.validateColumnName(String(field))
+    const minPlaceholder = this.addParam(min)
+    const maxPlaceholder = this.addParam(max)
+    this.whereConditions.push(`${columnName} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`)
 
     return this
   }
 
   // PostgreSQL-specific operators
   whereJsonContains(field: keyof T, value: any): this {
-    const columnName = this.getColumnName(String(field))
-    const jsonStr = JSON.stringify(value).replace(/'/g, "''")
-    this.whereConditions.push(`${columnName} @> '${jsonStr}'::jsonb`)
+    const columnName = this.validateColumnName(String(field))
+    const placeholder = this.addParam(JSON.stringify(value))
+    this.whereConditions.push(`${columnName} @> ${placeholder}::jsonb`)
 
     return this
   }
 
   whereJsonHasKey(field: keyof T, key: string): this {
-    const columnName = this.getColumnName(String(field))
-    this.whereConditions.push(`${columnName} ? '${key.replace(/'/g, "''")}'`)
+    const columnName = this.validateColumnName(String(field))
+    const placeholder = this.addParam(key)
+    this.whereConditions.push(`${columnName} ? ${placeholder}`)
 
     return this
   }
 
   whereArrayContains(field: keyof T, value: any): this {
-    const columnName = this.getColumnName(String(field))
-    // Format single value as array: value -> '{value}'
-    const escapedValue = typeof value === 'string' ? value.replace(/'/g, "''") : String(value)
-    this.whereConditions.push(`${columnName} @> '{${escapedValue}}'`)
+    const columnName = this.validateColumnName(String(field))
+    const placeholder = this.addParam([value])
+    this.whereConditions.push(`${columnName} @> ${placeholder}`)
 
     return this
   }
 
   whereArrayOverlaps(field: keyof T, values: any[]): this {
-    const columnName = this.getColumnName(String(field))
-    // Format array for PostgreSQL: ['a', 'b'] -> '{a,b}'
-    const escaped = values.map(v => typeof v === 'string' ? String(v).replace(/'/g, "''") : String(v))
-    this.whereConditions.push(`${columnName} && '{${escaped.join(',')}}'`)
+    const columnName = this.validateColumnName(String(field))
+    const placeholder = this.addParam(values)
+    this.whereConditions.push(`${columnName} && ${placeholder}`)
 
     return this
   }
 
   // ========================================================================
-  // Order By
+  // Order By (Validated Column Names)
   // ========================================================================
 
   orderBy(field: keyof T | 'id', direction: OrderDirection = 'ASC'): this {
-    const columnName = this.getColumnName(String(field))
+    const columnName = this.validateColumnName(String(field))
+
+    // Validate direction to prevent SQL injection
+    if (direction !== 'ASC' && direction !== 'DESC') {
+      throw new Error(`Invalid ORDER BY direction: ${direction}. Must be ASC or DESC.`)
+    }
+
     this.orderByFields.push({ field: columnName, direction })
 
     return this
@@ -172,11 +194,11 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   // ========================================================================
-  // Group By
+  // Group By (Validated Column Names)
   // ========================================================================
 
   groupBy(...fields: (keyof T | 'id')[]): this {
-    this.groupByFields = fields.map(f => this.getColumnName(String(f)))
+    this.groupByFields = fields.map(f => this.validateColumnName(String(f)))
 
     return this
   }
@@ -186,12 +208,18 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   limit(value: number): this {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`Invalid LIMIT value: ${value}. Must be a non-negative integer.`)
+    }
     this.limitValue = value
 
     return this
   }
 
   offset(value: number): this {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`Invalid OFFSET value: ${value}. Must be a non-negative integer.`)
+    }
     this.offsetValue = value
 
     return this
@@ -202,8 +230,8 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   async execute(): Promise<InferEntity<T>[]> {
-    const query = this.build()
-    const results = await query
+    const query = this.buildQuery()
+    const results = await this.db.unsafe(query, this.whereParams)
 
     return results as InferEntity<T>[]
   }
@@ -216,13 +244,12 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   async count(): Promise<number> {
-    let query = this.db`SELECT COUNT(*) as count FROM ${this.db(this.tableName)}`
+    const whereClause = this.whereConditions.length > 0
+      ? `WHERE ${this.whereConditions.join(' AND ')}`
+      : ''
 
-    if (this.whereConditions.length > 0) {
-      query = this.db`${query} WHERE ${this.db.unsafe(this.whereConditions.join(' AND '))}`
-    }
-
-    const [result] = await query
+    const query = `SELECT COUNT(id) as count FROM ${this.tableName} ${whereClause}`
+    const [result] = await this.db.unsafe(query, this.whereParams)
 
     return Number(result.count)
   }
@@ -236,46 +263,48 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   async random(limitValue = 1): Promise<InferEntity<T>[]> {
-    let query = this.db`SELECT ${this.db.unsafe(this.selectFields.join(', '))} FROM ${this.db(this.tableName)}`
-
-    if (this.whereConditions.length > 0) {
-      query = this.db`${query} WHERE ${this.db.unsafe(this.whereConditions.join(' AND '))}`
+    if (!Number.isInteger(limitValue) || limitValue < 1) {
+      throw new Error(`Invalid random limit: ${limitValue}. Must be a positive integer.`)
     }
 
-    query = this.db`${query} ORDER BY RANDOM() LIMIT ${limitValue}`
+    const selectClause = this.selectFields.join(', ')
+    const whereClause = this.whereConditions.length > 0
+      ? `WHERE ${this.whereConditions.join(' AND ')}`
+      : ''
 
-    const results = await query
+    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitValue}`
+    const results = await this.db.unsafe(query, this.whereParams)
 
     return results as InferEntity<T>[]
   }
 
   // ========================================================================
-  // Build Query
+  // Build Query (Private)
   // ========================================================================
 
-  build(): any {
-    let query = this.db`SELECT ${this.db.unsafe(this.selectFields.join(', '))} FROM ${this.db(this.tableName)}`
+  private buildQuery(): string {
+    const selectClause = this.selectFields.join(', ')
+    let query = `SELECT ${selectClause} FROM ${this.tableName}`
 
     if (this.whereConditions.length > 0) {
-      query = this.db`${query} WHERE ${this.db.unsafe(this.whereConditions.join(' AND '))}`
+      query += ` WHERE ${this.whereConditions.join(' AND ')}`
     }
 
     if (this.groupByFields.length > 0) {
-      query = this.db`${query} GROUP BY ${this.db.unsafe(this.groupByFields.join(', '))}`
+      query += ` GROUP BY ${this.groupByFields.join(', ')}`
     }
 
     if (this.orderByFields.length > 0) {
       const orderClauses = this.orderByFields.map(o => `${o.field} ${o.direction}`).join(', ')
-
-      query = this.db`${query} ORDER BY ${this.db.unsafe(orderClauses)}`
+      query += ` ORDER BY ${orderClauses}`
     }
 
     if (this.limitValue !== undefined) {
-      query = this.db`${query} LIMIT ${this.limitValue}`
+      query += ` LIMIT ${this.limitValue}`
     }
 
     if (this.offsetValue !== undefined) {
-      query = this.db`${query} OFFSET ${this.offsetValue}`
+      query += ` OFFSET ${this.offsetValue}`
     }
 
     return query
