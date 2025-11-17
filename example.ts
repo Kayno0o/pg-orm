@@ -1,4 +1,4 @@
-import { orm, publishable, timestamps } from './src'
+import { orm, publishable, softDelete, timestamps } from './src'
 
 // ============================================================================
 // 1. Define Entities with Builder Pattern
@@ -12,6 +12,40 @@ interface UserMetadata {
     notifications: boolean
   }
 }
+
+// ============================================================================
+// 2. Custom Trait Example (NEW!)
+// ============================================================================
+
+// Custom trait with builder pattern and repository access
+const likeable = orm.trait('likeable')
+  .field('likesCount', orm.number().integer().default(0))
+  .field('likedBy', orm.array('number').default([]))
+  .method('like', async function (repo, userId: number) {
+    // 'this' is the entity, 'repo' has full database access
+    if (!this.likedBy.includes(userId)) {
+      return repo.update(this.id, {
+        likesCount: this.likesCount + 1,
+        likedBy: [...this.likedBy, userId],
+      })
+    }
+
+    return this
+  })
+  .method('unlike', async function (repo, userId: number) {
+    if (this.likedBy.includes(userId)) {
+      return repo.update(this.id, {
+        likesCount: this.likesCount - 1,
+        likedBy: this.likedBy.filter((id: number) => id !== userId),
+      })
+    }
+
+    return this
+  })
+  .method('isLikedBy', function (_repo, userId: number): boolean {
+    return this.likedBy.includes(userId)
+  })
+  .build()
 
 // Simple entity definition with improved type safety
 const User = orm
@@ -34,7 +68,7 @@ const User = orm
   })
   .build()
 
-// Another entity with different traits
+// Another entity with different traits including custom trait
 const Post = orm
   .entity('posts', {
     title: orm.string().maxLength(255),
@@ -44,6 +78,8 @@ const Post = orm
   })
   .use(timestamps())
   .use(publishable())
+  .use(likeable) // Custom trait with repository access!
+  .use(softDelete()) // Soft delete trait
   .unique(['title']) // Add unique constraint
   .beforeUpdate((id, data) => {
     // Update publishedAt when published changes to true
@@ -88,6 +124,9 @@ async function setup() {
       published BOOLEAN DEFAULT false,
       published_at TIMESTAMP WITH TIME ZONE,
       views INTEGER DEFAULT 0,
+      likes_count INTEGER DEFAULT 0,
+      liked_by INTEGER[] DEFAULT '{}',
+      deleted_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
@@ -378,6 +417,67 @@ async function lifecycleHooks() {
 }
 
 // ============================================================================
+// 10. Trait Methods with Repository Context (NEW!)
+// ============================================================================
+
+async function traitMethodsDemo() {
+  console.log('\n=== Trait Methods with Repository Context ===')
+
+  // Create a post
+  const author = await users.create({
+    name: 'Post Author',
+    email: 'postauthor@example.com',
+    role: 'user',
+    tags: [],
+  })
+
+  let post = await posts.create({
+    title: 'Likeable Post',
+    content: 'This post can be liked!',
+    authorId: author.id,
+  })
+
+  console.log('Initial likes:', post.likesCount)
+
+  // Use trait methods - they now have full repository access!
+  // TypeScript properly infers all trait methods thanks to the type system!
+  post = await post.like(1) // User 1 likes the post
+  console.log('After first like:', post.likesCount, post.likedBy)
+
+  post = await post.like(2) // User 2 likes the post
+  console.log('After second like:', post.likesCount, post.likedBy)
+
+  post = await post.like(1) // User 1 tries to like again (should be ignored)
+  console.log('After duplicate like:', post.likesCount, post.likedBy)
+
+  post = await post.unlike(1) // User 1 unlikes
+  console.log('After unlike:', post.likesCount, post.likedBy)
+
+  // Check if user liked the post
+  console.log('Is liked by user 2?', post.isLikedBy(2))
+  console.log('Is liked by user 1?', post.isLikedBy(1))
+
+  // Demonstrate publishable trait methods
+  post = await post.publish()
+  console.log('Post published:', post.published, post.publishedAt)
+
+  console.log('Is published?', post.isPublished())
+  console.log('Is draft?', post.isDraft())
+
+  post = await post.unpublish()
+  console.log('Post unpublished:', post.published, post.publishedAt)
+
+  // Demonstrate soft delete trait methods
+  post = await post.softDelete()
+  console.log('Post soft deleted:', post.deletedAt)
+  console.log('Is deleted?', post.isDeleted())
+
+  post = await post.restore()
+  console.log('Post restored:', post.deletedAt)
+  console.log('Is deleted?', post.isDeleted())
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -390,6 +490,7 @@ async function main() {
     await customRepositoryMethods()
     await transactions()
     await lifecycleHooks()
+    await traitMethodsDemo() // NEW!
 
     console.log('\n✅ All examples completed successfully!')
   }

@@ -157,12 +157,21 @@ export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] ext
 // Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
 
-// Infer entity type from schema
-export type InferEntity<T extends EntitySchema> = Prettify<{
+// Infer entity type from schema (without trait methods for now)
+export type InferEntityBase<T extends EntitySchema> = Prettify<{
   readonly id: number
 } & {
   [K in keyof T]: InferField<T[K]>
 }>
+
+// Infer entity type with trait methods
+export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDefinition<any, any>[] = []> = Prettify<
+  InferEntityBase<T> & UnionToIntersection<{
+    [K in keyof TTraits]: TTraits[K] extends TraitDefinition<any, infer Methods>
+      ? ConvertTraitMethods<Methods>
+      : never
+  }[number]>
+>
 
 // Helper: Check if field has a default value
 type HasDefault<T extends FieldConfig> = T['default'] extends undefined ? false : true
@@ -271,12 +280,51 @@ export interface EntityHooks<T extends EntitySchema> {
 // Trait Types
 // ============================================================================
 
-export type TraitMethods = Record<string, (this: any, ...args: any[]) => any>
+// Forward declaration for Repository to avoid circular dependency
+export interface AnyRepository {
+  find: (id: number) => Promise<any>
+  findBy: (options: any) => Promise<any[]>
+  create: (data: any) => Promise<any>
+  update: (id: number, data: any) => Promise<any>
+  delete: (id: number) => Promise<void>
+  [key: string]: any
+}
 
-export interface TraitDefinition<Methods extends TraitMethods = TraitMethods> {
-  name: string
-  fields?: EntitySchema
-  methods?: Methods
+// Trait method with repository context
+// - 'this' is bound to the entity instance
+// - 'repo' is the repository instance for database operations
+export type TraitMethod<Entity = any, Args extends any[] = any[], Return = any> = (
+  this: Entity,
+  repo: AnyRepository,
+  ...args: Args
+) => Return
+
+export type TraitMethods = Record<string, TraitMethod>
+
+export interface TraitDefinition<
+  TFields extends EntitySchema = EntitySchema,
+  TMethods extends TraitMethods = TraitMethods,
+> {
+  readonly name: string
+  readonly fields: TFields
+  readonly methods: TMethods
+}
+
+// Helper to extract trait fields from a trait definition
+export type InferTraitFields<T> = T extends TraitDefinition<infer Fields, any> ? Fields : never
+
+// Helper to extract trait methods from a trait definition
+export type InferTraitMethods<T> = T extends TraitDefinition<any, infer Methods> ? Methods : never
+
+// Helper to convert trait method signatures to entity instance methods
+// Removes the 'repo' parameter since it's injected automatically
+export type ConvertTraitMethod<M> = M extends (this: infer This, repo: any, ...args: infer Args) => infer Return
+  ? (this: This, ...args: Args) => Return
+  : never
+
+// Helper to convert all trait methods to entity instance methods
+export type ConvertTraitMethods<TMethods extends TraitMethods> = {
+  [K in keyof TMethods]: ConvertTraitMethod<TMethods[K]>
 }
 
 // ============================================================================
@@ -293,17 +341,23 @@ export interface Plugin {
 // Entity Definition (built by EntityBuilder)
 // ============================================================================
 
-export interface EntityDefinition<T extends EntitySchema> {
+export interface EntityDefinition<
+  T extends EntitySchema,
+  TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],
+> {
   readonly tableName: string
   readonly schema: T
   readonly hooks: EntityHooks<T>
-  readonly traits: TraitDefinition[]
+  readonly traits: TTraits
   readonly unique?: string[][]
 }
 
 // ============================================================================
 // Utility Types
 // ============================================================================
+
+// Convert union to intersection
+export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
 
 // Flatten intersection types for better IDE display
 export type Prettify<T> = {

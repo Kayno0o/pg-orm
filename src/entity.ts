@@ -9,7 +9,6 @@ import type {
   EntityHooks,
   EntitySchema,
   FieldConfig,
-  InferEntity,
   TraitDefinition,
 } from './types'
 
@@ -17,14 +16,18 @@ import type {
 // Entity Builder
 // ============================================================================
 
-export class EntityBuilder<T extends EntitySchema> {
+export class EntityBuilder<
+  T extends EntitySchema,
+  TTraits extends readonly TraitDefinition<any, any>[] = readonly [],
+> {
   private _hooks: EntityHooks<T>
-  private _traits: TraitDefinition[]
+  private _traits: TTraits
   private _unique?: string[][]
 
   constructor(
     private readonly tableName: string,
     private readonly schema: T,
+    traits: TTraits = [] as any,
   ) {
     this._hooks = {
       beforeCreate: [],
@@ -34,14 +37,14 @@ export class EntityBuilder<T extends EntitySchema> {
       beforeDelete: [],
       afterDelete: [],
     }
-    this._traits = []
+    this._traits = traits
   }
 
   // ========================================================================
   // Lifecycle Hooks
   // ========================================================================
 
-  beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T> {
+  beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeCreate.push(hook)
@@ -49,7 +52,7 @@ export class EntityBuilder<T extends EntitySchema> {
     return newBuilder
   }
 
-  afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T> {
+  afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterCreate.push(hook)
@@ -57,7 +60,7 @@ export class EntityBuilder<T extends EntitySchema> {
     return newBuilder
   }
 
-  beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T> {
+  beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeUpdate.push(hook)
@@ -65,7 +68,7 @@ export class EntityBuilder<T extends EntitySchema> {
     return newBuilder
   }
 
-  afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T> {
+  afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterUpdate.push(hook)
@@ -73,7 +76,7 @@ export class EntityBuilder<T extends EntitySchema> {
     return newBuilder
   }
 
-  beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T> {
+  beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeDelete.push(hook)
@@ -81,7 +84,7 @@ export class EntityBuilder<T extends EntitySchema> {
     return newBuilder
   }
 
-  afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T> {
+  afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterDelete.push(hook)
@@ -93,34 +96,36 @@ export class EntityBuilder<T extends EntitySchema> {
   // Traits
   // ========================================================================
 
-  use<
-    TraitFields extends EntitySchema,
-    Methods extends Record<string, (this: InferEntity<T & TraitFields>, ...args: any[]) => any>,
-  >(
-    trait: TraitDefinition<Methods> & { fields?: TraitFields },
-  ): EntityBuilder<T & TraitFields> {
-    const newBuilder = this.clone() as any
-
-    newBuilder._traits.push(trait)
-
+  use<TraitFields extends EntitySchema, TraitMethods extends Record<string, any>>(
+    trait: TraitDefinition<TraitFields, TraitMethods>,
+  ): EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>]> {
     // Merge trait fields into schema
-    if (trait.fields) {
-      Object.assign(newBuilder.schema, trait.fields)
-    }
+    const newSchema = { ...this.schema, ...trait.fields } as T & TraitFields
 
-    // Merge trait hooks
-    if (trait.methods) {
-      // Methods will be injected into entity instances by the repository
-    }
+    // Create new traits array with the new trait
+    const newTraits = [...this._traits, trait] as unknown as readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>]
 
-    return newBuilder as EntityBuilder<T & TraitFields>
+    const newBuilder = new EntityBuilder(this.tableName, newSchema, newTraits)
+
+    // Copy hooks (type cast needed for trait field additions)
+    newBuilder._hooks = {
+      beforeCreate: [...this._hooks.beforeCreate] as any,
+      afterCreate: [...this._hooks.afterCreate] as any,
+      beforeUpdate: [...this._hooks.beforeUpdate] as any,
+      afterUpdate: [...this._hooks.afterUpdate] as any,
+      beforeDelete: [...this._hooks.beforeDelete] as any,
+      afterDelete: [...this._hooks.afterDelete] as any,
+    }
+    newBuilder._unique = this._unique
+
+    return newBuilder
   }
 
   // ========================================================================
   // Constraints
   // ========================================================================
 
-  unique(...columns: (keyof T)[][]): EntityBuilder<T> {
+  unique(...columns: (keyof T)[][]): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
     newBuilder._unique = columns.map(cols => cols.map(String))
@@ -132,7 +137,7 @@ export class EntityBuilder<T extends EntitySchema> {
   // Build Final Definition
   // ========================================================================
 
-  build(): EntityDefinition<T> {
+  build(): EntityDefinition<T, TTraits> {
     return Object.freeze({
       tableName: this.tableName,
       schema: this.schema,
@@ -146,8 +151,8 @@ export class EntityBuilder<T extends EntitySchema> {
   // Internal Helpers
   // ========================================================================
 
-  private clone(): EntityBuilder<T> {
-    const cloned = new EntityBuilder(this.tableName, { ...this.schema })
+  private clone(): EntityBuilder<T, TTraits> {
+    const cloned = new EntityBuilder(this.tableName, { ...this.schema }, this._traits)
 
     cloned._hooks = {
       beforeCreate: [...this._hooks.beforeCreate],
@@ -157,7 +162,6 @@ export class EntityBuilder<T extends EntitySchema> {
       beforeDelete: [...this._hooks.beforeDelete],
       afterDelete: [...this._hooks.afterDelete],
     }
-    cloned._traits = [...this._traits]
     cloned._unique = this._unique
 
     return cloned

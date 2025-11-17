@@ -18,13 +18,16 @@ import { QueryBuilder } from './query'
 // Base Repository
 // ============================================================================
 
-export class Repository<T extends EntitySchema> {
+export class Repository<
+  T extends EntitySchema,
+  TTraits extends readonly any[] = readonly any[],
+> {
   private tableName: string
   private schema: T
-  private definition: EntityDefinition<T>
+  private definition: EntityDefinition<T, TTraits>
   private txContext?: SQL
 
-  constructor(entityDef: EntityDefinition<T>) {
+  constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
@@ -34,7 +37,7 @@ export class Repository<T extends EntitySchema> {
   // Core CRUD Operations
   // ========================================================================
 
-  async find(id: number): Promise<InferEntity<T> | null> {
+  async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
     try {
@@ -53,14 +56,14 @@ export class Repository<T extends EntitySchema> {
     }
   }
 
-  async findAll(): Promise<InferEntity<T>[]> {
+  async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
     const results = await db`SELECT * FROM ${db(this.tableName)}`
 
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
-  async create(data: InferCreateData<T>): Promise<InferEntity<T>> {
+  async create(data: InferCreateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
     // Execute before hooks
@@ -79,7 +82,7 @@ export class Repository<T extends EntitySchema> {
 
       // Execute after hooks
       for (const hook of this.definition.hooks.afterCreate) {
-        await hook(entity)
+        await hook(entity as any)
       }
 
       // Inject trait methods
@@ -93,7 +96,7 @@ export class Repository<T extends EntitySchema> {
     }
   }
 
-  async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T>> {
+  async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
     // Execute before hooks
@@ -126,7 +129,7 @@ export class Repository<T extends EntitySchema> {
 
       // Execute after hooks
       for (const hook of this.definition.hooks.afterUpdate) {
-        await hook(entity)
+        await hook(entity as any)
       }
 
       // Inject trait methods
@@ -168,7 +171,7 @@ export class Repository<T extends EntitySchema> {
   // Query Operations
   // ========================================================================
 
-  async findBy(options: QueryOptions<T>): Promise<InferEntity<T>[]> {
+  async findBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits>[]> {
     const query = this.buildSelectQuery(options)
 
     try {
@@ -183,7 +186,7 @@ export class Repository<T extends EntitySchema> {
     }
   }
 
-  async findOneBy(options: QueryOptions<T>): Promise<InferEntity<T> | null> {
+  async findOneBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits> | null> {
     const results = await this.findBy({ ...options, limit: 1 })
 
     return results[0] || null
@@ -221,7 +224,7 @@ export class Repository<T extends EntitySchema> {
     pageSize: number
     where?: QueryOptions<T>['where']
     order?: QueryOptions<T>['order']
-  }): Promise<PaginationResult<InferEntity<T>>> {
+  }): Promise<PaginationResult<InferEntity<T, TTraits>>> {
     const { page, pageSize, where, order } = options
 
     const total = await this.count({ where })
@@ -248,7 +251,7 @@ export class Repository<T extends EntitySchema> {
   // Bulk Operations
   // ========================================================================
 
-  async createMany(dataArray: InferCreateData<T>[]): Promise<InferEntity<T>[]> {
+  async createMany(dataArray: InferCreateData<T>[]): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
 
     try {
@@ -294,7 +297,7 @@ export class Repository<T extends EntitySchema> {
   // Transaction Support
   // ========================================================================
 
-  withTransaction(tx: SQL): Repository<T> {
+  withTransaction(tx: SQL): Repository<T, TTraits> {
     const cloned = new Repository(this.definition)
 
     cloned.txContext = tx
@@ -302,7 +305,7 @@ export class Repository<T extends EntitySchema> {
     return cloned
   }
 
-  async transaction<R>(callback: (repo: Repository<T>) => Promise<R>): Promise<R> {
+  async transaction<R>(callback: (repo: Repository<T, TTraits>) => Promise<R>): Promise<R> {
     const db = this.getDB()
 
     return await db.begin(async (tx) => {
@@ -316,16 +319,16 @@ export class Repository<T extends EntitySchema> {
   // Extension API
   // ========================================================================
 
-  extend<Methods extends Record<string, (this: Repository<T>, ...args: any[]) => any>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: any[]) => any>>(
     methods: Methods,
-  ): Repository<T> & Methods {
+  ): Repository<T, TTraits> & Methods {
     const extended = Object.create(this)
 
     for (const [name, method] of Object.entries(methods)) {
       extended[name] = method.bind(extended)
     }
 
-    return extended as Repository<T> & Methods
+    return extended as Repository<T, TTraits> & Methods
   }
 
   // ========================================================================
@@ -348,7 +351,7 @@ export class Repository<T extends EntitySchema> {
     return toSnake(fieldName)
   }
 
-  private mapRowToEntity(row: DatabaseRow): InferEntity<T> {
+  private mapRowToEntity(row: DatabaseRow): InferEntity<T, TTraits> {
     const entity: any = { id: row.id }
 
     // Map database columns (snake_case) to entity fields (camelCase)
@@ -388,7 +391,7 @@ export class Repository<T extends EntitySchema> {
     // Inject trait methods
     this.injectTraitMethods(entity)
 
-    return entity as InferEntity<T>
+    return entity as InferEntity<T, TTraits>
   }
 
   private prepareData(data: Record<string, unknown>): Record<string, unknown> {
@@ -601,7 +604,10 @@ export class Repository<T extends EntitySchema> {
     for (const trait of this.definition.traits) {
       if (trait.methods) {
         for (const [methodName, method] of Object.entries(trait.methods)) {
-          entity[methodName] = method.bind(entity)
+          // Bind method to entity and inject repository as first argument
+          entity[methodName] = (...args: any[]) => {
+            return (method as any).call(entity, this, ...args)
+          }
         }
       }
     }

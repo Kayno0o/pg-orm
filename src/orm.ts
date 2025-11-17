@@ -4,6 +4,7 @@ import { closeDatabase, getDatabase, initializeDatabase, transaction } from './d
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
 import { Repository } from './repository'
+import { createTrait } from './traits'
 
 // ============================================================================
 // ORM Class
@@ -62,12 +63,14 @@ export class ORM {
   // Repository Access
   // ========================================================================
 
-  repo<T extends EntitySchema>(entityDef: EntityDefinition<T>): Repository<T> {
+  repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[]>(
+    entityDef: EntityDefinition<T, TTraits>,
+  ): Repository<T, TTraits> {
     const key = entityDef.tableName
 
     // Return cached repository if exists
     if (this.repositories.has(key)) {
-      return this.repositories.get(key)!
+      return this.repositories.get(key)! as Repository<T, TTraits>
     }
 
     // Create new repository
@@ -108,6 +111,14 @@ export class ORM {
     }
 
     return this
+  }
+
+  // ========================================================================
+  // Trait Builder
+  // ========================================================================
+
+  trait(name: string) {
+    return createTrait(name)
   }
 
   // ========================================================================
