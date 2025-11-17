@@ -9,6 +9,7 @@ import type {
   PaginationResult,
   QueryOptions,
 } from './types'
+import { toSnake } from '@kaynooo/utils'
 import { SQL as BunSQL } from 'bun'
 import { getDatabase } from './db'
 import { QueryBuilder } from './query'
@@ -335,25 +336,39 @@ export class Repository<T extends EntitySchema> {
     return this.txContext || getDatabase()
   }
 
+  private getColumnName(fieldName: string): string {
+    const fieldConfig = this.schema[fieldName]
+
+    // If explicit columnName is set, use it
+    if ((fieldConfig as any)?.columnName) {
+      return (fieldConfig as any).columnName
+    }
+
+    // Otherwise, convert camelCase to snake_case automatically
+    return toSnake(fieldName)
+  }
+
   private mapRowToEntity(row: DatabaseRow): InferEntity<T> {
     const entity: any = { id: row.id }
 
-    for (const [key, value] of Object.entries(row)) {
-      if (key === 'id')
-        continue
+    // Map database columns (snake_case) to entity fields (camelCase)
+    for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
+      const columnName = this.getColumnName(fieldName)
+      const value = row[columnName]
 
-      const fieldConfig = this.schema[key]
+      if (value === undefined)
+        continue
 
       // Deserialize arrays
       if (fieldConfig?.type === 'array' && value !== null && value !== undefined) {
         if (Array.isArray(value)) {
-          entity[key] = value
+          entity[fieldName] = value
         }
         else if (ArrayBuffer.isView(value)) {
-          entity[key] = Array.from(value as unknown as ArrayLike<unknown>)
+          entity[fieldName] = Array.from(value as unknown as ArrayLike<unknown>)
         }
         else {
-          entity[key] = value
+          entity[fieldName] = value
         }
       }
       // Deserialize timestamps/dates
@@ -362,11 +377,11 @@ export class Repository<T extends EntitySchema> {
         && value !== null
         && value !== undefined
       ) {
-        entity[key] = value instanceof Date ? value : new Date(value as string)
+        entity[fieldName] = value instanceof Date ? value : new Date(value as string)
       }
       // Default
       else {
-        entity[key] = value
+        entity[fieldName] = value
       }
     }
 
@@ -385,6 +400,9 @@ export class Repository<T extends EntitySchema> {
       if (!fieldConfig)
         continue
 
+      // Get the database column name (converts camelCase to snake_case)
+      const columnName = this.getColumnName(key)
+
       // Validate enums
       if (fieldConfig.type === 'enum' && value !== null && value !== undefined) {
         const enumValues = (fieldConfig as any).values
@@ -396,7 +414,26 @@ export class Repository<T extends EntitySchema> {
         }
       }
 
-      prepared[key] = value
+      // Convert arrays to PostgreSQL array format
+      if (fieldConfig.type === 'array' && Array.isArray(value)) {
+        // Convert JavaScript array to PostgreSQL array literal format
+        // e.g., ['a', 'b'] -> '{a,b}'
+        const elementType = (fieldConfig as any).elementType
+
+        if (elementType === 'string') {
+          // Escape quotes and backslashes in strings
+          const escaped = value.map(v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+
+          prepared[columnName] = `{${escaped.join(',')}}`
+        }
+        else {
+          // For numbers and booleans, no escaping needed
+          prepared[columnName] = `{${value.join(',')}}`
+        }
+      }
+      else {
+        prepared[columnName] = value
+      }
     }
 
     return prepared
@@ -414,7 +451,9 @@ export class Repository<T extends EntitySchema> {
       const orderClauses: string[] = []
 
       for (const [key, direction] of Object.entries(options.order)) {
-        orderClauses.push(`${key} ${direction}`)
+        const columnName = this.getColumnName(key)
+
+        orderClauses.push(`${columnName} ${direction}`)
       }
 
       if (orderClauses.length > 0) {
@@ -435,18 +474,34 @@ export class Repository<T extends EntitySchema> {
 
   private applyWhereConditions(query: any, where: QueryOptions<T>['where']): any {
     const db = this.getDB()
-    const conditions: string[] = []
 
     if (!where)
       return query
+
+    // Build WHERE clause using proper SQL template interpolation
+    let whereClause = query
+    let conditionCount = 0
 
     for (const [key, condition] of Object.entries(where)) {
       if (condition === null || condition === undefined)
         continue
 
+      const columnName = this.getColumnName(key)
+      const prefix = conditionCount === 0 ? 'WHERE' : 'AND'
+
       // Simple equality or IN clause
       if (Array.isArray(condition)) {
-        conditions.push(`${key} = ANY(${db(condition)})`)
+        // Build IN clause manually - PostgreSQL requires proper quoting
+        const quotedValues = condition.map((v) => {
+          if (typeof v === 'string') {
+            return `'${String(v).replace(/'/g, '\'\'')}'`
+          }
+
+          return String(v)
+        }).join(', ')
+
+        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} IN (${db.unsafe(quotedValues)})`
+        conditionCount++
       }
       // Operator object
       else if (typeof condition === 'object' && !Array.isArray(condition)) {
@@ -454,49 +509,79 @@ export class Repository<T extends EntitySchema> {
           if (value === undefined)
             continue
 
+          const opPrefix = conditionCount === 0 ? 'WHERE' : 'AND'
+
           switch (op) {
           case 'eq':
-            conditions.push(`${key} = ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
+            conditionCount++
 
             break
           case 'ne':
-            conditions.push(`${key} != ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
+            conditionCount++
 
             break
           case 'gt':
-            conditions.push(`${key} > ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
+            conditionCount++
 
             break
           case 'gte':
-            conditions.push(`${key} >= ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
+            conditionCount++
 
             break
           case 'lt':
-            conditions.push(`${key} < ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
+            conditionCount++
 
             break
           case 'lte':
-            conditions.push(`${key} <= ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
+            conditionCount++
 
             break
           case 'in':
             if (Array.isArray(value)) {
-              conditions.push(`${key} = ANY(${db(value)})`)
+              // Build IN clause manually - PostgreSQL requires proper quoting
+              const quotedValues = value.map((v) => {
+                if (typeof v === 'string') {
+                  return `'${String(v).replace(/'/g, '\'\'')}'`
+                }
+
+                return String(v)
+              }).join(', ')
+
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN (${db.unsafe(quotedValues)})`
+              conditionCount++
             }
 
             break
           case 'notIn':
             if (Array.isArray(value)) {
-              conditions.push(`${key} != ALL(${db(value)})`)
+              // Build NOT IN clause manually - PostgreSQL requires proper quoting
+              const quotedValues = value.map((v) => {
+                if (typeof v === 'string') {
+                  return `'${String(v).replace(/'/g, '\'\'')}'`
+                }
+
+                return String(v)
+              }).join(', ')
+
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN (${db.unsafe(quotedValues)})`
+              conditionCount++
             }
 
             break
           case 'like':
-            conditions.push(`${key} LIKE ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
+            conditionCount++
 
             break
           case 'ilike':
-            conditions.push(`${key} ILIKE ${db(value)}`)
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
+            conditionCount++
 
             break
           }
@@ -504,15 +589,12 @@ export class Repository<T extends EntitySchema> {
       }
       // Simple value
       else {
-        conditions.push(`${key} = ${db(condition)}`)
+        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} = ${condition}`
+        conditionCount++
       }
     }
 
-    if (conditions.length > 0) {
-      query = db`${query} WHERE ${db.unsafe(conditions.join(' AND '))}`
-    }
-
-    return query
+    return whereClause
   }
 
   private injectTraitMethods(entity: any): void {

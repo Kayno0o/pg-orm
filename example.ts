@@ -1,4 +1,4 @@
-import { orm, timestamps } from './src'
+import { orm, publishable, timestamps } from './src'
 
 // ============================================================================
 // 1. Define Entities with Builder Pattern
@@ -40,11 +40,10 @@ const Post = orm
     title: orm.string().maxLength(255),
     content: orm.string(),
     authorId: orm.number(),
-    published: orm.boolean().default(false),
-    publishedAt: orm.timestamp().nullable(),
     views: orm.number().integer().default(0),
   })
   .use(timestamps())
+  .use(publishable())
   .unique(['title']) // Add unique constraint
   .beforeUpdate((id, data) => {
     // Update publishedAt when published changes to true

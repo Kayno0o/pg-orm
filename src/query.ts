@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import type { EntitySchema, InferEntity, OrderDirection } from './types'
+import { toSnake } from '@kaynooo/utils'
 
 // ============================================================================
 // Query Builder
@@ -19,12 +20,28 @@ export class QueryBuilder<T extends EntitySchema> {
     private schema: T,
   ) {}
 
+  // Helper to get column name from field name
+  private getColumnName(fieldName: string): string {
+    if (fieldName === 'id')
+      return 'id'
+
+    const fieldConfig = this.schema[fieldName]
+
+    // If explicit columnName is set, use it
+    if ((fieldConfig as any)?.columnName) {
+      return (fieldConfig as any).columnName
+    }
+
+    // Otherwise, convert camelCase to snake_case automatically
+    return toSnake(fieldName)
+  }
+
   // ========================================================================
   // Select
   // ========================================================================
 
   select(...fields: (keyof T | 'id')[]): this {
-    this.selectFields = fields.map(String)
+    this.selectFields = fields.map(f => this.getColumnName(String(f)))
 
     return this
   }
@@ -34,7 +51,10 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   where(field: keyof T | 'id', operator: string, value: any): this {
-    this.whereConditions.push(`${String(field)} ${operator} ${this.db(value)}`)
+    const columnName = this.getColumnName(String(field))
+    // Use proper SQL escaping for values
+    const escapedValue = typeof value === 'string' ? `'${String(value).replace(/'/g, "''")}'` : String(value)
+    this.whereConditions.push(`${columnName} ${operator} ${escapedValue}`)
 
     return this
   }
@@ -44,13 +64,29 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   whereIn(field: keyof T | 'id', values: any[]): this {
-    this.whereConditions.push(`${String(field)} = ANY(${this.db(values)})`)
+    const columnName = this.getColumnName(String(field))
+    // Build IN clause manually - PostgreSQL requires proper quoting
+    const quotedValues = values.map(v => {
+      if (typeof v === 'string') {
+        return `'${String(v).replace(/'/g, "''")}'`
+      }
+      return String(v)
+    }).join(', ')
+    this.whereConditions.push(`${columnName} IN (${quotedValues})`)
 
     return this
   }
 
   whereNotIn(field: keyof T | 'id', values: any[]): this {
-    this.whereConditions.push(`${String(field)} != ALL(${this.db(values)})`)
+    const columnName = this.getColumnName(String(field))
+    // Build NOT IN clause manually - PostgreSQL requires proper quoting
+    const quotedValues = values.map(v => {
+      if (typeof v === 'string') {
+        return `'${String(v).replace(/'/g, "''")}'`
+      }
+      return String(v)
+    }).join(', ')
+    this.whereConditions.push(`${columnName} NOT IN (${quotedValues})`)
 
     return this
   }
@@ -64,44 +100,58 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   whereNull(field: keyof T | 'id'): this {
-    this.whereConditions.push(`${String(field)} IS NULL`)
+    const columnName = this.getColumnName(String(field))
+    this.whereConditions.push(`${columnName} IS NULL`)
 
     return this
   }
 
   whereNotNull(field: keyof T | 'id'): this {
-    this.whereConditions.push(`${String(field)} IS NOT NULL`)
+    const columnName = this.getColumnName(String(field))
+    this.whereConditions.push(`${columnName} IS NOT NULL`)
 
     return this
   }
 
   whereBetween(field: keyof T | 'id', min: any, max: any): this {
-    this.whereConditions.push(`${String(field)} BETWEEN ${this.db(min)} AND ${this.db(max)}`)
+    const columnName = this.getColumnName(String(field))
+    const escapedMin = typeof min === 'string' ? `'${String(min).replace(/'/g, "''")}'` : String(min)
+    const escapedMax = typeof max === 'string' ? `'${String(max).replace(/'/g, "''")}'` : String(max)
+    this.whereConditions.push(`${columnName} BETWEEN ${escapedMin} AND ${escapedMax}`)
 
     return this
   }
 
   // PostgreSQL-specific operators
   whereJsonContains(field: keyof T, value: any): this {
-    this.whereConditions.push(`${String(field)} @> ${this.db(JSON.stringify(value))}::jsonb`)
+    const columnName = this.getColumnName(String(field))
+    const jsonStr = JSON.stringify(value).replace(/'/g, "''")
+    this.whereConditions.push(`${columnName} @> '${jsonStr}'::jsonb`)
 
     return this
   }
 
   whereJsonHasKey(field: keyof T, key: string): this {
-    this.whereConditions.push(`${String(field)} ? ${this.db(key)}`)
+    const columnName = this.getColumnName(String(field))
+    this.whereConditions.push(`${columnName} ? '${key.replace(/'/g, "''")}'`)
 
     return this
   }
 
   whereArrayContains(field: keyof T, value: any): this {
-    this.whereConditions.push(`${String(field)} @> ${this.db([value])}`)
+    const columnName = this.getColumnName(String(field))
+    // Format single value as array: value -> '{value}'
+    const escapedValue = typeof value === 'string' ? value.replace(/'/g, "''") : String(value)
+    this.whereConditions.push(`${columnName} @> '{${escapedValue}}'`)
 
     return this
   }
 
   whereArrayOverlaps(field: keyof T, values: any[]): this {
-    this.whereConditions.push(`${String(field)} && ${this.db(values)}`)
+    const columnName = this.getColumnName(String(field))
+    // Format array for PostgreSQL: ['a', 'b'] -> '{a,b}'
+    const escaped = values.map(v => typeof v === 'string' ? String(v).replace(/'/g, "''") : String(v))
+    this.whereConditions.push(`${columnName} && '{${escaped.join(',')}}'`)
 
     return this
   }
@@ -111,7 +161,8 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   orderBy(field: keyof T | 'id', direction: OrderDirection = 'ASC'): this {
-    this.orderByFields.push({ field: String(field), direction })
+    const columnName = this.getColumnName(String(field))
+    this.orderByFields.push({ field: columnName, direction })
 
     return this
   }
@@ -125,7 +176,7 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   groupBy(...fields: (keyof T | 'id')[]): this {
-    this.groupByFields = fields.map(String)
+    this.groupByFields = fields.map(f => this.getColumnName(String(f)))
 
     return this
   }
