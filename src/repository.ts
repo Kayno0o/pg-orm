@@ -51,8 +51,9 @@ export class Repository<
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
+    const selectColumns = this.buildSelectColumns()
     const [result] = await db`
-      SELECT * FROM ${db(this.tableName)}
+      SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}
       WHERE id = ${id}
       LIMIT 1
     `
@@ -62,7 +63,8 @@ export class Repository<
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
-    const results = await db`SELECT * FROM ${db(this.tableName)}`
+    const selectColumns = this.buildSelectColumns()
+    const results = await db`SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}`
 
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
@@ -79,9 +81,10 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
+    const selectColumns = this.buildSelectColumns()
     const [result] = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedData)}
-      RETURNING *
+      RETURNING ${db.unsafe(selectColumns)}
     `
 
     const entity = this.mapRowToEntity(result)
@@ -114,11 +117,12 @@ export class Repository<
       }
     }
 
+    const selectColumns = this.buildSelectColumns()
     const [result] = await db`
       UPDATE ${db(this.tableName)}
       SET ${db(preparedData)}
       WHERE id = ${id}
-      RETURNING *
+      RETURNING ${db.unsafe(selectColumns)}
     `
 
     if (!result) {
@@ -182,6 +186,7 @@ export class Repository<
           FROM pg_class
           WHERE relname = ${this.tableName}
         `
+
         return Number(result.estimate)
       }
       catch {
@@ -245,25 +250,27 @@ export class Repository<
   // ========================================================================
 
   async createMany(dataArray: InferCreateData<T>[]): Promise<InferEntity<T, TTraits>[]> {
-    const db = this.getDB()
+    if (dataArray.length === 0)
+      return []
 
-    // Validate all items
     for (const data of dataArray) {
       this.validator.validate(data as Record<string, unknown>, this.schema, 'create')
     }
 
-    const preparedArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
+    const results: InferEntity<T, TTraits>[] = []
 
-    const results = await db`
-      INSERT INTO ${db(this.tableName)} ${db(preparedArray)}
-      RETURNING *
-    `
+    for (const data of dataArray) {
+      const result = await this.create(data)
 
-    return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
+      results.push(result)
+    }
+
+    return results
   }
 
   async deleteMany(ids: number[]): Promise<void> {
-    if (ids.length === 0) return
+    if (ids.length === 0)
+      return
 
     const db = this.getDB()
 
@@ -287,6 +294,7 @@ export class Repository<
 
   withTransaction(tx: SQL): Repository<T, TTraits> {
     const cloned = Object.create(Object.getPrototypeOf(this))
+
     Object.assign(cloned, this)
     cloned.txContext = tx
 
@@ -375,6 +383,7 @@ export class Repository<
   private mapRowToEntity(row: DatabaseRow): InferEntity<T, TTraits> {
     // Use prototype for trait methods (performance optimization)
     const entity: any = Object.create(this.entityPrototype)
+
     entity.id = row.id
     entity.__repo__ = this // Store repository reference for trait methods
 
@@ -386,9 +395,18 @@ export class Repository<
       if (value === undefined)
         continue
 
-      // Deserialize arrays
+      // Deserialize arrays (they come as TEXT format from PostgreSQL due to casting)
       if (fieldConfig?.type === 'array' && value !== null && value !== undefined) {
-        entity[fieldName] = Array.isArray(value) ? value : Array.from(value as any)
+        if (Array.isArray(value)) {
+          entity[fieldName] = value
+        }
+        else if (typeof value === 'string') {
+          // Parse PostgreSQL array text format: {val1,val2,val3}
+          entity[fieldName] = this.parsePostgresArray(value, (fieldConfig as any).arrayType)
+        }
+        else {
+          entity[fieldName] = Array.from(value as any)
+        }
       }
       // Deserialize timestamps/dates
       else if (
@@ -407,6 +425,49 @@ export class Repository<
     return entity as InferEntity<T, TTraits>
   }
 
+  private buildSelectColumns(): string {
+    // Build SELECT clause - cast array columns to TEXT to avoid Bun binary deserialization issues
+    const selectColumns: string[] = ['id']
+    for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
+      const columnName = this.getColumnName(fieldName)
+      if (fieldConfig.type === 'array') {
+        // Cast arrays to TEXT format for proper deserialization
+        selectColumns.push(`${columnName}::TEXT as ${columnName}`)
+      }
+      else {
+        selectColumns.push(columnName)
+      }
+    }
+    return selectColumns.join(', ')
+  }
+
+  private parsePostgresArray(textValue: string, elementType: string): any[] {
+    // Handle empty array
+    if (textValue === '{}') {
+      return []
+    }
+
+    // Remove surrounding braces
+    const content = textValue.slice(1, -1)
+    if (content === '') {
+      return []
+    }
+
+    // Split by comma (simple parsing - doesn't handle nested arrays or escaped commas)
+    const elements = content.split(',')
+
+    // Convert based on element type
+    switch (elementType) {
+      case 'number':
+        return elements.map(e => Number(e))
+      case 'boolean':
+        return elements.map(e => e === 't' || e === 'true')
+      case 'string':
+      default:
+        return elements
+    }
+  }
+
   private prepareData(data: Record<string, unknown>): Record<string, unknown> {
     const prepared: Record<string, unknown> = {}
 
@@ -419,9 +480,21 @@ export class Repository<
       // Get the database column name (converts camelCase to snake_case)
       const columnName = this.getColumnName(key)
 
-      // Use native PostgreSQL array support (let Bun SQL handle it)
+      // Convert arrays to PostgreSQL array format
       if (fieldConfig.type === 'array' && Array.isArray(value)) {
-        prepared[columnName] = value
+        // Convert JavaScript array to PostgreSQL array literal format
+        // e.g., ['a', 'b'] -> '{a,b}'
+        const arrayType = (fieldConfig as any).arrayType
+
+        if (arrayType === 'string') {
+          // Escape quotes and backslashes in strings
+          const escaped = value.map(v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+          prepared[columnName] = `{${escaped.join(',')}}`
+        }
+        else {
+          // For numbers and booleans, no escaping needed
+          prepared[columnName] = `{${value.join(',')}}`
+        }
       }
       else {
         prepared[columnName] = value
@@ -433,7 +506,9 @@ export class Repository<
 
   private buildSelectQuery(options: QueryOptions<T>): any {
     const db = this.getDB()
-    let query = db`SELECT * FROM ${db(this.tableName)}`
+
+    const selectColumns = this.buildSelectColumns()
+    let query = db`SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}`
 
     if (options.where) {
       query = this.applyWhereConditions(query, options.where)
@@ -444,6 +519,7 @@ export class Repository<
 
       for (const [key, direction] of Object.entries(options.order)) {
         const columnName = this.getColumnName(key)
+
         this.validateColumnName(columnName)
 
         // Validate direction
@@ -485,6 +561,7 @@ export class Repository<
         continue
 
       const columnName = this.getColumnName(key)
+
       this.validateColumnName(columnName)
 
       const prefix = conditionCount === 0 ? 'WHERE' : 'AND'
@@ -508,72 +585,86 @@ export class Repository<
           const opPrefix = conditionCount === 0 ? 'WHERE' : 'AND'
 
           switch (op) {
-            case 'eq':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
+          case 'eq':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
+            conditionCount++
+
+            break
+          case 'ne':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
+            conditionCount++
+
+            break
+          case 'gt':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
+            conditionCount++
+
+            break
+          case 'gte':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
+            conditionCount++
+
+            break
+          case 'lt':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
+            conditionCount++
+
+            break
+          case 'lte':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
+            conditionCount++
+
+            break
+          case 'in':
+            if (Array.isArray(value) && value.length > 0) {
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN ${db(value)}`
               conditionCount++
-              break
-            case 'ne':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
+            }
+
+            break
+          case 'notIn':
+            if (Array.isArray(value) && value.length > 0) {
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN ${db(value)}`
               conditionCount++
-              break
-            case 'gt':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
+            }
+
+            break
+          case 'like':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
+            conditionCount++
+
+            break
+          case 'ilike':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
+            conditionCount++
+
+            break
+          case 'isNull':
+            if (value === true) {
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NULL`
               conditionCount++
-              break
-            case 'gte':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
+            }
+
+            break
+          case 'isNotNull':
+            if (value === true) {
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NOT NULL`
               conditionCount++
-              break
-            case 'lt':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
+            }
+
+            break
+          case 'contains':
+            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} @> ${db([value])}`
+            conditionCount++
+
+            break
+          case 'overlaps':
+            if (Array.isArray(value)) {
+              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} && ${db(value)}`
               conditionCount++
-              break
-            case 'lte':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
-              conditionCount++
-              break
-            case 'in':
-              if (Array.isArray(value) && value.length > 0) {
-                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN ${db(value)}`
-                conditionCount++
-              }
-              break
-            case 'notIn':
-              if (Array.isArray(value) && value.length > 0) {
-                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN ${db(value)}`
-                conditionCount++
-              }
-              break
-            case 'like':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
-              conditionCount++
-              break
-            case 'ilike':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
-              conditionCount++
-              break
-            case 'isNull':
-              if (value === true) {
-                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NULL`
-                conditionCount++
-              }
-              break
-            case 'isNotNull':
-              if (value === true) {
-                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NOT NULL`
-                conditionCount++
-              }
-              break
-            case 'contains':
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} @> ${db([value])}`
-              conditionCount++
-              break
-            case 'overlaps':
-              if (Array.isArray(value)) {
-                whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} && ${db(value)}`
-                conditionCount++
-              }
-              break
+            }
+
+            break
           }
         }
       }
