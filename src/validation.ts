@@ -35,40 +35,50 @@ export class Validator {
       if (!fieldConfig.nullable && fieldConfig.default === undefined) {
         this.addError(fieldName, 'required', `Field "${fieldName}" is required`, value)
       }
+
       return // No further validation needed for null/undefined
     }
 
     // Type-specific validation
     switch (fieldConfig.type) {
-      case 'string':
-        this.validateString(fieldName, value, fieldConfig as StringFieldConfig)
-        break
-      case 'number':
-        this.validateNumber(fieldName, value, fieldConfig as NumberFieldConfig)
-        break
-      case 'boolean':
-        this.validateBoolean(fieldName, value, fieldConfig as BooleanFieldConfig)
-        break
-      case 'enum':
-        this.validateEnum(fieldName, value, fieldConfig as EnumFieldConfig)
-        break
-      case 'uuid':
-        this.validateUuid(fieldName, value)
-        break
-      case 'array':
-        this.validateArray(fieldName, value)
-        break
-      case 'json':
-      case 'jsonb':
-        this.validateJson(fieldName, value)
-        break
-      case 'date':
-      case 'timestamp':
-        this.validateDate(fieldName, value)
-        break
-      case 'blob':
-        this.validateBlob(fieldName, value)
-        break
+    case 'string':
+      this.validateString(fieldName, value, fieldConfig as StringFieldConfig)
+
+      break
+    case 'number':
+      this.validateNumber(fieldName, value, fieldConfig as NumberFieldConfig)
+
+      break
+    case 'boolean':
+      this.validateBoolean(fieldName, value, fieldConfig as BooleanFieldConfig)
+
+      break
+    case 'enum':
+      this.validateEnum(fieldName, value, fieldConfig as EnumFieldConfig)
+
+      break
+    case 'uuid':
+      this.validateUuid(fieldName, value)
+
+      break
+    case 'array':
+      this.validateArray(fieldName, value)
+
+      break
+    case 'json':
+    case 'jsonb':
+      this.validateJson(fieldName, value)
+
+      break
+    case 'date':
+    case 'timestamp':
+      this.validateDate(fieldName, value)
+
+      break
+    case 'blob':
+      this.validateBlob(fieldName, value)
+
+      break
     }
   }
 
@@ -79,6 +89,7 @@ export class Validator {
   private validateString(fieldName: string, value: unknown, config: StringFieldConfig): void {
     if (typeof value !== 'string') {
       this.addError(fieldName, 'type', `Field "${fieldName}" must be a string`, value)
+
       return
     }
 
@@ -106,6 +117,7 @@ export class Validator {
 
     if (Number.isNaN(numValue)) {
       this.addError(fieldName, 'type', `Field "${fieldName}" must be a number`, value)
+
       return
     }
 
@@ -141,6 +153,7 @@ export class Validator {
   private validateEnum(fieldName: string, value: unknown, config: EnumFieldConfig): void {
     if (typeof value !== 'string') {
       this.addError(fieldName, 'type', `Field "${fieldName}" must be a string`, value)
+
       return
     }
 
@@ -157,10 +170,12 @@ export class Validator {
   private validateUuid(fieldName: string, value: unknown): void {
     if (typeof value !== 'string') {
       this.addError(fieldName, 'type', `Field "${fieldName}" must be a string`, value)
+
       return
     }
 
     const uuidRegex = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
+
     if (!uuidRegex.test(value)) {
       this.addError(fieldName, 'format', `Field "${fieldName}" must be a valid UUID`, value)
     }
@@ -181,6 +196,7 @@ export class Validator {
   private validateDate(fieldName: string, value: unknown): void {
     if (!(value instanceof Date)) {
       const dateValue = new Date(value as any)
+
       if (Number.isNaN(dateValue.getTime())) {
         this.addError(fieldName, 'type', `Field "${fieldName}" must be a valid date`, value)
       }
@@ -207,6 +223,7 @@ export class Validator {
       if (operation === 'create') {
         if (value === undefined && !fieldConfig.nullable && fieldConfig.default === undefined) {
           this.addError(fieldName, 'required', `Field "${fieldName}" is required`, value)
+
           continue
         }
       }

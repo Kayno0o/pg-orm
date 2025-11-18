@@ -428,8 +428,10 @@ export class Repository<
   private buildSelectColumns(): string {
     // Build SELECT clause - cast array columns to TEXT to avoid Bun binary deserialization issues
     const selectColumns: string[] = ['id']
+
     for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
       const columnName = this.getColumnName(fieldName)
+
       if (fieldConfig.type === 'array') {
         // Cast arrays to TEXT format for proper deserialization
         selectColumns.push(`${columnName}::TEXT as ${columnName}`)
@@ -438,6 +440,7 @@ export class Repository<
         selectColumns.push(columnName)
       }
     }
+
     return selectColumns.join(', ')
   }
 
@@ -449,6 +452,7 @@ export class Repository<
 
     // Remove surrounding braces
     const content = textValue.slice(1, -1)
+
     if (content === '') {
       return []
     }
@@ -458,13 +462,13 @@ export class Repository<
 
     // Convert based on element type
     switch (elementType) {
-      case 'number':
-        return elements.map(e => Number(e))
-      case 'boolean':
-        return elements.map(e => e === 't' || e === 'true')
-      case 'string':
-      default:
-        return elements
+    case 'number':
+      return elements.map(e => Number(e))
+    case 'boolean':
+      return elements.map(e => e === 't' || e === 'true')
+    case 'string':
+    default:
+      return elements
     }
   }
 
@@ -489,6 +493,7 @@ export class Repository<
         if (arrayType === 'string') {
           // Escape quotes and backslashes in strings
           const escaped = value.map(v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+
           prepared[columnName] = `{${escaped.join(',')}}`
         }
         else {

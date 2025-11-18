@@ -1,8 +1,10 @@
 import type { SQL } from 'bun'
+import type { DatabaseConfig } from './db'
 import type { EntityDefinition, EntitySchema, FieldConfig, Plugin } from './types'
-import { closeDatabase, getDatabase, initializeDatabase, transaction, type DatabaseConfig } from './db'
+import { closeDatabase, getDatabase, initializeDatabase, transaction } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
+import { Migrator } from './migration/migrator'
 import { Repository } from './repository'
 import { createTrait } from './traits'
 
@@ -16,6 +18,10 @@ export class ORM {
   private repositories = new WeakMap<EntityDefinition<any>, Repository<any>>()
   // Track all created repositories for cleanup
   private allRepositories = new Set<Repository<any>>()
+  // Track all registered entities for migrations
+  private entities = new Map<string, EntityDefinition<any>>()
+  // Migration system
+  private migrator: Migrator | null = null
 
   // ========================================================================
   // Database Connection
@@ -23,6 +29,18 @@ export class ORM {
 
   async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
+
+    // Initialize migrations if configured
+    const migrationConfig = typeof connectionString === 'object'
+      ? connectionString.migrations
+      : undefined
+
+    if (migrationConfig || this.entities.size > 0) {
+      const db = getDatabase()
+
+      this.migrator = new Migrator(db, this.entities, migrationConfig)
+      await this.migrator.initialize()
+    }
   }
 
   async disconnect(options?: { timeout?: number }): Promise<void> {
@@ -73,6 +91,11 @@ export class ORM {
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[]>(
     entityDef: EntityDefinition<T, TTraits>,
   ): Repository<T, TTraits> {
+    // Track entity for migrations
+    if (!this.entities.has(entityDef.tableName)) {
+      this.entities.set(entityDef.tableName, entityDef)
+    }
+
     // Return cached repository if exists for this specific entity definition
     if (this.repositories.has(entityDef)) {
       return this.repositories.get(entityDef)! as Repository<T, TTraits>
@@ -165,6 +188,51 @@ export class ORM {
 
   get blob() {
     return field.blob
+  }
+
+  // ========================================================================
+  // Migration API
+  // ========================================================================
+
+  /**
+   * Migration API - only available after connect()
+   */
+  get migration() {
+    if (!this.migrator) {
+      throw new Error('Migrations not initialized. Call orm.connect() first.')
+    }
+
+    return {
+      /**
+       * Create a new migration file
+       */
+      create: (name: string) => this.migrator!.create(name),
+
+      /**
+       * Run all pending migrations
+       */
+      run: () => this.migrator!.run(),
+
+      /**
+       * Rollback the last batch of migrations
+       */
+      rollback: () => this.migrator!.rollback(),
+
+      /**
+       * Rollback all migrations
+       */
+      reset: () => this.migrator!.reset(),
+
+      /**
+       * Show migration status
+       */
+      status: () => this.migrator!.status(),
+
+      /**
+       * Generate migration file from current schema diff
+       */
+      generate: (name?: string) => this.migrator!.generate(name),
+    }
   }
 }
 

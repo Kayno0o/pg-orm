@@ -52,6 +52,7 @@ export class QueryBuilder<T extends EntitySchema> {
   // Helper to add parameter and return placeholder
   private addParam(value: any): string {
     this.whereParams.push(value)
+
     return `$${this.whereParams.length}`
   }
 
@@ -72,6 +73,7 @@ export class QueryBuilder<T extends EntitySchema> {
   where(field: keyof T | 'id', operator: string, value: any): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(value)
+
     this.whereConditions.push(`${columnName} ${operator} ${placeholder}`)
 
     return this
@@ -85,11 +87,13 @@ export class QueryBuilder<T extends EntitySchema> {
     if (values.length === 0) {
       // Empty IN clause always returns false
       this.whereConditions.push('FALSE')
+
       return this
     }
 
     const columnName = this.validateColumnName(String(field))
     const placeholders = values.map(v => this.addParam(v)).join(', ')
+
     this.whereConditions.push(`${columnName} IN (${placeholders})`)
 
     return this
@@ -103,6 +107,7 @@ export class QueryBuilder<T extends EntitySchema> {
 
     const columnName = this.validateColumnName(String(field))
     const placeholders = values.map(v => this.addParam(v)).join(', ')
+
     this.whereConditions.push(`${columnName} NOT IN (${placeholders})`)
 
     return this
@@ -118,6 +123,7 @@ export class QueryBuilder<T extends EntitySchema> {
 
   whereNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
+
     this.whereConditions.push(`${columnName} IS NULL`)
 
     return this
@@ -125,6 +131,7 @@ export class QueryBuilder<T extends EntitySchema> {
 
   whereNotNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
+
     this.whereConditions.push(`${columnName} IS NOT NULL`)
 
     return this
@@ -134,6 +141,7 @@ export class QueryBuilder<T extends EntitySchema> {
     const columnName = this.validateColumnName(String(field))
     const minPlaceholder = this.addParam(min)
     const maxPlaceholder = this.addParam(max)
+
     this.whereConditions.push(`${columnName} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`)
 
     return this
@@ -143,6 +151,7 @@ export class QueryBuilder<T extends EntitySchema> {
   whereJsonContains(field: keyof T, value: any): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(JSON.stringify(value))
+
     this.whereConditions.push(`${columnName} @> ${placeholder}::jsonb`)
 
     return this
@@ -151,6 +160,7 @@ export class QueryBuilder<T extends EntitySchema> {
   whereJsonHasKey(field: keyof T, key: string): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(key)
+
     this.whereConditions.push(`${columnName} ? ${placeholder}`)
 
     return this
@@ -159,6 +169,7 @@ export class QueryBuilder<T extends EntitySchema> {
   whereArrayContains(field: keyof T, value: any): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam([value])
+
     this.whereConditions.push(`${columnName} @> ${placeholder}`)
 
     return this
@@ -167,6 +178,7 @@ export class QueryBuilder<T extends EntitySchema> {
   whereArrayOverlaps(field: keyof T, values: any[]): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(values)
+
     this.whereConditions.push(`${columnName} && ${placeholder}`)
 
     return this
@@ -211,6 +223,7 @@ export class QueryBuilder<T extends EntitySchema> {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid LIMIT value: ${value}. Must be a non-negative integer.`)
     }
+
     this.limitValue = value
 
     return this
@@ -220,6 +233,7 @@ export class QueryBuilder<T extends EntitySchema> {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid OFFSET value: ${value}. Must be a non-negative integer.`)
     }
+
     this.offsetValue = value
 
     return this
@@ -296,6 +310,7 @@ export class QueryBuilder<T extends EntitySchema> {
 
     if (this.orderByFields.length > 0) {
       const orderClauses = this.orderByFields.map(o => `${o.field} ${o.direction}`).join(', ')
+
       query += ` ORDER BY ${orderClauses}`
     }
 

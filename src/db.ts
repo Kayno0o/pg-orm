@@ -1,3 +1,4 @@
+import type { MigrationConfig } from './migration/types'
 import { sql as bunSql, SQL } from 'bun'
 
 // ============================================================================
@@ -25,6 +26,9 @@ export interface DatabaseConfig {
   ssl?: boolean | object
   max?: number
   min?: number
+
+  // Migration configuration
+  migrations?: MigrationConfig
 }
 
 // ============================================================================
@@ -40,10 +44,10 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
   else {
     // Apply defaults for connection pool
     const {
-      poolMin = 2,
-      poolMax = 10,
-      idleTimeout = 30000,
-      connectionTimeout = 10000,
+      poolMin: _poolMin = 2,
+      poolMax: _poolMax = 10,
+      idleTimeout: _idleTimeout = 30000,
+      connectionTimeout: _connectionTimeout = 10000,
       ...rest
     } = connectionString
 

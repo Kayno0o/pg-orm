@@ -94,43 +94,19 @@ const Post = orm
 // ============================================================================
 
 async function setup() {
-  // Connect to database
-  await orm.connect(process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/orm_test')
+  // Connect to database with migration configuration
+  await orm.connect({
+    connectionString: process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/orm_test',
+    migrations: {
+      autoMigrate: true, // Prompt for schema changes (default: true)
+      noInteraction: true, // Auto-approve in this example (default: false)
+      migrationsPath: 'migrations', // Custom path for migration files
+      safeMigrations: true, // Never auto-drop columns (default: true)
+    },
+  })
 
-  // Create tables (you would normally use migrations for this)
-  const db = orm.getDB()
-
-  await db`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      age INTEGER,
-      role TEXT NOT NULL,
-      is_active BOOLEAN DEFAULT true,
-      metadata JSONB,
-      tags TEXT[],
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )
-  `
-
-  await db`
-    CREATE TABLE IF NOT EXISTS posts (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL UNIQUE,
-      content TEXT NOT NULL,
-      author_id INTEGER NOT NULL,
-      published BOOLEAN DEFAULT false,
-      published_at TIMESTAMP WITH TIME ZONE,
-      views INTEGER DEFAULT 0,
-      likes_count INTEGER DEFAULT 0,
-      liked_by INTEGER[] DEFAULT '{}',
-      deleted_at TIMESTAMP WITH TIME ZONE,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )
-  `
+  // Tables will be created automatically by auto-migration system!
+  // The migration system detects entity definitions and creates tables as needed
 
   console.log('✅ Database setup complete')
 }
@@ -478,19 +454,78 @@ async function traitMethodsDemo() {
 }
 
 // ============================================================================
+// 11. Migration System Demo
+// ============================================================================
+
+async function migrationDemo() {
+  console.log('\n=== Migration System ===')
+
+  // The migration system has already run during orm.connect()
+  // It automatically detected the User and Post entity definitions
+  // and created the tables if they didn't exist
+
+  console.log('✅ Auto-migration completed during connect()')
+
+  // 1. Check migration status
+  console.log('\n1. Migration Status:')
+  await orm.migration.status()
+
+  // 2. Create a new migration file
+  console.log('\n2. Creating a custom migration file:')
+  const filePath = await orm.migration.create('add_user_preferences')
+
+  console.log(`   Created: ${filePath}`)
+
+  // 3. Generate migration from schema changes (if any)
+  console.log('\n3. Checking for schema changes to generate migration:')
+  const migrationPath = await orm.migration.generate('auto_schema_update')
+
+  if (migrationPath) {
+    console.log(`   Generated: ${migrationPath}`)
+  }
+
+  // 4. Run pending migrations
+  console.log('\n4. Running pending migrations:')
+
+  try {
+    await orm.migration.run()
+  }
+  catch (error) {
+    console.log('   No pending migrations to run')
+  }
+
+  // 5. Demonstrate rollback (commented out to not affect the example)
+  // console.log('\n5. Rollback last batch:')
+  // await orm.migration.rollback()
+
+  // 6. Demonstrate reset (commented out to not affect the example)
+  // console.log('\n6. Reset all migrations:')
+  // await orm.migration.reset()
+
+  console.log('\n✅ Migration system is fully functional!')
+  console.log('\nMigration Features:')
+  console.log('  • Auto-migration: Detects schema changes automatically')
+  console.log('  • Manual migrations: Create timestamped migration files')
+  console.log('  • Schema diffing: Compares entities with database schema')
+  console.log('  • Batch tracking: Track and rollback migrations in batches')
+  console.log('  • Safe mode: Prevents accidental column drops by default')
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
 async function main() {
   try {
     await setup()
+    await migrationDemo()
     await basicCRUD()
     await queryOperations()
     await queryBuilder()
     await customRepositoryMethods()
     await transactions()
     await lifecycleHooks()
-    await traitMethodsDemo() // NEW!
+    await traitMethodsDemo()
 
     console.log('\n✅ All examples completed successfully!')
   }
@@ -503,6 +538,7 @@ async function main() {
 
     await db`DROP TABLE IF EXISTS posts`
     await db`DROP TABLE IF EXISTS users`
+    await db`DROP TABLE IF EXISTS _migrations`
     await orm.disconnect()
     console.log('\n🧹 Cleanup complete')
   }

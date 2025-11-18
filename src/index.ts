@@ -2,7 +2,7 @@
 // Core ORM
 // ============================================================================
 
-export { closeDatabase, getDatabase, initializeDatabase, sql, SQL, transaction, type DatabaseConfig } from './db'
+export { closeDatabase, type DatabaseConfig, getDatabase, initializeDatabase, sql, SQL, transaction } from './db'
 
 // ============================================================================
 // Database
@@ -38,30 +38,47 @@ export type {
 // Repository
 // ============================================================================
 
-export { ORM, orm } from './orm'
+export type {
+  DatabaseColumn,
+  DatabaseConstraint,
+  DatabaseIndex,
+  DatabaseSchema,
+  DatabaseTable,
+  Migration,
+  MigrationConfig,
+  MigrationRecord,
+  MigrationRunResult,
+  MigrationStatus,
+  PostgresType,
+  PostgresTypeMapping,
+  SchemaChange,
+  SchemaChangeType,
+  SchemaDiff,
+} from './migration/types'
 
 // ============================================================================
 // Query Builder
 // ============================================================================
 
-export { QueryBuilder } from './query'
+export { ORM, orm } from './orm'
 
 // ============================================================================
 // Traits
 // ============================================================================
 
-export { Repository, ValidationError } from './repository'
+export { QueryBuilder } from './query'
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
+export { Repository, ValidationError } from './repository'
 
 // ============================================================================
 // Errors
 // ============================================================================
 
+export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
 export type {
   AfterCreateHook,
   AfterDeleteHook,
@@ -105,4 +122,9 @@ export type {
   WhereOperator,
   WhereValue,
 } from './types'
+
+// ============================================================================
+// Migrations
+// ============================================================================
+
 export type { ValidationErrorDetail } from './types'

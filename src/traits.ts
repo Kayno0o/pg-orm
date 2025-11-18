@@ -2,12 +2,22 @@ import type { AnyRepository, EntitySchema, FieldConfig, TraitDefinition, TraitMe
 import { field } from './field'
 
 // ============================================================================
+// Empty Types (to avoid index signature issues)
+// ============================================================================
+
+// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+type EmptySchema = {}
+
+// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+type EmptyMethods = {}
+
+// ============================================================================
 // Trait Builder
 // ============================================================================
 
 export class TraitBuilder<
-  TFields extends EntitySchema = {},
-  TMethods extends TraitMethods = {},
+  TFields extends EntitySchema = EmptySchema,
+  TMethods extends TraitMethods = EmptyMethods,
 > {
   private _fields: TFields
   private _methods: TMethods
@@ -95,7 +105,7 @@ export class TraitBuilder<
 // Trait Factory Function
 // ============================================================================
 
-export function createTrait(name: string): TraitBuilder<{}, {}> {
+export function createTrait(name: string): TraitBuilder<EmptySchema, EmptyMethods> {
   return new TraitBuilder(name)
 }
 
