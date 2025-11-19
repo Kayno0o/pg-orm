@@ -53,7 +53,7 @@ const User = orm
     name: orm.string(), // Required by default (no undefined in type)
     email: orm.string().unique(), // Required, unique constraint
     age: orm.number().nullable(), // Optional (can be null or undefined in create)
-    role: orm.enum(['admin', 'user', 'moderator']), // Required enum
+    role: orm.enum(['admin', 'user', 'moderator'] as const), // Required enum
     isActive: orm.boolean().default(true), // Optional (has default)
     metadata: orm.jsonb<UserMetadata>().nullable(), // Typed JSON, optional
     tags: orm.array('string'), // Typed string array, required

@@ -7,7 +7,7 @@ import type {
   MigrationStatus,
 } from './types'
 import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { resolve } from 'node:path'
 
 // ============================================================================
 // Migration Runner - Execute and Track Migrations
@@ -211,7 +211,7 @@ export class MigrationRunner {
       const migrations: Migration[] = []
 
       for (const file of migrationFiles) {
-        const filePath = join(migrationsPath, file)
+        const filePath = resolve(migrationsPath, file)
 
         try {
           const module = await import(filePath)

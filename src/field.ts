@@ -16,38 +16,38 @@ import type {
 // String Field Builder
 // ============================================================================
 
-export class StringFieldBuilder {
-  constructor(private config: StringFieldConfig) {}
+export class StringFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: StringFieldConfig<Nullable>) {}
 
-  maxLength(length: number) {
+  maxLength(length: number): StringFieldBuilder<Nullable> {
     return new StringFieldBuilder({ ...this.config, maxLength: length })
   }
 
-  minLength(length: number) {
+  minLength(length: number): StringFieldBuilder<Nullable> {
     return new StringFieldBuilder({ ...this.config, minLength: length })
   }
 
-  nullable() {
+  nullable(): StringFieldBuilder<true> {
     return new StringFieldBuilder({ ...this.config, nullable: true })
   }
 
-  required() {
+  required(): StringFieldBuilder<false> {
     return new StringFieldBuilder({ ...this.config, nullable: false })
   }
 
-  unique() {
+  unique(): StringFieldBuilder<Nullable> {
     return new StringFieldBuilder({ ...this.config, unique: true })
   }
 
-  default(value: string) {
+  default(value: string): StringFieldBuilder<Nullable> {
     return new StringFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): StringFieldBuilder<Nullable> {
     return new StringFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): StringFieldConfig {
+  toConfig(): StringFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -56,42 +56,42 @@ export class StringFieldBuilder {
 // Number Field Builder
 // ============================================================================
 
-export class NumberFieldBuilder {
-  constructor(private config: NumberFieldConfig) {}
+export class NumberFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: NumberFieldConfig<Nullable>) {}
 
-  min(value: number) {
+  min(value: number): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, min: value })
   }
 
-  max(value: number) {
+  max(value: number): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, max: value })
   }
 
-  integer() {
+  integer(): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, integer: true })
   }
 
-  nullable() {
+  nullable(): NumberFieldBuilder<true> {
     return new NumberFieldBuilder({ ...this.config, nullable: true })
   }
 
-  required() {
+  required(): NumberFieldBuilder<false> {
     return new NumberFieldBuilder({ ...this.config, nullable: false })
   }
 
-  unique() {
+  unique(): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, unique: true })
   }
 
-  default(value: number) {
+  default(value: number): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): NumberFieldBuilder<Nullable> {
     return new NumberFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): NumberFieldConfig {
+  toConfig(): NumberFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -100,22 +100,22 @@ export class NumberFieldBuilder {
 // Boolean Field Builder
 // ============================================================================
 
-export class BooleanFieldBuilder {
-  constructor(private config: BooleanFieldConfig) {}
+export class BooleanFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: BooleanFieldConfig<Nullable>) {}
 
-  nullable() {
+  nullable(): BooleanFieldBuilder<true> {
     return new BooleanFieldBuilder({ ...this.config, nullable: true })
   }
 
-  default(value: boolean) {
+  default(value: boolean): BooleanFieldBuilder<Nullable> {
     return new BooleanFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): BooleanFieldBuilder<Nullable> {
     return new BooleanFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): BooleanFieldConfig {
+  toConfig(): BooleanFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -124,26 +124,26 @@ export class BooleanFieldBuilder {
 // JSON Field Builder
 // ============================================================================
 
-export class JsonFieldBuilder<T = unknown> {
-  constructor(private config: JsonFieldConfig<T>) {}
+export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false> {
+  constructor(private config: JsonFieldConfig<T, Nullable>) {}
 
-  nullable() {
-    return new JsonFieldBuilder<T>({ ...this.config, nullable: true })
+  nullable(): JsonFieldBuilder<T, true> {
+    return new JsonFieldBuilder({ ...this.config, nullable: true })
   }
 
-  required() {
-    return new JsonFieldBuilder<T>({ ...this.config, nullable: false })
+  required(): JsonFieldBuilder<T, false> {
+    return new JsonFieldBuilder({ ...this.config, nullable: false })
   }
 
-  default(value: T) {
-    return new JsonFieldBuilder<T>({ ...this.config, default: value as SQLValue })
+  default(value: T): JsonFieldBuilder<T, Nullable> {
+    return new JsonFieldBuilder({ ...this.config, default: value as SQLValue })
   }
 
-  column(name: string) {
-    return new JsonFieldBuilder<T>({ ...this.config, columnName: name })
+  column(name: string): JsonFieldBuilder<T, Nullable> {
+    return new JsonFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): JsonFieldConfig<T> {
+  toConfig(): JsonFieldConfig<T, Nullable> {
     return this.config
   }
 }
@@ -152,30 +152,30 @@ export class JsonFieldBuilder<T = unknown> {
 // UUID Field Builder
 // ============================================================================
 
-export class UuidFieldBuilder {
-  constructor(private config: UuidFieldConfig) {}
+export class UuidFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: UuidFieldConfig<Nullable>) {}
 
-  autoGenerate() {
+  autoGenerate(): UuidFieldBuilder<Nullable> {
     return new UuidFieldBuilder({ ...this.config, autoGenerate: true })
   }
 
-  nullable() {
+  nullable(): UuidFieldBuilder<true> {
     return new UuidFieldBuilder({ ...this.config, nullable: true })
   }
 
-  unique() {
+  unique(): UuidFieldBuilder<Nullable> {
     return new UuidFieldBuilder({ ...this.config, unique: true })
   }
 
-  default(value: string) {
+  default(value: string): UuidFieldBuilder<Nullable> {
     return new UuidFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): UuidFieldBuilder<Nullable> {
     return new UuidFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): UuidFieldConfig {
+  toConfig(): UuidFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -184,26 +184,26 @@ export class UuidFieldBuilder {
 // Timestamp Field Builder
 // ============================================================================
 
-export class TimestampFieldBuilder {
-  constructor(private config: TimestampFieldConfig) {}
+export class TimestampFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: TimestampFieldConfig<Nullable>) {}
 
-  autoUpdate() {
+  autoUpdate(): TimestampFieldBuilder<Nullable> {
     return new TimestampFieldBuilder({ ...this.config, autoUpdate: true })
   }
 
-  nullable() {
+  nullable(): TimestampFieldBuilder<true> {
     return new TimestampFieldBuilder({ ...this.config, nullable: true })
   }
 
-  default(value: SQLValue) {
+  default(value: SQLValue): TimestampFieldBuilder<Nullable> {
     return new TimestampFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): TimestampFieldBuilder<Nullable> {
     return new TimestampFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): TimestampFieldConfig {
+  toConfig(): TimestampFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -212,22 +212,22 @@ export class TimestampFieldBuilder {
 // Date Field Builder
 // ============================================================================
 
-export class DateFieldBuilder {
-  constructor(private config: DateFieldConfig) {}
+export class DateFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: DateFieldConfig<Nullable>) {}
 
-  nullable() {
+  nullable(): DateFieldBuilder<true> {
     return new DateFieldBuilder({ ...this.config, nullable: true })
   }
 
-  default(value: SQLValue) {
+  default(value: SQLValue): DateFieldBuilder<Nullable> {
     return new DateFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
+  column(name: string): DateFieldBuilder<Nullable> {
     return new DateFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): DateFieldConfig {
+  toConfig(): DateFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -236,22 +236,22 @@ export class DateFieldBuilder {
 // Array Field Builder
 // ============================================================================
 
-export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean'> {
-  constructor(private config: ArrayFieldConfig<ArrayType>) {}
+export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = false> {
+  constructor(private config: ArrayFieldConfig<ArrayType, Nullable>) {}
 
-  nullable() {
-    return new ArrayFieldBuilder<ArrayType>({ ...this.config, nullable: true })
+  nullable(): ArrayFieldBuilder<ArrayType, true> {
+    return new ArrayFieldBuilder({ ...this.config, nullable: true })
   }
 
-  default(value: SQLValue) {
-    return new ArrayFieldBuilder<ArrayType>({ ...this.config, default: value })
+  default(value: SQLValue): ArrayFieldBuilder<ArrayType, Nullable> {
+    return new ArrayFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
-    return new ArrayFieldBuilder<ArrayType>({ ...this.config, columnName: name })
+  column(name: string): ArrayFieldBuilder<ArrayType, Nullable> {
+    return new ArrayFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): ArrayFieldConfig<ArrayType> {
+  toConfig(): ArrayFieldConfig<ArrayType, Nullable> {
     return this.config
   }
 }
@@ -260,22 +260,22 @@ export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean'
 // Enum Field Builder
 // ============================================================================
 
-export class EnumFieldBuilder<_T extends readonly string[]> {
-  constructor(private config: EnumFieldConfig) {}
+export class EnumFieldBuilder<Values extends readonly string[], Nullable extends boolean = false> {
+  constructor(private config: EnumFieldConfig<Values, Nullable>) {}
 
-  nullable() {
-    return new EnumFieldBuilder<_T>({ ...this.config, nullable: true })
+  nullable(): EnumFieldBuilder<Values, true> {
+    return new EnumFieldBuilder({ ...this.config, nullable: true })
   }
 
-  default(value: _T[number]) {
-    return new EnumFieldBuilder<_T>({ ...this.config, default: value })
+  default(value: Values[number]): EnumFieldBuilder<Values, Nullable> {
+    return new EnumFieldBuilder({ ...this.config, default: value })
   }
 
-  column(name: string) {
-    return new EnumFieldBuilder<_T>({ ...this.config, columnName: name })
+  column(name: string): EnumFieldBuilder<Values, Nullable> {
+    return new EnumFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): EnumFieldConfig {
+  toConfig(): EnumFieldConfig<Values, Nullable> {
     return this.config
   }
 }
@@ -284,18 +284,18 @@ export class EnumFieldBuilder<_T extends readonly string[]> {
 // Blob Field Builder
 // ============================================================================
 
-export class BlobFieldBuilder {
-  constructor(private config: BlobFieldConfig) {}
+export class BlobFieldBuilder<Nullable extends boolean = false> {
+  constructor(private config: BlobFieldConfig<Nullable>) {}
 
-  nullable() {
+  nullable(): BlobFieldBuilder<true> {
     return new BlobFieldBuilder({ ...this.config, nullable: true })
   }
 
-  column(name: string) {
+  column(name: string): BlobFieldBuilder<Nullable> {
     return new BlobFieldBuilder({ ...this.config, columnName: name })
   }
 
-  toConfig(): BlobFieldConfig {
+  toConfig(): BlobFieldConfig<Nullable> {
     return this.config
   }
 }
@@ -306,28 +306,28 @@ export class BlobFieldBuilder {
 
 export const field = {
   string: () =>
-    new StringFieldBuilder({
+    new StringFieldBuilder<false>({
       type: 'string',
       nullable: false,
       unique: false,
     }),
 
   number: () =>
-    new NumberFieldBuilder({
+    new NumberFieldBuilder<false>({
       type: 'number',
       nullable: false,
       unique: false,
     }),
 
   boolean: () =>
-    new BooleanFieldBuilder({
+    new BooleanFieldBuilder<false>({
       type: 'boolean',
       nullable: false,
       unique: false,
     }),
 
   json: <T = unknown>() =>
-    new JsonFieldBuilder<T>({
+    new JsonFieldBuilder<T, false>({
       type: 'json',
       nullable: false,
       unique: false,
@@ -335,7 +335,7 @@ export const field = {
     }),
 
   jsonb: <T = unknown>() =>
-    new JsonFieldBuilder<T>({
+    new JsonFieldBuilder<T, false>({
       type: 'jsonb',
       nullable: false,
       unique: false,
@@ -343,36 +343,36 @@ export const field = {
     }),
 
   uuid: () =>
-    new UuidFieldBuilder({
+    new UuidFieldBuilder<false>({
       type: 'uuid',
       nullable: false,
       unique: false,
     }),
 
   timestamp: () =>
-    new TimestampFieldBuilder({
+    new TimestampFieldBuilder<false>({
       type: 'timestamp',
       nullable: false,
       unique: false,
     }),
 
   date: () =>
-    new DateFieldBuilder({
+    new DateFieldBuilder<false>({
       type: 'date',
       nullable: false,
       unique: false,
     }),
 
   array: <T extends 'string' | 'number' | 'boolean'>(arrayType: T) =>
-    new ArrayFieldBuilder<T>({
+    new ArrayFieldBuilder<T, false>({
       type: 'array',
       arrayType,
       nullable: false,
       unique: false,
     }),
 
-  enum: <_T extends readonly string[]>(values: _T) =>
-    new EnumFieldBuilder<_T>({
+  enum: <Values extends readonly string[]>(values: Values) =>
+    new EnumFieldBuilder<Values, false>({
       type: 'enum',
       values,
       nullable: false,
@@ -380,7 +380,7 @@ export const field = {
     }),
 
   blob: () =>
-    new BlobFieldBuilder({
+    new BlobFieldBuilder<false>({
       type: 'blob',
       nullable: false,
       unique: false,

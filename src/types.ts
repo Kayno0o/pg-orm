@@ -35,76 +35,76 @@ export type FieldType
     | 'enum'
     | 'blob'
 
-export interface BaseFieldConfig {
+export interface BaseFieldConfig<Nullable extends boolean = boolean> {
   type: FieldType
-  nullable: boolean
+  nullable: Nullable
   unique: boolean
   default?: SQLValue
   columnName?: string
   primary?: boolean
 }
 
-export interface StringFieldConfig extends BaseFieldConfig {
+export interface StringFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'string'
   maxLength?: number
   minLength?: number
 }
 
-export interface NumberFieldConfig extends BaseFieldConfig {
+export interface NumberFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'number'
   min?: number
   max?: number
   integer?: boolean
 }
 
-export interface BooleanFieldConfig extends BaseFieldConfig {
+export interface BooleanFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'boolean'
 }
 
-export interface JsonFieldConfig<T = unknown> extends BaseFieldConfig {
+export interface JsonFieldConfig<T = unknown, Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'json' | 'jsonb'
   schema?: T
 }
 
-export interface UuidFieldConfig extends BaseFieldConfig {
+export interface UuidFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'uuid'
   autoGenerate?: boolean
 }
 
-export interface TimestampFieldConfig extends BaseFieldConfig {
+export interface TimestampFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'timestamp'
   autoUpdate?: boolean
 }
 
-export interface DateFieldConfig extends BaseFieldConfig {
+export interface DateFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'date'
 }
 
-export interface ArrayFieldConfig<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean'> extends BaseFieldConfig {
+export interface ArrayFieldConfig<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'array'
   arrayType: ArrayType
 }
 
-export interface EnumFieldConfig extends BaseFieldConfig {
+export interface EnumFieldConfig<Values extends readonly string[] = readonly string[], Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'enum'
-  values: readonly string[]
+  values: Values
 }
 
-export interface BlobFieldConfig extends BaseFieldConfig {
+export interface BlobFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
   type: 'blob'
 }
 
 export type FieldConfig
-  = | StringFieldConfig
-    | NumberFieldConfig
-    | BooleanFieldConfig
-    | JsonFieldConfig
-    | UuidFieldConfig
-    | TimestampFieldConfig
-    | DateFieldConfig
-    | ArrayFieldConfig
-    | EnumFieldConfig
-    | BlobFieldConfig
+  = | StringFieldConfig<any>
+    | NumberFieldConfig<any>
+    | BooleanFieldConfig<any>
+    | JsonFieldConfig<any, any>
+    | UuidFieldConfig<any>
+    | TimestampFieldConfig<any>
+    | DateFieldConfig<any>
+    | ArrayFieldConfig<any, any>
+    | EnumFieldConfig<any, any>
+    | BlobFieldConfig<any>
 
 // ============================================================================
 // Entity Schema Types
@@ -145,14 +145,14 @@ export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
                     : T['arrayType'] extends 'boolean'
                       ? boolean[]
                       : never
-                : T extends EnumFieldConfig
-                  ? T['values'][number]
+                : T extends EnumFieldConfig<infer Values, any>
+                  ? Values[number]
                   : T extends BlobFieldConfig
                     ? Uint8Array
                     : never
 
-// Make nullable if field is nullable
-export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null : T
+// Make nullable if field is nullable (adds both null and undefined for better semantics)
+export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null | undefined : T
 
 // Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
