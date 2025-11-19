@@ -35,6 +35,9 @@ export class ORM {
     this.migrationConfig = typeof connectionString === 'object'
       ? connectionString.migrations
       : undefined
+
+    // Initialize migrator to run auto-migrations
+    await this.ensureMigrator()
   }
 
   /**
@@ -56,6 +59,19 @@ export class ORM {
       repo.cleanup()
     }
     this.allRepositories.clear()
+
+    // Clear auto-migration tracking for fresh start on reconnect
+    if (this.migrator) {
+      try {
+        await this.migrator.clearAutoMigrations()
+      }
+      catch (error) {
+        // Ignore errors during cleanup (database might be closing)
+      }
+    }
+
+    // Reset migrator to allow fresh initialization on reconnect
+    this.migrator = null
 
     await closeDatabase(options)
   }

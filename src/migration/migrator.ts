@@ -413,4 +413,17 @@ export class Migrator {
     `
     console.log(`\n📝 Recorded auto-migration: ${migrationHash}`)
   }
+
+  /**
+   * Clear auto-migration tracking
+   * Useful for testing environments where schema changes frequently
+   */
+  async clearAutoMigrations(): Promise<void> {
+    const config = this.getConfig()
+
+    await this.db`
+      DELETE FROM ${this.db(config.migrationsTable)}
+      WHERE name LIKE 'auto_%'
+    `
+  }
 }
