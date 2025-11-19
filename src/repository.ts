@@ -147,10 +147,15 @@ export class Repository<
       await hook(id)
     }
 
-    await db`
+    const [result] = await db`
       DELETE FROM ${db(this.tableName)}
       WHERE id = ${id}
+      RETURNING id
     `
+
+    if (!result) {
+      throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
+    }
 
     // Execute after hooks
     for (const hook of this.definition.hooks.afterDelete) {

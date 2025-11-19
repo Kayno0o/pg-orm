@@ -4,7 +4,7 @@ import { cleanupTables, setupTestDatabase, teardownTestDatabase } from './setup'
 
 const User = orm.entity('test_tx_users', {
   name: orm.string(),
-  email: orm.string(),
+  email: orm.string().unique(),
 }).build()
 
 const Post = orm.entity('test_tx_posts', {

@@ -66,7 +66,10 @@ describe('Repository CRUD Operations', () => {
     })
 
     test('should throw error on duplicate unique field', async () => {
-      const data = testData.user.valid()
+      const data = {
+        ...testData.user.valid(),
+        email: 'duplicate-test@example.com',
+      }
 
       await users.create(data)
 

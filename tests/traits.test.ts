@@ -36,8 +36,9 @@ describe('Trait System', () => {
 
       expect(user.createdAt).toBeInstanceOf(Date)
       expect(user.updatedAt).toBeInstanceOf(Date)
-      expect(user.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
-      expect(user.createdAt.getTime()).toBeLessThanOrEqual(after.getTime())
+      // Allow 100ms tolerance for clock skew between app and database
+      expect(user.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 100)
+      expect(user.createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 100)
 
       await cleanupTables('test_timestamps')
       await teardownTestDatabase()
