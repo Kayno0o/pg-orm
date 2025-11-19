@@ -25,6 +25,9 @@ jobs:
           apt-get update
           apt-get install -y postgresql postgresql-contrib
           service postgresql start
+          # Wait for PostgreSQL to be ready
+          until su - postgres -c "pg_isready"; do sleep 1; done
+          # Create test user and database
           su - postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
           su - postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
           su - postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
