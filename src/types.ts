@@ -35,62 +35,63 @@ export type FieldType
     | 'enum'
     | 'blob'
 
-export interface BaseFieldConfig<Nullable extends boolean = boolean> {
+export interface BaseFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> {
   type: FieldType
   nullable: Nullable
   unique: boolean
+  hasDefault: HasDefault
   default?: SQLValue
   columnName?: string
   primary?: boolean
 }
 
-export interface StringFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface StringFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'string'
   maxLength?: number
   minLength?: number
 }
 
-export interface NumberFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface NumberFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'number'
   min?: number
   max?: number
   integer?: boolean
 }
 
-export interface BooleanFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface BooleanFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'boolean'
 }
 
-export interface JsonFieldConfig<T = unknown, Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface JsonFieldConfig<T = unknown, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'json' | 'jsonb'
   schema?: T
 }
 
-export interface UuidFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface UuidFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'uuid'
   autoGenerate?: boolean
 }
 
-export interface TimestampFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface TimestampFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'timestamp'
   autoUpdate?: boolean
 }
 
-export interface DateFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface DateFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'date'
 }
 
-export interface ArrayFieldConfig<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface ArrayFieldConfig<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'array'
   arrayType: ArrayType
 }
 
-export interface EnumFieldConfig<Values extends readonly string[] = readonly string[], Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface EnumFieldConfig<Values extends readonly string[] = readonly string[], Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'enum'
   values: Values
 }
 
-export interface BlobFieldConfig<Nullable extends boolean = boolean> extends BaseFieldConfig<Nullable> {
+export interface BlobFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'blob'
 }
 
@@ -157,12 +158,20 @@ export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] ext
 // Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
 
+// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+type EmptyObject = {}
+
 // Infer entity type from schema (without trait methods for now)
-export type InferEntityBase<T extends EntitySchema> = Prettify<{
-  readonly id: number
-} & {
-  [K in keyof T]: InferField<T[K]>
-}>
+// If schema defines 'id', use it; otherwise add 'readonly id: number'
+export type InferEntityBase<T extends EntitySchema> = Prettify<
+  ('id' extends keyof T
+    ? EmptyObject
+    : {
+      readonly id: number
+    }) & {
+      [K in keyof T]: InferField<T[K]>
+    }
+>
 
 // Infer entity type with trait methods
 export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDefinition<any, any>[] = []> = Prettify<
@@ -173,23 +182,20 @@ export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDe
   }[number]>
 >
 
-// Helper: Check if field has a default value
-type HasDefault<T extends FieldConfig> = T['default'] extends undefined ? false : true
-
 // Create data (without id, required fields are non-nullable, optional/nullable fields are optional)
 export type InferCreateData<T extends EntitySchema> = Prettify<
   {
     // Required fields: not nullable AND no default
     [K in keyof T as T[K]['nullable'] extends true
       ? never
-      : HasDefault<T[K]> extends true
+      : T[K]['hasDefault'] extends true
         ? never
         : K]: InferFieldType<T[K]>
   } & {
     // Optional fields: nullable OR has default
     [K in keyof T as T[K]['nullable'] extends true
       ? K
-      : HasDefault<T[K]> extends true
+      : T[K]['hasDefault'] extends true
         ? K
         : never]?: InferField<T[K]>
   }
@@ -375,9 +381,9 @@ export type NonNullable<T> = T extends null | undefined ? never : T
 // Check if a field is required
 export type IsRequired<T extends FieldConfig> = T['nullable'] extends true
   ? false
-  : T['default'] extends undefined
-    ? true
-    : false
+  : T['hasDefault'] extends true
+    ? false
+    : true
 
 // Get all required field names from schema
 export type RequiredFieldNames<T extends EntitySchema> = {
