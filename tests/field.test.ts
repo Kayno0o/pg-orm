@@ -309,18 +309,30 @@ describe('Field Builders', () => {
     })
   })
 
-  describe('Field Immutability', () => {
-    test('should not mutate original field when chaining', () => {
-      const original = orm.string()
-      const modified = original.maxLength(100).nullable()
+  describe('Field Builder Behavior', () => {
+    test('field builders mutate and return same instance for performance', () => {
+      const builder = orm.string()
+      const modified = builder.maxLength(100).nullable()
 
-      const originalConfig = original.toConfig()
-      const modifiedConfig = modified.toConfig()
+      // Builder pattern mutates for performance - same instance returned
+      expect(builder as any).toBe(modified)
 
-      expect(originalConfig.maxLength).toBeUndefined()
-      expect(originalConfig.nullable).toBe(false)
-      expect(modifiedConfig.maxLength).toBe(100)
-      expect(modifiedConfig.nullable).toBe(true)
+      const config = builder.toConfig()
+
+      expect(config.maxLength).toBe(100)
+      expect(config.nullable as any).toBe(true)
+    })
+
+    test('entity definitions are immutable after build()', () => {
+      const User = orm.entity('users', {
+        name: orm.string(),
+      }).build()
+
+      // Entity definition is frozen
+      expect(Object.isFrozen(User)).toBe(true)
+      expect(() => {
+        (User as any).tableName = 'modified'
+      }).toThrow()
     })
   })
 })

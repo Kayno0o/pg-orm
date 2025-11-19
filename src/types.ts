@@ -123,34 +123,35 @@ export interface EntityMetadata {
 // Type Inference from Schema
 // ============================================================================
 
+// Type mapping for simple field types
+interface FieldTypeMapping {
+  string: string
+  number: number
+  boolean: boolean
+  uuid: string
+  timestamp: Date
+  date: Date
+  blob: Uint8Array
+}
+
+// Helper for array type inference
+type InferArrayType<AT extends 'string' | 'number' | 'boolean'> =
+  AT extends 'string' ? string[]
+  : AT extends 'number' ? number[]
+  : AT extends 'boolean' ? boolean[]
+  : never
+
 // Map field config to TypeScript type (base type without null)
-export type InferFieldType<T extends FieldConfig> = T extends StringFieldConfig
-  ? string
-  : T extends NumberFieldConfig
-    ? number
-    : T extends BooleanFieldConfig
-      ? boolean
-      : T extends JsonFieldConfig<infer U>
-        ? U
-        : T extends UuidFieldConfig
-          ? string
-          : T extends TimestampFieldConfig
-            ? Date
-            : T extends DateFieldConfig
-              ? Date
-              : T extends ArrayFieldConfig
-                ? T['arrayType'] extends 'string'
-                  ? string[]
-                  : T['arrayType'] extends 'number'
-                    ? number[]
-                    : T['arrayType'] extends 'boolean'
-                      ? boolean[]
-                      : never
-                : T extends EnumFieldConfig<infer Values, any>
-                  ? Values[number]
-                  : T extends BlobFieldConfig
-                    ? Uint8Array
-                    : never
+export type InferFieldType<T extends FieldConfig> =
+  T extends JsonFieldConfig<infer U>
+    ? U
+    : T extends ArrayFieldConfig<infer AT, any, any>
+      ? InferArrayType<AT>
+      : T extends EnumFieldConfig<infer Values, any, any>
+        ? Values[number]
+        : T extends { type: infer Type extends keyof FieldTypeMapping }
+          ? FieldTypeMapping[Type]
+          : never
 
 // Make nullable if field is nullable (adds both null and undefined for better semantics)
 export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null | undefined : T

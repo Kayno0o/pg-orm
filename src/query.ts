@@ -240,12 +240,23 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   // ========================================================================
+  // Build Query (Public for inspection/debugging)
+  // ========================================================================
+
+  build(): { sql: string, params: any[] } {
+    return {
+      sql: this.buildQuery(),
+      params: [...this.whereParams],
+    }
+  }
+
+  // ========================================================================
   // Execution
   // ========================================================================
 
   async execute(): Promise<InferEntity<T>[]> {
-    const query = this.buildQuery()
-    const results = await this.db.unsafe(query, this.whereParams)
+    const { sql, params } = this.build()
+    const results = await this.db.unsafe(sql, params)
 
     return results as InferEntity<T>[]
   }
@@ -286,7 +297,8 @@ export class QueryBuilder<T extends EntitySchema> {
       ? `WHERE ${this.whereConditions.join(' AND ')}`
       : ''
 
-    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitValue}`
+    const limitPlaceholder = this.addParam(limitValue)
+    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
     const results = await this.db.unsafe(query, this.whereParams)
 
     return results as InferEntity<T>[]

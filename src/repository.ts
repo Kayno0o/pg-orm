@@ -10,9 +10,9 @@ import type {
   QueryOptions,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
-import { SQL as BunSQL } from 'bun'
 import { getDatabase } from './db'
 import { QueryBuilder } from './query'
+import { QueryGenerator } from './query-generator'
 import { ValidationError, Validator } from './validation'
 
 // ============================================================================
@@ -29,19 +29,18 @@ export class Repository<
   private txContext?: SQL
   private validator: Validator
   private entityPrototype: any
-  private validColumnNames: Set<string>
+  private entityRepositoryMap = new WeakMap<any, Repository<T, TTraits>>()
+  private queryGenerator: QueryGenerator<T>
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
     this.validator = new Validator()
+    this.queryGenerator = new QueryGenerator(this.schema, this.getColumnName.bind(this))
 
     // Build entity prototype once for performance (instead of per-entity injection)
     this.entityPrototype = this.buildEntityPrototype()
-
-    // Cache valid column names for security validation
-    this.validColumnNames = new Set(['id', ...Object.keys(this.schema).map(k => this.getColumnName(k))])
   }
 
   // ========================================================================
@@ -51,7 +50,7 @@ export class Repository<
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
-    const selectColumns = this.buildSelectColumns()
+    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
       SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}
       WHERE id = ${id}
@@ -63,7 +62,7 @@ export class Repository<
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
-    const selectColumns = this.buildSelectColumns()
+    const selectColumns = this.queryGenerator.buildSelectColumns()
     const results = await db`SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}`
 
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
@@ -73,7 +72,7 @@ export class Repository<
     const db = this.getDB()
 
     // Validate input data
-    this.validator.validate(data as Record<string, unknown>, this.schema, 'create')
+    this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
 
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeCreate) {
@@ -81,7 +80,7 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
-    const selectColumns = this.buildSelectColumns()
+    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedData)}
       RETURNING ${db.unsafe(selectColumns)}
@@ -101,7 +100,7 @@ export class Repository<
     const db = this.getDB()
 
     // Validate input data
-    this.validator.validate(data as Record<string, unknown>, this.schema, 'update')
+    this.validator.validate(data as Record<string, unknown>, this.schema, 'update', this.tableName)
 
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeUpdate) {
@@ -117,7 +116,7 @@ export class Repository<
       }
     }
 
-    const selectColumns = this.buildSelectColumns()
+    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
       UPDATE ${db(this.tableName)}
       SET ${db(preparedData)}
@@ -168,7 +167,8 @@ export class Repository<
   // ========================================================================
 
   async findBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits>[]> {
-    const query = this.buildSelectQuery(options)
+    const db = this.getDB()
+    const query = this.queryGenerator.buildSelectQuery(this.tableName, options, db)
     const results = await query
 
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
@@ -203,7 +203,7 @@ export class Repository<
     let query = db`SELECT COUNT(id) as count FROM ${db(this.tableName)}`
 
     if (options?.where) {
-      query = this.applyWhereConditions(query, options.where)
+      query = this.queryGenerator.applyWhereConditions(query, options.where, db)
     }
 
     const [result] = await query
@@ -259,7 +259,7 @@ export class Repository<
       return []
 
     for (const data of dataArray) {
-      this.validator.validate(data as Record<string, unknown>, this.schema, 'create')
+      this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
     }
 
     const results: InferEntity<T, TTraits>[] = []
@@ -298,9 +298,7 @@ export class Repository<
   // ========================================================================
 
   withTransaction(tx: SQL): Repository<T, TTraits> {
-    const cloned = Object.create(Object.getPrototypeOf(this))
-
-    Object.assign(cloned, this)
+    const cloned = new Repository(this.definition)
     cloned.txContext = tx
 
     return cloned
@@ -360,14 +358,9 @@ export class Repository<
     return toSnake(fieldName)
   }
 
-  private validateColumnName(columnName: string): void {
-    if (!this.validColumnNames.has(columnName)) {
-      throw new Error(`Invalid column name: ${columnName}`)
-    }
-  }
-
   private buildEntityPrototype(): any {
     const prototype: any = {}
+    const entityRepositoryMap = this.entityRepositoryMap
 
     // Inject trait methods into prototype (performance optimization)
     for (const trait of this.definition.traits) {
@@ -375,8 +368,12 @@ export class Repository<
         for (const [methodName, method] of Object.entries(trait.methods)) {
           prototype[methodName] = function (this: any, ...args: any[]) {
             // 'this' is bound to entity instance
-            // Pass repository as first argument to trait method
-            return (method as any).call(this, this.__repo__, ...args)
+            // Retrieve repository from WeakMap instead of direct property
+            const repo = entityRepositoryMap.get(this)
+            if (!repo) {
+              throw new Error(`Repository not found for entity. This should never happen.`)
+            }
+            return (method as any).call(this, repo, ...args)
           }
         }
       }
@@ -390,7 +387,8 @@ export class Repository<
     const entity: any = Object.create(this.entityPrototype)
 
     entity.id = row.id
-    entity.__repo__ = this // Store repository reference for trait methods
+    // Store repository reference in WeakMap to avoid memory leaks
+    this.entityRepositoryMap.set(entity, this)
 
     // Map database columns (snake_case) to entity fields (camelCase)
     for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
@@ -430,24 +428,6 @@ export class Repository<
     return entity as InferEntity<T, TTraits>
   }
 
-  private buildSelectColumns(): string {
-    // Build SELECT clause - cast array columns to TEXT to avoid Bun binary deserialization issues
-    const selectColumns: string[] = ['id']
-
-    for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
-      const columnName = this.getColumnName(fieldName)
-
-      if (fieldConfig.type === 'array') {
-        // Cast arrays to TEXT format for proper deserialization
-        selectColumns.push(`${columnName}::TEXT as ${columnName}`)
-      }
-      else {
-        selectColumns.push(columnName)
-      }
-    }
-
-    return selectColumns.join(', ')
-  }
 
   private parsePostgresArray(textValue: string, elementType: string): any[] {
     // Handle empty array
@@ -514,196 +494,6 @@ export class Repository<
     return prepared
   }
 
-  private buildSelectQuery(options: QueryOptions<T>): any {
-    const db = this.getDB()
-
-    const selectColumns = this.buildSelectColumns()
-    let query = db`SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}`
-
-    if (options.where) {
-      query = this.applyWhereConditions(query, options.where)
-    }
-
-    if (options.order) {
-      const orderClauses: string[] = []
-
-      for (const [key, direction] of Object.entries(options.order)) {
-        const columnName = this.getColumnName(key)
-
-        this.validateColumnName(columnName)
-
-        // Validate direction
-        if (direction !== 'ASC' && direction !== 'DESC') {
-          throw new Error(`Invalid ORDER BY direction: ${direction}`)
-        }
-
-        orderClauses.push(`${columnName} ${direction}`)
-      }
-
-      if (orderClauses.length > 0) {
-        query = db`${query} ORDER BY ${db.unsafe(orderClauses.join(', '))}`
-      }
-    }
-
-    if (options.limit !== undefined) {
-      query = db`${query} LIMIT ${options.limit}`
-    }
-
-    if (options.offset !== undefined) {
-      query = db`${query} OFFSET ${options.offset}`
-    }
-
-    return query
-  }
-
-  private applyWhereConditions(query: any, where: QueryOptions<T>['where']): any {
-    const db = this.getDB()
-
-    if (!where)
-      return query
-
-    // Build WHERE clause using proper SQL template interpolation
-    let whereClause = query
-    let conditionCount = 0
-
-    for (const [key, condition] of Object.entries(where)) {
-      if (condition === null || condition === undefined)
-        continue
-
-      const columnName = this.getColumnName(key)
-
-      this.validateColumnName(columnName)
-
-      const prefix = conditionCount === 0 ? 'WHERE' : 'AND'
-
-      // Simple equality or IN clause
-      if (Array.isArray(condition)) {
-        if (condition.length === 0) {
-          // Empty array - skip condition
-          continue
-        }
-
-        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} IN ${db(condition)}`
-        conditionCount++
-      }
-      // Operator object
-      else if (typeof condition === 'object' && !Array.isArray(condition)) {
-        for (const [op, value] of Object.entries(condition)) {
-          if (value === undefined)
-            continue
-
-          const opPrefix = conditionCount === 0 ? 'WHERE' : 'AND'
-
-          switch (op) {
-          case 'eq':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
-            conditionCount++
-
-            break
-          case 'ne':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
-            conditionCount++
-
-            break
-          case 'gt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
-            conditionCount++
-
-            break
-          case 'gte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
-            conditionCount++
-
-            break
-          case 'lt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
-            conditionCount++
-
-            break
-          case 'lte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
-            conditionCount++
-
-            break
-          case 'in':
-            if (Array.isArray(value) && value.length > 0) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          case 'notIn':
-            if (Array.isArray(value) && value.length > 0) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          case 'like':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
-            conditionCount++
-
-            break
-          case 'ilike':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
-            conditionCount++
-
-            break
-          case 'isNull':
-            if (value === true) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NULL`
-              conditionCount++
-            }
-
-            break
-          case 'isNotNull':
-            if (value === true) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NOT NULL`
-              conditionCount++
-            }
-
-            break
-          case 'contains':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} @> ${db([value])}`
-            conditionCount++
-
-            break
-          case 'overlaps':
-            if (Array.isArray(value)) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} && ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          }
-        }
-      }
-      // Simple value
-      else {
-        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} = ${condition}`
-        conditionCount++
-      }
-    }
-
-    return whereClause
-  }
-
-  private handleError(error: unknown, operation: string): never {
-    if (error instanceof ValidationError) {
-      throw error
-    }
-
-    if (error instanceof BunSQL.PostgresError) {
-      throw new Error(
-        `Failed to ${operation} in ${this.tableName}: ${error.message}\n`
-        + `Code: ${error.code || 'unknown'}\n${
-          String(error.detail ? `Detail: ${error.detail}\n` : '')
-        }${String(error.hint ? `Hint: ${error.hint}` : '')}`,
-      )
-    }
-
-    throw error
-  }
 }
 
 // Export ValidationError for user error handling

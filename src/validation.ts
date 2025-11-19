@@ -16,6 +16,7 @@ export class ValidationError extends Error {
   constructor(
     message: string,
     public readonly errors: ValidationErrorDetail[],
+    public readonly tableName?: string,
   ) {
     super(message)
     this.name = 'ValidationError'
@@ -213,7 +214,7 @@ export class Validator {
   // Validate Full Data Object
   // ========================================================================
 
-  validate(data: Record<string, unknown>, schema: EntitySchema, operation: 'create' | 'update'): void {
+  validate(data: Record<string, unknown>, schema: EntitySchema, operation: 'create' | 'update', tableName?: string): void {
     this.errors = []
 
     for (const [fieldName, fieldConfig] of Object.entries(schema)) {
@@ -237,9 +238,11 @@ export class Validator {
     }
 
     if (this.errors.length > 0) {
+      const tableContext = tableName ? ` for table "${tableName}"` : ''
       throw new ValidationError(
-        `Validation failed with ${this.errors.length} error(s)`,
+        `Validation failed${tableContext} with ${this.errors.length} error(s)`,
         this.errors,
+        tableName,
       )
     }
   }
