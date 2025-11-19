@@ -41,8 +41,8 @@ describe('Lifecycle Hooks', () => {
         email: orm.string(),
       })
         .beforeCreate((data) => {
-          data.email = data.email.toLowerCase()
-          data.name = data.name.trim()
+          data.email = data.email!.toLowerCase()
+          data.name = data.name!.trim()
         })
         .build()
 
@@ -67,9 +67,9 @@ describe('Lifecycle Hooks', () => {
         name: orm.string(),
         email: orm.string(),
       })
-        .beforeCreate(() => callOrder.push(1))
-        .beforeCreate(() => callOrder.push(2))
-        .beforeCreate(() => callOrder.push(3))
+        .beforeCreate(() => { callOrder.push(1) })
+        .beforeCreate(() => { callOrder.push(2) })
+        .beforeCreate(() => { callOrder.push(3) })
         .build()
 
       await createTestTable(User)
@@ -86,7 +86,7 @@ describe('Lifecycle Hooks', () => {
   describe('afterCreate Hook', () => {
     test('should execute after entity creation', async () => {
       let hookCalled = false
-      let createdId: number | null = null
+      let createdId: number | undefined
 
       const User = orm.entity('test_after_create', {
         name: orm.string(),
@@ -202,7 +202,8 @@ describe('Lifecycle Hooks', () => {
 
       const users = orm.repo(User)
       const user = await users.create({ name: 'Original', email: 'test@example.com' })
-      const updated = await users.update(user.id, { name: 'Updated' })
+
+      await users.update(user.id, { name: 'Updated' })
 
       expect(hookCalled).toBe(true)
       expect(updatedEntity.name).toBe('Updated')
@@ -215,7 +216,7 @@ describe('Lifecycle Hooks', () => {
   describe('beforeDelete Hook', () => {
     test('should execute before entity deletion', async () => {
       let hookCalled = false
-      let deletedId: number | null = null
+      let deletedId: number | undefined
 
       const User = orm.entity('test_before_delete', {
         name: orm.string(),
@@ -267,7 +268,7 @@ describe('Lifecycle Hooks', () => {
   describe('afterDelete Hook', () => {
     test('should execute after entity deletion', async () => {
       let hookCalled = false
-      let deletedId: number | null = null
+      let deletedId: number | undefined
 
       const User = orm.entity('test_after_delete', {
         name: orm.string(),
@@ -306,10 +307,10 @@ describe('Lifecycle Hooks', () => {
         name: orm.string(),
         email: orm.string(),
       })
-        .beforeCreate(() => executionOrder.push('beforeCreate1'))
-        .beforeCreate(() => executionOrder.push('beforeCreate2'))
-        .afterCreate(() => executionOrder.push('afterCreate1'))
-        .afterCreate(() => executionOrder.push('afterCreate2'))
+        .beforeCreate(() => { executionOrder.push('beforeCreate1') })
+        .beforeCreate(() => { executionOrder.push('beforeCreate2') })
+        .afterCreate(() => { executionOrder.push('afterCreate1') })
+        .afterCreate(() => { executionOrder.push('afterCreate2') })
         .build()
 
       await createTestTable(User)
@@ -334,10 +335,10 @@ describe('Lifecycle Hooks', () => {
         name: orm.string(),
         email: orm.string(),
       })
-        .beforeUpdate(() => executionOrder.push('beforeUpdate1'))
-        .beforeUpdate(() => executionOrder.push('beforeUpdate2'))
-        .afterUpdate(() => executionOrder.push('afterUpdate1'))
-        .afterUpdate(() => executionOrder.push('afterUpdate2'))
+        .beforeUpdate(() => { executionOrder.push('beforeUpdate1') })
+        .beforeUpdate(() => { executionOrder.push('beforeUpdate2') })
+        .afterUpdate(() => { executionOrder.push('afterUpdate1') })
+        .afterUpdate(() => { executionOrder.push('afterUpdate2') })
         .build()
 
       await createTestTable(User)
@@ -363,10 +364,10 @@ describe('Lifecycle Hooks', () => {
         name: orm.string(),
         email: orm.string(),
       })
-        .beforeDelete(() => executionOrder.push('beforeDelete1'))
-        .beforeDelete(() => executionOrder.push('beforeDelete2'))
-        .afterDelete(() => executionOrder.push('afterDelete1'))
-        .afterDelete(() => executionOrder.push('afterDelete2'))
+        .beforeDelete(() => { executionOrder.push('beforeDelete1') })
+        .beforeDelete(() => { executionOrder.push('beforeDelete2') })
+        .afterDelete(() => { executionOrder.push('afterDelete1') })
+        .afterDelete(() => { executionOrder.push('afterDelete2') })
         .build()
 
       await createTestTable(User)
@@ -394,12 +395,12 @@ describe('Lifecycle Hooks', () => {
         name: orm.string(),
         email: orm.string(),
       })
-        .beforeCreate(() => events.push('beforeCreate'))
-        .afterCreate(() => events.push('afterCreate'))
-        .beforeUpdate(() => events.push('beforeUpdate'))
-        .afterUpdate(() => events.push('afterUpdate'))
-        .beforeDelete(() => events.push('beforeDelete'))
-        .afterDelete(() => events.push('afterDelete'))
+        .beforeCreate(() => { events.push('beforeCreate') })
+        .afterCreate(() => { events.push('afterCreate') })
+        .beforeUpdate(() => { events.push('beforeUpdate') })
+        .afterUpdate(() => { events.push('afterUpdate') })
+        .beforeDelete(() => { events.push('beforeDelete') })
+        .afterDelete(() => { events.push('afterDelete') })
         .build()
 
       await createTestTable(User)

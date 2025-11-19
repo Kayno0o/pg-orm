@@ -253,7 +253,7 @@ describe('Query Builder', () => {
 
       await db`DELETE FROM test_query_users`
 
-      const user1 = await users.create({ ...testData.user.valid(), email: 'first@example.com' })
+      await users.create({ ...testData.user.valid(), email: 'first@example.com' })
 
       await new Promise(resolve => setTimeout(resolve, 10))
       const user2 = await users.create({ ...testData.user.valid(), email: 'second@example.com' })

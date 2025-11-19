@@ -382,7 +382,7 @@ export class SchemaDiffer {
     case 'enum': {
       baseMapping.type = 'TEXT'
       // Add CHECK constraint for enum values
-      const values = fieldConfig.values.map(v => `'${v}'`).join(', ')
+      const values = fieldConfig.values.map((v: string) => `'${v}'`).join(', ')
 
       if (columnName) {
         baseMapping.check = `${columnName} IN (${values})`

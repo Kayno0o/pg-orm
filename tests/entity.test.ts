@@ -52,7 +52,7 @@ describe('Entity Builder', () => {
         name: orm.string(),
       })
         .beforeCreate((data) => {
-          data.name = data.name.toUpperCase()
+          data.name = data.name!.toUpperCase()
         })
         .build()
 
@@ -64,10 +64,10 @@ describe('Entity Builder', () => {
         name: orm.string(),
       })
         .beforeCreate((data) => {
-          data.name = data.name.trim()
+          data.name = data.name!.trim()
         })
         .beforeCreate((data) => {
-          data.name = data.name.toLowerCase()
+          data.name = data.name!.toLowerCase()
         })
         .build()
 
@@ -78,12 +78,12 @@ describe('Entity Builder', () => {
       const entity = orm.entity('users', {
         name: orm.string(),
       })
-        .beforeCreate(() => {})
-        .afterCreate(() => {})
-        .beforeUpdate(() => {})
-        .afterUpdate(() => {})
-        .beforeDelete(() => {})
-        .afterDelete(() => {})
+        .beforeCreate(() => { /* empty */ })
+        .afterCreate(() => { /* empty */ })
+        .beforeUpdate(() => { /* empty */ })
+        .afterUpdate(() => { /* empty */ })
+        .beforeDelete(() => { /* empty */ })
+        .afterDelete(() => { /* empty */ })
         .build()
 
       expect(entity.hooks.beforeCreate).toHaveLength(1)
@@ -193,7 +193,7 @@ describe('Entity Builder', () => {
         name: orm.string(),
       })
 
-      const builder2 = builder1.beforeCreate(() => {})
+      const builder2 = builder1.beforeCreate(() => { /* empty */ })
 
       const entity1 = builder1.build()
       const entity2 = builder2.build()
@@ -212,7 +212,7 @@ describe('Entity Builder', () => {
       const entity1 = builder1.build()
       const entity2 = builder2.build()
 
-      expect(entity1.schema.createdAt).toBeUndefined()
+      expect((entity1.schema as any).createdAt).toBeUndefined()
       expect(entity2.schema.createdAt).toBeDefined()
     })
   })
@@ -258,7 +258,7 @@ describe('Entity Builder', () => {
         .use(timestamps())
         .unique(['email'])
         .beforeCreate((data) => {
-          data.email = data.email.toLowerCase()
+          data.email = data.email!.toLowerCase()
         })
         .afterCreate(async () => {
           // Send welcome email

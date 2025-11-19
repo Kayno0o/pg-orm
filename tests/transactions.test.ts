@@ -163,8 +163,8 @@ describe('Transactions', () => {
       await db`DELETE FROM test_tx_posts`
       await db`DELETE FROM test_tx_users`
 
-      let userId: number | null = null
-      let postId: number | null = null
+      let userId: number | undefined
+      let postId: number | undefined
 
       await orm.transaction(async (tx) => {
         const txUsers = users.withTransaction(tx)
