@@ -239,6 +239,7 @@ describe('Transactions', () => {
 
         expect(foundUser).toBeNull()
       }
+
       if (postId) {
         const foundPost = await posts.find(postId)
 

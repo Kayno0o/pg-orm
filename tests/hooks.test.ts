@@ -167,9 +167,7 @@ describe('Lifecycle Hooks', () => {
         email: orm.string(),
       })
         .beforeUpdate((_id, data) => {
-          if (data.email) {
-            data.email = data.email.toLowerCase()
-          }
+          data.email &&= data.email.toLowerCase()
         })
         .build()
 
@@ -409,6 +407,7 @@ describe('Lifecycle Hooks', () => {
       const users = orm.repo(User)
 
       const user = await users.create({ name: 'Test', email: 'test@example.com' })
+
       await users.update(user.id, { name: 'Updated' })
       await users.delete(user.id)
 
