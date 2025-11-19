@@ -22,6 +22,7 @@ export class ORM {
   private entities = new Map<string, EntityDefinition<any>>()
   // Migration system
   private migrator: Migrator | null = null
+  private migrationConfig: DatabaseConfig['migrations'] | undefined
 
   // ========================================================================
   // Database Connection
@@ -30,15 +31,21 @@ export class ORM {
   async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
 
-    // Initialize migrations if configured
-    const migrationConfig = typeof connectionString === 'object'
+    // Store migration config for lazy initialization
+    this.migrationConfig = typeof connectionString === 'object'
       ? connectionString.migrations
       : undefined
+  }
 
-    if (migrationConfig || this.entities.size > 0) {
+  /**
+   * Lazy initialize migrator when first accessed
+   * This ensures all entities are registered before migration detection
+   */
+  private async ensureMigrator(): Promise<void> {
+    if (!this.migrator) {
       const db = getDatabase()
 
-      this.migrator = new Migrator(db, this.entities, migrationConfig)
+      this.migrator = new Migrator(db, this.entities, this.migrationConfig)
       await this.migrator.initialize()
     }
   }
@@ -198,40 +205,60 @@ export class ORM {
    * Migration API - only available after connect()
    */
   get migration() {
-    if (!this.migrator) {
-      throw new Error('Migrations not initialized. Call orm.connect() first.')
-    }
-
     return {
       /**
        * Create a new migration file
        */
-      create: (name: string) => this.migrator!.create(name),
+      create: async (name: string) => {
+        await this.ensureMigrator()
+
+        return this.migrator!.create(name)
+      },
 
       /**
        * Run all pending migrations
        */
-      run: () => this.migrator!.run(),
+      run: async () => {
+        await this.ensureMigrator()
+
+        return this.migrator!.run()
+      },
 
       /**
        * Rollback the last batch of migrations
        */
-      rollback: () => this.migrator!.rollback(),
+      rollback: async () => {
+        await this.ensureMigrator()
+
+        return this.migrator!.rollback()
+      },
 
       /**
        * Rollback all migrations
        */
-      reset: () => this.migrator!.reset(),
+      reset: async () => {
+        await this.ensureMigrator()
+
+        return this.migrator!.reset()
+      },
 
       /**
        * Show migration status
        */
-      status: () => this.migrator!.status(),
+      status: async () => {
+        await this.ensureMigrator()
+
+        return this.migrator!.status()
+      },
 
       /**
        * Generate migration file from current schema diff
        */
-      generate: (name?: string) => this.migrator!.generate(name),
+      generate: async (name?: string) => {
+        await this.ensureMigrator()
+
+        return this.migrator!.generate(name)
+      },
     }
   }
 }

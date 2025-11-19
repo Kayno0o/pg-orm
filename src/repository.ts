@@ -299,6 +299,7 @@ export class Repository<
 
   withTransaction(tx: SQL): Repository<T, TTraits> {
     const cloned = new Repository(this.definition)
+
     cloned.txContext = tx
 
     return cloned
@@ -370,9 +371,11 @@ export class Repository<
             // 'this' is bound to entity instance
             // Retrieve repository from WeakMap instead of direct property
             const repo = entityRepositoryMap.get(this)
+
             if (!repo) {
               throw new Error(`Repository not found for entity. This should never happen.`)
             }
+
             return (method as any).call(this, repo, ...args)
           }
         }
@@ -427,7 +430,6 @@ export class Repository<
 
     return entity as InferEntity<T, TTraits>
   }
-
 
   private parsePostgresArray(textValue: string, elementType: string): any[] {
     // Handle empty array
@@ -493,7 +495,6 @@ export class Repository<
 
     return prepared
   }
-
 }
 
 // Export ValidationError for user error handling

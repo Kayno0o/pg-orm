@@ -230,7 +230,7 @@ export class SchemaDiffer {
     }
 
     // Compare default value
-    const expectedDefault = this.formatDefaultValue(expectedType.default)
+    const expectedDefault = expectedType.default // Already formatted by fieldToPostgresType
     const actualDefault = this.normalizeDefault(dbColumn.columnDefault)
 
     if (expectedDefault !== actualDefault) {
@@ -399,7 +399,7 @@ export class SchemaDiffer {
 
     // Add default value
     if (fieldConfig.default !== undefined) {
-      baseMapping.default = this.formatDefaultValue(fieldConfig.default)
+      baseMapping.default = this.formatDefaultValue(fieldConfig.default, fieldConfig)
     }
 
     return baseMapping
@@ -422,6 +422,11 @@ export class SchemaDiffer {
     // Handle standard types
     switch (dbColumn.dataType.toUpperCase()) {
     case 'CHARACTER VARYING':
+      // Preserve length for VARCHAR columns
+      if (dbColumn.characterMaximumLength) {
+        return `VARCHAR(${dbColumn.characterMaximumLength})` as PostgresType
+      }
+
       return 'VARCHAR'
     case 'TEXT':
       return 'TEXT'
@@ -451,7 +456,7 @@ export class SchemaDiffer {
     }
   }
 
-  private formatDefaultValue(value: any): string | undefined {
+  private formatDefaultValue(value: any, fieldConfig: FieldConfig): string | undefined {
     if (value === undefined)
       return undefined
 
@@ -469,7 +474,35 @@ export class SchemaDiffer {
     }
 
     if (Array.isArray(value)) {
-      return `'{}'` // Empty array literal
+      // Proper PostgreSQL array literal syntax with type casting
+      // Use '{...}'::TYPE[] format which works in template literals
+      if (fieldConfig.type === 'array') {
+        if (value.length === 0) {
+          // Empty array
+          switch (fieldConfig.arrayType) {
+          case 'string':
+            return `'{}'::TEXT[]`
+          case 'number':
+            return `'{}'::INTEGER[]`
+          case 'boolean':
+            return `'{}'::BOOLEAN[]`
+          }
+        }
+        else {
+          // Non-empty array
+          switch (fieldConfig.arrayType) {
+          case 'string':
+            return `'{${value.map(v => `"${v}"`).join(',')}}'::TEXT[]`
+          case 'number':
+            return `'{${value.join(',')}}'::INTEGER[]`
+          case 'boolean':
+            return `'{${value.join(',')}}'::BOOLEAN[]`
+          }
+        }
+      }
+
+      // Fallback for non-array types (shouldn't happen)
+      return `'{}'`
     }
 
     // For objects (JSON), serialize to string
@@ -484,16 +517,29 @@ export class SchemaDiffer {
     if (!defaultValue)
       return undefined
 
-    // Remove PostgreSQL's type casting (e.g., '0'::integer -> '0')
-    let normalized = defaultValue.replace(/::[\w\s]+(\[\])?/g, '')
+    let normalized = defaultValue.trim()
 
-    // Remove quotes
-    normalized = normalized.replace(/^'(.*)'$/, '$1')
-
-    // Normalize SQL functions
+    // Normalize SQL functions first
     if (normalized.toUpperCase().includes('NOW()') || normalized.toUpperCase().includes('CURRENT_TIMESTAMP')) {
       return 'NOW()'
     }
+
+    // For array types, keep the full syntax including type cast
+    // PostgreSQL returns: '{}'::integer[] or 'ARRAY[]::integer[]'
+    if (normalized.match(/ARRAY\[\]::\w+\[\]/i) || normalized.match(/'\{\}'::\w+\[\]/)) {
+      // Normalize to our expected format: '{}'::TYPE[]
+      const typeMatch = normalized.match(/::(\w+\[\])/)
+
+      if (typeMatch) {
+        return `'{}'::${typeMatch[1]!.toUpperCase()}`
+      }
+    }
+
+    // Remove PostgreSQL's type casting for non-array types (e.g., '0'::integer -> 0)
+    normalized = normalized.replace(/::[\w\s]+/g, '')
+
+    // Remove quotes for simple values
+    normalized = normalized.replace(/^'(.*)'$/, '$1')
 
     return normalized
   }

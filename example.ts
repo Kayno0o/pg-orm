@@ -470,22 +470,16 @@ async function migrationDemo() {
   console.log('\n1. Migration Status:')
   await orm.migration.status()
 
-  // 2. Create a new migration file
-  console.log('\n2. Creating a custom migration file:')
-  const filePath = await orm.migration.create('add_user_preferences')
+  // 2. Demo Migration File Creation (only runs once)
+  // This demonstrates two different approaches to migrations:
+  // - .create(): Creates an empty migration template for manual SQL
+  // - .generate(): Auto-generates migration from schema changes
+  // Choose ONE approach based on your workflow!
 
-  console.log(`   Created: ${filePath}`)
+  await demoMigrationCreation()
 
-  // 3. Generate migration from schema changes (if any)
-  console.log('\n3. Checking for schema changes to generate migration:')
-  const migrationPath = await orm.migration.generate('auto_schema_update')
-
-  if (migrationPath) {
-    console.log(`   Generated: ${migrationPath}`)
-  }
-
-  // 4. Run pending migrations
-  console.log('\n4. Running pending migrations:')
+  // 3. Run pending migrations (if any were created)
+  console.log('\n3. Running pending migrations:')
 
   try {
     await orm.migration.run()
@@ -509,6 +503,61 @@ async function migrationDemo() {
   console.log('  • Schema diffing: Compares entities with database schema')
   console.log('  • Batch tracking: Track and rollback migrations in batches')
   console.log('  • Safe mode: Prevents accidental column drops by default')
+}
+
+// ============================================================================
+// Migration Creation Helper (with restart safety)
+// ============================================================================
+
+async function demoMigrationCreation() {
+  const { existsSync } = await import('node:fs')
+  const { readdir } = await import('node:fs/promises')
+
+  // Check if migrations folder exists and has files
+  const hasMigrationFiles = existsSync('migrations') && (await readdir('migrations')).length > 0
+
+  if (hasMigrationFiles) {
+    console.log('\n2. Migration files already exist. Skipping creation demo.')
+    console.log('   (Delete the migrations/ folder to see the creation demo again)')
+
+    return
+  }
+
+  console.log('\n2. Creating migration files (first run only):')
+  console.log('\n   📝 Approach 1 - Manual Migration (.create()):')
+  console.log('   Creates an empty template for you to write custom SQL')
+
+  try {
+    const filePath = await orm.migration.create('add_user_preferences')
+
+    console.log(`   ✅ Created: ${filePath}`)
+    console.log('      Edit this file to add your custom up() and down() logic')
+  }
+  catch (error) {
+    console.log(`   ⚠️  Skipped: ${error instanceof Error ? error.message : 'Already exists'}`)
+  }
+
+  console.log('\n   📝 Approach 2 - Auto-Generated Migration (.generate()):')
+  console.log('   Detects schema changes and generates SQL automatically')
+
+  try {
+    const migrationPath = await orm.migration.generate('auto_schema_update')
+
+    if (migrationPath) {
+      console.log(`   ✅ Generated: ${migrationPath}`)
+      console.log('      SQL was auto-generated from entity definitions')
+    }
+    else {
+      console.log('   ✅ No schema changes detected')
+    }
+  }
+  catch (error) {
+    console.log(`   ⚠️  Skipped: ${error instanceof Error ? error.message : 'Already exists'}`)
+  }
+
+  console.log('\n   💡 Tip: Choose ONE approach for your project:')
+  console.log('      • Use .create() for full control with manual SQL')
+  console.log('      • Use .generate() for automatic schema synchronization')
 }
 
 // ============================================================================

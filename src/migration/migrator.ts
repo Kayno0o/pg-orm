@@ -106,6 +106,16 @@ export class Migrator {
       return
     }
 
+    // Check if this exact auto-migration was already applied
+    const migrationHash = this.hashChanges(diff.changes)
+    const alreadyApplied = await this.isAutoMigrationApplied(migrationHash)
+
+    if (alreadyApplied) {
+      console.log('\n✅ Schema changes already applied in previous run. Skipping.')
+
+      return
+    }
+
     // Display changes
     this.displaySchemaDiff(diff)
 
@@ -140,8 +150,9 @@ export class Migrator {
       return
     }
 
-    // Apply changes
+    // Apply changes and track them
     await this.applySchemaChanges(diff)
+    await this.recordAutoMigration(migrationHash)
   }
 
   /**
@@ -348,5 +359,58 @@ export class Migrator {
       migrationsPath: this.config.migrationsPath ?? 'migrations',
       migrationsTable: this.config.migrationsTable ?? '_migrations',
     }
+  }
+
+  /**
+   * Create a hash of schema changes to track if they've been applied
+   */
+  private hashChanges(changes: { sql: string, description: string }[]): string {
+    // Create a stable hash from SQL statements
+    const sqlStatements = changes.map(c => c.sql).sort().join('\n')
+    // Simple hash - in production you might want crypto.createHash
+    let hash = 0
+
+    for (let i = 0; i < sqlStatements.length; i++) {
+      const char = sqlStatements.charCodeAt(i)
+
+      hash = (hash << 5) - hash + char
+      hash &= hash // Convert to 32-bit integer
+    }
+
+    return `auto_${Math.abs(hash).toString(36)}`
+  }
+
+  /**
+   * Check if an auto-migration with this hash has already been applied
+   */
+  private async isAutoMigrationApplied(migrationHash: string): Promise<boolean> {
+    const config = this.getConfig()
+    const [result] = await this.db`
+      SELECT COUNT(*) as count
+      FROM ${this.db(config.migrationsTable)}
+      WHERE name = ${migrationHash}
+    `
+
+    return (result?.count ?? 0) > 0
+  }
+
+  /**
+   * Record that an auto-migration has been applied
+   */
+  private async recordAutoMigration(migrationHash: string): Promise<void> {
+    const config = this.getConfig()
+    // Get the next batch number
+    const [batchResult] = await this.db`
+      SELECT COALESCE(MAX(batch), 0) + 1 as batch
+      FROM ${this.db(config.migrationsTable)}
+    `
+    const batch = batchResult?.batch ?? 1
+
+    await this.db`
+      INSERT INTO ${this.db(config.migrationsTable)} (name, batch)
+      VALUES (${migrationHash}, ${batch})
+      ON CONFLICT (name) DO NOTHING
+    `
+    console.log(`\n📝 Recorded auto-migration: ${migrationHash}`)
   }
 }

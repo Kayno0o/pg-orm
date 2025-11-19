@@ -21,37 +21,44 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
 
   maxLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.maxLength = length
+
     return this
   }
 
   minLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.minLength = length
+
     return this
   }
 
   nullable(): StringFieldBuilder<true, HasDefault> {
     (this.config as StringFieldConfig<true, HasDefault>).nullable = true
+
     return this as StringFieldBuilder<true, HasDefault>
   }
 
   required(): StringFieldBuilder<false, HasDefault> {
     (this.config as StringFieldConfig<false, HasDefault>).nullable = false
+
     return this as StringFieldBuilder<false, HasDefault>
   }
 
   unique(): StringFieldBuilder<Nullable, HasDefault> {
     this.config.unique = true
+
     return this
   }
 
   default(value: string): StringFieldBuilder<Nullable, true> {
     (this.config as StringFieldConfig<Nullable, true>).default = value;
     (this.config as StringFieldConfig<Nullable, true>).hasDefault = true
+
     return this as StringFieldBuilder<Nullable, true>
   }
 
   column(name: string): StringFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -69,42 +76,50 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
 
   min(value: number): NumberFieldBuilder<Nullable, HasDefault> {
     this.config.min = value
+
     return this
   }
 
   max(value: number): NumberFieldBuilder<Nullable, HasDefault> {
     this.config.max = value
+
     return this
   }
 
   integer(): NumberFieldBuilder<Nullable, HasDefault> {
     this.config.integer = true
+
     return this
   }
 
   nullable(): NumberFieldBuilder<true, HasDefault> {
     (this.config as NumberFieldConfig<true, HasDefault>).nullable = true
+
     return this as NumberFieldBuilder<true, HasDefault>
   }
 
   required(): NumberFieldBuilder<false, HasDefault> {
     (this.config as NumberFieldConfig<false, HasDefault>).nullable = false
+
     return this as NumberFieldBuilder<false, HasDefault>
   }
 
   unique(): NumberFieldBuilder<Nullable, HasDefault> {
     this.config.unique = true
+
     return this
   }
 
   default(value: number): NumberFieldBuilder<Nullable, true> {
     (this.config as NumberFieldConfig<Nullable, true>).default = value;
     (this.config as NumberFieldConfig<Nullable, true>).hasDefault = true
+
     return this as NumberFieldBuilder<Nullable, true>
   }
 
   column(name: string): NumberFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -122,17 +137,20 @@ export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault ex
 
   nullable(): BooleanFieldBuilder<true, HasDefault> {
     (this.config as BooleanFieldConfig<true, HasDefault>).nullable = true
+
     return this as BooleanFieldBuilder<true, HasDefault>
   }
 
   default(value: boolean): BooleanFieldBuilder<Nullable, true> {
     (this.config as BooleanFieldConfig<Nullable, true>).default = value;
     (this.config as BooleanFieldConfig<Nullable, true>).hasDefault = true
+
     return this as BooleanFieldBuilder<Nullable, true>
   }
 
   column(name: string): BooleanFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -150,22 +168,26 @@ export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, Has
 
   nullable(): JsonFieldBuilder<T, true, HasDefault> {
     (this.config as JsonFieldConfig<T, true, HasDefault>).nullable = true
+
     return this as JsonFieldBuilder<T, true, HasDefault>
   }
 
   required(): JsonFieldBuilder<T, false, HasDefault> {
     (this.config as JsonFieldConfig<T, false, HasDefault>).nullable = false
+
     return this as JsonFieldBuilder<T, false, HasDefault>
   }
 
   default(value: T): JsonFieldBuilder<T, Nullable, true> {
     (this.config as JsonFieldConfig<T, Nullable, true>).default = value as SQLValue;
     (this.config as JsonFieldConfig<T, Nullable, true>).hasDefault = true
+
     return this as JsonFieldBuilder<T, Nullable, true>
   }
 
   column(name: string): JsonFieldBuilder<T, Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -183,27 +205,32 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
 
   autoGenerate(): UuidFieldBuilder<Nullable, HasDefault> {
     this.config.autoGenerate = true
+
     return this
   }
 
   nullable(): UuidFieldBuilder<true, HasDefault> {
     (this.config as UuidFieldConfig<true, HasDefault>).nullable = true
+
     return this as UuidFieldBuilder<true, HasDefault>
   }
 
   unique(): UuidFieldBuilder<Nullable, HasDefault> {
     this.config.unique = true
+
     return this
   }
 
   default(value: string): UuidFieldBuilder<Nullable, true> {
     (this.config as UuidFieldConfig<Nullable, true>).default = value;
     (this.config as UuidFieldConfig<Nullable, true>).hasDefault = true
+
     return this as UuidFieldBuilder<Nullable, true>
   }
 
   column(name: string): UuidFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -221,22 +248,26 @@ export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault 
 
   autoUpdate(): TimestampFieldBuilder<Nullable, HasDefault> {
     this.config.autoUpdate = true
+
     return this
   }
 
   nullable(): TimestampFieldBuilder<true, HasDefault> {
     (this.config as TimestampFieldConfig<true, HasDefault>).nullable = true
+
     return this as TimestampFieldBuilder<true, HasDefault>
   }
 
   default(value: SQLValue): TimestampFieldBuilder<Nullable, true> {
     (this.config as TimestampFieldConfig<Nullable, true>).default = value;
     (this.config as TimestampFieldConfig<Nullable, true>).hasDefault = true
+
     return this as TimestampFieldBuilder<Nullable, true>
   }
 
   column(name: string): TimestampFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -254,17 +285,20 @@ export class DateFieldBuilder<Nullable extends boolean = false, HasDefault exten
 
   nullable(): DateFieldBuilder<true, HasDefault> {
     (this.config as DateFieldConfig<true, HasDefault>).nullable = true
+
     return this as DateFieldBuilder<true, HasDefault>
   }
 
   default(value: SQLValue): DateFieldBuilder<Nullable, true> {
     (this.config as DateFieldConfig<Nullable, true>).default = value;
     (this.config as DateFieldConfig<Nullable, true>).hasDefault = true
+
     return this as DateFieldBuilder<Nullable, true>
   }
 
   column(name: string): DateFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -282,17 +316,20 @@ export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean'
 
   nullable(): ArrayFieldBuilder<ArrayType, true, HasDefault> {
     (this.config as ArrayFieldConfig<ArrayType, true, HasDefault>).nullable = true
+
     return this as ArrayFieldBuilder<ArrayType, true, HasDefault>
   }
 
   default(value: SQLValue): ArrayFieldBuilder<ArrayType, Nullable, true> {
     (this.config as ArrayFieldConfig<ArrayType, Nullable, true>).default = value;
     (this.config as ArrayFieldConfig<ArrayType, Nullable, true>).hasDefault = true
+
     return this as ArrayFieldBuilder<ArrayType, Nullable, true>
   }
 
   column(name: string): ArrayFieldBuilder<ArrayType, Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -310,17 +347,20 @@ export class EnumFieldBuilder<Values extends readonly string[], Nullable extends
 
   nullable(): EnumFieldBuilder<Values, true, HasDefault> {
     (this.config as EnumFieldConfig<Values, true, HasDefault>).nullable = true
+
     return this as EnumFieldBuilder<Values, true, HasDefault>
   }
 
   default(value: Values[number]): EnumFieldBuilder<Values, Nullable, true> {
     (this.config as EnumFieldConfig<Values, Nullable, true>).default = value;
     (this.config as EnumFieldConfig<Values, Nullable, true>).hasDefault = true
+
     return this as EnumFieldBuilder<Values, Nullable, true>
   }
 
   column(name: string): EnumFieldBuilder<Values, Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 
@@ -338,11 +378,13 @@ export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault exten
 
   nullable(): BlobFieldBuilder<true, HasDefault> {
     (this.config as BlobFieldConfig<true, HasDefault>).nullable = true
+
     return this as BlobFieldBuilder<true, HasDefault>
   }
 
   column(name: string): BlobFieldBuilder<Nullable, HasDefault> {
     this.config.columnName = name
+
     return this
   }
 

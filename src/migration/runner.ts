@@ -217,15 +217,26 @@ export class MigrationRunner {
           const module = await import(filePath)
           const migration = module.migration || module.default
 
-          if (migration && typeof migration.up === 'function' && typeof migration.down === 'function') {
-            migrations.push(migration)
+          if (!migration) {
+            throw new Error(`Migration file ${file} does not export 'migration' or 'default'`)
           }
-          else {
-            console.warn(`Invalid migration file: ${file}`)
+
+          if (typeof migration.up !== 'function') {
+            throw new TypeError(`Migration file ${file} is missing 'up()' function`)
           }
+
+          if (typeof migration.down !== 'function') {
+            throw new TypeError(`Migration file ${file} is missing 'down()' function`)
+          }
+
+          if (!migration.name || typeof migration.name !== 'string') {
+            throw new Error(`Migration file ${file} is missing 'name' property`)
+          }
+
+          migrations.push(migration)
         }
         catch (error) {
-          console.error(`Failed to load migration ${file}:`, error)
+          throw new Error(`Failed to load migration ${file}: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
 

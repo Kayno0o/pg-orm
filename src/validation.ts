@@ -239,6 +239,7 @@ export class Validator {
 
     if (this.errors.length > 0) {
       const tableContext = tableName ? ` for table "${tableName}"` : ''
+
       throw new ValidationError(
         `Validation failed${tableContext} with ${this.errors.length} error(s)`,
         this.errors,

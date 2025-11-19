@@ -135,15 +135,15 @@ interface FieldTypeMapping {
 }
 
 // Helper for array type inference
-type InferArrayType<AT extends 'string' | 'number' | 'boolean'> =
-  AT extends 'string' ? string[]
-  : AT extends 'number' ? number[]
-  : AT extends 'boolean' ? boolean[]
-  : never
+type InferArrayType<AT extends 'string' | 'number' | 'boolean'>
+  = AT extends 'string' ? string[]
+    : AT extends 'number' ? number[]
+      : AT extends 'boolean' ? boolean[]
+        : never
 
 // Map field config to TypeScript type (base type without null)
-export type InferFieldType<T extends FieldConfig> =
-  T extends JsonFieldConfig<infer U>
+export type InferFieldType<T extends FieldConfig>
+  = T extends JsonFieldConfig<infer U>
     ? U
     : T extends ArrayFieldConfig<infer AT, any, any>
       ? InferArrayType<AT>
