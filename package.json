@@ -3,14 +3,17 @@
   "type": "module",
   "version": "1.0.5",
   "description": "Lightweight ORM for Bun SQL with PostgreSQL support",
-  "author": "kaynooo",
+  "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://git.kaynooo.fr/kaynooo/orm.git"
+    "url": "https://git.kaynooo.fr/kaynooo/pg-orm"
   },
   "bugs": {
-    "url": "https://git.kaynooo.fr/kaynooo/orm/issues"
+    "url": "https://git.kaynooo.fr/kaynooo/pg-orm/issues"
+  },
+  "publishConfig": {
+    "registry": "https://git.kaynooo.fr/api/packages/kaynooo/npm/"
   },
   "keywords": [
     "orm",
