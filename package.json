@@ -34,9 +34,9 @@
     "test:watch": "bun test --watch",
     "check": "tsc --noEmit --strict",
     "lint:fix": "bunx eslint . --fix",
-    "db:up": "docker-compose up -d",
-    "db:down": "docker-compose down",
-    "db:reset": "docker-compose down -v && docker-compose up -d"
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d"
   },
   "peerDependencies": {
     "bun-types": "latest"
