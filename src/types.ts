@@ -222,6 +222,20 @@ export type WhereOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'ILI
 export type WhereValue<T> = T | T[] | null
 
 export type WhereCondition<T extends EntitySchema> = {
+  id?:
+    | number
+    | number[]
+    | {
+      eq?: number
+      ne?: number
+      gt?: number
+      gte?: number
+      lt?: number
+      lte?: number
+      in?: number[]
+      notIn?: number[]
+    }
+} & {
   [K in keyof T]?:
     | InferField<T[K]>
     | InferField<T[K]>[]
