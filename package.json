@@ -1,7 +1,7 @@
 {
   "name": "@kaynooo/pg-orm",
   "type": "module",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Lightweight ORM for Bun SQL with PostgreSQL support",
   "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
@@ -31,7 +31,9 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",
