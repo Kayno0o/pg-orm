@@ -173,15 +173,21 @@ export class QueryBuilder<T extends EntitySchema> {
 
   whereArrayContains(field: keyof T, value: any): this {
     const columnName = this.validateColumnName(String(field))
+
+    // For array operations, we need to pass the array value directly and let PostgreSQL handle it
+    // This is secure because the value goes through parameterization
     const placeholder = this.addParam([value])
 
-    this.whereConditions.push(`${columnName} @> ${placeholder}`)
+    // Use ANY for checking if array contains value (more secure than string formatting)
+    this.whereConditions.push(`${placeholder} = ANY(${columnName})`)
 
     return this
   }
 
   whereArrayOverlaps(field: keyof T, values: any[]): this {
     const columnName = this.validateColumnName(String(field))
+
+    // For array overlap, pass array directly through parameterization
     const placeholder = this.addParam(values)
 
     this.whereConditions.push(`${columnName} && ${placeholder}`)

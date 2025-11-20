@@ -510,8 +510,50 @@ export class Repository<
       return []
     }
 
-    // Split by comma (simple parsing - doesn't handle nested arrays or escaped commas)
-    const elements = content.split(',')
+    // Parse array elements handling quoted strings properly
+    const elements: string[] = []
+    let current = ''
+    let inQuotes = false
+    let i = 0
+
+    while (i < content.length) {
+      const char = content[i]
+
+      if (char === '"' && (i === 0 || content[i - 1] !== '\\')) {
+        // Toggle quote state (not escaped quote)
+        inQuotes = !inQuotes
+        i++
+        continue
+      }
+
+      if (char === ',' && !inQuotes) {
+        // Element separator outside quotes
+        elements.push(current)
+        current = ''
+        i++
+        continue
+      }
+
+      if (char === '\\' && inQuotes && i + 1 < content.length) {
+        // Handle escape sequences in quoted strings
+        const nextChar = content[i + 1]
+
+        if (nextChar === '"' || nextChar === '\\') {
+          // Escaped quote or backslash
+          current += nextChar
+          i += 2
+          continue
+        }
+      }
+
+      current += char
+      i++
+    }
+
+    // Add last element
+    if (current || content[content.length - 1] === ',') {
+      elements.push(current)
+    }
 
     // Convert based on element type
     switch (elementType) {
@@ -540,14 +582,27 @@ export class Repository<
       // Convert arrays to PostgreSQL array format
       if (fieldConfig.type === 'array' && Array.isArray(value)) {
         // Convert JavaScript array to PostgreSQL array literal format
-        // e.g., ['a', 'b'] -> '{a,b}'
         const arrayType = (fieldConfig as any).arrayType
 
         if (arrayType === 'string') {
-          // Escape quotes and backslashes in strings
-          const escaped = value.map(v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+          // For strings, properly escape and quote when necessary
+          const formatted = value.map(v => {
+            const str = String(v)
 
-          prepared[columnName] = `{${escaped.join(',')}}`
+            // Check if string needs quoting (contains special characters)
+            const needsQuoting = /[",\\{}\s]/.test(str) || str === ''
+
+            if (needsQuoting) {
+              // Escape backslashes and quotes, then wrap in quotes
+              const escaped = str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+              return `"${escaped}"`
+            }
+
+            return str
+          })
+
+          prepared[columnName] = `{${formatted.join(',')}}`
         }
         else {
           // For numbers and booleans, no escaping needed
