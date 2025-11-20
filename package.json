@@ -28,7 +28,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
