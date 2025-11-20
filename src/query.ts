@@ -1,6 +1,7 @@
 import type { SQL } from 'bun'
-import type { EntitySchema, InferEntity, OrderDirection } from './types'
+import type { DatabaseRow, EntitySchema, InferEntity, OrderDirection } from './types'
 import { toSnake } from '@kaynooo/utils'
+import { validateSQLIdentifier } from './sql-utils'
 
 // ============================================================================
 // Query Builder (Secure with Parameterized Queries)
@@ -19,7 +20,11 @@ export class QueryBuilder<T extends EntitySchema> {
     private tableName: string,
     private db: SQL,
     private schema: T,
-  ) {}
+    private mapper?: (row: DatabaseRow) => any,
+  ) {
+    // Validate table name on construction to prevent SQL injection
+    validateSQLIdentifier(tableName, 'table')
+  }
 
   // Helper to get column name from field name
   private getColumnName(fieldName: string): string {
@@ -258,6 +263,13 @@ export class QueryBuilder<T extends EntitySchema> {
     const { sql, params } = this.build()
     const results = await this.db.unsafe(sql, params)
 
+    // Use mapper if provided to properly convert database rows to entities
+    // This ensures arrays are parsed, dates are converted, and trait methods work
+    if (this.mapper) {
+      return results.map((row: DatabaseRow) => this.mapper!(row))
+    }
+
+    // Fallback to raw results (won't have trait methods or proper array/date handling)
     return results as InferEntity<T>[]
   }
 
@@ -326,12 +338,17 @@ export class QueryBuilder<T extends EntitySchema> {
       query += ` ORDER BY ${orderClauses}`
     }
 
+    // LIMIT and OFFSET are now parameterized for security
     if (this.limitValue !== undefined) {
-      query += ` LIMIT ${this.limitValue}`
+      const limitParam = this.addParam(this.limitValue)
+
+      query += ` LIMIT ${limitParam}`
     }
 
     if (this.offsetValue !== undefined) {
-      query += ` OFFSET ${this.offsetValue}`
+      const offsetParam = this.addParam(this.offsetValue)
+
+      query += ` OFFSET ${offsetParam}`
     }
 
     return query

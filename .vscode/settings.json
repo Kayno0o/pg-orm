@@ -81,5 +81,19 @@
     "tailwindcss",
     "postcss",
     "github-actions-workflow"
+  ],
+  "sqltools.connections": [
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "driver": "PostgreSQL",
+      "name": "test db",
+      "group": "test",
+      "database": "orm_test",
+      "username": "test",
+      "password": "test"
+    }
   ]
 }

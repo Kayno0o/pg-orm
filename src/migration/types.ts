@@ -112,11 +112,22 @@ export interface DatabaseIndex {
   isPrimary: boolean
 }
 
+export interface ForeignKeyInfo {
+  constraintName: string
+  tableName: string
+  columnName: string
+  foreignTableName: string
+  foreignColumnName: string
+  onDelete: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION' | 'SET DEFAULT'
+  onUpdate: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION' | 'SET DEFAULT'
+}
+
 export interface DatabaseSchema {
   tables: Map<string, DatabaseTable>
   columns: Map<string, DatabaseColumn[]> // Key: tableName
   constraints: Map<string, DatabaseConstraint[]> // Key: tableName
   indexes: Map<string, DatabaseIndex[]> // Key: tableName
+  foreignKeys: Map<string, ForeignKeyInfo[]> // Key: tableName
 }
 
 // ============================================================================
@@ -134,6 +145,9 @@ export type SchemaChangeType
     | 'DROP_CONSTRAINT'
     | 'ADD_INDEX'
     | 'DROP_INDEX'
+    | 'ADD_FOREIGN_KEY'
+    | 'DROP_FOREIGN_KEY'
+    | 'MODIFY_FOREIGN_KEY'
 
 export interface SchemaChange {
   type: SchemaChangeType

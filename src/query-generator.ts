@@ -1,6 +1,7 @@
 import type { SQL } from 'bun'
 import type { EntitySchema, OrderBy, QueryOptions, WhereCondition } from './types'
 import { toSnake } from '@kaynooo/utils'
+import { validateSQLIdentifier } from './sql-utils'
 
 // ============================================================================
 // Query Generator - Reusable SQL Generation Logic
@@ -13,10 +14,15 @@ export class QueryGenerator<T extends EntitySchema> {
     private schema: T,
     private getColumnNameFn?: (fieldName: string) => string,
   ) {
-    this.validColumnNames = new Set([
-      'id',
-      ...Object.keys(this.schema).map(k => this.getColumnName(k)),
-    ])
+    // Validate all column names on construction
+    const columnNames = Object.keys(this.schema).map(k => this.getColumnName(k))
+
+    for (const columnName of columnNames) {
+      validateSQLIdentifier(columnName, 'column')
+    }
+    validateSQLIdentifier('id', 'column')
+
+    this.validColumnNames = new Set(['id', ...columnNames])
   }
 
   // ========================================================================

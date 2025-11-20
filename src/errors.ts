@@ -67,3 +67,19 @@ export class DatabaseError extends Error {
     this.cause = cause
   }
 }
+
+export class InvalidIdentifierError extends Error {
+  constructor(
+    public identifierType: 'table' | 'column',
+    public identifier: string,
+    public reason?: string,
+  ) {
+    const reasonMsg = reason ? `: ${reason}` : ''
+
+    super(
+      `Invalid ${identifierType} identifier "${identifier}"${reasonMsg}. `
+      + `Identifiers must match pattern ^[a-zA-Z_][a-zA-Z0-9_]*$ and be <= 63 characters.`,
+    )
+    this.name = 'InvalidIdentifierError'
+  }
+}

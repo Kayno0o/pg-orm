@@ -15,10 +15,16 @@ export { createEntitySchema, EntityBuilder } from './entity'
 // ============================================================================
 
 export { DatabaseError, EntityNotFoundError, OptimisticLockError, QueryError } from './errors'
-export { field } from './field'
+export { InvalidIdentifierError } from './errors'
 
 // ============================================================================
 // Entity Builder
+// ============================================================================
+
+export { field } from './field'
+
+// ============================================================================
+// Repository
 // ============================================================================
 
 export type {
@@ -35,7 +41,7 @@ export type {
 } from './field'
 
 // ============================================================================
-// Repository
+// Query Builder
 // ============================================================================
 
 export type {
@@ -57,25 +63,31 @@ export type {
 } from './migration/types'
 
 // ============================================================================
-// Query Builder
+// Traits
 // ============================================================================
 
 export { ORM, orm } from './orm'
 
 // ============================================================================
-// Traits
+// Types
 // ============================================================================
 
 export { QueryBuilder } from './query'
 
 // ============================================================================
-// Types
+// Relations
+// ============================================================================
+
+export { belongsTo, hasMany, hasOne } from './relations'
+
+// ============================================================================
+// Errors
 // ============================================================================
 
 export { Repository, ValidationError } from './repository'
 
 // ============================================================================
-// Errors
+// Traits
 // ============================================================================
 
 export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
@@ -90,6 +102,7 @@ export type {
   BeforeUpdateHook,
   BlobFieldConfig,
   BooleanFieldConfig,
+  CursorPaginationResult,
   DatabaseRow,
   DateFieldConfig,
   EntityDefinition,

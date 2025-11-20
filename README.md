@@ -10,7 +10,12 @@ A lightweight, type-safe ORM built specifically for Bun SQL with PostgreSQL supp
 - **Async/await throughout** - All operations are asynchronous for PostgreSQL
 - **Repository pattern** - Clean separation of concerns
 - **Query builder** - Fluent API for complex queries
-- **Foreign key support** - Built-in relationship handling
+- **Foreign key support** - Built-in relationship handling with CASCADE options
+- **Relation loaders** - `belongsTo`, `hasMany`, `hasOne` with N+1 prevention
+- **Cursor pagination** - High-performance pagination for large datasets
+- **Bulk operations** - Efficient batch inserts and deletes
+- **SQL injection protection** - Identifier validation and parameterized queries
+- **Auto-migrations** - Automatic schema diffing and migration generation
 - **Bun SQL optimizations** - Leverages Bun's native SQL features:
   - Tagged template literals for SQL injection protection
   - Connection pooling
@@ -480,13 +485,119 @@ bun run build
 - Bulk operations support
 - Efficient array-based IN clauses
 
+## Advanced Features
+
+### Foreign Keys & Relations
+
+Define foreign keys with CASCADE options and load related entities efficiently:
+
+```typescript
+import { belongsTo, hasMany, orm } from '@kaynooo/pg-orm'
+
+const Post = orm.entity('posts', {
+  title: orm.string(),
+  authorId: orm.number().foreignKey('users', 'id', {
+    onDelete: 'CASCADE'
+  }),
+}).build()
+
+const posts = orm.repo(Post)
+const users = orm.repo(User)
+
+// Load post's author (belongsTo)
+const postAuthor = belongsTo('authorId', users)
+const author = await postAuthor.load(post)
+
+// Load user's posts (hasMany)
+const userPosts = hasMany('authorId', posts)
+const allPosts = await userPosts.load(user)
+
+// Batch loading (prevents N+1 queries)
+const authorsMap = await postAuthor.loadMany(allPosts)
+```
+
+**[📖 Full Relations Guide](./docs/relations.md)**
+
+### Cursor-Based Pagination
+
+High-performance pagination for large datasets:
+
+```typescript
+// First page
+const page1 = await users.paginateCursor({
+  pageSize: 20,
+  where: { isActive: true }
+})
+
+// Next page
+const page2 = await users.paginateCursor({
+  after: page1.nextCursor,
+  pageSize: 20,
+  where: { isActive: true }
+})
+
+console.log(page2.hasMore) // true/false
+```
+
+**Benefits:**
+- Consistent performance regardless of page depth
+- No duplicate/missing results during concurrent writes
+- Perfect for infinite scroll UIs
+
+**[📖 Full Pagination Guide](./docs/pagination.md)**
+
+### Bulk Operations
+
+Efficiently insert or delete multiple records:
+
+```typescript
+// Bulk insert
+const users = await userRepo.createMany([
+  { name: 'User 1', email: 'user1@example.com' },
+  { name: 'User 2', email: 'user2@example.com' },
+  { name: 'User 3', email: 'user3@example.com' },
+])
+
+// Bulk delete
+await userRepo.deleteMany([1, 2, 3])
+```
+
+Hooks and validation run for each item:
+- `beforeCreate` / `afterCreate` execute for every record
+- Field validation applies to all items
+- Atomic operation - all succeed or all fail
+
+### Security
+
+Built-in protection against SQL injection:
+
+```typescript
+// ✓ Table/column names validated
+orm.entity('users', { ... })  // Valid
+orm.entity('users; DROP TABLE users; --', { ... })  // ❌ Throws InvalidIdentifierError
+
+// ✓ Reserved keywords blocked
+orm.entity('SELECT', { ... })  // ❌ Throws InvalidIdentifierError
+
+// ✓ All query values parameterized
+await users.findBy({ where: { name: "'; DROP TABLE users; --" } })
+// Safe: becomes WHERE name = $1 with parameterized value
+```
+
 ## Differences from v1
 
 - **PostgreSQL only** (no SQLite support)
 - **Fully async** - All methods return Promises
-- **No migrations** - Manual schema management
+- **Auto-migrations** - Automatic schema diffing and migration generation
 - **Bun SQL native** - Uses Bun's SQL API instead of better-sqlite3
 - **Enhanced performance** - Leverages PostgreSQL-specific features
+- **Foreign key detection** - Automatic FK constraint migration support
+
+## Documentation
+
+- [Relations & Foreign Keys](./docs/relations.md) - Complete guide to defining and loading relations
+- [Cursor Pagination](./docs/pagination.md) - High-performance pagination patterns
+- [CLAUDE.md](./CLAUDE.md) - Architecture guide for AI assistants
 
 ## License
 

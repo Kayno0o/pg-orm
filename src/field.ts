@@ -11,6 +11,7 @@ import type {
   TimestampFieldConfig,
   UuidFieldConfig,
 } from './types'
+import { validateSQLIdentifier } from './sql-utils'
 
 // ============================================================================
 // String Field Builder
@@ -57,6 +58,7 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   column(name: string): StringFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -118,7 +120,26 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   column(name: string): NumberFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
+
+    return this
+  }
+
+  foreignKey(
+    table: string,
+    column = 'id',
+    options?: {
+      onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+      onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+    },
+  ): NumberFieldBuilder<Nullable, HasDefault> {
+    this.config.foreignKey = {
+      table,
+      column,
+      onDelete: options?.onDelete || 'NO ACTION',
+      onUpdate: options?.onUpdate || 'NO ACTION',
+    }
 
     return this
   }
@@ -149,6 +170,7 @@ export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault ex
   }
 
   column(name: string): BooleanFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -186,6 +208,7 @@ export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, Has
   }
 
   column(name: string): JsonFieldBuilder<T, Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -229,6 +252,7 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 
   column(name: string): UuidFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -266,6 +290,7 @@ export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault 
   }
 
   column(name: string): TimestampFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -297,6 +322,7 @@ export class DateFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 
   column(name: string): DateFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -328,6 +354,7 @@ export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean'
   }
 
   column(name: string): ArrayFieldBuilder<ArrayType, Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -359,6 +386,7 @@ export class EnumFieldBuilder<Values extends readonly string[], Nullable extends
   }
 
   column(name: string): EnumFieldBuilder<Values, Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this
@@ -383,6 +411,7 @@ export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 
   column(name: string): BlobFieldBuilder<Nullable, HasDefault> {
+    validateSQLIdentifier(name, 'column')
     this.config.columnName = name
 
     return this

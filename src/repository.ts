@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import type {
+  CursorPaginationResult,
   DatabaseRow,
   EntityDefinition,
   EntitySchema,
@@ -250,6 +251,44 @@ export class Repository<
     }
   }
 
+  async paginateCursor(options: {
+    after?: number
+    pageSize: number
+    where?: QueryOptions<T>['where']
+    order?: QueryOptions<T>['order']
+  }): Promise<CursorPaginationResult<InferEntity<T, TTraits>>> {
+    const { after, pageSize, where, order } = options
+
+    // Build WHERE clause with cursor condition
+    const whereWithCursor = after
+      ? { ...where, id: { ...((where as any)?.id || {}), gt: after } as any }
+      : where
+
+    // Fetch pageSize + 1 to check if more results exist
+    const data = await this.findBy({
+      where: whereWithCursor,
+      order: order || ({ id: 'ASC' } as any),
+      limit: pageSize + 1,
+    })
+
+    // Check if more results exist
+    const hasMore = data.length > pageSize
+
+    // Return only the requested pageSize
+    const results = hasMore ? data.slice(0, pageSize) : data
+
+    // Next cursor is the ID of the last item
+    const lastItem = results[results.length - 1]
+    const nextCursor = hasMore && lastItem ? (lastItem.id as number) : undefined
+
+    return {
+      data: results,
+      nextCursor,
+      hasMore,
+      pageSize,
+    }
+  }
+
   // ========================================================================
   // Bulk Operations
   // ========================================================================
@@ -258,19 +297,41 @@ export class Repository<
     if (dataArray.length === 0)
       return []
 
+    const db = this.getDB()
+
+    // Step 1: Validate all items first
     for (const data of dataArray) {
       this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
     }
 
-    const results: InferEntity<T, TTraits>[] = []
-
+    // Step 2: Execute beforeCreate hooks for each item (allows mutation)
     for (const data of dataArray) {
-      const result = await this.create(data)
-
-      results.push(result)
+      for (const hook of this.definition.hooks.beforeCreate) {
+        await hook(data)
+      }
     }
 
-    return results
+    // Step 3: Prepare all data for insertion
+    const preparedDataArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
+
+    // Step 4: Single bulk INSERT for performance
+    const selectColumns = this.queryGenerator.buildSelectColumns()
+    const results = await db`
+      INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
+      RETURNING ${db.unsafe(selectColumns)}
+    `
+
+    // Step 5: Map database rows to entities
+    const entities = results.map((row: DatabaseRow) => this.mapRowToEntity(row))
+
+    // Step 6: Execute afterCreate hooks for each created entity
+    for (const entity of entities) {
+      for (const hook of this.definition.hooks.afterCreate) {
+        await hook(entity as any)
+      }
+    }
+
+    return entities
   }
 
   async deleteMany(ids: number[]): Promise<void> {
@@ -290,7 +351,12 @@ export class Repository<
   // ========================================================================
 
   query(): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.tableName, this.getDB(), this.schema)
+    return new QueryBuilder<T>(
+      this.tableName,
+      this.getDB(),
+      this.schema,
+      (row: DatabaseRow) => this.mapRowToEntity(row),
+    )
   }
 
   // ========================================================================

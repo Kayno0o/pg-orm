@@ -11,6 +11,7 @@ import type {
   FieldConfig,
   TraitDefinition,
 } from './types'
+import { validateSQLIdentifier } from './sql-utils'
 
 // ============================================================================
 // Entity Builder
@@ -29,6 +30,9 @@ export class EntityBuilder<
     private readonly schema: T,
     traits: TTraits = [] as any,
   ) {
+    // Validate table name on construction to prevent SQL injection
+    validateSQLIdentifier(tableName, 'table')
+
     this._hooks = {
       beforeCreate: [],
       afterCreate: [],

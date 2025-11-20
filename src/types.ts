@@ -56,6 +56,12 @@ export interface NumberFieldConfig<Nullable extends boolean = boolean, HasDefaul
   min?: number
   max?: number
   integer?: boolean
+  foreignKey?: {
+    table: string
+    column: string
+    onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+    onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+  }
 }
 
 export interface BooleanFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
@@ -256,6 +262,13 @@ export interface PaginationResult<T> {
   page: number
   pageSize: number
   totalPages: number
+}
+
+export interface CursorPaginationResult<T> {
+  data: T[]
+  nextCursor?: number
+  hasMore: boolean
+  pageSize: number
 }
 
 // ============================================================================

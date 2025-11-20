@@ -5,6 +5,7 @@ import type {
   DatabaseIndex,
   DatabaseSchema,
   DatabaseTable,
+  ForeignKeyInfo,
 } from './types'
 
 // ============================================================================
@@ -15,14 +16,15 @@ export class SchemaInspector {
   constructor(private db: SQL) {}
 
   /**
-   * Get complete database schema (tables, columns, constraints, indexes)
+   * Get complete database schema (tables, columns, constraints, indexes, foreign keys)
    */
   async getSchema(): Promise<DatabaseSchema> {
-    const [tables, columns, constraints, indexes] = await Promise.all([
+    const [tables, columns, constraints, indexes, foreignKeys] = await Promise.all([
       this.getTables(),
       this.getColumns(),
       this.getConstraints(),
       this.getIndexes(),
+      this.getForeignKeys(),
     ])
 
     return {
@@ -30,6 +32,7 @@ export class SchemaInspector {
       columns: this.groupByTable(columns),
       constraints: this.groupByTable(constraints),
       indexes: this.groupByTable(indexes),
+      foreignKeys: this.groupByTable(foreignKeys),
     }
   }
 
@@ -165,6 +168,46 @@ export class SchemaInspector {
   }
 
   /**
+   * Get all foreign keys
+   */
+  async getForeignKeys(): Promise<ForeignKeyInfo[]> {
+    const results = await this.db`
+      SELECT
+        tc.constraint_name as "constraintName",
+        tc.table_name as "tableName",
+        kcu.column_name as "columnName",
+        ccu.table_name AS "foreignTableName",
+        ccu.column_name AS "foreignColumnName",
+        rc.delete_rule as "deleteRule",
+        rc.update_rule as "updateRule"
+      FROM information_schema.table_constraints AS tc
+      JOIN information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      JOIN information_schema.constraint_column_usage AS ccu
+        ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+      JOIN information_schema.referential_constraints AS rc
+        ON tc.constraint_name = rc.constraint_name
+        AND tc.table_schema = rc.constraint_schema
+      WHERE tc.table_schema = 'public'
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_name != '_migrations'
+      ORDER BY tc.table_name, tc.constraint_name
+    `
+
+    return results.map((row: any) => ({
+      constraintName: row.constraintName,
+      tableName: row.tableName,
+      columnName: row.columnName,
+      foreignTableName: row.foreignTableName,
+      foreignColumnName: row.foreignColumnName,
+      onDelete: this.normalizeReferentialAction(row.deleteRule),
+      onUpdate: this.normalizeReferentialAction(row.updateRule),
+    }))
+  }
+
+  /**
    * Check if a table exists
    */
   async tableExists(tableName: string): Promise<boolean> {
@@ -221,5 +264,27 @@ export class SchemaInspector {
     }
 
     return grouped
+  }
+
+  /**
+   * Normalize PostgreSQL referential action names to our standard format
+   */
+  private normalizeReferentialAction(
+    action: string,
+  ): 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION' | 'SET DEFAULT' {
+    switch (action.toUpperCase()) {
+    case 'CASCADE':
+      return 'CASCADE'
+    case 'SET NULL':
+      return 'SET NULL'
+    case 'RESTRICT':
+      return 'RESTRICT'
+    case 'NO ACTION':
+      return 'NO ACTION'
+    case 'SET DEFAULT':
+      return 'SET DEFAULT'
+    default:
+      return 'NO ACTION'
+    }
   }
 }

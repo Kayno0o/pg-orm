@@ -2,6 +2,7 @@ import type { EntityDefinition, EntitySchema, FieldConfig } from '../types'
 import type {
   DatabaseColumn,
   DatabaseSchema,
+  ForeignKeyInfo,
   MigrationConfig,
   PostgresType,
   PostgresTypeMapping,
@@ -33,6 +34,11 @@ export class SchemaDiffer {
       if (!tableExists) {
         // New table - generate CREATE TABLE statement
         changes.push(this.generateCreateTable(entityDef))
+
+        // Add foreign keys after table creation
+        const fkChanges = this.generateForeignKeys(tableName, entityDef.schema)
+
+        changes.push(...fkChanges)
       }
       else {
         // Existing table - check for column changes
@@ -43,6 +49,15 @@ export class SchemaDiffer {
         )
 
         changes.push(...columnChanges)
+
+        // Check for foreign key changes
+        const fkChanges = this.compareForeignKeys(
+          tableName,
+          entityDef.schema,
+          dbSchema.foreignKeys.get(tableName) || [],
+        )
+
+        changes.push(...fkChanges)
       }
     }
 
@@ -542,6 +557,138 @@ export class SchemaDiffer {
     normalized = normalized.replace(/^'(.*)'$/, '$1')
 
     return normalized
+  }
+
+  // ========================================================================
+  // Foreign Key Operations
+  // ========================================================================
+
+  private generateForeignKeys(tableName: string, entitySchema: EntitySchema): SchemaChange[] {
+    const changes: SchemaChange[] = []
+
+    for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
+      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
+        const fk = fieldConfig.foreignKey
+        const columnName = this.getColumnName(fieldName)
+        const constraintName = `fk_${tableName}_${columnName}`
+
+        const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+
+        changes.push({
+          type: 'ADD_FOREIGN_KEY',
+          tableName,
+          sql,
+          description: `Add foreign key: ${tableName}.${columnName} -> ${fk.table}.${fk.column}`,
+          metadata: {
+            columnName,
+            constraintName,
+          },
+        })
+      }
+    }
+
+    return changes
+  }
+
+  private compareForeignKeys(
+    tableName: string,
+    entitySchema: EntitySchema,
+    dbForeignKeys: ForeignKeyInfo[],
+  ): SchemaChange[] {
+    const changes: SchemaChange[] = []
+    const dbFkMap = new Map(
+      dbForeignKeys.map(fk => [fk.columnName, fk]),
+    )
+
+    // Check for new foreign keys and modified foreign keys
+    for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
+      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
+        const fk = fieldConfig.foreignKey
+        const columnName = this.getColumnName(fieldName)
+        const dbFk = dbFkMap.get(columnName)
+
+        if (!dbFk) {
+          // New foreign key
+          const constraintName = `fk_${tableName}_${columnName}`
+          const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+
+          changes.push({
+            type: 'ADD_FOREIGN_KEY',
+            tableName,
+            sql,
+            description: `Add foreign key: ${tableName}.${columnName} -> ${fk.table}.${fk.column}`,
+            metadata: {
+              columnName,
+              constraintName,
+            },
+          })
+        }
+        else {
+          // Check if foreign key definition changed
+          const needsUpdate
+            = dbFk.foreignTableName !== fk.table
+              || dbFk.foreignColumnName !== fk.column
+              || dbFk.onDelete !== fk.onDelete
+              || dbFk.onUpdate !== fk.onUpdate
+
+          if (needsUpdate) {
+            // Drop old constraint
+            changes.push({
+              type: 'DROP_FOREIGN_KEY',
+              tableName,
+              sql: `ALTER TABLE ${tableName} DROP CONSTRAINT ${dbFk.constraintName}`,
+              description: `Drop foreign key constraint ${dbFk.constraintName}`,
+              metadata: {
+                constraintName: dbFk.constraintName,
+              },
+            })
+
+            // Add new constraint
+            const constraintName = `fk_${tableName}_${columnName}`
+            const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+
+            changes.push({
+              type: 'ADD_FOREIGN_KEY',
+              tableName,
+              sql,
+              description: `Add updated foreign key: ${tableName}.${columnName} -> ${fk.table}.${fk.column}`,
+              metadata: {
+                columnName,
+                constraintName,
+              },
+            })
+          }
+        }
+      }
+    }
+
+    // Check for dropped foreign keys
+    if (!this.config.safeMigrations) {
+      const entityFkColumns = new Set<string>()
+
+      for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
+        if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
+          entityFkColumns.add(this.getColumnName(fieldName))
+        }
+      }
+
+      for (const dbFk of dbForeignKeys) {
+        if (!entityFkColumns.has(dbFk.columnName)) {
+          changes.push({
+            type: 'DROP_FOREIGN_KEY',
+            tableName,
+            sql: `ALTER TABLE ${tableName} DROP CONSTRAINT ${dbFk.constraintName}`,
+            description: `Drop foreign key constraint ${dbFk.constraintName}`,
+            destructive: true,
+            metadata: {
+              constraintName: dbFk.constraintName,
+            },
+          })
+        }
+      }
+    }
+
+    return changes
   }
 
   // ========================================================================
