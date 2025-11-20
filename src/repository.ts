@@ -523,6 +523,7 @@ export class Repository<
         // Toggle quote state (not escaped quote)
         inQuotes = !inQuotes
         i++
+
         continue
       }
 
@@ -531,6 +532,7 @@ export class Repository<
         elements.push(current)
         current = ''
         i++
+
         continue
       }
 
@@ -542,6 +544,7 @@ export class Repository<
           // Escaped quote or backslash
           current += nextChar
           i += 2
+
           continue
         }
       }
@@ -586,11 +589,11 @@ export class Repository<
 
         if (arrayType === 'string') {
           // For strings, properly escape and quote when necessary
-          const formatted = value.map(v => {
+          const formatted = value.map((v) => {
             const str = String(v)
 
             // Check if string needs quoting (contains special characters)
-            const needsQuoting = /[",\\{}\s]/.test(str) || str === ''
+            const needsQuoting = (/[",\\{}\s]/).test(str) || str === ''
 
             if (needsQuoting) {
               // Escape backslashes and quotes, then wrap in quotes
