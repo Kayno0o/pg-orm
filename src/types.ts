@@ -260,6 +260,8 @@ export type WhereCondition<T extends EntitySchema> = {
 export type OrderDirection = 'ASC' | 'DESC'
 
 export type OrderBy<T extends EntitySchema> = {
+  id?: OrderDirection
+} & {
   [K in keyof T]?: OrderDirection
 }
 
