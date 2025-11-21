@@ -392,11 +392,10 @@ export class Repository<
   // ========================================================================
 
   withTransaction(tx: SQL): Repository<T, TTraits> {
-    const cloned = new Repository(this.definition)
-
-    cloned.txContext = tx
-
-    return cloned
+    // Create lightweight wrapper sharing precomputed caches
+    const wrapper = Object.create(this) as Repository<T, TTraits>
+    wrapper.txContext = tx
+    return wrapper
   }
 
   async transaction<R>(callback: (repo: Repository<T, TTraits>) => Promise<R>): Promise<R> {

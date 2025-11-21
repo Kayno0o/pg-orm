@@ -42,12 +42,13 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
     dbInstance = new SQL(connectionString)
   }
   else {
-    // Apply defaults for connection pool
+    // Extract migration config, pass rest to SQL
     const {
-      poolMin: _poolMin = 2,
-      poolMax: _poolMax = 10,
-      idleTimeout: _idleTimeout = 30000,
-      connectionTimeout: _connectionTimeout = 10000,
+      poolMin: _poolMin,
+      poolMax: _poolMax,
+      idleTimeout: _idleTimeout,
+      connectionTimeout: _connectionTimeout,
+      migrations: _migrations,
       ...rest
     } = connectionString
 
@@ -57,6 +58,7 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
     }
     else {
       // Otherwise construct from individual parameters
+      // Note: Bun SQL pool settings via max/min are passed through rest
       dbInstance = new SQL(rest as any)
     }
   }

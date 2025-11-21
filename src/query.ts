@@ -15,6 +15,7 @@ export class QueryBuilder<T extends EntitySchema> {
   private limitValue?: number
   private offsetValue?: number
   private groupByFields: string[] = []
+  private validColumns: Set<string>
 
   constructor(
     private tableName: string,
@@ -24,6 +25,8 @@ export class QueryBuilder<T extends EntitySchema> {
   ) {
     // Validate table name on construction to prevent SQL injection
     validateSQLIdentifier(tableName, 'table')
+    // Cache valid columns at construction time for O(1) lookup
+    this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
   }
 
   // Helper to get column name from field name
@@ -45,9 +48,8 @@ export class QueryBuilder<T extends EntitySchema> {
   // Helper to validate column name (security: prevent SQL injection)
   private validateColumnName(field: string): string {
     const columnName = this.getColumnName(field)
-    const validColumns = ['id', ...Object.keys(this.schema).map(k => this.getColumnName(k))]
 
-    if (!validColumns.includes(columnName)) {
+    if (!this.validColumns.has(columnName)) {
       throw new Error(`Invalid column name: ${field}. Column not found in schema.`)
     }
 

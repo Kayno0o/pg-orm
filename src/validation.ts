@@ -23,6 +23,9 @@ export class ValidationError extends Error {
   }
 }
 
+// Pre-compiled regex for UUID validation
+const UUID_REGEX = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
+
 export class Validator {
   private errors: ValidationErrorDetail[] = []
 
@@ -175,9 +178,7 @@ export class Validator {
       return
     }
 
-    const uuidRegex = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
-
-    if (!uuidRegex.test(value)) {
+    if (!UUID_REGEX.test(value)) {
       this.addError(fieldName, 'format', `Field "${fieldName}" must be a valid UUID`, value)
     }
   }
