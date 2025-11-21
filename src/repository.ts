@@ -37,6 +37,7 @@ export class Repository<
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
+  private autoUpdateColumns: string[] // Pre-computed for update operations
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
@@ -57,6 +58,11 @@ export class Repository<
       columnName: this.columnNameMap.get(fieldName)!,
       config,
     }))
+
+    // Pre-compute auto-update columns (avoid scanning all fields on every update)
+    this.autoUpdateColumns = this.fieldConfigs
+      .filter(({ config }) => config.type === 'timestamp' && config.autoUpdate)
+      .map(({ columnName }) => columnName)
 
     this.queryGenerator = new QueryGenerator(this.schema, f => this.columnNameMap.get(f) || toSnake(f))
 
@@ -100,11 +106,13 @@ export class Repository<
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
 
-  async create(data: InferCreateData<T>): Promise<InferEntity<T, TTraits>> {
+  async create(data: InferCreateData<T>, options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
-    // Validate input data
-    this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+    // Validate input data (skip if explicitly disabled for performance)
+    if (!options?.skipValidation) {
+      this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+    }
 
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeCreate) {
@@ -140,10 +148,11 @@ export class Repository<
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
 
-    // Handle auto-update fields
-    for (const { columnName, config } of this.fieldConfigs) {
-      if (config.type === 'timestamp' && config.autoUpdate) {
-        (preparedData as any)[columnName] = new Date()
+    // Handle auto-update fields (using pre-computed list)
+    if (this.autoUpdateColumns.length > 0) {
+      const now = new Date()
+      for (const columnName of this.autoUpdateColumns) {
+        (preparedData as any)[columnName] = now
       }
     }
 
@@ -323,15 +332,17 @@ export class Repository<
   // Bulk Operations
   // ========================================================================
 
-  async createMany(dataArray: InferCreateData<T>[]): Promise<InferEntity<T, TTraits>[]> {
+  async createMany(dataArray: InferCreateData<T>[], options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>[]> {
     if (dataArray.length === 0)
       return []
 
     const db = this.getDB()
 
-    // Step 1: Validate all items first
-    for (const data of dataArray) {
-      this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+    // Step 1: Validate all items first (skip if explicitly disabled for performance)
+    if (!options?.skipValidation) {
+      for (const data of dataArray) {
+        this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+      }
     }
 
     // Step 2: Execute beforeCreate hooks (parallelized across items)
@@ -534,16 +545,35 @@ export class Repository<
     }
 
     // Fast path: simple arrays without quotes (most common case)
+    // Single-pass parsing with inline type conversion
     if (!content.includes('"')) {
-      const elements = content.split(',')
-      switch (elementType) {
-      case 'number':
-        return elements.map(e => Number(e))
-      case 'boolean':
-        return elements.map(e => e === 't' || e === 'true')
-      default:
-        return elements
+      if (elementType === 'number') {
+        // Single-pass number parsing
+        const result: number[] = []
+        let start = 0
+        for (let i = 0; i <= content.length; i++) {
+          if (i === content.length || content[i] === ',') {
+            result.push(Number(content.slice(start, i)))
+            start = i + 1
+          }
+        }
+        return result
       }
+      if (elementType === 'boolean') {
+        // Single-pass boolean parsing
+        const result: boolean[] = []
+        let start = 0
+        for (let i = 0; i <= content.length; i++) {
+          if (i === content.length || content[i] === ',') {
+            const val = content.slice(start, i)
+            result.push(val === 't' || val === 'true')
+            start = i + 1
+          }
+        }
+        return result
+      }
+      // String: split is efficient enough
+      return content.split(',')
     }
 
     // Slow path: parse complex arrays with quoted strings

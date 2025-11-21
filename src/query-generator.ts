@@ -104,6 +104,114 @@ export class QueryGenerator<T extends EntitySchema> {
   // Build WHERE Clause (using Bun SQL template)
   // ========================================================================
 
+  // ========================================================================
+  // Build WHERE Clause Components (optimized - single pass)
+  // ========================================================================
+
+  buildWhereComponents(where: WhereCondition<T>): {
+    clauses: string[]
+    values: unknown[]
+    inClauses: { clause: string, values: unknown[] }[]
+  } {
+    const clauses: string[] = []
+    const values: unknown[] = []
+    const inClauses: { clause: string, values: unknown[] }[] = []
+
+    for (const [key, condition] of Object.entries(where)) {
+      if (condition === null || condition === undefined)
+        continue
+
+      const columnName = this.getColumnName(key)
+      this.validateColumnName(columnName)
+
+      // Simple equality or IN clause
+      if (Array.isArray(condition)) {
+        if (condition.length > 0) {
+          inClauses.push({ clause: `${columnName} IN`, values: condition })
+        }
+        continue
+      }
+
+      // Operator object
+      if (typeof condition === 'object') {
+        for (const [op, value] of Object.entries(condition)) {
+          if (value === undefined)
+            continue
+
+          switch (op) {
+          case 'eq':
+            clauses.push(`${columnName} =`)
+            values.push(value)
+            break
+          case 'ne':
+            clauses.push(`${columnName} !=`)
+            values.push(value)
+            break
+          case 'gt':
+            clauses.push(`${columnName} >`)
+            values.push(value)
+            break
+          case 'gte':
+            clauses.push(`${columnName} >=`)
+            values.push(value)
+            break
+          case 'lt':
+            clauses.push(`${columnName} <`)
+            values.push(value)
+            break
+          case 'lte':
+            clauses.push(`${columnName} <=`)
+            values.push(value)
+            break
+          case 'in':
+            if (Array.isArray(value) && value.length > 0) {
+              inClauses.push({ clause: `${columnName} IN`, values: value })
+            }
+            break
+          case 'notIn':
+            if (Array.isArray(value) && value.length > 0) {
+              inClauses.push({ clause: `${columnName} NOT IN`, values: value })
+            }
+            break
+          case 'like':
+            clauses.push(`${columnName} LIKE`)
+            values.push(value)
+            break
+          case 'ilike':
+            clauses.push(`${columnName} ILIKE`)
+            values.push(value)
+            break
+          case 'isNull':
+            if (value === true) {
+              clauses.push(`${columnName} IS NULL`)
+            }
+            break
+          case 'isNotNull':
+            if (value === true) {
+              clauses.push(`${columnName} IS NOT NULL`)
+            }
+            break
+          case 'contains':
+            inClauses.push({ clause: `${columnName} @>`, values: [value] })
+            break
+          case 'overlaps':
+            if (Array.isArray(value)) {
+              inClauses.push({ clause: `${columnName} &&`, values: value })
+            }
+            break
+          }
+        }
+        continue
+      }
+
+      // Simple value
+      clauses.push(`${columnName} =`)
+      values.push(condition)
+    }
+
+    return { clauses, values, inClauses }
+  }
+
   applyWhereConditions(
     query: any,
     where: WhereCondition<T>,
@@ -112,130 +220,39 @@ export class QueryGenerator<T extends EntitySchema> {
     if (!where)
       return query
 
-    // Build WHERE clause using proper SQL template interpolation
-    let whereClause = query
-    let conditionCount = 0
+    const { clauses, values, inClauses } = this.buildWhereComponents(where)
+    const totalConditions = clauses.length + inClauses.length
 
-    for (const [key, condition] of Object.entries(where)) {
-      if (condition === null || condition === undefined)
-        continue
+    if (totalConditions === 0)
+      return query
 
-      const columnName = this.getColumnName(key)
+    let result = query
+    let isFirst = true
 
-      this.validateColumnName(columnName)
+    // Apply simple conditions
+    for (let i = 0; i < clauses.length; i++) {
+      const clause = clauses[i]!
+      const prefix = isFirst ? 'WHERE' : 'AND'
+      const value = values[i]
 
-      const prefix = conditionCount === 0 ? 'WHERE' : 'AND'
-
-      // Simple equality or IN clause
-      if (Array.isArray(condition)) {
-        if (condition.length === 0) {
-          // Empty array - skip condition
-          continue
-        }
-
-        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} IN ${db(condition)}`
-        conditionCount++
+      // Clauses ending with IS NULL/IS NOT NULL have no value
+      if (clause.endsWith('IS NULL') || clause.endsWith('IS NOT NULL')) {
+        result = db`${result} ${db.unsafe(prefix)} ${db.unsafe(clause)}`
       }
-      // Operator object
-      else if (typeof condition === 'object' && !Array.isArray(condition)) {
-        for (const [op, value] of Object.entries(condition)) {
-          if (value === undefined)
-            continue
-
-          const opPrefix = conditionCount === 0 ? 'WHERE' : 'AND'
-
-          switch (op) {
-          case 'eq':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} = ${value}`
-            conditionCount++
-
-            break
-          case 'ne':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} != ${value}`
-            conditionCount++
-
-            break
-          case 'gt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} > ${value}`
-            conditionCount++
-
-            break
-          case 'gte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} >= ${value}`
-            conditionCount++
-
-            break
-          case 'lt':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} < ${value}`
-            conditionCount++
-
-            break
-          case 'lte':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} <= ${value}`
-            conditionCount++
-
-            break
-          case 'in':
-            if (Array.isArray(value) && value.length > 0) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IN ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          case 'notIn':
-            if (Array.isArray(value) && value.length > 0) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} NOT IN ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          case 'like':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} LIKE ${value}`
-            conditionCount++
-
-            break
-          case 'ilike':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} ILIKE ${value}`
-            conditionCount++
-
-            break
-          case 'isNull':
-            if (value === true) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NULL`
-              conditionCount++
-            }
-
-            break
-          case 'isNotNull':
-            if (value === true) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} IS NOT NULL`
-              conditionCount++
-            }
-
-            break
-          case 'contains':
-            whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} @> ${db([value])}`
-            conditionCount++
-
-            break
-          case 'overlaps':
-            if (Array.isArray(value)) {
-              whereClause = db`${whereClause} ${db.unsafe(opPrefix)} ${db.unsafe(columnName)} && ${db(value)}`
-              conditionCount++
-            }
-
-            break
-          }
-        }
-      }
-      // Simple value
       else {
-        whereClause = db`${whereClause} ${db.unsafe(prefix)} ${db.unsafe(columnName)} = ${condition}`
-        conditionCount++
+        result = db`${result} ${db.unsafe(prefix)} ${db.unsafe(clause)} ${value}`
       }
+      isFirst = false
     }
 
-    return whereClause
+    // Apply IN/array conditions
+    for (const { clause, values: inValues } of inClauses) {
+      const prefix = isFirst ? 'WHERE' : 'AND'
+      result = db`${result} ${db.unsafe(prefix)} ${db.unsafe(clause)} ${db(inValues)}`
+      isFirst = false
+    }
+
+    return result
   }
 
   // ========================================================================
