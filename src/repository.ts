@@ -257,10 +257,11 @@ export class Repository<
     pageSize: number
     where?: QueryOptions<T>['where']
     order?: QueryOptions<T>['order']
+    exact?: boolean
   }): Promise<PaginationResult<InferEntity<T, TTraits>>> {
-    const { page, pageSize, where, order } = options
+    const { page, pageSize, where, order, exact = true } = options
 
-    const total = await this.count({ where })
+    const total = await this.count({ where }, exact)
     const totalPages = Math.ceil(total / pageSize)
     const offset = (page - 1) * pageSize
 
@@ -333,11 +334,14 @@ export class Repository<
       this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
     }
 
-    // Step 2: Execute beforeCreate hooks for each item (allows mutation)
-    for (const data of dataArray) {
-      for (const hook of this.definition.hooks.beforeCreate) {
-        await hook(data)
-      }
+    // Step 2: Execute beforeCreate hooks (parallelized across items)
+    const beforeHooks = this.definition.hooks.beforeCreate
+    if (beforeHooks.length > 0) {
+      await Promise.all(dataArray.map(async (data) => {
+        for (const hook of beforeHooks) {
+          await hook(data)
+        }
+      }))
     }
 
     // Step 3: Prepare all data for insertion
@@ -352,11 +356,14 @@ export class Repository<
     // Step 5: Map database rows to entities
     const entities = results.map((row: DatabaseRow) => this.mapRowToEntity(row))
 
-    // Step 6: Execute afterCreate hooks for each created entity
-    for (const entity of entities) {
-      for (const hook of this.definition.hooks.afterCreate) {
-        await hook(entity as any)
-      }
+    // Step 6: Execute afterCreate hooks (parallelized across items)
+    const afterHooks = this.definition.hooks.afterCreate
+    if (afterHooks.length > 0) {
+      await Promise.all(entities.map(async (entity: any) => {
+        for (const hook of afterHooks) {
+          await hook(entity as any)
+        }
+      }))
     }
 
     return entities
@@ -394,7 +401,9 @@ export class Repository<
   withTransaction(tx: SQL): Repository<T, TTraits> {
     // Create lightweight wrapper sharing precomputed caches
     const wrapper = Object.create(this) as Repository<T, TTraits>
+
     wrapper.txContext = tx
+
     return wrapper
   }
 
@@ -524,7 +533,20 @@ export class Repository<
       return []
     }
 
-    // Parse array elements handling quoted strings properly
+    // Fast path: simple arrays without quotes (most common case)
+    if (!content.includes('"')) {
+      const elements = content.split(',')
+      switch (elementType) {
+      case 'number':
+        return elements.map(e => Number(e))
+      case 'boolean':
+        return elements.map(e => e === 't' || e === 'true')
+      default:
+        return elements
+      }
+    }
+
+    // Slow path: parse complex arrays with quoted strings
     const elements: string[] = []
     let current = ''
     let inQuotes = false
@@ -534,31 +556,23 @@ export class Repository<
       const char = content[i]
 
       if (char === '"' && (i === 0 || content[i - 1] !== '\\')) {
-        // Toggle quote state (not escaped quote)
         inQuotes = !inQuotes
         i++
-
         continue
       }
 
       if (char === ',' && !inQuotes) {
-        // Element separator outside quotes
         elements.push(current)
         current = ''
         i++
-
         continue
       }
 
       if (char === '\\' && inQuotes && i + 1 < content.length) {
-        // Handle escape sequences in quoted strings
         const nextChar = content[i + 1]
-
         if (nextChar === '"' || nextChar === '\\') {
-          // Escaped quote or backslash
           current += nextChar
           i += 2
-
           continue
         }
       }
@@ -567,21 +581,11 @@ export class Repository<
       i++
     }
 
-    // Add last element
     if (current || content[content.length - 1] === ',') {
       elements.push(current)
     }
 
-    // Convert based on element type
-    switch (elementType) {
-    case 'number':
-      return elements.map(e => Number(e))
-    case 'boolean':
-      return elements.map(e => e === 't' || e === 'true')
-    case 'string':
-    default:
-      return elements
-    }
+    return elements
   }
 
   private prepareData(data: Record<string, unknown>): Record<string, unknown> {
