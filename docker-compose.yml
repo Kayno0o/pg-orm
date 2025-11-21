@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: orm-v2-postgres
+    container_name: pg-orm-test
     environment:
       POSTGRES_USER: test
       POSTGRES_PASSWORD: test

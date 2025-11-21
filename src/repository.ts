@@ -33,15 +33,48 @@ export class Repository<
   private entityRepositoryMap = new WeakMap<any, Repository<T, TTraits>>()
   private queryGenerator: QueryGenerator<T>
 
+  // Performance caches
+  private cachedSelectColumns: string
+  private columnNameMap: Map<string, string>
+  private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
+
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
     this.validator = new Validator()
-    this.queryGenerator = new QueryGenerator(this.schema, this.getColumnName.bind(this))
+
+    // Pre-compute column name map
+    this.columnNameMap = new Map()
+    this.columnNameMap.set('id', 'id')
+    for (const fieldName of Object.keys(this.schema)) {
+      this.columnNameMap.set(fieldName, this.computeColumnName(fieldName))
+    }
+
+    // Pre-compute field configs for mapRowToEntity
+    this.fieldConfigs = Object.entries(this.schema).map(([fieldName, config]) => ({
+      fieldName,
+      columnName: this.columnNameMap.get(fieldName)!,
+      config,
+    }))
+
+    this.queryGenerator = new QueryGenerator(this.schema, f => this.columnNameMap.get(f) || toSnake(f))
+
+    // Cache select columns string
+    this.cachedSelectColumns = this.queryGenerator.buildSelectColumns()
 
     // Build entity prototype once for performance (instead of per-entity injection)
     this.entityPrototype = this.buildEntityPrototype()
+  }
+
+  private computeColumnName(fieldName: string): string {
+    const fieldConfig = this.schema[fieldName]
+
+    if ((fieldConfig as any)?.columnName) {
+      return (fieldConfig as any).columnName
+    }
+
+    return toSnake(fieldName)
   }
 
   // ========================================================================
@@ -51,9 +84,8 @@ export class Repository<
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
-    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
-      SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}
+      SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}
       WHERE id = ${id}
       LIMIT 1
     `
@@ -63,8 +95,7 @@ export class Repository<
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
-    const selectColumns = this.queryGenerator.buildSelectColumns()
-    const results = await db`SELECT ${db.unsafe(selectColumns)} FROM ${db(this.tableName)}`
+    const results = await db`SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}`
 
     return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
   }
@@ -81,10 +112,9 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
-    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedData)}
-      RETURNING ${db.unsafe(selectColumns)}
+      RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
     const entity = this.mapRowToEntity(result)
@@ -111,18 +141,17 @@ export class Repository<
     const preparedData = this.prepareData(data as Record<string, unknown>)
 
     // Handle auto-update fields
-    for (const [key, fieldConfig] of Object.entries(this.schema)) {
-      if (fieldConfig.type === 'timestamp' && (fieldConfig as any).autoUpdate) {
-        (preparedData as any)[this.getColumnName(key)] = new Date()
+    for (const { columnName, config } of this.fieldConfigs) {
+      if (config.type === 'timestamp' && config.autoUpdate) {
+        (preparedData as any)[columnName] = new Date()
       }
     }
 
-    const selectColumns = this.queryGenerator.buildSelectColumns()
     const [result] = await db`
       UPDATE ${db(this.tableName)}
       SET ${db(preparedData)}
       WHERE id = ${id}
-      RETURNING ${db.unsafe(selectColumns)}
+      RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
     if (!result) {
@@ -315,10 +344,9 @@ export class Repository<
     const preparedDataArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
     // Step 4: Single bulk INSERT for performance
-    const selectColumns = this.queryGenerator.buildSelectColumns()
     const results = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
-      RETURNING ${db.unsafe(selectColumns)}
+      RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
     // Step 5: Map database rows to entities
@@ -414,15 +442,7 @@ export class Repository<
   }
 
   private getColumnName(fieldName: string): string {
-    const fieldConfig = this.schema[fieldName]
-
-    // If explicit columnName is set, use it
-    if ((fieldConfig as any)?.columnName) {
-      return (fieldConfig as any).columnName
-    }
-
-    // Otherwise, convert camelCase to snake_case automatically
-    return toSnake(fieldName)
+    return this.columnNameMap.get(fieldName) || toSnake(fieldName)
   }
 
   private buildEntityPrototype(): any {
@@ -459,33 +479,28 @@ export class Repository<
     // Store repository reference in WeakMap to avoid memory leaks
     this.entityRepositoryMap.set(entity, this)
 
-    // Map database columns (snake_case) to entity fields (camelCase)
-    for (const [fieldName, fieldConfig] of Object.entries(this.schema)) {
-      const columnName = this.getColumnName(fieldName)
+    // Map database columns using pre-computed field configs
+    for (const { fieldName, columnName, config } of this.fieldConfigs) {
       const value = row[columnName]
 
       if (value === undefined)
         continue
 
       // Deserialize arrays (they come as TEXT format from PostgreSQL due to casting)
-      if (fieldConfig?.type === 'array' && value !== null && value !== undefined) {
+      if (config.type === 'array' && value !== null) {
         if (Array.isArray(value)) {
           entity[fieldName] = value
         }
         else if (typeof value === 'string') {
           // Parse PostgreSQL array text format: {val1,val2,val3}
-          entity[fieldName] = this.parsePostgresArray(value, (fieldConfig as any).arrayType)
+          entity[fieldName] = this.parsePostgresArray(value, config.arrayType)
         }
         else {
           entity[fieldName] = Array.from(value as any)
         }
       }
       // Deserialize timestamps/dates
-      else if (
-        (fieldConfig?.type === 'timestamp' || fieldConfig?.type === 'date')
-        && value !== null
-        && value !== undefined
-      ) {
+      else if ((config.type === 'timestamp' || config.type === 'date') && value !== null) {
         entity[fieldName] = value instanceof Date ? value : new Date(value as string)
       }
       // Default
