@@ -47,6 +47,7 @@ jobs:
           tool: benchmarkjs
           output-file-path: output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gitea-pages
           auto-push: true
           alert-threshold: '150%'
           comment-on-alert: true
