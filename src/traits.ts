@@ -1,4 +1,18 @@
-import type { AnyRepository, EntitySchema, FieldConfig, TraitDefinition, TraitMethod, TraitMethods } from './types'
+import type {
+  AfterCreateHook,
+  AfterDeleteHook,
+  AfterUpdateHook,
+  AnyRepository,
+  BeforeCreateHook,
+  BeforeDeleteHook,
+  BeforeUpdateHook,
+  EntityHooks,
+  EntitySchema,
+  FieldConfig,
+  TraitDefinition,
+  TraitMethod,
+  TraitMethods,
+} from './types'
 import { field } from './field'
 
 // ============================================================================
@@ -21,14 +35,17 @@ export class TraitBuilder<
 > {
   private _fields: TFields
   private _methods: TMethods
+  private _hooks: Partial<EntityHooks<TFields>>
 
   constructor(
     private readonly name: string,
     fields: TFields = {} as TFields,
     methods: TMethods = {} as TMethods,
+    hooks: Partial<EntityHooks<TFields>> = {},
   ) {
     this._fields = fields
     this._methods = methods
+    this._hooks = hooks
   }
 
   // ========================================================================
@@ -44,7 +61,7 @@ export class TraitBuilder<
       [name]: fieldBuilder.toConfig(),
     } as TFields & Record<K, ReturnType<F['toConfig']>>
 
-    return new TraitBuilder(this.name, newFields, this._methods)
+    return new TraitBuilder(this.name, newFields, this._methods, this._hooks as any)
   }
 
   // Convenience method to add multiple fields at once
@@ -60,7 +77,7 @@ export class TraitBuilder<
       newFields[key] = builder.toConfig()
     }
 
-    return new TraitBuilder(this.name, newFields, this._methods)
+    return new TraitBuilder(this.name, newFields, this._methods, this._hooks as any)
   }
 
   // ========================================================================
@@ -76,7 +93,7 @@ export class TraitBuilder<
       [name]: method,
     } as TMethods & Record<K, M>
 
-    return new TraitBuilder(this.name, this._fields, newMethods)
+    return new TraitBuilder(this.name, this._fields, newMethods, this._hooks)
   }
 
   // Convenience method to add multiple methods at once
@@ -85,7 +102,59 @@ export class TraitBuilder<
   ): TraitBuilder<TFields, TMethods & T> {
     const newMethods = { ...this._methods, ...methodsObj } as TMethods & T
 
-    return new TraitBuilder(this.name, this._fields, newMethods)
+    return new TraitBuilder(this.name, this._fields, newMethods, this._hooks)
+  }
+
+  // ========================================================================
+  // Add Hooks
+  // ========================================================================
+
+  beforeCreate(hook: BeforeCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.beforeCreate = [...(newHooks.beforeCreate || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+  }
+
+  afterCreate(hook: AfterCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.afterCreate = [...(newHooks.afterCreate || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+  }
+
+  beforeUpdate(hook: BeforeUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.beforeUpdate = [...(newHooks.beforeUpdate || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+  }
+
+  afterUpdate(hook: AfterUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.afterUpdate = [...(newHooks.afterUpdate || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+  }
+
+  beforeDelete(hook: BeforeDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.beforeDelete = [...(newHooks.beforeDelete || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+  }
+
+  afterDelete(hook: AfterDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
+    const newHooks = { ...this._hooks }
+
+    newHooks.afterDelete = [...(newHooks.afterDelete || []), hook]
+
+    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
   }
 
   // ========================================================================
@@ -97,6 +166,7 @@ export class TraitBuilder<
       name: this.name,
       fields: this._fields,
       methods: this._methods,
+      hooks: Object.keys(this._hooks).length > 0 ? this._hooks : undefined,
     })
   }
 }
@@ -114,13 +184,24 @@ export function createTrait(name: string): TraitBuilder<EmptySchema, EmptyMethod
 // ============================================================================
 
 /**
- * Timestamps trait - adds createdAt and updatedAt fields
+ * Timestamps trait - adds createdAt and updatedAt fields with automatic updates
  */
 export function timestamps() {
-  return createTrait('timestamps').fields({
-    createdAt: field.timestamp().default('NOW()'),
-    updatedAt: field.timestamp().default('NOW()'),
-  }).build()
+  return createTrait('timestamps')
+    .fields({
+      createdAt: field.timestamp().default('NOW()'),
+      updatedAt: field.timestamp().default('NOW()'),
+    })
+    .beforeCreate((data: any) => {
+      const now = new Date()
+
+      data.createdAt ||= now
+      data.updatedAt ||= now
+    })
+    .beforeUpdate((_id: number, data: any) => {
+      data.updatedAt = new Date()
+    })
+    .build()
 }
 
 /**
@@ -142,7 +223,7 @@ export function softDelete() {
 }
 
 /**
- * Paranoid trait - combines timestamps and soft delete
+ * Paranoid trait - combines timestamps and soft delete with automatic updates
  */
 export function paranoid() {
   return createTrait('paranoid')
@@ -150,6 +231,15 @@ export function paranoid() {
       createdAt: field.timestamp().default('NOW()'),
       updatedAt: field.timestamp().default('NOW()'),
       deletedAt: field.timestamp().nullable(),
+    })
+    .beforeCreate((data: any) => {
+      const now = new Date()
+
+      data.createdAt ||= now
+      data.updatedAt ||= now
+    })
+    .beforeUpdate((_id: number, data: any) => {
+      data.updatedAt = new Date()
     })
     .methods({
       async softDelete(repo: AnyRepository) {

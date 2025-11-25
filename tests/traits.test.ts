@@ -315,4 +315,238 @@ describe('Trait System', () => {
       await teardownTestDatabase()
     })
   })
+
+  describe('Trait Hooks', () => {
+    test('should execute trait hooks on create', async () => {
+      await setupTestDatabase()
+
+      const hookCalls: string[] = []
+
+      const customTrait = orm.trait('custom')
+        .field('value', orm.number().default(0))
+        .beforeCreate((data: any) => {
+          hookCalls.push('trait-beforeCreate')
+          data.value = (data.value || 0) + 10
+        })
+        .build()
+
+      const Entity = orm.entity('test_trait_hooks', {
+        name: orm.string(),
+      })
+        .use(customTrait)
+        .beforeCreate((data: any) => {
+          hookCalls.push('entity-beforeCreate')
+          data.value += 5
+        })
+        .build()
+
+      await createTestTable(Entity)
+
+      const repo = orm.repo(Entity)
+      const item = await repo.create({ name: 'Test', value: 1 })
+
+      // Verify hooks were called in correct order: trait first, then entity
+      expect(hookCalls).toEqual(['trait-beforeCreate', 'entity-beforeCreate'])
+      // Verify both hooks modified the data
+      expect(item.value).toBe(16) // 1 + 10 (trait) + 5 (entity)
+
+      await cleanupTables('test_trait_hooks')
+      await teardownTestDatabase()
+    })
+
+    test('should execute trait hooks on update', async () => {
+      await setupTestDatabase()
+
+      const hookCalls: string[] = []
+
+      const customTrait = orm.trait('custom')
+        .field('value', orm.number().default(0))
+        .beforeUpdate((_id: number, data: any) => {
+          hookCalls.push('trait-beforeUpdate')
+
+          if (data.value !== undefined) {
+            data.value *= 2
+          }
+        })
+        .build()
+
+      const Entity = orm.entity('test_trait_update_hooks', {
+        name: orm.string(),
+      })
+        .use(customTrait)
+        .beforeUpdate((_id: number, data: any) => {
+          hookCalls.push('entity-beforeUpdate')
+
+          if (data.value !== undefined) {
+            data.value += 1
+          }
+        })
+        .build()
+
+      await createTestTable(Entity)
+
+      const repo = orm.repo(Entity)
+      const item = await repo.create({ name: 'Test', value: 5 })
+
+      hookCalls.length = 0 // Clear hook calls from creation
+
+      const updated = await repo.update(item.id, { value: 3 })
+
+      // Verify hooks were called in correct order: trait first, then entity
+      expect(hookCalls).toEqual(['trait-beforeUpdate', 'entity-beforeUpdate'])
+      // Verify both hooks modified the data: 3 * 2 (trait) + 1 (entity) = 7
+      expect(updated.value).toBe(7)
+
+      await cleanupTables('test_trait_update_hooks')
+      await teardownTestDatabase()
+    })
+
+    test('should handle multiple traits with hooks', async () => {
+      await setupTestDatabase()
+
+      const hookCalls: string[] = []
+
+      const trait1 = orm.trait('trait1')
+        .field('value1', orm.number().default(0))
+        .beforeCreate((data: any) => {
+          hookCalls.push('trait1-beforeCreate')
+          data.value1 = 10
+        })
+        .build()
+
+      const trait2 = orm.trait('trait2')
+        .field('value2', orm.number().default(0))
+        .beforeCreate((data: any) => {
+          hookCalls.push('trait2-beforeCreate')
+          data.value2 = 20
+        })
+        .build()
+
+      const Entity = orm.entity('test_multi_trait_hooks', {
+        name: orm.string(),
+      })
+        .use(trait1)
+        .use(trait2)
+        .beforeCreate((data: any) => {
+          hookCalls.push('entity-beforeCreate')
+          data.name = data.name.toUpperCase()
+        })
+        .build()
+
+      await createTestTable(Entity)
+
+      const repo = orm.repo(Entity)
+      const item = await repo.create({ name: 'test' })
+
+      // Verify hooks were called in application order
+      expect(hookCalls).toEqual(['trait1-beforeCreate', 'trait2-beforeCreate', 'entity-beforeCreate'])
+      expect(item.value1).toBe(10)
+      expect(item.value2).toBe(20)
+      expect(item.name).toBe('TEST')
+
+      await cleanupTables('test_multi_trait_hooks')
+      await teardownTestDatabase()
+    })
+
+    test('timestamps trait should use hooks', async () => {
+      await setupTestDatabase()
+
+      const Entity = orm.entity('test_timestamps_hooks', {
+        name: orm.string(),
+      })
+        .use(timestamps())
+        .build()
+
+      await createTestTable(Entity)
+
+      const repo = orm.repo(Entity)
+      const before = new Date()
+      const item = await repo.create({ name: 'Test' })
+      const after = new Date()
+
+      // Verify createdAt and updatedAt were set by hooks
+      expect(item.createdAt).toBeInstanceOf(Date)
+      expect(item.updatedAt).toBeInstanceOf(Date)
+      expect(item.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 100)
+      expect(item.createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 100)
+
+      // Wait a bit and update
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      const updateBefore = new Date()
+      const updated = await repo.update(item.id, { name: 'Updated' })
+      const updateAfter = new Date()
+
+      // Verify updatedAt was changed by hook
+      expect(updated.updatedAt.getTime()).toBeGreaterThan(item.updatedAt.getTime())
+      expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(updateBefore.getTime() - 100)
+      expect(updated.updatedAt.getTime()).toBeLessThanOrEqual(updateAfter.getTime() + 100)
+      // createdAt should remain unchanged
+      expect(updated.createdAt.getTime()).toBe(item.createdAt.getTime())
+
+      await cleanupTables('test_timestamps_hooks')
+      await teardownTestDatabase()
+    })
+
+    test('should support all hook types in traits', async () => {
+      await setupTestDatabase()
+
+      const hookCalls: string[] = []
+
+      const trackedTrait = orm.trait('tracked')
+        .field('trackingData', orm.string().nullable())
+        .beforeCreate(() => {
+          hookCalls.push('beforeCreate')
+        })
+        .afterCreate(() => {
+          hookCalls.push('afterCreate')
+        })
+        .beforeUpdate(() => {
+          hookCalls.push('beforeUpdate')
+        })
+        .afterUpdate(() => {
+          hookCalls.push('afterUpdate')
+        })
+        .beforeDelete(() => {
+          hookCalls.push('beforeDelete')
+        })
+        .afterDelete(() => {
+          hookCalls.push('afterDelete')
+        })
+        .build()
+
+      const Entity = orm.entity('test_all_hooks', {
+        name: orm.string(),
+      })
+        .use(trackedTrait)
+        .build()
+
+      await createTestTable(Entity)
+
+      const repo = orm.repo(Entity)
+
+      // Create
+      const item = await repo.create({ name: 'Test' })
+
+      expect(hookCalls).toContain('beforeCreate')
+      expect(hookCalls).toContain('afterCreate')
+
+      hookCalls.length = 0
+
+      // Update
+      await repo.update(item.id, { name: 'Updated' })
+      expect(hookCalls).toContain('beforeUpdate')
+      expect(hookCalls).toContain('afterUpdate')
+
+      hookCalls.length = 0
+
+      // Delete
+      await repo.delete(item.id)
+      expect(hookCalls).toContain('beforeDelete')
+      expect(hookCalls).toContain('afterDelete')
+
+      await cleanupTables('test_all_hooks')
+      await teardownTestDatabase()
+    })
+  })
 })

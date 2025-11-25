@@ -344,6 +344,7 @@ export interface TraitDefinition<
   readonly name: string
   readonly fields: TFields
   readonly methods: TMethods
+  readonly hooks?: Partial<EntityHooks<TFields>>
 }
 
 // Helper to extract trait fields from a trait definition

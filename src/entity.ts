@@ -111,14 +111,14 @@ export class EntityBuilder<
 
     const newBuilder = new EntityBuilder(this.tableName, newSchema, newTraits)
 
-    // Copy hooks (type cast needed for trait field additions)
+    // Merge hooks: trait hooks appended in order they're applied, then entity hooks (type cast needed for trait field additions)
     newBuilder._hooks = {
-      beforeCreate: [...this._hooks.beforeCreate] as any,
-      afterCreate: [...this._hooks.afterCreate] as any,
-      beforeUpdate: [...this._hooks.beforeUpdate] as any,
-      afterUpdate: [...this._hooks.afterUpdate] as any,
-      beforeDelete: [...this._hooks.beforeDelete] as any,
-      afterDelete: [...this._hooks.afterDelete] as any,
+      beforeCreate: [...this._hooks.beforeCreate, ...(trait.hooks?.beforeCreate || []) as any] as any,
+      afterCreate: [...this._hooks.afterCreate, ...(trait.hooks?.afterCreate || []) as any] as any,
+      beforeUpdate: [...this._hooks.beforeUpdate, ...(trait.hooks?.beforeUpdate || []) as any] as any,
+      afterUpdate: [...this._hooks.afterUpdate, ...(trait.hooks?.afterUpdate || []) as any] as any,
+      beforeDelete: [...this._hooks.beforeDelete, ...(trait.hooks?.beforeDelete || []) as any] as any,
+      afterDelete: [...this._hooks.afterDelete, ...(trait.hooks?.afterDelete || []) as any] as any,
     }
     newBuilder._unique = this._unique
 
