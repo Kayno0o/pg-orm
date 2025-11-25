@@ -270,7 +270,7 @@ describe('Entity Builder', () => {
       expect(Object.keys(entity.schema)).toContain('email')
       expect(Object.keys(entity.schema)).toContain('createdAt')
       expect(Object.keys(entity.schema)).toContain('updatedAt')
-      expect(entity.hooks.beforeCreate).toHaveLength(1)
+      expect(entity.hooks.beforeCreate).toHaveLength(2)
       expect(entity.hooks.afterCreate).toHaveLength(1)
       expect(entity.unique).toEqual([['email']])
     })

@@ -151,6 +151,7 @@ export class Repository<
     // Handle auto-update fields (using pre-computed list)
     if (this.autoUpdateColumns.length > 0) {
       const now = new Date()
+
       for (const columnName of this.autoUpdateColumns) {
         (preparedData as any)[columnName] = now
       }
@@ -347,6 +348,7 @@ export class Repository<
 
     // Step 2: Execute beforeCreate hooks (parallelized across items)
     const beforeHooks = this.definition.hooks.beforeCreate
+
     if (beforeHooks.length > 0) {
       await Promise.all(dataArray.map(async (data) => {
         for (const hook of beforeHooks) {
@@ -369,6 +371,7 @@ export class Repository<
 
     // Step 6: Execute afterCreate hooks (parallelized across items)
     const afterHooks = this.definition.hooks.afterCreate
+
     if (afterHooks.length > 0) {
       await Promise.all(entities.map(async (entity: any) => {
         for (const hook of afterHooks) {
@@ -551,27 +554,34 @@ export class Repository<
         // Single-pass number parsing
         const result: number[] = []
         let start = 0
+
         for (let i = 0; i <= content.length; i++) {
           if (i === content.length || content[i] === ',') {
             result.push(Number(content.slice(start, i)))
             start = i + 1
           }
         }
+
         return result
       }
+
       if (elementType === 'boolean') {
         // Single-pass boolean parsing
         const result: boolean[] = []
         let start = 0
+
         for (let i = 0; i <= content.length; i++) {
           if (i === content.length || content[i] === ',') {
             const val = content.slice(start, i)
+
             result.push(val === 't' || val === 'true')
             start = i + 1
           }
         }
+
         return result
       }
+
       // String: split is efficient enough
       return content.split(',')
     }
@@ -588,6 +598,7 @@ export class Repository<
       if (char === '"' && (i === 0 || content[i - 1] !== '\\')) {
         inQuotes = !inQuotes
         i++
+
         continue
       }
 
@@ -595,14 +606,17 @@ export class Repository<
         elements.push(current)
         current = ''
         i++
+
         continue
       }
 
       if (char === '\\' && inQuotes && i + 1 < content.length) {
         const nextChar = content[i + 1]
+
         if (nextChar === '"' || nextChar === '\\') {
           current += nextChar
           i += 2
+
           continue
         }
       }

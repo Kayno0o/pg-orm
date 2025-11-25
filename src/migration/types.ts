@@ -225,3 +225,43 @@ export type PostgresType
     | 'TEXT[]'
     | 'INTEGER[]'
     | 'BOOLEAN[]'
+
+// ============================================================================
+// Dependency Sorting Types
+// ============================================================================
+
+export interface TableDependency {
+  tableName: string
+  dependsOn: Set<string>
+  selfReferencing: boolean
+}
+
+export interface DependencyGraph {
+  nodes: Map<string, TableDependency>
+  sorted: string[] | null
+  cycles: string[][] | null
+}
+
+export interface ValidationError {
+  error: string
+  fix?: string
+  tableName?: string
+  columnName?: string
+}
+
+export interface ValidationResult {
+  valid: boolean
+  errors: ValidationError[]
+  warnings: string[]
+}
+
+export interface SortedChangeGroups {
+  createTables: SchemaChange[]
+  addColumns: SchemaChange[]
+  modifyColumns: SchemaChange[]
+  addForeignKeys: SchemaChange[]
+  dropForeignKeys: SchemaChange[]
+  dropColumns: SchemaChange[]
+  dropTables: SchemaChange[]
+  other: SchemaChange[]
+}

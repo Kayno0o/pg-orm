@@ -10,6 +10,7 @@ import type {
   SchemaDiff,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
+import { DependencySorter } from './dependency-sorter'
 
 // ============================================================================
 // Schema Differ - Compare Entity Definitions with Database Schema
@@ -76,11 +77,15 @@ export class SchemaDiffer {
       }
     }
 
-    const hasDestructiveChanges = changes.some(c => c.destructive)
+    // Sort changes by dependency order and validate foreign keys
+    const sorter = new DependencySorter(this.entities, dbSchema)
+    const sortedChanges = sorter.sortChanges(changes)
+
+    const hasDestructiveChanges = sortedChanges.some(c => c.destructive)
 
     return {
-      changes,
-      hasChanges: changes.length > 0,
+      changes: sortedChanges,
+      hasChanges: sortedChanges.length > 0,
       hasDestructiveChanges,
     }
   }

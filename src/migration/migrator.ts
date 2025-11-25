@@ -164,24 +164,30 @@ export class Migrator {
     let successCount = 0
     let errorCount = 0
 
-    for (const change of diff.changes) {
-      try {
-        await this.db.unsafe(change.sql)
-        console.log(`✅ ${change.description}`)
-        successCount++
-      }
-      catch (error) {
-        console.error(`❌ Failed: ${change.description}`)
-        console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`)
-        errorCount++
+    try {
+      // Wrap all changes in a single transaction
+      await this.db.begin(async (tx) => {
+        for (const change of diff.changes) {
+          try {
+            await tx.unsafe(change.sql)
+            console.log(`✅ ${change.description}`)
+            successCount++
+          }
+          catch (error) {
+            console.error(`❌ Failed: ${change.description}`)
+            console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`)
+            errorCount++
 
-        // Stop on first error
-        break
-      }
+            // Re-throw to trigger transaction rollback
+            throw error
+          }
+        }
+      })
     }
-
-    if (errorCount > 0) {
-      throw new Error(`Failed to apply schema changes. ${successCount} succeeded, ${errorCount} failed.`)
+    catch (error) {
+      throw new Error(
+        `Failed to apply schema changes. ${successCount} succeeded before rollback, ${errorCount} failed. All changes rolled back.`,
+      )
     }
 
     console.log(`\n✅ Successfully applied ${successCount} schema change(s).`)

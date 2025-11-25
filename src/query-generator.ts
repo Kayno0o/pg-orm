@@ -122,6 +122,7 @@ export class QueryGenerator<T extends EntitySchema> {
         continue
 
       const columnName = this.getColumnName(key)
+
       this.validateColumnName(columnName)
 
       // Simple equality or IN clause
@@ -129,6 +130,7 @@ export class QueryGenerator<T extends EntitySchema> {
         if (condition.length > 0) {
           inClauses.push({ clause: `${columnName} IN`, values: condition })
         }
+
         continue
       }
 
@@ -142,65 +144,80 @@ export class QueryGenerator<T extends EntitySchema> {
           case 'eq':
             clauses.push(`${columnName} =`)
             values.push(value)
+
             break
           case 'ne':
             clauses.push(`${columnName} !=`)
             values.push(value)
+
             break
           case 'gt':
             clauses.push(`${columnName} >`)
             values.push(value)
+
             break
           case 'gte':
             clauses.push(`${columnName} >=`)
             values.push(value)
+
             break
           case 'lt':
             clauses.push(`${columnName} <`)
             values.push(value)
+
             break
           case 'lte':
             clauses.push(`${columnName} <=`)
             values.push(value)
+
             break
           case 'in':
             if (Array.isArray(value) && value.length > 0) {
               inClauses.push({ clause: `${columnName} IN`, values: value })
             }
+
             break
           case 'notIn':
             if (Array.isArray(value) && value.length > 0) {
               inClauses.push({ clause: `${columnName} NOT IN`, values: value })
             }
+
             break
           case 'like':
             clauses.push(`${columnName} LIKE`)
             values.push(value)
+
             break
           case 'ilike':
             clauses.push(`${columnName} ILIKE`)
             values.push(value)
+
             break
           case 'isNull':
             if (value === true) {
               clauses.push(`${columnName} IS NULL`)
             }
+
             break
           case 'isNotNull':
             if (value === true) {
               clauses.push(`${columnName} IS NOT NULL`)
             }
+
             break
           case 'contains':
             inClauses.push({ clause: `${columnName} @>`, values: [value] })
+
             break
           case 'overlaps':
             if (Array.isArray(value)) {
               inClauses.push({ clause: `${columnName} &&`, values: value })
             }
+
             break
           }
         }
+
         continue
       }
 
@@ -242,12 +259,14 @@ export class QueryGenerator<T extends EntitySchema> {
       else {
         result = db`${result} ${db.unsafe(prefix)} ${db.unsafe(clause)} ${value}`
       }
+
       isFirst = false
     }
 
     // Apply IN/array conditions
     for (const { clause, values: inValues } of inClauses) {
       const prefix = isFirst ? 'WHERE' : 'AND'
+
       result = db`${result} ${db.unsafe(prefix)} ${db.unsafe(clause)} ${db(inValues)}`
       isFirst = false
     }
