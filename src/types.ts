@@ -341,7 +341,6 @@ export interface TraitDefinition<
   TFields extends EntitySchema = EntitySchema,
   TMethods extends TraitMethods = TraitMethods,
 > {
-  readonly name: string
   readonly fields: TFields
   readonly methods: TMethods
   readonly hooks?: Partial<EntityHooks<TFields>>

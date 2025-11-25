@@ -38,7 +38,6 @@ export class TraitBuilder<
   private _hooks: Partial<EntityHooks<TFields>>
 
   constructor(
-    private readonly name: string,
     fields: TFields = {} as TFields,
     methods: TMethods = {} as TMethods,
     hooks: Partial<EntityHooks<TFields>> = {},
@@ -61,7 +60,7 @@ export class TraitBuilder<
       [name]: fieldBuilder.toConfig(),
     } as TFields & Record<K, ReturnType<F['toConfig']>>
 
-    return new TraitBuilder(this.name, newFields, this._methods, this._hooks as any)
+    return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
   // Convenience method to add multiple fields at once
@@ -77,7 +76,7 @@ export class TraitBuilder<
       newFields[key] = builder.toConfig()
     }
 
-    return new TraitBuilder(this.name, newFields, this._methods, this._hooks as any)
+    return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
   // ========================================================================
@@ -93,7 +92,7 @@ export class TraitBuilder<
       [name]: method,
     } as TMethods & Record<K, M>
 
-    return new TraitBuilder(this.name, this._fields, newMethods, this._hooks)
+    return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
 
   // Convenience method to add multiple methods at once
@@ -102,7 +101,7 @@ export class TraitBuilder<
   ): TraitBuilder<TFields, TMethods & T> {
     const newMethods = { ...this._methods, ...methodsObj } as TMethods & T
 
-    return new TraitBuilder(this.name, this._fields, newMethods, this._hooks)
+    return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
 
   // ========================================================================
@@ -114,7 +113,7 @@ export class TraitBuilder<
 
     newHooks.beforeCreate = [...(newHooks.beforeCreate || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   afterCreate(hook: AfterCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
@@ -122,7 +121,7 @@ export class TraitBuilder<
 
     newHooks.afterCreate = [...(newHooks.afterCreate || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   beforeUpdate(hook: BeforeUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
@@ -130,7 +129,7 @@ export class TraitBuilder<
 
     newHooks.beforeUpdate = [...(newHooks.beforeUpdate || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   afterUpdate(hook: AfterUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
@@ -138,7 +137,7 @@ export class TraitBuilder<
 
     newHooks.afterUpdate = [...(newHooks.afterUpdate || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   beforeDelete(hook: BeforeDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
@@ -146,7 +145,7 @@ export class TraitBuilder<
 
     newHooks.beforeDelete = [...(newHooks.beforeDelete || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   afterDelete(hook: AfterDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
@@ -154,7 +153,7 @@ export class TraitBuilder<
 
     newHooks.afterDelete = [...(newHooks.afterDelete || []), hook]
 
-    return new TraitBuilder(this.name, this._fields, this._methods, newHooks)
+    return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
   // ========================================================================
@@ -163,7 +162,6 @@ export class TraitBuilder<
 
   build(): TraitDefinition<TFields, TMethods> {
     return Object.freeze({
-      name: this.name,
       fields: this._fields,
       methods: this._methods,
       hooks: Object.keys(this._hooks).length > 0 ? this._hooks : undefined,
@@ -175,8 +173,8 @@ export class TraitBuilder<
 // Trait Factory Function
 // ============================================================================
 
-export function createTrait(name: string): TraitBuilder<EmptySchema, EmptyMethods> {
-  return new TraitBuilder(name)
+export function createTrait(): TraitBuilder<EmptySchema, EmptyMethods> {
+  return new TraitBuilder()
 }
 
 // ============================================================================
@@ -187,7 +185,7 @@ export function createTrait(name: string): TraitBuilder<EmptySchema, EmptyMethod
  * Timestamps trait - adds createdAt and updatedAt fields with automatic updates
  */
 export function timestamps() {
-  return createTrait('timestamps')
+  return createTrait()
     .fields({
       createdAt: field.timestamp().default('NOW()'),
       updatedAt: field.timestamp().default('NOW()'),
@@ -208,7 +206,7 @@ export function timestamps() {
  * Soft delete trait - adds deletedAt field and soft delete methods
  */
 export function softDelete() {
-  return createTrait('softDelete')
+  return createTrait()
     .field('deletedAt', field.timestamp().nullable())
     .method('softDelete', async function (repo: AnyRepository) {
       return repo.update(this.id, { deletedAt: new Date() })
@@ -226,7 +224,7 @@ export function softDelete() {
  * Paranoid trait - combines timestamps and soft delete with automatic updates
  */
 export function paranoid() {
-  return createTrait('paranoid')
+  return createTrait()
     .fields({
       createdAt: field.timestamp().default('NOW()'),
       updatedAt: field.timestamp().default('NOW()'),
@@ -259,7 +257,7 @@ export function paranoid() {
  * UUID primary key trait - adds uuid field
  */
 export function uuidPrimary() {
-  return createTrait('uuidPrimary')
+  return createTrait()
     .field('uuid', field.uuid().unique())
     .build()
 }
@@ -268,7 +266,7 @@ export function uuidPrimary() {
  * Sluggable trait - adds slug field and slug generation method
  */
 export function sluggable() {
-  return createTrait('sluggable')
+  return createTrait()
     .field('slug', field.string().unique())
     .method('generateSlug', (_repo: AnyRepository, source: string): string => {
       return source
@@ -288,7 +286,7 @@ export function sluggable() {
  * Publishable trait - adds published field and publishing methods
  */
 export function publishable() {
-  return createTrait('publishable')
+  return createTrait()
     .fields({
       published: field.boolean().default(false),
       publishedAt: field.timestamp().nullable(),
@@ -320,7 +318,7 @@ export function publishable() {
  * Sortable trait - adds position field for ordering
  */
 export function sortable() {
-  return createTrait('sortable')
+  return createTrait()
     .field('position', field.number().integer().default(0))
     .method('moveUp', async function (repo: AnyRepository) {
       return repo.update(this.id, { position: this.position - 1 })
@@ -338,7 +336,7 @@ export function sortable() {
  * Versionable trait - adds version field for optimistic locking
  */
 export function versionable() {
-  return createTrait('versionable')
+  return createTrait()
     .field('version', field.number().integer().default(1))
     .method('incrementVersion', function (_repo: AnyRepository): number {
       return (this.version || 1) + 1

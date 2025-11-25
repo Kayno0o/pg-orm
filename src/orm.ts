@@ -161,8 +161,8 @@ export class ORM {
   // Trait Builder
   // ========================================================================
 
-  trait(name: string) {
-    return createTrait(name)
+  trait() {
+    return createTrait()
   }
 
   // ========================================================================

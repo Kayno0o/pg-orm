@@ -18,7 +18,7 @@ interface UserMetadata {
 // ============================================================================
 
 // Custom trait with builder pattern and repository access
-const likeable = orm.trait('likeable')
+const likeable = orm.trait()
   .field('likesCount', orm.number().integer().default(0))
   .field('likedBy', orm.array('number').default([]))
   .method('like', async function (repo, userId: number) {

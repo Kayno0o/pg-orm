@@ -108,15 +108,14 @@ describe('Entity Builder', () => {
       expect(entity.schema.createdAt.type).toBe('timestamp')
       expect(entity.schema.updatedAt.type).toBe('timestamp')
       expect(entity.traits).toHaveLength(1)
-      expect(entity.traits[0]?.name).toBe('timestamps')
     })
 
     test('should apply multiple traits', () => {
-      const trait1 = orm.trait('trait1')
+      const trait1 = orm.trait()
         .field('field1', orm.string())
         .build()
 
-      const trait2 = orm.trait('trait2')
+      const trait2 = orm.trait()
         .field('field2', orm.number())
         .build()
 
@@ -134,7 +133,7 @@ describe('Entity Builder', () => {
     })
 
     test('should merge trait fields into schema', () => {
-      const customTrait = orm.trait('custom')
+      const customTrait = orm.trait()
         .field('customField', orm.string())
         .field('customNumber', orm.number().default(0))
         .build()

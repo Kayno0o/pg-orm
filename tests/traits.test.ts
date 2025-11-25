@@ -56,7 +56,6 @@ describe('Trait System', () => {
       expect(entity.schema.deletedAt).toBeDefined()
       expect(entity.schema.deletedAt.type).toBe('timestamp')
       expect(entity.schema.deletedAt.nullable).toBe(true)
-      expect(entity.traits[0]?.name).toBe('softDelete')
     })
 
     test('should provide soft delete methods', async () => {
@@ -104,7 +103,6 @@ describe('Trait System', () => {
       expect(entity.schema.publishedAt).toBeDefined()
       expect(entity.schema.published.type).toBe('boolean')
       expect(entity.schema.publishedAt.type).toBe('timestamp')
-      expect(entity.traits[0]?.name).toBe('publishable')
     })
 
     test('should provide publish/unpublish methods', async () => {
@@ -146,18 +144,17 @@ describe('Trait System', () => {
 
   describe('Custom Traits', () => {
     test('should create custom trait with fields', () => {
-      const customTrait = orm.trait('custom')
+      const customTrait = orm.trait()
         .field('customField', orm.string())
         .field('customNumber', orm.number().default(0))
         .build()
 
-      expect(customTrait.name).toBe('custom')
       expect(customTrait.fields.customField).toBeDefined()
       expect(customTrait.fields.customNumber).toBeDefined()
     })
 
     test('should create custom trait with methods', () => {
-      const customTrait = orm.trait('likeable')
+      const customTrait = orm.trait()
         .field('likesCount', orm.number().default(0))
         .method('like', async function (repo) {
           return repo.update(this.id, { likesCount: this.likesCount + 1 })
@@ -174,7 +171,7 @@ describe('Trait System', () => {
     test('should use custom trait in entity', async () => {
       await setupTestDatabase()
 
-      const likeable = orm.trait('likeable')
+      const likeable = orm.trait()
         .field('likesCount', orm.number().integer().default(0))
         .method('like', async function (repo) {
           return repo.update(this.id, { likesCount: this.likesCount + 1 })
@@ -253,7 +250,7 @@ describe('Trait System', () => {
     test('should bind this to entity instance', async () => {
       await setupTestDatabase()
 
-      const counterTrait = orm.trait('counter')
+      const counterTrait = orm.trait()
         .field('count', orm.number().default(0))
         .method('increment', async function (repo) {
           // 'this' should be the entity instance
@@ -285,7 +282,7 @@ describe('Trait System', () => {
     test('should provide repository access in methods', async () => {
       await setupTestDatabase()
 
-      const testTrait = orm.trait('test')
+      const testTrait = orm.trait()
         .field('value', orm.number().default(0))
         .method('doubleValue', async function (repo) {
           // repo should have all repository methods
@@ -322,7 +319,7 @@ describe('Trait System', () => {
 
       const hookCalls: string[] = []
 
-      const customTrait = orm.trait('custom')
+      const customTrait = orm.trait()
         .field('value', orm.number().default(0))
         .beforeCreate((data: any) => {
           hookCalls.push('trait-beforeCreate')
@@ -359,7 +356,7 @@ describe('Trait System', () => {
 
       const hookCalls: string[] = []
 
-      const customTrait = orm.trait('custom')
+      const customTrait = orm.trait()
         .field('value', orm.number().default(0))
         .beforeUpdate((_id: number, data: any) => {
           hookCalls.push('trait-beforeUpdate')
@@ -406,7 +403,7 @@ describe('Trait System', () => {
 
       const hookCalls: string[] = []
 
-      const trait1 = orm.trait('trait1')
+      const trait1 = orm.trait()
         .field('value1', orm.number().default(0))
         .beforeCreate((data: any) => {
           hookCalls.push('trait1-beforeCreate')
@@ -414,7 +411,7 @@ describe('Trait System', () => {
         })
         .build()
 
-      const trait2 = orm.trait('trait2')
+      const trait2 = orm.trait()
         .field('value2', orm.number().default(0))
         .beforeCreate((data: any) => {
           hookCalls.push('trait2-beforeCreate')
@@ -493,7 +490,7 @@ describe('Trait System', () => {
 
       const hookCalls: string[] = []
 
-      const trackedTrait = orm.trait('tracked')
+      const trackedTrait = orm.trait()
         .field('trackingData', orm.string().nullable())
         .beforeCreate(() => {
           hookCalls.push('beforeCreate')
