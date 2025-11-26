@@ -214,6 +214,47 @@ export type InferUpdateData<T extends EntitySchema> = Prettify<Partial<{
 }>>
 
 // ============================================================================
+// Projection Types
+// ============================================================================
+
+// Extract union from tuple of field names
+type TupleToUnion<T extends readonly (keyof any)[]> = T[number]
+
+// Infer projected entity type (subset of fields)
+export type InferProjection<
+  T extends EntitySchema,
+  Fields extends readonly (keyof T | 'id')[],
+> = {
+  [K in 'id' | keyof T as K extends TupleToUnion<Fields> ? K : never]:
+  K extends 'id' ? number : K extends keyof T ? InferField<T[K]> : never
+}
+
+// Clean projection type (flatten for IDE display)
+export type InferProjectionClean<
+  T extends EntitySchema,
+  Fields extends readonly (keyof T | 'id')[],
+> = Prettify<InferProjection<T, Fields>>
+
+// ============================================================================
+// Aggregation Types
+// ============================================================================
+
+export interface AggregationResult {
+  count?: number
+  sum?: number
+  avg?: number
+  min?: number
+  max?: number
+  [key: string]: number | undefined // Allow dynamic aliases
+}
+
+// For GROUP BY results - combines grouping fields with aggregations
+export type GroupByResult<
+  T extends EntitySchema,
+  GroupFields extends readonly (keyof T | 'id')[],
+> = Prettify<InferProjectionClean<T, GroupFields> & AggregationResult>
+
+// ============================================================================
 // Query Types
 // ============================================================================
 

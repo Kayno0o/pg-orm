@@ -1,7 +1,9 @@
-import type { EntityDefinition } from '../src/types'
+import type { EntityDefinition, EntitySchema } from '../src/types'
+import type { Repository } from '../src/repository'
 import { ObjectEntries, toSnake } from '@kaynooo/utils'
 import { afterAll, beforeAll, expect } from 'bun:test'
 import { orm } from '../src'
+import type { SQL } from 'bun'
 
 // ============================================================================
 // Test Database Configuration
@@ -30,6 +32,71 @@ export async function setupTestDatabase() {
 export async function teardownTestDatabase() {
   await orm.disconnect()
   console.log('✅ Test database disconnected')
+}
+
+// ============================================================================
+// Test Suite Isolation
+// ============================================================================
+
+/**
+ * Standard setup for test suite
+ * Resets test data factory counters for uniqueness
+ */
+export function setupTestSuite(suiteName: string): void {
+  resetTestDataFactories()
+  console.log(`✅ Test suite setup: ${suiteName}`)
+}
+
+/**
+ * Standard teardown for test suite
+ */
+export function teardownTestSuite(suiteName: string): void {
+  console.log(`✅ Test suite teardown: ${suiteName}`)
+}
+
+// ============================================================================
+// Transaction-Based Test Isolation
+// ============================================================================
+
+/**
+ * Run a test within an auto-rollback transaction
+ * This ensures complete isolation even within the same schema
+ *
+ * The transaction automatically rolls back after the callback completes,
+ * even if it succeeds, ensuring no data persists between tests.
+ */
+export async function runInTransaction<T>(
+  callback: (tx: SQL) => Promise<T>,
+): Promise<T> {
+  const db = orm.getDB()
+
+  let result: T
+  try {
+    await db.begin(async (tx) => {
+      result = await callback(tx)
+      // Force rollback by throwing special marker error
+      throw new Error('__TEST_ROLLBACK__')
+    })
+  }
+  catch (error) {
+    if ((error as Error).message !== '__TEST_ROLLBACK__') {
+      throw error // Re-throw actual errors
+    }
+  }
+
+  return result!
+}
+
+/**
+ * Create a repository instance scoped to a transaction
+ * This ensures all repo operations use the transaction
+ */
+export function createTxRepo<T extends EntitySchema>(
+  entityDef: EntityDefinition<T>,
+  tx: SQL,
+): Repository<T> {
+  const repo = orm.repo(entityDef)
+  return repo.withTransaction(tx)
 }
 
 // ============================================================================
@@ -211,17 +278,31 @@ export function setupGlobalTestHooks() {
 // Test Data Factories
 // ============================================================================
 
+let emailCounter = 0
+let userCounter = 0
+let postCounter = 0
+
+/**
+ * Reset test data factory counters
+ * Called automatically by setupTestSuite()
+ */
+export function resetTestDataFactories(): void {
+  emailCounter = 0
+  userCounter = 0
+  postCounter = 0
+}
+
 export const testData = {
   user: {
     valid: () => ({
-      name: 'Test User',
-      email: 'test@example.com',
+      name: `Test User ${++userCounter}`,
+      email: `test_${++emailCounter}_${Date.now()}@example.com`,
       role: 'user' as const,
       tags: ['test'],
     }),
     admin: () => ({
-      name: 'Admin User',
-      email: 'admin@example.com',
+      name: `Admin User ${++userCounter}`,
+      email: `admin_${++emailCounter}_${Date.now()}@example.com`,
       role: 'admin' as const,
       tags: ['admin', 'test'],
     }),
@@ -236,7 +317,7 @@ export const testData = {
   },
   post: {
     valid: (authorId: number) => ({
-      title: 'Test Post',
+      title: `Test Post ${++postCounter}`,
       content: 'Test content',
       authorId,
     }),

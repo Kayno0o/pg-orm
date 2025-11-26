@@ -169,9 +169,9 @@ describe('Security - SQL Injection Protection', () => {
       const created = await safeRepo.create(testData)
 
       // Should safely query with single quote
-      const found = await safeRepo.findOneBy({
-        where: { name: 'O\'Reilly' },
-      })
+      const found = await safeRepo.query()
+        .where('name', '=', 'O\'Reilly')
+        .findOne() as any
 
       expect(found?.id).toBe(created.id)
       expect(found?.name).toBe(testData.name)
@@ -183,14 +183,13 @@ describe('Security - SQL Injection Protection', () => {
       await safeRepo.create({ name: 'User 2', email: 'user2@example.com' })
       await safeRepo.create({ name: 'User 3', email: 'user3@example.com' })
 
-      // Valid pagination should work
-      const page1 = await safeRepo.paginate({
-        page: 1,
-        pageSize: 2,
-      })
+      // Valid limit/offset should work
+      const results = await safeRepo.query()
+        .limit(2)
+        .offset(0)
+        .execute() as any[]
 
-      expect(page1.data.length).toBe(2)
-      expect(page1.totalPages).toBeGreaterThanOrEqual(2)
+      expect(results.length).toBe(2)
     })
 
     test('should protect against injection in array operations', async () => {
@@ -198,9 +197,9 @@ describe('Security - SQL Injection Protection', () => {
       const user2 = await safeRepo.create({ name: 'User 2', email: 'user2@test.com' })
 
       // Should safely handle array of IDs
-      const results = await safeRepo.findBy({
-        where: { id: [user1.id, user2.id] },
-      })
+      const results = await safeRepo.query()
+        .whereIn('id', [user1.id, user2.id])
+        .execute() as any[]
 
       expect(results.length).toBe(2)
     })
@@ -236,7 +235,7 @@ describe('Security - SQL Injection Protection', () => {
       // Query builder should use parameterized queries
       const results = await testRepo.query()
         .where('name', '=', '\'; DROP TABLE users; --')
-        .execute()
+        .execute() as any[]
 
       expect(results.length).toBe(0) // Should find nothing, not execute SQL
     })
@@ -247,7 +246,7 @@ describe('Security - SQL Injection Protection', () => {
 
       const results = await testRepo.query()
         .whereIn('status', ['active', '\'; DROP TABLE users; --'])
-        .execute()
+        .execute() as any[]
 
       // Should only find users with 'active' status, not execute injection
       expect(results.length).toBe(2)
@@ -261,7 +260,7 @@ describe('Security - SQL Injection Protection', () => {
       // Single quotes should be safely escaped
       const result1 = await testRepo.query()
         .whereLike('name', 'O\'%')
-        .execute()
+        .execute() as any[]
 
       expect(result1.length).toBe(1)
       expect(result1[0]!.name).toBe('O\'Reilly')
@@ -269,7 +268,7 @@ describe('Security - SQL Injection Protection', () => {
       // Percent signs in data should not be treated as wildcards
       const result2 = await testRepo.query()
         .whereLike('name', 'Test%User')
-        .execute()
+        .execute() as any[]
 
       expect(result2.length).toBe(1)
       expect(result2[0]!.name).toBe('Test%User')
@@ -281,7 +280,7 @@ describe('Security - SQL Injection Protection', () => {
       // Malicious values should be treated as data
       const results = await testRepo.query()
         .whereBetween('name', 'A', '\'; DROP TABLE users; --')
-        .execute()
+        .execute() as any[]
 
       expect(results.length).toBeGreaterThanOrEqual(0) // No SQL injection
     })
@@ -292,7 +291,7 @@ describe('Security - SQL Injection Protection', () => {
       // NULL checks should not be injectable
       const results = await testRepo.query()
         .whereNotNull('name')
-        .execute()
+        .execute() as any[]
 
       expect(results.length).toBe(1)
     })
@@ -354,20 +353,20 @@ describe('Security - SQL Injection Protection', () => {
       // Valid column should work
       const results = await testRepo.query()
         .orderBy('score', 'DESC')
-        .execute()
+        .execute() as any[]
 
       expect(results[0]!.score).toBe(20)
       expect(results[1]!.score).toBe(10)
     })
 
-    test('should safely handle ORDER BY in findBy options', async () => {
+    test('should safely handle ORDER BY in query builder', async () => {
       await testRepo.create({ name: 'B', score: 2 })
       await testRepo.create({ name: 'A', score: 1 })
 
-      // Valid ORDER BY through findBy
-      const results = await testRepo.findBy({
-        order: { name: 'ASC' },
-      })
+      // Valid ORDER BY through query builder
+      const results = await testRepo.query()
+        .orderBy('name', 'ASC')
+        .execute() as any[]
 
       expect(results[0]!.name).toBe('A')
       expect(results[1]!.name).toBe('B')
@@ -473,31 +472,30 @@ describe('Security - SQL Injection Protection', () => {
       const results = await testRepo.query()
         .limit(1000000)
         .offset(0)
-        .execute()
+        .execute() as any[]
 
       expect(results.length).toBeLessThanOrEqual(1)
     })
 
-    test('should safely handle pagination parameters', async () => {
+    test('should safely handle limit and offset parameters', async () => {
       for (let i = 1; i <= 10; i++) {
         await testRepo.create({ name: `User ${i}` })
       }
 
-      // Normal pagination should work
-      const page1 = await testRepo.paginate({
-        page: 1,
-        pageSize: 3,
-      })
+      // Normal limit/offset should work
+      const page1 = await testRepo.query()
+        .limit(3)
+        .offset(0)
+        .execute() as any[]
 
-      expect(page1.data.length).toBe(3)
-      expect(page1.totalPages).toBe(4)
+      expect(page1.length).toBe(3)
 
-      const page2 = await testRepo.paginate({
-        page: 2,
-        pageSize: 3,
-      })
+      const page2 = await testRepo.query()
+        .limit(3)
+        .offset(3)
+        .execute() as any[]
 
-      expect(page2.data.length).toBe(3)
+      expect(page2.length).toBe(3)
     })
   })
 
@@ -585,13 +583,13 @@ describe('Security - SQL Injection Protection', () => {
       // Malicious values in JSON operations
       const results1 = await testRepo.query()
         .whereJsonContains('metadata', { role: '\'; DROP TABLE users; --' })
-        .execute()
+        .execute() as any[]
 
       expect(results1.length).toBe(0) // Should find nothing, not execute SQL
 
       const results2 = await testRepo.query()
         .whereJsonHasKey('metadata', 'role')
-        .execute()
+        .execute() as any[]
 
       expect(results2.length).toBe(1)
       expect(results2[0]!.metadata.role).toBe('admin')
@@ -647,9 +645,9 @@ describe('Security - SQL Injection Protection', () => {
       expect(found?.username).toBe(maliciousData.username)
 
       // Use stored value in a new query - should still be safe
-      const results = await testRepo.findBy({
-        where: { username: found!.username },
-      })
+      const results = await testRepo.query()
+        .where('username', '=', found!.username)
+        .execute() as any[]
 
       expect(results.length).toBe(1)
       expect(results[0]!.id).toBe(created.id)
@@ -744,9 +742,9 @@ describe('Security - SQL Injection Protection', () => {
 
       // Querying with non-schema fields should throw
       await expect(async () => {
-        await testRepo.findBy({
-          where: { nonExistentField: 'value' } as any,
-        })
+        await testRepo.query()
+          .where('nonExistentField' as any, '=', 'value')
+          .execute() as any[]
       }).toThrow()
     })
   })
@@ -780,16 +778,16 @@ describe('Security - SQL Injection Protection', () => {
 
       // Time queries for existing user
       const start1 = performance.now()
-      const existing = await testRepo.findOneBy({
-        where: { email: 'exists@example.com' },
-      })
+      const existing = await testRepo.query()
+        .where('email', '=', 'exists@example.com')
+        .findOne() as any
       const time1 = performance.now() - start1
 
       // Time queries for non-existing user
       const start2 = performance.now()
-      const nonExisting = await testRepo.findOneBy({
-        where: { email: 'nonexist@example.com' },
-      })
+      const nonExisting = await testRepo.query()
+        .where('email', '=', 'nonexist@example.com')
+        .findOne() as any
       const time2 = performance.now() - start2
 
       expect(existing).not.toBeNull()

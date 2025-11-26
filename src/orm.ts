@@ -43,6 +43,9 @@ export class ORM {
   /**
    * Lazy initialize migrator when first accessed
    * This ensures all entities are registered before migration detection
+   *
+   * Note: Migrator must be recreated if entities change after initialization
+   * to pick up newly registered entities in parallel test scenarios
    */
   private async ensureMigrator(): Promise<void> {
     if (!this.migrator) {

@@ -1,5 +1,5 @@
 import type { SQL } from 'bun'
-import type { DatabaseRow, EntitySchema, InferEntity, OrderDirection } from './types'
+import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferProjectionClean, OrderDirection } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { validateSQLIdentifier } from './sql-utils'
 
@@ -7,7 +7,10 @@ import { validateSQLIdentifier } from './sql-utils'
 // Query Builder (Secure with Parameterized Queries)
 // ============================================================================
 
-export class QueryBuilder<T extends EntitySchema> {
+export class QueryBuilder<
+  T extends EntitySchema,
+  SelectedFields extends readonly (keyof T | 'id')[] = never,
+> {
   private selectFields: string[] = ['*']
   private whereConditions: string[] = []
   private whereParams: any[] = []
@@ -15,6 +18,7 @@ export class QueryBuilder<T extends EntitySchema> {
   private limitValue?: number
   private offsetValue?: number
   private groupByFields: string[] = []
+  private aggregations = new Map<string, { func: string, field: string }>()
   private validColumns: Set<string>
 
   constructor(
@@ -67,10 +71,12 @@ export class QueryBuilder<T extends EntitySchema> {
   // Select
   // ========================================================================
 
-  select(...fields: (keyof T | 'id')[]): this {
+  select<F extends readonly (keyof T | 'id')[]>(
+    ...fields: F
+  ): QueryBuilder<T, F> {
     this.selectFields = fields.map(f => this.validateColumnName(String(f)))
 
-    return this
+    return this as any as QueryBuilder<T, F>
   }
 
   // ========================================================================
@@ -229,6 +235,80 @@ export class QueryBuilder<T extends EntitySchema> {
   }
 
   // ========================================================================
+  // Aggregations
+  // ========================================================================
+
+  sum(field: keyof T): this {
+    const columnName = this.validateColumnName(String(field))
+
+    this.aggregations.set('sum', { func: 'SUM', field: columnName })
+
+    return this
+  }
+
+  avg(field: keyof T): this {
+    const columnName = this.validateColumnName(String(field))
+
+    this.aggregations.set('avg', { func: 'AVG', field: columnName })
+
+    return this
+  }
+
+  min(field: keyof T): this {
+    const columnName = this.validateColumnName(String(field))
+
+    this.aggregations.set('min', { func: 'MIN', field: columnName })
+
+    return this
+  }
+
+  max(field: keyof T): this {
+    const columnName = this.validateColumnName(String(field))
+
+    this.aggregations.set('max', { func: 'MAX', field: columnName })
+
+    return this
+  }
+
+  countAs(alias = 'count'): this {
+    this.aggregations.set(alias, { func: 'COUNT', field: '*' })
+
+    return this
+  }
+
+  /**
+   * Execute aggregation query
+   */
+  async aggregate(): Promise<AggregationResult> {
+    // Build aggregation SELECT
+    const aggParts: string[] = []
+
+    for (const [alias, { func, field }] of this.aggregations) {
+      aggParts.push(`${func}(${field}) as ${alias}`)
+    }
+
+    const selectClause = aggParts.join(', ')
+    const whereClause = this.whereConditions.length > 0
+      ? `WHERE ${this.whereConditions.join(' AND ')}`
+      : ''
+
+    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause}`
+    const [result] = await this.db.unsafe(query, this.whereParams)
+
+    if (!result)
+      return {}
+
+    // Convert string numbers to actual numbers
+    const converted: AggregationResult = {}
+
+    for (const [key, value] of Object.entries(result)) {
+      (converted as any)[key] = value !== null ? Number(value) : undefined
+    }
+
+    return converted
+  }
+
+  // ========================================================================
   // Limit/Offset
   // ========================================================================
 
@@ -267,9 +347,25 @@ export class QueryBuilder<T extends EntitySchema> {
   // Execution
   // ========================================================================
 
-  async execute(): Promise<InferEntity<T>[]> {
+  async execute(): Promise<SelectedFields extends never ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     const { sql, params } = this.build()
     const results = await this.db.unsafe(sql, params)
+
+    // If aggregations are present, don't use mapper (aggregation results are plain objects)
+    if (this.aggregations.size > 0) {
+      // Convert string numbers from aggregations to actual numbers
+      return results.map((row: DatabaseRow) => {
+        const converted: any = { ...row }
+
+        for (const alias of this.aggregations.keys()) {
+          if (converted[alias] !== null && converted[alias] !== undefined) {
+            converted[alias] = Number(converted[alias])
+          }
+        }
+
+        return converted
+      }) as any
+    }
 
     // Use mapper if provided to properly convert database rows to entities
     // This ensures arrays are parsed, dates are converted, and trait methods work
@@ -278,14 +374,14 @@ export class QueryBuilder<T extends EntitySchema> {
     }
 
     // Fallback to raw results (won't have trait methods or proper array/date handling)
-    return results as InferEntity<T>[]
+    return results as any
   }
 
-  async findOne(): Promise<InferEntity<T> | null> {
+  async findOne(): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     this.limit(1)
     const results = await this.execute()
 
-    return results[0] || null
+    return (results[0] || null) as any
   }
 
   async count(): Promise<number> {
@@ -299,15 +395,15 @@ export class QueryBuilder<T extends EntitySchema> {
     return Number(result.count)
   }
 
-  async latest(field: keyof T | 'id' = 'id'): Promise<InferEntity<T> | null> {
-    return this.orderByDesc(field).findOne()
+  async latest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
+    return this.orderByDesc(field).findOne() as any
   }
 
-  async oldest(field: keyof T | 'id' = 'id'): Promise<InferEntity<T> | null> {
-    return this.orderBy(field, 'ASC').findOne()
+  async oldest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
+    return this.orderBy(field, 'ASC').findOne() as any
   }
 
-  async random(limitValue = 1): Promise<InferEntity<T>[]> {
+  async random(limitValue = 1): Promise<SelectedFields extends never ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     if (!Number.isInteger(limitValue) || limitValue < 1) {
       throw new Error(`Invalid random limit: ${limitValue}. Must be a positive integer.`)
     }
@@ -321,7 +417,7 @@ export class QueryBuilder<T extends EntitySchema> {
     const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
     const results = await this.db.unsafe(query, this.whereParams)
 
-    return results as InferEntity<T>[]
+    return results as any
   }
 
   // ========================================================================
@@ -329,7 +425,28 @@ export class QueryBuilder<T extends EntitySchema> {
   // ========================================================================
 
   private buildQuery(): string {
-    const selectClause = this.selectFields.join(', ')
+    // Handle aggregation SELECT
+    let selectClause: string
+
+    if (this.aggregations.size > 0) {
+      const aggParts: string[] = []
+
+      // Add GROUP BY fields first
+      if (this.groupByFields.length > 0) {
+        aggParts.push(...this.groupByFields)
+      }
+
+      // Add aggregations
+      for (const [alias, { func, field }] of this.aggregations) {
+        aggParts.push(`${func}(${field}) as ${alias}`)
+      }
+
+      selectClause = aggParts.join(', ')
+    }
+    else {
+      selectClause = this.selectFields.join(', ')
+    }
+
     let query = `SELECT ${selectClause} FROM ${this.tableName}`
 
     if (this.whereConditions.length > 0) {

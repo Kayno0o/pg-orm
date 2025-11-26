@@ -1,14 +1,11 @@
 import type { SQL } from 'bun'
 import type {
-  CursorPaginationResult,
   DatabaseRow,
   EntityDefinition,
   EntitySchema,
   InferCreateData,
   InferEntity,
   InferUpdateData,
-  PaginationResult,
-  QueryOptions,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { getDatabase } from './db'
@@ -206,25 +203,11 @@ export class Repository<
   // Query Operations
   // ========================================================================
 
-  async findBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits>[]> {
-    const db = this.getDB()
-    const query = this.queryGenerator.buildSelectQuery(this.tableName, options, db)
-    const results = await query
-
-    return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
-  }
-
-  async findOneBy(options: QueryOptions<T>): Promise<InferEntity<T, TTraits> | null> {
-    const results = await this.findBy({ ...options, limit: 1 })
-
-    return results[0] || null
-  }
-
-  async count(options?: QueryOptions<T>, exact = true): Promise<number> {
+  async count(exact = true): Promise<number> {
     const db = this.getDB()
 
-    // Fast estimation for large tables without WHERE clause
-    if (!exact && !options?.where) {
+    // Fast estimation for large tables
+    if (!exact) {
       try {
         const [result] = await db`
           SELECT reltuples::bigint AS estimate
@@ -239,16 +222,8 @@ export class Repository<
       }
     }
 
-    // Exact count
-    let query = db`SELECT COUNT(id) as count FROM ${db(this.tableName)}`
-
-    if (options?.where) {
-      query = this.queryGenerator.applyWhereConditions(query, options.where, db)
-    }
-
-    const [result] = await query
-
-    return Number(result.count)
+    // Exact count - use QueryBuilder for consistency
+    return await this.query().count()
   }
 
   async exists(id: number): Promise<boolean> {
@@ -260,73 +235,6 @@ export class Repository<
     `
 
     return result !== undefined
-  }
-
-  async paginate(options: {
-    page: number
-    pageSize: number
-    where?: QueryOptions<T>['where']
-    order?: QueryOptions<T>['order']
-    exact?: boolean
-  }): Promise<PaginationResult<InferEntity<T, TTraits>>> {
-    const { page, pageSize, where, order, exact = true } = options
-
-    const total = await this.count({ where }, exact)
-    const totalPages = Math.ceil(total / pageSize)
-    const offset = (page - 1) * pageSize
-
-    const data = await this.findBy({
-      where,
-      order,
-      limit: pageSize,
-      offset,
-    })
-
-    return {
-      data,
-      total,
-      page,
-      pageSize,
-      totalPages,
-    }
-  }
-
-  async paginateCursor(options: {
-    after?: number
-    pageSize: number
-    where?: QueryOptions<T>['where']
-    order?: QueryOptions<T>['order']
-  }): Promise<CursorPaginationResult<InferEntity<T, TTraits>>> {
-    const { after, pageSize, where, order } = options
-
-    // Build WHERE clause with cursor condition
-    const whereWithCursor = after
-      ? { ...where, id: { ...((where as any)?.id || {}), gt: after } as any }
-      : where
-
-    // Fetch pageSize + 1 to check if more results exist
-    const data = await this.findBy({
-      where: whereWithCursor,
-      order: order || ({ id: 'ASC' } as any),
-      limit: pageSize + 1,
-    })
-
-    // Check if more results exist
-    const hasMore = data.length > pageSize
-
-    // Return only the requested pageSize
-    const results = hasMore ? data.slice(0, pageSize) : data
-
-    // Next cursor is the ID of the last item
-    const lastItem = results[results.length - 1]
-    const nextCursor = hasMore && lastItem ? (lastItem.id as number) : undefined
-
-    return {
-      data: results,
-      nextCursor,
-      hasMore,
-      pageSize,
-    }
   }
 
   // ========================================================================
@@ -406,6 +314,29 @@ export class Repository<
       this.schema,
       (row: DatabaseRow) => this.mapRowToEntity(row),
     )
+  }
+
+  // ========================================================================
+  // Projections
+  // ========================================================================
+
+  /**
+   * Select specific fields for projection
+   * @example
+   * const users = await repo.select('id', 'name', 'email')
+   *   .where('age', '>', 18)
+   *   .execute()
+   * // Type: { id: number, name: string, email: string }[]
+   */
+  select<F extends readonly (keyof T | 'id')[]>(
+    ...fields: F
+  ): QueryBuilder<T, F> {
+    return new QueryBuilder<T, F>(
+      this.tableName,
+      this.getDB(),
+      this.schema,
+      (row: DatabaseRow) => this.mapRowToEntity(row),
+    ).select(...fields)
   }
 
   // ========================================================================

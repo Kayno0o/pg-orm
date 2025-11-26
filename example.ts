@@ -121,11 +121,11 @@ const users = orm.repo(User)
 // Extended repository with custom methods
 const posts = orm.repo(Post).extend({
   async findByAuthor(this, authorId: number) {
-    return this.findBy({ where: { authorId } })
+    return this.query().where('authorId', '=', authorId).execute()
   },
 
   async findPublished(this) {
-    return this.findBy({ where: { published: true }, order: { publishedAt: 'DESC' } })
+    return this.query().where('published', '=', true).orderBy('publishedAt', 'DESC').execute()
   },
 
   async incrementViews(this, id: number) {
@@ -209,41 +209,32 @@ async function queryOperations() {
   ])
 
   // Find by conditions
-  const admins = await users.findBy({
-    where: { role: 'admin' },
-    order: { name: 'ASC' },
-  })
+  const admins = await users.query()
+    .where('role', '=', 'admin')
+    .orderBy('name', 'ASC')
+    .execute()
 
   console.log('Admins:', admins)
 
   // Find one
-  const alice = await users.findOneBy({
-    where: { email: 'alice@example.com' },
-  })
+  const alice = await users.query()
+    .where('email', '=', 'alice@example.com')
+    .findOne()
 
   console.log('Alice:', alice)
 
   // Count
-  const count = await users.count({ where: { role: 'admin' } })
+  const count = await users.query()
+    .where('role', '=', 'admin')
+    .count()
 
   console.log('Admin count:', count)
 
-  // Pagination
-  const page = await users.paginate({
-    page: 1,
-    pageSize: 2,
-    order: { name: 'ASC' },
-  })
-
-  console.log('Page 1:', page)
-
-  // Complex where conditions
-  const adults = await users.findBy({
-    where: {
-      age: { gte: 18 },
-      role: { in: ['admin', 'moderator'] },
-    },
-  })
+  // Complex where conditions with query builder
+  const adults = await users.query()
+    .where('age', '>=', 18)
+    .whereIn('role', ['admin', 'moderator'])
+    .execute()
 
   console.log('Adult admins/moderators:', adults)
 }
@@ -303,11 +294,11 @@ async function customRepositoryMethods() {
   ])
 
   // Use custom method
-  const authorPosts = await posts.findByAuthor(author.id)
+  const authorPosts = await posts.findByAuthor(author.id) as any[]
 
   console.log('Author posts:', authorPosts)
 
-  const published = await posts.findPublished()
+  const published = await posts.findPublished() as any[]
 
   console.log('Published posts:', published)
 

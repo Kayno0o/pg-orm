@@ -1,8 +1,16 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm, publishable, softDelete, timestamps } from '../src'
 import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Trait System', () => {
+  beforeAll(async () => {
+    await setupTestDatabase()
+  })
+
+  afterAll(async () => {
+    await teardownTestDatabase()
+  })
+
   describe('Timestamps Trait', () => {
     test('should add createdAt and updatedAt fields', () => {
       const entity = orm.entity('test', {
@@ -18,7 +26,6 @@ describe('Trait System', () => {
     })
 
     test('should set timestamps on entity creation', async () => {
-      await setupTestDatabase()
 
       const User = orm.entity('test_timestamps', {
         name: orm.string(),
@@ -41,7 +48,6 @@ describe('Trait System', () => {
       expect(user.createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 100)
 
       await cleanupTables('test_timestamps')
-      await teardownTestDatabase()
     })
   })
 
@@ -59,7 +65,6 @@ describe('Trait System', () => {
     })
 
     test('should provide soft delete methods', async () => {
-      await setupTestDatabase()
 
       const Post = orm.entity('test_soft_delete', {
         title: orm.string(),
@@ -87,7 +92,6 @@ describe('Trait System', () => {
       expect(restored.isDeleted()).toBe(false)
 
       await cleanupTables('test_soft_delete')
-      await teardownTestDatabase()
     })
   })
 
@@ -106,7 +110,6 @@ describe('Trait System', () => {
     })
 
     test('should provide publish/unpublish methods', async () => {
-      await setupTestDatabase()
 
       const Article = orm.entity('test_publishable', {
         title: orm.string(),
@@ -138,7 +141,6 @@ describe('Trait System', () => {
       expect(unpublished.isDraft()).toBe(true)
 
       await cleanupTables('test_publishable')
-      await teardownTestDatabase()
     })
   })
 
@@ -169,7 +171,6 @@ describe('Trait System', () => {
     })
 
     test('should use custom trait in entity', async () => {
-      await setupTestDatabase()
 
       const likeable = orm.trait()
         .field('likesCount', orm.number().integer().default(0))
@@ -199,13 +200,11 @@ describe('Trait System', () => {
       expect(post.likesCount).toBe(2)
 
       await cleanupTables('test_custom_trait')
-      await teardownTestDatabase()
     })
   })
 
   describe('Multiple Traits', () => {
     test('should combine multiple traits', async () => {
-      await setupTestDatabase()
 
       const Post = orm.entity('test_multi_trait', {
         title: orm.string(),
@@ -242,13 +241,11 @@ describe('Trait System', () => {
       expect(deleted.isDeleted()).toBe(true)
 
       await cleanupTables('test_multi_trait')
-      await teardownTestDatabase()
     })
   })
 
   describe('Trait Method Context', () => {
     test('should bind this to entity instance', async () => {
-      await setupTestDatabase()
 
       const counterTrait = orm.trait()
         .field('count', orm.number().default(0))
@@ -276,11 +273,9 @@ describe('Trait System', () => {
       expect(item.count).toBe(1)
 
       await cleanupTables('test_trait_context')
-      await teardownTestDatabase()
     })
 
     test('should provide repository access in methods', async () => {
-      await setupTestDatabase()
 
       const testTrait = orm.trait()
         .field('value', orm.number().default(0))
@@ -309,13 +304,11 @@ describe('Trait System', () => {
       expect(item.value).toBe(10)
 
       await cleanupTables('test_repo_access')
-      await teardownTestDatabase()
     })
   })
 
   describe('Trait Hooks', () => {
     test('should execute trait hooks on create', async () => {
-      await setupTestDatabase()
 
       const hookCalls: string[] = []
 
@@ -348,11 +341,9 @@ describe('Trait System', () => {
       expect(item.value).toBe(16) // 1 + 10 (trait) + 5 (entity)
 
       await cleanupTables('test_trait_hooks')
-      await teardownTestDatabase()
     })
 
     test('should execute trait hooks on update', async () => {
-      await setupTestDatabase()
 
       const hookCalls: string[] = []
 
@@ -395,11 +386,9 @@ describe('Trait System', () => {
       expect(updated.value).toBe(7)
 
       await cleanupTables('test_trait_update_hooks')
-      await teardownTestDatabase()
     })
 
     test('should handle multiple traits with hooks', async () => {
-      await setupTestDatabase()
 
       const hookCalls: string[] = []
 
@@ -442,12 +431,9 @@ describe('Trait System', () => {
       expect(item.name).toBe('TEST')
 
       await cleanupTables('test_multi_trait_hooks')
-      await teardownTestDatabase()
     })
 
     test('timestamps trait should use hooks', async () => {
-      await setupTestDatabase()
-
       const Entity = orm.entity('test_timestamps_hooks', {
         name: orm.string(),
       })
@@ -482,12 +468,9 @@ describe('Trait System', () => {
       expect(updated.createdAt.getTime()).toBe(item.createdAt.getTime())
 
       await cleanupTables('test_timestamps_hooks')
-      await teardownTestDatabase()
     })
 
     test('should support all hook types in traits', async () => {
-      await setupTestDatabase()
-
       const hookCalls: string[] = []
 
       const trackedTrait = orm.trait()
@@ -518,6 +501,8 @@ describe('Trait System', () => {
         .use(trackedTrait)
         .build()
 
+      // Ensure fresh table creation (avoid conflicts from concurrent tests)
+      await orm.getDB()`DROP TABLE IF EXISTS test_all_hooks CASCADE`
       await createTestTable(Entity)
 
       const repo = orm.repo(Entity)
@@ -543,7 +528,6 @@ describe('Trait System', () => {
       expect(hookCalls).toContain('afterDelete')
 
       await cleanupTables('test_all_hooks')
-      await teardownTestDatabase()
     })
   })
 })

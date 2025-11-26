@@ -74,9 +74,9 @@ export function belongsTo<
       }
 
       // Batch load all related entities
-      const related = await relatedRepo.findBy({
-        where: { id: Array.from(fkValues) } as any,
-      })
+      const related = await relatedRepo.query()
+        .whereIn('id', Array.from(fkValues))
+        .execute() as InferEntity<R, RTraits>[]
 
       // Build map for quick lookup
       const relatedMap = new Map<number, InferEntity<R, RTraits>>()
@@ -129,9 +129,9 @@ export function hasMany<
      * @returns Array of related entities
      */
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits>[]> {
-      return relatedRepo.findBy({
-        where: { [foreignKey]: entity.id } as any,
-      })
+      return relatedRepo.query()
+        .where(foreignKey as any, '=', entity.id)
+        .execute()
     },
 
     /**
@@ -150,9 +150,9 @@ export function hasMany<
       }
 
       // Batch load all related entities
-      const allRelated = await relatedRepo.findBy({
-        where: { [foreignKey]: parentIds } as any,
-      })
+      const allRelated = await relatedRepo.query()
+        .whereIn(foreignKey as any, parentIds)
+        .execute() as InferEntity<R, RTraits>[]
 
       // Group by foreign key
       const relatedMap = new Map<number, InferEntity<R, RTraits>[]>()
@@ -180,9 +180,9 @@ export function hasMany<
      * @returns Count of related entities
      */
     async count(entity: InferEntity<T, TTraits>): Promise<number> {
-      return relatedRepo.count({
-        where: { [foreignKey]: entity.id } as any,
-      })
+      return relatedRepo.query()
+        .where(foreignKey as any, '=', entity.id)
+        .count()
     },
   }
 }
@@ -226,9 +226,9 @@ export function hasOne<
      * @returns The related entity or null if not found
      */
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits> | null> {
-      return relatedRepo.findOneBy({
-        where: { [foreignKey]: entity.id } as any,
-      })
+      return relatedRepo.query()
+        .where(foreignKey as any, '=', entity.id)
+        .findOne()
     },
 
     /**
@@ -246,9 +246,9 @@ export function hasOne<
       }
 
       // Batch load all related entities
-      const allRelated = await relatedRepo.findBy({
-        where: { [foreignKey]: parentIds } as any,
-      })
+      const allRelated = await relatedRepo.query()
+        .whereIn(foreignKey as any, parentIds)
+        .execute() as InferEntity<R, RTraits>[]
 
       // Build map
       const relatedMap = new Map<number, InferEntity<R, RTraits>>()

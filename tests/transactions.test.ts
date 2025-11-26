@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
-import { cleanupTables, setupTestDatabase, teardownTestDatabase } from './setup'
+import { setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 const User = orm.entity('test_tx_users', {
   name: orm.string(),
@@ -14,31 +14,30 @@ const Post = orm.entity('test_tx_posts', {
 }).build()
 
 describe('Transactions', () => {
+  let users: ReturnType<typeof orm.repo<typeof User.schema>>
+  let posts: ReturnType<typeof orm.repo<typeof Post.schema>>
+
   beforeAll(async () => {
     // Register repositories before connecting to enable auto-migration
-    orm.repo(User)
-    orm.repo(Post)
+    users = orm.repo(User)
+    posts = orm.repo(Post)
     await setupTestDatabase()
+    setupTestSuite('transactions')
   })
 
   afterAll(async () => {
-    await cleanupTables('test_tx_posts', 'test_tx_users')
+    teardownTestSuite('transactions')
     await teardownTestDatabase()
   })
 
   describe('Repository-Scoped Transactions', () => {
     test('should commit successful transaction', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
-
       let createdUser: any = null
 
       await users.transaction(async (txUsers) => {
         createdUser = await txUsers.create({
           name: 'TX User',
-          email: 'tx@example.com',
+          email: testData.user.valid().email,
         })
       })
 
@@ -47,21 +46,19 @@ describe('Transactions', () => {
 
       expect(found).not.toBeNull()
       expect(found?.name).toBe('TX User')
+
+      // Cleanup after test
+      await users.delete(createdUser.id)
     })
 
     test('should rollback failed transaction', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
-
       let createdId: number | null = null
 
       try {
         await users.transaction(async (txUsers) => {
           const user = await txUsers.create({
             name: 'Will Rollback',
-            email: 'rollback@example.com',
+            email: testData.user.valid().email,
           })
 
           createdId = user.id
@@ -78,27 +75,23 @@ describe('Transactions', () => {
 
         expect(found).toBeNull()
       }
+      // No cleanup needed - rollback already deleted it
     })
 
     test('should handle multiple operations in transaction', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
-
       const createdIds: number[] = []
 
       await users.transaction(async (txUsers) => {
         const user1 = await txUsers.create({
           name: 'User 1',
-          email: 'user1@example.com',
+          email: testData.user.valid().email,
         })
 
         createdIds.push(user1.id)
 
         const user2 = await txUsers.create({
           name: 'User 2',
-          email: 'user2@example.com',
+          email: testData.user.valid().email,
         })
 
         createdIds.push(user2.id)
@@ -112,28 +105,26 @@ describe('Transactions', () => {
 
       expect(user1?.name).toBe('Updated User 1')
       expect(user2?.name).toBe('User 2')
+
+      // Cleanup
+      await users.deleteMany(createdIds)
     })
 
     test('should rollback all operations on error', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
-
       const createdIds: number[] = []
 
       try {
         await users.transaction(async (txUsers) => {
           const user1 = await txUsers.create({
             name: 'User 1',
-            email: 'rollback1@example.com',
+            email: testData.user.valid().email,
           })
 
           createdIds.push(user1.id)
 
           const user2 = await txUsers.create({
             name: 'User 2',
-            email: 'rollback2@example.com',
+            email: testData.user.valid().email,
           })
 
           createdIds.push(user2.id)
@@ -151,18 +142,12 @@ describe('Transactions', () => {
 
       expect(found1).toBeNull()
       expect(found2).toBeNull()
+      // No cleanup needed - rollback handled it
     })
   })
 
   describe('Global Transactions with Multiple Repositories', () => {
     test('should commit global transaction', async () => {
-      const users = orm.repo(User)
-      const posts = orm.repo(Post)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_posts`
-      await db`DELETE FROM test_tx_users`
-
       let userId: number | undefined
       let postId: number | undefined
 
@@ -172,7 +157,7 @@ describe('Transactions', () => {
 
         const user = await txUsers.create({
           name: 'Author',
-          email: 'author@example.com',
+          email: testData.user.valid().email,
         })
 
         userId = user.id
@@ -193,16 +178,13 @@ describe('Transactions', () => {
       expect(foundUser).not.toBeNull()
       expect(foundPost).not.toBeNull()
       expect(foundPost?.authorId).toBe(userId)
+
+      // Cleanup
+      await posts.delete(postId!)
+      await users.delete(userId!)
     })
 
     test('should rollback global transaction on error', async () => {
-      const users = orm.repo(User)
-      const posts = orm.repo(Post)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_posts`
-      await db`DELETE FROM test_tx_users`
-
       let userId: number | null = null
       let postId: number | null = null
 
@@ -213,7 +195,7 @@ describe('Transactions', () => {
 
           const user = await txUsers.create({
             name: 'Author',
-            email: 'rollback-author@example.com',
+            email: testData.user.valid().email,
           })
 
           userId = user.id
@@ -245,15 +227,12 @@ describe('Transactions', () => {
 
         expect(foundPost).toBeNull()
       }
+      // No cleanup needed - rollback handled it
     })
 
     test('should handle complex multi-repo transaction', async () => {
-      const users = orm.repo(User)
-      const posts = orm.repo(Post)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_posts`
-      await db`DELETE FROM test_tx_users`
+      let userId: number | undefined
+      const postIds: number[] = []
 
       await orm.transaction(async (tx) => {
         const txUsers = users.withTransaction(tx)
@@ -262,76 +241,82 @@ describe('Transactions', () => {
         // Create user
         const user = await txUsers.create({
           name: 'Multi Author',
-          email: 'multi@example.com',
+          email: testData.user.valid().email,
         })
 
+        userId = user.id
+
         // Create multiple posts
-        await txPosts.create({
+        const post1 = await txPosts.create({
           title: 'Post 1',
           content: 'Content 1',
           authorId: user.id,
         })
+        postIds.push(post1.id)
 
-        await txPosts.create({
+        const post2 = await txPosts.create({
           title: 'Post 2',
           content: 'Content 2',
           authorId: user.id,
         })
+        postIds.push(post2.id)
 
         // Update user
         await txUsers.update(user.id, { name: 'Updated Multi Author' })
       })
 
       // Verify all operations succeeded
-      const allUsers = await users.findAll()
-      const allPosts = await posts.findAll()
+      const foundUser = await users.find(userId!)
+      expect(foundUser?.name).toBe('Updated Multi Author')
 
-      expect(allUsers.length).toBe(1)
-      expect(allUsers[0]?.name).toBe('Updated Multi Author')
-      expect(allPosts.length).toBe(2)
+      const foundPosts = await posts.query().where('author_id', '=', userId!).execute() as any[]
+      expect(foundPosts.length).toBe(2)
+
+      // Cleanup
+      await posts.deleteMany(postIds)
+      await users.delete(userId!)
     })
   })
 
   describe('Transaction Isolation', () => {
     test('should isolate transaction from non-transactional reads', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
+      let createdId: number | undefined
 
       // This test demonstrates that within a transaction, changes are isolated
       // until committed (though this behavior may vary based on isolation level)
 
       await users.transaction(async (txUsers) => {
-        await txUsers.create({
+        const created = await txUsers.create({
           name: 'Isolated User',
-          email: 'isolated@example.com',
+          email: testData.user.valid().email,
         })
 
+        createdId = created.id
+
         // Within transaction, we can see the created user
-        const txCount = await txUsers.count()
+        const txCount = await txUsers.query().where('id', '=', created.id).count()
 
         expect(txCount).toBe(1)
       })
 
       // After commit, we can see it from outside
-      const count = await users.count()
+      const found = await users.find(createdId!)
+      expect(found).not.toBeNull()
 
-      expect(count).toBe(1)
+      // Cleanup
+      await users.delete(createdId!)
     })
   })
 
   describe('Transaction Error Handling', () => {
     test('should propagate errors from transaction', async () => {
-      const users = orm.repo(User)
-
       let errorCaught = false
 
       try {
         await users.transaction(async (txUsers) => {
           await txUsers.create({
             name: 'User',
-            email: 'error@example.com',
+            email: testData.user.valid().email,
           })
 
           throw new Error('Custom error')
@@ -344,27 +329,24 @@ describe('Transactions', () => {
       }
 
       expect(errorCaught).toBe(true)
+      // No cleanup needed - transaction was rolled back
     })
 
     test('should handle database errors in transaction', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
-
       let errorCaught = false
+      const uniqueEmail = testData.user.valid().email
 
       try {
         await users.transaction(async (txUsers) => {
           await txUsers.create({
             name: 'User 1',
-            email: 'unique@example.com',
+            email: uniqueEmail,
           })
 
           // Try to create duplicate (unique constraint violation)
           await txUsers.create({
             name: 'User 2',
-            email: 'unique@example.com',
+            email: uniqueEmail,
           })
         })
       }
@@ -374,42 +356,43 @@ describe('Transactions', () => {
 
       expect(errorCaught).toBe(true)
 
-      // Verify no entities were created
-      const count = await users.count()
-
-      expect(count).toBe(0)
+      // Verify no entities were created (transaction rolled back)
+      const results = await users.query().where('email', '=', uniqueEmail).execute() as any[]
+      expect(results.length).toBe(0)
+      // No cleanup needed - transaction was rolled back
     })
   })
 
   describe('Nested Transaction Behavior', () => {
     test('should handle transaction within transaction', async () => {
-      const users = orm.repo(User)
-      const db = orm.getDB()
-
-      await db`DELETE FROM test_tx_users`
+      const createdIds: number[] = []
 
       // Note: Bun SQL may not support true nested transactions,
       // but we test the behavior
       await users.transaction(async (txUsers) => {
-        await txUsers.create({
+        const outer = await txUsers.create({
           name: 'Outer User',
-          email: 'outer@example.com',
+          email: testData.user.valid().email,
         })
+        createdIds.push(outer.id)
 
         // This may use the same transaction context
         await orm.transaction(async (tx) => {
           const innerUsers = users.withTransaction(tx)
 
-          await innerUsers.create({
+          const inner = await innerUsers.create({
             name: 'Inner User',
-            email: 'inner@example.com',
+            email: testData.user.valid().email,
           })
+          createdIds.push(inner.id)
         })
       })
 
-      const count = await users.count()
+      const found = await users.query().whereIn('id', createdIds).execute() as any[]
+      expect(found.length).toBeGreaterThanOrEqual(1)
 
-      expect(count).toBeGreaterThanOrEqual(1)
+      // Cleanup
+      await users.deleteMany(createdIds)
     })
   })
 })
