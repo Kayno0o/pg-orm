@@ -102,16 +102,16 @@ export interface BlobFieldConfig<Nullable extends boolean = boolean, HasDefault 
 }
 
 export type FieldConfig
-  = | StringFieldConfig<any>
-    | NumberFieldConfig<any>
-    | BooleanFieldConfig<any>
-    | JsonFieldConfig<any, any>
-    | UuidFieldConfig<any>
-    | TimestampFieldConfig<any>
-    | DateFieldConfig<any>
-    | ArrayFieldConfig<any, any>
-    | EnumFieldConfig<any, any>
-    | BlobFieldConfig<any>
+  = | StringFieldConfig<boolean, boolean>
+    | NumberFieldConfig<boolean, boolean>
+    | BooleanFieldConfig<boolean, boolean>
+    | JsonFieldConfig<unknown, boolean, boolean>
+    | UuidFieldConfig<boolean, boolean>
+    | TimestampFieldConfig<boolean, boolean>
+    | DateFieldConfig<boolean, boolean>
+    | ArrayFieldConfig<'string' | 'number' | 'boolean', boolean, boolean>
+    | EnumFieldConfig<readonly string[], boolean, boolean>
+    | BlobFieldConfig<boolean, boolean>
 
 // ============================================================================
 // Entity Schema Types
@@ -159,8 +159,8 @@ export type InferFieldType<T extends FieldConfig>
           ? FieldTypeMapping[Type]
           : never
 
-// Make nullable if field is nullable (adds both null and undefined for better semantics)
-export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null | undefined : T
+// Make nullable if field is nullable (database-aligned: null only, not undefined)
+export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null : T
 
 // Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
@@ -496,4 +496,24 @@ export interface ValidationErrorDetail {
   constraint: string
   message: string
   value?: unknown
+}
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+export function hasColumnName(config: FieldConfig): config is FieldConfig & { columnName: string } {
+  return 'columnName' in config && typeof config.columnName === 'string'
+}
+
+export function isArrayFieldConfig(config: FieldConfig): config is ArrayFieldConfig {
+  return config.type === 'array'
+}
+
+export function hasAutoUpdate(config: FieldConfig): config is TimestampFieldConfig & { autoUpdate: true } {
+  return config.type === 'timestamp' && 'autoUpdate' in config && config.autoUpdate === true
+}
+
+export function hasForeignKey(config: FieldConfig): config is NumberFieldConfig & { foreignKey: NonNullable<NumberFieldConfig['foreignKey']> } {
+  return config.type === 'number' && 'foreignKey' in config && config.foreignKey !== undefined
 }

@@ -86,7 +86,7 @@ describe('Type System', () => {
       expectTypeOf<Entity['age']>().toEqualTypeOf<number>()
     })
 
-    test('nullable fields should include null and undefined', () => {
+    test('nullable fields should include null (database-aligned)', () => {
       const entity = orm.entity('test', {
         bio: orm.string().nullable(),
         score: orm.number().nullable(),
@@ -94,9 +94,9 @@ describe('Type System', () => {
 
       type Entity = InferEntity<typeof entity.schema>
 
-      // nullable fields should include null | undefined
-      expectTypeOf<Entity['bio']>().toEqualTypeOf<string | null | undefined>()
-      expectTypeOf<Entity['score']>().toEqualTypeOf<number | null | undefined>()
+      // nullable fields should include null only (database semantics, not undefined)
+      expectTypeOf<Entity['bio']>().toEqualTypeOf<string | null>()
+      expectTypeOf<Entity['score']>().toEqualTypeOf<number | null>()
     })
 
     test('enum fields should use literal union type', () => {
@@ -110,14 +110,14 @@ describe('Type System', () => {
       expectTypeOf<Entity['role']>().toEqualTypeOf<'admin' | 'user' | 'moderator'>()
     })
 
-    test('nullable enum should be literal union | null | undefined', () => {
+    test('nullable enum should be literal union | null', () => {
       const entity = orm.entity('test', {
         role: orm.enum(['admin', 'user'] as const).nullable(),
       }).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
-      expectTypeOf<Entity['role']>().toEqualTypeOf<'admin' | 'user' | null | undefined>()
+      expectTypeOf<Entity['role']>().toEqualTypeOf<'admin' | 'user' | null>()
     })
 
     test('mixed nullable and non-nullable fields', () => {
@@ -132,8 +132,8 @@ describe('Type System', () => {
 
       expectTypeOf<Entity['name']>().toEqualTypeOf<string>()
       expectTypeOf<Entity['email']>().toEqualTypeOf<string>()
-      expectTypeOf<Entity['age']>().toEqualTypeOf<number | null | undefined>()
-      expectTypeOf<Entity['bio']>().toEqualTypeOf<string | null | undefined>()
+      expectTypeOf<Entity['age']>().toEqualTypeOf<number | null>()
+      expectTypeOf<Entity['bio']>().toEqualTypeOf<string | null>()
     })
   })
 
@@ -310,14 +310,14 @@ describe('Type System', () => {
       expectTypeOf<Entity['flags']>().toEqualTypeOf<boolean[]>()
     })
 
-    test('nullable array should include null and undefined', () => {
+    test('nullable array should include null', () => {
       const entity = orm.entity('test', {
         tags: orm.array('string').nullable(),
       }).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
-      expectTypeOf<Entity['tags']>().toEqualTypeOf<string[] | null | undefined>()
+      expectTypeOf<Entity['tags']>().toEqualTypeOf<string[] | null>()
     })
   })
 
@@ -337,7 +337,7 @@ describe('Type System', () => {
       expectTypeOf<Entity['metadata']>().toEqualTypeOf<UserMeta>()
     })
 
-    test('nullable jsonb should include null and undefined', () => {
+    test('nullable jsonb should include null', () => {
       interface UserMeta {
         foo: string
       }
@@ -348,7 +348,7 @@ describe('Type System', () => {
 
       type Entity = InferEntity<typeof entity.schema>
 
-      expectTypeOf<Entity['metadata']>().toEqualTypeOf<UserMeta | null | undefined>()
+      expectTypeOf<Entity['metadata']>().toEqualTypeOf<UserMeta | null>()
     })
   })
 

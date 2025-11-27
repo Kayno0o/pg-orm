@@ -7,6 +7,7 @@ import type {
   InferEntity,
   InferUpdateData,
 } from './types'
+import { hasAutoUpdate, hasColumnName, isArrayFieldConfig } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
@@ -56,7 +57,7 @@ export class Repository<
 
     // Pre-compute auto-update columns (avoid scanning all fields on every update)
     this.autoUpdateColumns = this.fieldConfigs
-      .filter(({ config }) => config.type === 'timestamp' && config.autoUpdate)
+      .filter(({ config }) => hasAutoUpdate(config))
       .map(({ columnName }) => columnName)
 
     // Cache select columns string (inlined from QueryGenerator.buildSelectColumns)
@@ -86,8 +87,12 @@ export class Repository<
   private computeColumnName(fieldName: string): string {
     const fieldConfig = this.schema[fieldName]
 
-    if ((fieldConfig as any)?.columnName) {
-      return (fieldConfig as any).columnName
+    if (!fieldConfig) {
+      return toSnake(fieldName)
+    }
+
+    if (hasColumnName(fieldConfig)) {
+      return fieldConfig.columnName
     }
 
     return toSnake(fieldName)
@@ -427,9 +432,9 @@ export class Repository<
   // Transaction Support
   // ========================================================================
 
-  withTransaction(tx: SQL): Repository<T, TTraits> {
+  withTransaction(tx: SQL): this {
     // Create lightweight wrapper sharing precomputed caches
-    const wrapper = Object.create(this) as Repository<T, TTraits>
+    const wrapper = Object.create(this)
 
     wrapper.txContext = tx
 
@@ -450,7 +455,7 @@ export class Repository<
   // Extension API
   // ========================================================================
 
-  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: any[]) => any>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: never[]) => unknown>>(
     methods: Methods,
   ): Repository<T, TTraits> & Methods {
     const extended = Object.create(this)
@@ -653,9 +658,9 @@ export class Repository<
       const columnName = this.getColumnName(key)
 
       // Convert arrays to PostgreSQL array format
-      if (fieldConfig.type === 'array' && Array.isArray(value)) {
+      if (isArrayFieldConfig(fieldConfig) && Array.isArray(value)) {
         // Convert JavaScript array to PostgreSQL array literal format
-        const arrayType = (fieldConfig as any).arrayType
+        const arrayType = fieldConfig.arrayType
 
         if (arrayType === 'string') {
           // For strings, properly escape and quote when necessary

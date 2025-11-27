@@ -111,15 +111,16 @@ export class EntityBuilder<
 
     const newBuilder = new EntityBuilder(this.tableName, newSchema, newTraits)
 
-    // Merge hooks: trait hooks appended in order they're applied, then entity hooks (type cast needed for trait field additions)
+    // Merge hooks: trait hooks appended in order they're applied, then entity hooks
+    // Type assertion at the end is safe because we're merging compatible hook types
     newBuilder._hooks = {
-      beforeCreate: [...this._hooks.beforeCreate, ...(trait.hooks?.beforeCreate || []) as any] as any,
-      afterCreate: [...this._hooks.afterCreate, ...(trait.hooks?.afterCreate || []) as any] as any,
-      beforeUpdate: [...this._hooks.beforeUpdate, ...(trait.hooks?.beforeUpdate || []) as any] as any,
-      afterUpdate: [...this._hooks.afterUpdate, ...(trait.hooks?.afterUpdate || []) as any] as any,
-      beforeDelete: [...this._hooks.beforeDelete, ...(trait.hooks?.beforeDelete || []) as any] as any,
-      afterDelete: [...this._hooks.afterDelete, ...(trait.hooks?.afterDelete || []) as any] as any,
-    }
+      beforeCreate: [...this._hooks.beforeCreate, ...(trait.hooks?.beforeCreate || [])],
+      afterCreate: [...this._hooks.afterCreate, ...(trait.hooks?.afterCreate || [])],
+      beforeUpdate: [...this._hooks.beforeUpdate, ...(trait.hooks?.beforeUpdate || [])],
+      afterUpdate: [...this._hooks.afterUpdate, ...(trait.hooks?.afterUpdate || [])],
+      beforeDelete: [...this._hooks.beforeDelete, ...(trait.hooks?.beforeDelete || [])],
+      afterDelete: [...this._hooks.afterDelete, ...(trait.hooks?.afterDelete || [])],
+    } as EntityHooks<T & TraitFields>
     newBuilder._unique = this._unique
 
     return newBuilder

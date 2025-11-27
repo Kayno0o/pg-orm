@@ -17,39 +17,91 @@ import { validateSQLIdentifier } from './sql-utils'
 // String Field Builder
 // ============================================================================
 
+/**
+ * Builder for string field configuration
+ * @template Nullable - Whether the field allows NULL values
+ * @template HasDefault - Whether the field has a default value
+ */
 export class StringFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: StringFieldConfig<Nullable, HasDefault>) {}
 
+  /**
+   * Set maximum string length
+   * @param length - Maximum number of characters
+   * @example
+   * ```ts
+   * orm.string().maxLength(255)
+   * ```
+   */
   maxLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.maxLength = length
 
     return this
   }
 
+  /**
+   * Set minimum string length
+   * @param length - Minimum number of characters
+   * @example
+   * ```ts
+   * orm.string().minLength(3)
+   * ```
+   */
   minLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.minLength = length
 
     return this
   }
 
+  /**
+   * Make this field nullable (allows NULL values in database)
+   * @returns Builder with nullable type set to true
+   * @example
+   * ```ts
+   * orm.string().nullable() // Type: string | null
+   * ```
+   */
   nullable(): StringFieldBuilder<true, HasDefault> {
     (this.config as StringFieldConfig<true, HasDefault>).nullable = true
 
     return this as StringFieldBuilder<true, HasDefault>
   }
 
+  /**
+   * Make this field required (NOT NULL constraint)
+   * @returns Builder with nullable type set to false
+   * @example
+   * ```ts
+   * orm.string().required() // Type: string
+   * ```
+   */
   required(): StringFieldBuilder<false, HasDefault> {
     (this.config as StringFieldConfig<false, HasDefault>).nullable = false
 
     return this as StringFieldBuilder<false, HasDefault>
   }
 
+  /**
+   * Add UNIQUE constraint to this field
+   * @example
+   * ```ts
+   * orm.string().unique()
+   * ```
+   */
   unique(): StringFieldBuilder<Nullable, HasDefault> {
     this.config.unique = true
 
     return this
   }
 
+  /**
+   * Set default value for this field
+   * @param value - Default string value
+   * @example
+   * ```ts
+   * orm.string().default('guest')
+   * ```
+   */
   default(value: string): StringFieldBuilder<Nullable, true> {
     (this.config as StringFieldConfig<Nullable, true>).default = value;
     (this.config as StringFieldConfig<Nullable, true>).hasDefault = true
@@ -57,6 +109,14 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
     return this as StringFieldBuilder<Nullable, true>
   }
 
+  /**
+   * Override the database column name (default is snake_case of field name)
+   * @param name - Custom column name
+   * @example
+   * ```ts
+   * orm.string().column('full_name') // DB column: full_name
+   * ```
+   */
   column(name: string): StringFieldBuilder<Nullable, HasDefault> {
     validateSQLIdentifier(name, 'column')
     this.config.columnName = name
