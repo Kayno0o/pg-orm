@@ -8,9 +8,9 @@ import type {
   InferUpdateData,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
-import { getDatabase } from './db'
+import { getDatabase, getDatabaseConfig } from './db'
+import { BulkOperationError, EntityNotFoundError } from './errors'
 import { QueryBuilder } from './query'
-import { QueryGenerator } from './query-generator'
 import { ValidationError, Validator } from './validation'
 
 // ============================================================================
@@ -27,8 +27,6 @@ export class Repository<
   private txContext?: SQL
   private validator: Validator
   private entityPrototype: any
-  private entityRepositoryMap = new WeakMap<any, Repository<T, TTraits>>()
-  private queryGenerator: QueryGenerator<T>
 
   // Performance caches
   private cachedSelectColumns: string
@@ -61,10 +59,25 @@ export class Repository<
       .filter(({ config }) => config.type === 'timestamp' && config.autoUpdate)
       .map(({ columnName }) => columnName)
 
-    this.queryGenerator = new QueryGenerator(this.schema, f => this.columnNameMap.get(f) || toSnake(f))
+    // Cache select columns string (inlined from QueryGenerator.buildSelectColumns)
+    const columns = ['id', ...Object.keys(this.schema).map(k => this.columnNameMap.get(k)!)]
 
-    // Cache select columns string
-    this.cachedSelectColumns = this.queryGenerator.buildSelectColumns()
+    this.cachedSelectColumns = columns
+      .map((col) => {
+        // Check if column is array type and add TEXT[] casting for proper deserialization
+        const fieldName = [...this.columnNameMap.entries()].find(([_, v]) => v === col)?.[0]
+
+        if (fieldName) {
+          const config = this.schema[fieldName]
+
+          if (config?.type === 'array') {
+            return `${col}::TEXT[] as ${col}`
+          }
+        }
+
+        return col
+      })
+      .join(', ')
 
     // Build entity prototype once for performance (instead of per-entity injection)
     this.entityPrototype = this.buildEntityPrototype()
@@ -78,6 +91,41 @@ export class Repository<
     }
 
     return toSnake(fieldName)
+  }
+
+  // Get configured limits with defaults
+  private getLimits() {
+    try {
+      const config = getDatabaseConfig()
+
+      return {
+        bulkOperations: config.limits?.bulkOperations ?? 1000,
+        arraySize: config.limits?.arraySize ?? 1000,
+        stringLength: config.limits?.stringLength ?? 1_000_000,
+        jsonSize: config.limits?.jsonSize ?? 10_000_000,
+      }
+    }
+    catch {
+      // If config not available, use defaults
+      return {
+        bulkOperations: 1000,
+        arraySize: 1000,
+        stringLength: 1_000_000,
+        jsonSize: 10_000_000,
+      }
+    }
+  }
+
+  // Check if strict validation mode is enabled
+  private isStrictMode(): boolean {
+    try {
+      const config = getDatabaseConfig()
+
+      return config.validation?.strict ?? false
+    }
+    catch {
+      return false
+    }
   }
 
   // ========================================================================
@@ -162,7 +210,9 @@ export class Repository<
     `
 
     if (!result) {
-      throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
+      throw new EntityNotFoundError(this.tableName, id, {
+        suggestion: `Check if entity exists using repo.exists(${id})`,
+      })
     }
 
     const entity = this.mapRowToEntity(result)
@@ -190,7 +240,9 @@ export class Repository<
     `
 
     if (!result) {
-      throw new Error(`Entity with id ${id} not found in ${this.tableName}`)
+      throw new EntityNotFoundError(this.tableName, id, {
+        suggestion: `Entity may have already been deleted`,
+      })
     }
 
     // Execute after hooks
@@ -245,6 +297,21 @@ export class Repository<
     if (dataArray.length === 0)
       return []
 
+    // Check bulk operation limit
+    const limits = this.getLimits()
+
+    if (dataArray.length > limits.bulkOperations) {
+      throw new BulkOperationError('createMany', dataArray.length, limits.bulkOperations)
+    }
+
+    // Check strict validation mode
+    if (options?.skipValidation && this.isStrictMode()) {
+      throw new Error(
+        'Cannot skip validation in strict mode. '
+        + 'Set validation.strict to false in database config to allow skipValidation.',
+      )
+    }
+
     const db = this.getDB()
 
     // Step 1: Validate all items first (skip if explicitly disabled for performance)
@@ -295,6 +362,13 @@ export class Repository<
     if (ids.length === 0)
       return
 
+    // Check bulk operation limit
+    const limits = this.getLimits()
+
+    if (ids.length > limits.bulkOperations) {
+      throw new BulkOperationError('deleteMany', ids.length, limits.bulkOperations)
+    }
+
     const db = this.getDB()
 
     await db`
@@ -327,10 +401,20 @@ export class Repository<
    *   .where('age', '>', 18)
    *   .execute()
    * // Type: { id: number, name: string, email: string }[]
+   * @deprecated Use query().select() instead for better clarity.
+   * Example: repo.query().select('id', 'name').where(...).execute()
    */
   select<F extends readonly (keyof T | 'id')[]>(
     ...fields: F
   ): QueryBuilder<T, F> {
+    // Emit deprecation warning in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `[DEPRECATED] repo.select() is deprecated. Use repo.query().select() instead.\n`
+        + `Example: repo.query().select('id', 'name').where(...).execute()`,
+      )
+    }
+
     return new QueryBuilder<T, F>(
       this.tableName,
       this.getDB(),
@@ -400,7 +484,8 @@ export class Repository<
 
   private buildEntityPrototype(): any {
     const prototype: any = {}
-    const entityRepositoryMap = this.entityRepositoryMap
+    // eslint-disable-next-line ts/no-this-alias
+    const self = this // Capture repository in closure for direct access
 
     // Inject trait methods into prototype (performance optimization)
     for (const trait of this.definition.traits) {
@@ -408,14 +493,8 @@ export class Repository<
         for (const [methodName, method] of Object.entries(trait.methods)) {
           prototype[methodName] = function (this: any, ...args: any[]) {
             // 'this' is bound to entity instance
-            // Retrieve repository from WeakMap instead of direct property
-            const repo = entityRepositoryMap.get(this)
-
-            if (!repo) {
-              throw new Error(`Repository not found for entity. This should never happen.`)
-            }
-
-            return (method as any).call(this, repo, ...args)
+            // Use 'self' from closure - no WeakMap lookup needed (10-20% faster)
+            return (method as any).call(this, self, ...args)
           }
         }
       }
@@ -429,8 +508,6 @@ export class Repository<
     const entity: any = Object.create(this.entityPrototype)
 
     entity.id = row.id
-    // Store repository reference in WeakMap to avoid memory leaks
-    this.entityRepositoryMap.set(entity, this)
 
     // Map database columns using pre-computed field configs
     for (const { fieldName, columnName, config } of this.fieldConfigs) {

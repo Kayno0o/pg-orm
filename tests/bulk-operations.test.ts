@@ -250,6 +250,7 @@ describe('Bulk Operations', () => {
     test('should handle empty array in deleteMany', async () => {
       await runInTransaction(async (tx) => {
         const tags = createTxRepo(Tag, tx)
+
         await tags.deleteMany([])
         // Should not throw - if we reach here, test passes
       })
@@ -258,6 +259,7 @@ describe('Bulk Operations', () => {
     test('should handle non-existent IDs gracefully', async () => {
       await runInTransaction(async (tx) => {
         const tags = createTxRepo(Tag, tx)
+
         await tags.deleteMany([99999, 99998])
         // Should not throw - if we reach here, test passes
       })

@@ -252,6 +252,7 @@ describe('Transactions', () => {
           content: 'Content 1',
           authorId: user.id,
         })
+
         postIds.push(post1.id)
 
         const post2 = await txPosts.create({
@@ -259,6 +260,7 @@ describe('Transactions', () => {
           content: 'Content 2',
           authorId: user.id,
         })
+
         postIds.push(post2.id)
 
         // Update user
@@ -267,9 +269,11 @@ describe('Transactions', () => {
 
       // Verify all operations succeeded
       const foundUser = await users.find(userId!)
+
       expect(foundUser?.name).toBe('Updated Multi Author')
 
-      const foundPosts = await posts.query().where('author_id', '=', userId!).execute() as any[]
+      const foundPosts = await posts.query().where('authorId', '=', userId!).execute() as any[]
+
       expect(foundPosts.length).toBe(2)
 
       // Cleanup
@@ -301,6 +305,7 @@ describe('Transactions', () => {
 
       // After commit, we can see it from outside
       const found = await users.find(createdId!)
+
       expect(found).not.toBeNull()
 
       // Cleanup
@@ -358,6 +363,7 @@ describe('Transactions', () => {
 
       // Verify no entities were created (transaction rolled back)
       const results = await users.query().where('email', '=', uniqueEmail).execute() as any[]
+
       expect(results.length).toBe(0)
       // No cleanup needed - transaction was rolled back
     })
@@ -374,6 +380,7 @@ describe('Transactions', () => {
           name: 'Outer User',
           email: testData.user.valid().email,
         })
+
         createdIds.push(outer.id)
 
         // This may use the same transaction context
@@ -384,11 +391,13 @@ describe('Transactions', () => {
             name: 'Inner User',
             email: testData.user.valid().email,
           })
+
           createdIds.push(inner.id)
         })
       })
 
       const found = await users.query().whereIn('id', createdIds).execute() as any[]
+
       expect(found.length).toBeGreaterThanOrEqual(1)
 
       // Cleanup

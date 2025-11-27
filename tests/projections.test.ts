@@ -57,6 +57,7 @@ describe('Projections/Select', () => {
   test('should select fields via repository shorthand', async () => {
     await runInTransaction(async (tx) => {
       const users = createTxRepo(User, tx)
+
       await users.create({
         name: 'Bob',
         email: testData.user.valid().email,
@@ -77,6 +78,7 @@ describe('Projections/Select', () => {
   test('should work with where clauses', async () => {
     await runInTransaction(async (tx) => {
       const users = createTxRepo(User, tx)
+
       await users.create({
         name: 'Admin1',
         email: testData.user.valid().email,
@@ -107,6 +109,7 @@ describe('Projections/Select', () => {
   test('should work with ordering and limits', async () => {
     await runInTransaction(async (tx) => {
       const users = createTxRepo(User, tx)
+
       await users.create({ name: 'Alice', email: testData.user.valid().email, age: 25, role: 'user' })
       await users.create({ name: 'Bob', email: testData.user.valid().email, age: 30, role: 'user' })
       await users.create({ name: 'Charlie', email: testData.user.valid().email, age: 28, role: 'user' })
@@ -129,6 +132,7 @@ describe('Projections/Select', () => {
   test('should select all fields with explicit id', async () => {
     await runInTransaction(async (tx) => {
       const users = createTxRepo(User, tx)
+
       await users.create({
         name: 'Charlie',
         email: testData.user.valid().email,

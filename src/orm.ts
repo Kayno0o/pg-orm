@@ -36,8 +36,11 @@ export class ORM {
       ? connectionString.migrations
       : undefined
 
-    // Initialize migrator to run auto-migrations
-    await this.ensureMigrator()
+    // Only initialize migrator if auto-migration is explicitly enabled
+    // Breaking change: Auto-migrations are now opt-in (was opt-out in v1)
+    if (this.migrationConfig?.autoMigrate === true) {
+      await this.ensureMigrator()
+    }
   }
 
   /**

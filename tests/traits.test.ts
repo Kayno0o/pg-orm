@@ -26,7 +26,6 @@ describe('Trait System', () => {
     })
 
     test('should set timestamps on entity creation', async () => {
-
       const User = orm.entity('test_timestamps', {
         name: orm.string(),
         email: orm.string(),
@@ -65,7 +64,6 @@ describe('Trait System', () => {
     })
 
     test('should provide soft delete methods', async () => {
-
       const Post = orm.entity('test_soft_delete', {
         title: orm.string(),
         content: orm.string(),
@@ -110,7 +108,6 @@ describe('Trait System', () => {
     })
 
     test('should provide publish/unpublish methods', async () => {
-
       const Article = orm.entity('test_publishable', {
         title: orm.string(),
         content: orm.string(),
@@ -171,7 +168,6 @@ describe('Trait System', () => {
     })
 
     test('should use custom trait in entity', async () => {
-
       const likeable = orm.trait()
         .field('likesCount', orm.number().integer().default(0))
         .method('like', async function (repo) {
@@ -205,7 +201,6 @@ describe('Trait System', () => {
 
   describe('Multiple Traits', () => {
     test('should combine multiple traits', async () => {
-
       const Post = orm.entity('test_multi_trait', {
         title: orm.string(),
         content: orm.string(),
@@ -246,7 +241,6 @@ describe('Trait System', () => {
 
   describe('Trait Method Context', () => {
     test('should bind this to entity instance', async () => {
-
       const counterTrait = orm.trait()
         .field('count', orm.number().default(0))
         .method('increment', async function (repo) {
@@ -276,7 +270,6 @@ describe('Trait System', () => {
     })
 
     test('should provide repository access in methods', async () => {
-
       const testTrait = orm.trait()
         .field('value', orm.number().default(0))
         .method('doubleValue', async function (repo) {
@@ -309,7 +302,6 @@ describe('Trait System', () => {
 
   describe('Trait Hooks', () => {
     test('should execute trait hooks on create', async () => {
-
       const hookCalls: string[] = []
 
       const customTrait = orm.trait()
@@ -344,7 +336,6 @@ describe('Trait System', () => {
     })
 
     test('should execute trait hooks on update', async () => {
-
       const hookCalls: string[] = []
 
       const customTrait = orm.trait()
@@ -389,7 +380,6 @@ describe('Trait System', () => {
     })
 
     test('should handle multiple traits with hooks', async () => {
-
       const hookCalls: string[] = []
 
       const trait1 = orm.trait()

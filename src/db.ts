@@ -29,6 +29,43 @@ export interface DatabaseConfig {
 
   // Migration configuration
   migrations?: MigrationConfig
+
+  // DoS Protection Limits
+  limits?: {
+    /**
+     * Maximum number of items in bulk operations (createMany, deleteMany)
+     * @default 1000
+     */
+    bulkOperations?: number
+
+    /**
+     * Maximum number of elements in array fields
+     * @default 1000
+     */
+    arraySize?: number
+
+    /**
+     * Maximum string length in characters
+     * @default 1000000 (1 million)
+     */
+    stringLength?: number
+
+    /**
+     * Maximum JSON size in bytes
+     * @default 10000000 (10 MB)
+     */
+    jsonSize?: number
+  }
+
+  // Validation Configuration
+  validation?: {
+    /**
+     * Enable strict validation mode
+     * When true, disables skipValidation option in operations
+     * @default false
+     */
+    strict?: boolean
+  }
 }
 
 // ============================================================================
@@ -36,8 +73,17 @@ export interface DatabaseConfig {
 // ============================================================================
 
 let dbInstance: SQL | null = null
+let dbConfig: DatabaseConfig | null = null
 
 export async function initializeDatabase(connectionString: string | DatabaseConfig): Promise<SQL> {
+  // Store config for later access
+  if (typeof connectionString === 'object') {
+    dbConfig = connectionString
+  }
+  else {
+    dbConfig = { connectionString }
+  }
+
   if (typeof connectionString === 'string') {
     dbInstance = new SQL(connectionString)
   }
@@ -91,10 +137,19 @@ export function getDatabase(): SQL {
   return dbInstance
 }
 
+export function getDatabaseConfig(): DatabaseConfig {
+  if (!dbConfig) {
+    throw new Error('Database not initialized. Call orm.connect() first.')
+  }
+
+  return dbConfig
+}
+
 export async function closeDatabase(options?: { timeout?: number }): Promise<void> {
   if (dbInstance) {
     await dbInstance.close(options)
     dbInstance = null
+    dbConfig = null
   }
 }
 

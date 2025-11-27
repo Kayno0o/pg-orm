@@ -165,6 +165,25 @@ export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] ext
 // Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
 
+// ============================================================================
+// Helper Types for Type Inference
+// ============================================================================
+
+/**
+ * Check if a field is optional in create operations
+ * A field is optional if it's nullable OR has a default value
+ */
+type IsOptionalField<C extends FieldConfig>
+  = C['nullable'] extends true ? true
+    : C['hasDefault'] extends true ? true
+      : false
+
+/**
+ * Check if a field is required in create operations
+ * A field is required if it's not nullable AND has no default value
+ */
+type IsRequiredField<C extends FieldConfig> = IsOptionalField<C> extends true ? false : true
+
 // eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
 type EmptyObject = {}
 
@@ -189,26 +208,28 @@ export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDe
   }[number]>
 >
 
-// Create data (without id, required fields are non-nullable, optional/nullable fields are optional)
+/**
+ * Infer data type for create operations
+ * - Required fields: not nullable AND no default value
+ * - Optional fields: nullable OR has default value
+ * - Never includes 'id' field (auto-generated)
+ */
 export type InferCreateData<T extends EntitySchema> = Prettify<
   {
-    // Required fields: not nullable AND no default
-    [K in keyof T as T[K]['nullable'] extends true
-      ? never
-      : T[K]['hasDefault'] extends true
-        ? never
-        : K]: InferFieldType<T[K]>
+    // Required fields (using helper type)
+    [K in keyof T as IsRequiredField<T[K]> extends true ? K : never]: InferFieldType<T[K]>
   } & {
-    // Optional fields: nullable OR has default
-    [K in keyof T as T[K]['nullable'] extends true
-      ? K
-      : T[K]['hasDefault'] extends true
-        ? K
-        : never]?: InferField<T[K]>
+    // Optional fields (using helper type)
+    [K in keyof T as IsOptionalField<T[K]> extends true ? K : never]?: InferField<T[K]>
   }
 >
 
-// Update data (all fields optional, preserve nullability)
+/**
+ * Infer data type for update operations
+ * - All fields are optional (partial update)
+ * - Preserves nullability of each field
+ * - Never includes 'id' field (cannot be updated)
+ */
 export type InferUpdateData<T extends EntitySchema> = Prettify<Partial<{
   [K in keyof T]: InferField<T[K]>
 }>>

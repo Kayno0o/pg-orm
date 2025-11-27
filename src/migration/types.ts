@@ -9,7 +9,7 @@ export interface MigrationConfig {
    * Enable auto-migration (schema diffing) at startup
    * If true, prompts user to apply schema changes
    * If false, schema changes are ignored
-   * @default true
+   * @default false (changed from v1 where it was true)
    */
   autoMigrate?: boolean
 

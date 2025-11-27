@@ -1,13 +1,34 @@
 import type { ValidationErrorDetail } from './types'
+import { findClosestMatches } from './utils/levenshtein'
 
 export class EntityNotFoundError extends Error {
   constructor(
     public entityName: string,
     public id: number | Record<string, unknown>,
+    public context?: {
+      totalCount?: number
+      lastValidId?: number
+      suggestion?: string
+    },
   ) {
     const idStr = typeof id === 'number' ? id.toString() : JSON.stringify(id)
+    let message = `${entityName} with id ${idStr} not found`
 
-    super(`${entityName} with id ${idStr} not found`)
+    if (context) {
+      if (context.totalCount !== undefined) {
+        message += `\nAvailable entities: ${context.totalCount}`
+      }
+
+      if (context.lastValidId !== undefined) {
+        message += `\nLast valid ID: ${context.lastValidId}`
+      }
+
+      if (context.suggestion) {
+        message += `\nSuggestion: ${context.suggestion}`
+      }
+    }
+
+    super(message)
     this.name = 'EntityNotFoundError'
   }
 }
@@ -81,5 +102,81 @@ export class InvalidIdentifierError extends Error {
       + `Identifiers must match pattern ^[a-zA-Z_][a-zA-Z0-9_]*$ and be <= 63 characters.`,
     )
     this.name = 'InvalidIdentifierError'
+  }
+}
+
+export class InvalidColumnError extends Error {
+  constructor(
+    public column: string,
+    public tableName: string,
+    public validColumns: string[],
+  ) {
+    const suggestions = findClosestMatches(column, validColumns, 2)
+    let message = `Invalid column '${column}' in table '${tableName}'.\n`
+
+    message += `Valid columns: ${validColumns.join(', ')}`
+
+    if (suggestions.length > 0) {
+      message += `\nDid you mean: ${suggestions.join(', ')}?`
+    }
+
+    super(message)
+    this.name = 'InvalidColumnError'
+  }
+}
+
+export class BulkOperationError extends Error {
+  constructor(
+    public operation: string,
+    public attempted: number,
+    public limit: number,
+  ) {
+    super(
+      `Bulk operation '${operation}' exceeds limit of ${limit} items (attempted: ${attempted}).\n`
+      + `Suggestion: Process in batches of ${limit} items or fewer.`,
+    )
+    this.name = 'BulkOperationError'
+  }
+}
+
+export class ArraySizeError extends Error {
+  constructor(
+    public field: string,
+    public size: number,
+    public limit: number,
+  ) {
+    super(
+      `Array field '${field}' exceeds size limit of ${limit} items (got: ${size}).\n`
+      + `Suggestion: Consider pagination or splitting the data.`,
+    )
+    this.name = 'ArraySizeError'
+  }
+}
+
+export class StringLengthError extends Error {
+  constructor(
+    public field: string,
+    public length: number,
+    public limit: number,
+  ) {
+    super(
+      `String field '${field}' exceeds length limit of ${limit} characters (got: ${length}).\n`
+      + `Suggestion: Consider using a TEXT or BLOB field for large content.`,
+    )
+    this.name = 'StringLengthError'
+  }
+}
+
+export class JsonSizeError extends Error {
+  constructor(
+    public field: string,
+    public size: number,
+    public limit: number,
+  ) {
+    super(
+      `JSON field '${field}' exceeds size limit of ${limit} bytes (got: ${size}).\n`
+      + `Suggestion: Consider splitting the JSON or using a separate storage solution.`,
+    )
+    this.name = 'JsonSizeError'
   }
 }

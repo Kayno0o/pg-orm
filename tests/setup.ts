@@ -1,9 +1,9 @@
-import type { EntityDefinition, EntitySchema } from '../src/types'
+import type { SQL } from 'bun'
 import type { Repository } from '../src/repository'
+import type { EntityDefinition, EntitySchema } from '../src/types'
 import { ObjectEntries, toSnake } from '@kaynooo/utils'
 import { afterAll, beforeAll, expect } from 'bun:test'
 import { orm } from '../src'
-import type { SQL } from 'bun'
 
 // ============================================================================
 // Test Database Configuration
@@ -71,6 +71,7 @@ export async function runInTransaction<T>(
   const db = orm.getDB()
 
   let result: T
+
   try {
     await db.begin(async (tx) => {
       result = await callback(tx)
@@ -96,6 +97,7 @@ export function createTxRepo<T extends EntitySchema>(
   tx: SQL,
 ): Repository<T> {
   const repo = orm.repo(entityDef)
+
   return repo.withTransaction(tx)
 }
 

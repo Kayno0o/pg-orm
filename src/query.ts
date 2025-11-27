@@ -1,6 +1,7 @@
 import type { SQL } from 'bun'
 import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferProjectionClean, OrderDirection } from './types'
 import { toSnake } from '@kaynooo/utils'
+import { InvalidColumnError } from './errors'
 import { validateSQLIdentifier } from './sql-utils'
 
 // ============================================================================
@@ -54,7 +55,11 @@ export class QueryBuilder<
     const columnName = this.getColumnName(field)
 
     if (!this.validColumns.has(columnName)) {
-      throw new Error(`Invalid column name: ${field}. Column not found in schema.`)
+      throw new InvalidColumnError(
+        field,
+        this.tableName,
+        Array.from(this.validColumns),
+      )
     }
 
     return columnName
