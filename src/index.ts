@@ -14,8 +14,19 @@ export { createEntitySchema, EntityBuilder } from './entity'
 // Field Builders
 // ============================================================================
 
-export { DatabaseError, EntityNotFoundError, OptimisticLockError, QueryError } from './errors'
-export { InvalidIdentifierError } from './errors'
+export {
+  ArraySizeError,
+  BulkOperationError,
+  DatabaseError,
+  EntityNotFoundError,
+  InvalidColumnError,
+  InvalidIdentifierError,
+  JsonDepthError,
+  JsonSizeError,
+  OptimisticLockError,
+  QueryError,
+  StringLengthError,
+} from './errors'
 
 // ============================================================================
 // Entity Builder

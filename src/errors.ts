@@ -1,6 +1,24 @@
 import type { ValidationErrorDetail } from './types'
 import { findClosestMatches } from './utils/levenshtein'
 
+// ============================================================================
+// Entity Errors
+// ============================================================================
+
+/**
+ * Thrown when an entity is not found by ID
+ * @example
+ * ```ts
+ * try {
+ *   await users.find(999)
+ * } catch (error) {
+ *   if (error instanceof EntityNotFoundError) {
+ *     console.log(error.entityName) // 'users'
+ *     console.log(error.id) // 999
+ *   }
+ * }
+ * ```
+ */
 export class EntityNotFoundError extends Error {
   constructor(
     public entityName: string,
@@ -33,6 +51,23 @@ export class EntityNotFoundError extends Error {
   }
 }
 
+// ============================================================================
+// Validation Errors
+// ============================================================================
+
+/**
+ * Thrown when entity data fails validation
+ * @example
+ * ```ts
+ * try {
+ *   await users.create({ name: 'X', email: 'invalid' })
+ * } catch (error) {
+ *   if (error instanceof ValidationError) {
+ *     console.log(error.violations) // Array of validation errors
+ *   }
+ * }
+ * ```
+ */
 export class ValidationError extends Error {
   constructor(
     public entityName: string,
@@ -45,6 +80,9 @@ export class ValidationError extends Error {
   }
 }
 
+/**
+ * Thrown when optimistic locking detects concurrent modification
+ */
 export class OptimisticLockError extends Error {
   constructor(
     public entityName: string,
@@ -60,6 +98,13 @@ export class OptimisticLockError extends Error {
   }
 }
 
+// ============================================================================
+// Database Errors
+// ============================================================================
+
+/**
+ * Thrown when a database query fails
+ */
 export class QueryError extends Error {
   declare query?: string
   declare cause?: Error
@@ -76,6 +121,9 @@ export class QueryError extends Error {
   }
 }
 
+/**
+ * Thrown when a general database error occurs
+ */
 export class DatabaseError extends Error {
   declare cause?: Error
 
@@ -89,6 +137,19 @@ export class DatabaseError extends Error {
   }
 }
 
+// ============================================================================
+// Security Errors
+// ============================================================================
+
+/**
+ * Thrown when a table or column identifier is invalid
+ * Prevents SQL injection through identifier manipulation
+ * @example
+ * ```ts
+ * // ❌ Throws InvalidIdentifierError
+ * orm.entity('users; DROP TABLE users; --', { ... })
+ * ```
+ */
 export class InvalidIdentifierError extends Error {
   constructor(
     public identifierType: 'table' | 'column',
@@ -105,6 +166,10 @@ export class InvalidIdentifierError extends Error {
   }
 }
 
+/**
+ * Thrown when querying an invalid column name
+ * Includes suggestions for similar column names
+ */
 export class InvalidColumnError extends Error {
   constructor(
     public column: string,
@@ -125,6 +190,19 @@ export class InvalidColumnError extends Error {
   }
 }
 
+// ============================================================================
+// DoS Protection Errors
+// ============================================================================
+
+/**
+ * Thrown when a bulk operation exceeds configured limits
+ * Prevents DoS attacks via excessive batch operations
+ * @example
+ * ```ts
+ * // With limit of 1000
+ * await users.createMany(arrayOf10000Items) // ❌ Throws BulkOperationError
+ * ```
+ */
 export class BulkOperationError extends Error {
   constructor(
     public operation: string,
@@ -139,6 +217,10 @@ export class BulkOperationError extends Error {
   }
 }
 
+/**
+ * Thrown when an array field exceeds size limits
+ * Prevents DoS attacks via excessive array sizes
+ */
 export class ArraySizeError extends Error {
   constructor(
     public field: string,
@@ -153,6 +235,10 @@ export class ArraySizeError extends Error {
   }
 }
 
+/**
+ * Thrown when a string field exceeds length limits
+ * Prevents DoS attacks via excessive string lengths
+ */
 export class StringLengthError extends Error {
   constructor(
     public field: string,
@@ -167,6 +253,10 @@ export class StringLengthError extends Error {
   }
 }
 
+/**
+ * Thrown when a JSON field exceeds size limits
+ * Prevents DoS attacks via excessive JSON payload sizes
+ */
 export class JsonSizeError extends Error {
   constructor(
     public field: string,
@@ -178,5 +268,30 @@ export class JsonSizeError extends Error {
       + `Suggestion: Consider splitting the JSON or using a separate storage solution.`,
     )
     this.name = 'JsonSizeError'
+  }
+}
+
+/**
+ * Thrown when a JSON field exceeds nesting depth limits
+ * Prevents DoS attacks via deeply nested JSON causing stack overflow
+ * @example
+ * ```ts
+ * // With default limit of 32 levels
+ * let deep = { value: 1 }
+ * for (let i = 0; i < 40; i++) deep = { nested: deep }
+ * await users.create({ metadata: deep }) // ❌ Throws JsonDepthError
+ * ```
+ */
+export class JsonDepthError extends Error {
+  constructor(
+    public field: string,
+    public depth: number,
+    public limit: number,
+  ) {
+    super(
+      `JSON field '${field}' exceeds nesting depth limit of ${limit} levels (got: ${depth}).\n`
+      + `Suggestion: Flatten the JSON structure or split into multiple fields.`,
+    )
+    this.name = 'JsonDepthError'
   }
 }
