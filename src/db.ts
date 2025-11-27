@@ -55,6 +55,13 @@ export interface DatabaseConfig {
      * @default 10000000 (10 MB)
      */
     jsonSize?: number
+
+    /**
+     * Maximum JSON object nesting depth
+     * Prevents stack overflow from deeply nested objects
+     * @default 32
+     */
+    jsonDepth?: number
   }
 
   // Validation Configuration

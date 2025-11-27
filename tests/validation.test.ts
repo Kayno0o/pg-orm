@@ -426,6 +426,138 @@ describe('Data Validation', () => {
     })
   })
 
+  describe('JSON Field Validation', () => {
+    test('should accept valid JSON objects', async () => {
+      interface UserMeta {
+        theme: string
+        notifications: boolean
+      }
+
+      const User = orm.entity('test_validation_json_ok', {
+        name: orm.string(),
+        email: orm.string(),
+        metadata: orm.jsonb<UserMeta>(),
+      }).build()
+
+      await createTestTable(User)
+
+      const users = orm.repo(User)
+      const user = await users.create({
+        name: 'Test',
+        email: 'test@example.com',
+        metadata: {
+          theme: 'dark',
+          notifications: true,
+        },
+      })
+
+      expect(user.metadata.theme).toBe('dark')
+
+      await cleanupTables('test_validation_json_ok')
+    })
+
+    test('should reject deeply nested JSON (DoS protection)', async () => {
+      const User = orm.entity('test_validation_json_depth', {
+        name: orm.string(),
+        email: orm.string(),
+        metadata: orm.jsonb<any>(),
+      }).build()
+
+      await createTestTable(User)
+
+      const users = orm.repo(User)
+
+      // Create a deeply nested object (depth 35, exceeds default limit of 32)
+      let deepObject: any = { value: 'deeply nested' }
+      for (let i = 0; i < 35; i++) {
+        deepObject = { nested: deepObject }
+      }
+
+      await expect(async () => {
+        await users.create({
+          name: 'Test',
+          email: 'test@example.com',
+          metadata: deepObject,
+        })
+      }).toThrow(ValidationError)
+
+      await cleanupTables('test_validation_json_depth')
+    })
+
+    test('should accept moderately nested JSON', async () => {
+      const User = orm.entity('test_validation_json_moderate', {
+        name: orm.string(),
+        email: orm.string(),
+        metadata: orm.jsonb<any>(),
+      }).build()
+
+      await createTestTable(User)
+
+      const users = orm.repo(User)
+
+      // Create a moderately nested object (depth 10, within limit)
+      const moderateObject = {
+        level1: {
+          level2: {
+            level3: {
+              level4: {
+                level5: {
+                  level6: {
+                    level7: {
+                      level8: {
+                        level9: {
+                          level10: { value: 'ok' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }
+
+      const user = await users.create({
+        name: 'Test',
+        email: 'test@example.com',
+        metadata: moderateObject,
+      })
+
+      expect(user.metadata.level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.value).toBe('ok')
+
+      await cleanupTables('test_validation_json_moderate')
+    })
+
+    test('should validate deeply nested arrays in JSON', async () => {
+      const User = orm.entity('test_validation_json_array_depth', {
+        name: orm.string(),
+        email: orm.string(),
+        metadata: orm.jsonb<any>(),
+      }).build()
+
+      await createTestTable(User)
+
+      const users = orm.repo(User)
+
+      // Create a deeply nested array structure (depth 35)
+      let deepArray: any = [[[[[['deeply nested']]]]]]
+      for (let i = 0; i < 30; i++) {
+        deepArray = [deepArray]
+      }
+
+      await expect(async () => {
+        await users.create({
+          name: 'Test',
+          email: 'test@example.com',
+          metadata: { data: deepArray },
+        })
+      }).toThrow(ValidationError)
+
+      await cleanupTables('test_validation_json_array_depth')
+    })
+  })
+
   describe('Complex Validation Scenarios', () => {
     test('should validate multiple constraints together', async () => {
       const Product = orm.entity('test_validation_complex', {

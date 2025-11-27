@@ -26,8 +26,38 @@ export class ValidationError extends Error {
 // Pre-compiled regex for UUID validation
 const UUID_REGEX = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
+// Default DoS protection limit for JSON nesting depth
+const DEFAULT_MAX_JSON_DEPTH = 32
+
+/**
+ * Calculate the maximum nesting depth of an object
+ * @param obj - Object to analyze
+ * @returns Maximum depth of nested objects/arrays
+ */
+function getObjectDepth(obj: unknown): number {
+  if (obj === null || typeof obj !== 'object') {
+    return 0
+  }
+
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return 1
+    return 1 + Math.max(...obj.map(getObjectDepth))
+  }
+
+  const values = Object.values(obj)
+  if (values.length === 0) return 1
+  return 1 + Math.max(...values.map(getObjectDepth))
+}
+
 export class Validator {
   private errors: ValidationErrorDetail[] = []
+  private maxJsonDepth: number = DEFAULT_MAX_JSON_DEPTH
+
+  constructor(options?: { maxJsonDepth?: number }) {
+    if (options?.maxJsonDepth !== undefined) {
+      this.maxJsonDepth = options.maxJsonDepth
+    }
+  }
 
   // ========================================================================
   // Validate Single Field
@@ -192,6 +222,19 @@ export class Validator {
   private validateJson(fieldName: string, value: unknown): void {
     if (typeof value !== 'object' || value === null) {
       this.addError(fieldName, 'type', `Field "${fieldName}" must be an object`, value)
+
+      return
+    }
+
+    // DoS protection: Check nesting depth
+    const depth = getObjectDepth(value)
+    if (depth > this.maxJsonDepth) {
+      this.addError(
+        fieldName,
+        'jsonDepth',
+        `Field "${fieldName}" exceeds maximum nesting depth of ${this.maxJsonDepth} (got ${depth})`,
+        value,
+      )
     }
   }
 

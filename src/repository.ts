@@ -39,7 +39,11 @@ export class Repository<
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
-    this.validator = new Validator()
+
+    // Initialize validator with default config (will be updated when DB connects)
+    this.validator = new Validator({
+      maxJsonDepth: 32, // Default, can be overridden by database config
+    })
 
     // Pre-compute column name map
     this.columnNameMap = new Map()
@@ -108,6 +112,7 @@ export class Repository<
         arraySize: config.limits?.arraySize ?? 1000,
         stringLength: config.limits?.stringLength ?? 1_000_000,
         jsonSize: config.limits?.jsonSize ?? 10_000_000,
+        jsonDepth: config.limits?.jsonDepth ?? 32,
       }
     }
     catch {
@@ -117,8 +122,19 @@ export class Repository<
         arraySize: 1000,
         stringLength: 1_000_000,
         jsonSize: 10_000_000,
+        jsonDepth: 32,
       }
     }
+  }
+
+  // Get validator with correct config
+  private getValidator(): Validator {
+    const limits = this.getLimits()
+    // Update validator's maxJsonDepth if different from default
+    if (limits.jsonDepth !== 32) {
+      return new Validator({ maxJsonDepth: limits.jsonDepth })
+    }
+    return this.validator
   }
 
   // Check if strict validation mode is enabled
@@ -161,7 +177,7 @@ export class Repository<
 
     // Validate input data (skip if explicitly disabled for performance)
     if (!options?.skipValidation) {
-      this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+      this.getValidator().validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
     }
 
     // Execute before hooks
@@ -189,7 +205,7 @@ export class Repository<
     const db = this.getDB()
 
     // Validate input data
-    this.validator.validate(data as Record<string, unknown>, this.schema, 'update', this.tableName)
+    this.getValidator().validate(data as Record<string, unknown>, this.schema, 'update', this.tableName)
 
     // Execute before hooks
     for (const hook of this.definition.hooks.beforeUpdate) {
@@ -321,8 +337,9 @@ export class Repository<
 
     // Step 1: Validate all items first (skip if explicitly disabled for performance)
     if (!options?.skipValidation) {
+      const validator = this.getValidator()
       for (const data of dataArray) {
-        this.validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+        validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
       }
     }
 
