@@ -40,12 +40,17 @@ function getObjectDepth(obj: unknown): number {
   }
 
   if (Array.isArray(obj)) {
-    if (obj.length === 0) return 1
+    if (obj.length === 0)
+      return 1
+
     return 1 + Math.max(...obj.map(getObjectDepth))
   }
 
   const values = Object.values(obj)
-  if (values.length === 0) return 1
+
+  if (values.length === 0)
+    return 1
+
   return 1 + Math.max(...values.map(getObjectDepth))
 }
 
@@ -228,6 +233,7 @@ export class Validator {
 
     // DoS protection: Check nesting depth
     const depth = getObjectDepth(value)
+
     if (depth > this.maxJsonDepth) {
       this.addError(
         fieldName,

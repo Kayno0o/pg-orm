@@ -469,6 +469,7 @@ describe('Data Validation', () => {
 
       // Create a deeply nested object (depth 35, exceeds default limit of 32)
       let deepObject: any = { value: 'deeply nested' }
+
       for (let i = 0; i < 35; i++) {
         deepObject = { nested: deepObject }
       }
@@ -542,6 +543,7 @@ describe('Data Validation', () => {
 
       // Create a deeply nested array structure (depth 35)
       let deepArray: any = [[[[[['deeply nested']]]]]]
+
       for (let i = 0; i < 30; i++) {
         deepArray = [deepArray]
       }

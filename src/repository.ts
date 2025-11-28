@@ -7,11 +7,11 @@ import type {
   InferEntity,
   InferUpdateData,
 } from './types'
-import { hasAutoUpdate, hasColumnName, isArrayFieldConfig } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
 import { QueryBuilder } from './query'
+import { hasAutoUpdate, hasColumnName, isArrayFieldConfig } from './types'
 import { ValidationError, Validator } from './validation'
 
 // ============================================================================
@@ -130,10 +130,12 @@ export class Repository<
   // Get validator with correct config
   private getValidator(): Validator {
     const limits = this.getLimits()
+
     // Update validator's maxJsonDepth if different from default
     if (limits.jsonDepth !== 32) {
       return new Validator({ maxJsonDepth: limits.jsonDepth })
     }
+
     return this.validator
   }
 
@@ -338,6 +340,7 @@ export class Repository<
     // Step 1: Validate all items first (skip if explicitly disabled for performance)
     if (!options?.skipValidation) {
       const validator = this.getValidator()
+
       for (const data of dataArray) {
         validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
       }
