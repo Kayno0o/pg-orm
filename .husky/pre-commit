@@ -22,5 +22,7 @@ $BUN_PATH run build
 $BUN_PATH run check
 $BUN_PATH x changelogen@latest --dry-run
 
-echo "\n"`date +%F_%H-%M-%S` >> lines.md && cloc ./src --md | tail -n +4 | head -3 >> lines.md
+echo "" >> lines.md
+echo `date +%F_%H-%M-%S` >> lines.md
+cloc ./src --md | tail -n +4 | head -3 >> lines.md
 git add lines.md

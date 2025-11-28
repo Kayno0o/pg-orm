@@ -55,7 +55,8 @@
     "circular": "madge --circular ./src/index.ts",
     "circular:schema": "madge ./src/index.ts --image graph.png",
     "duplicates": "jscpd ./src",
-    "unused": "knip"
+    "unused": "knip",
+    "prepare": "husky"
   },
   "peerDependencies": {
     "bun-types": "latest"
