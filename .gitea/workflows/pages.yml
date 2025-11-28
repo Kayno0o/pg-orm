@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Install git before checkout
-        run: apt-get update && apt-get install -y git unzip
+        run: apt-get update && apt-get install -y git unzip genhtml
 
       - name: Checkout code
         uses: actions/checkout@v4
