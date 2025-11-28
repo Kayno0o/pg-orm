@@ -1,9 +1,5 @@
 import type { SQL } from 'bun'
 
-// ============================================================================
-// Core Database Types
-// ============================================================================
-
 export type SQLValue
   = | string
     | number
@@ -17,10 +13,6 @@ export type SQLValue
 
 export type DatabaseRow = Record<string, unknown>
 export type SQLInstance = SQL
-
-// ============================================================================
-// Field Type System
-// ============================================================================
 
 export type FieldType
   = | 'string'
@@ -112,10 +104,6 @@ export type FieldConfig
     | EnumFieldConfig<readonly string[], boolean, boolean>
     | BlobFieldConfig<boolean, boolean>
 
-// ============================================================================
-// Entity Schema Types
-// ============================================================================
-
 export type EntitySchema = Record<string, FieldConfig>
 
 export interface EntityMetadata {
@@ -124,11 +112,6 @@ export interface EntityMetadata {
   unique?: string[][]
 }
 
-// ============================================================================
-// Type Inference from Schema
-// ============================================================================
-
-// Type mapping for simple field types
 interface FieldTypeMapping {
   string: string
   number: number
@@ -139,14 +122,12 @@ interface FieldTypeMapping {
   blob: Uint8Array
 }
 
-// Helper for array type inference
 type InferArrayType<AT extends 'string' | 'number' | 'boolean'>
   = AT extends 'string' ? string[]
     : AT extends 'number' ? number[]
       : AT extends 'boolean' ? boolean[]
         : never
 
-// Map field config to TypeScript type (base type without null)
 export type InferFieldType<T extends FieldConfig>
   = T extends JsonFieldConfig<infer U>
     ? U
@@ -158,36 +139,20 @@ export type InferFieldType<T extends FieldConfig>
           ? FieldTypeMapping[Type]
           : never
 
-// Make nullable if field is nullable (database-aligned: null only, not undefined)
 export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null : T
 
-// Infer complete field type with nullability (for entity types)
 export type InferField<T extends FieldConfig> = MakeNullable<InferFieldType<T>, T>
 
-// ============================================================================
-// Helper Types for Type Inference
-// ============================================================================
-
-/**
- * Check if a field is optional in create operations
- * A field is optional if it's nullable OR has a default value
- */
 type IsOptionalField<C extends FieldConfig>
   = C['nullable'] extends true ? true
     : C['hasDefault'] extends true ? true
       : false
 
-/**
- * Check if a field is required in create operations
- * A field is required if it's not nullable AND has no default value
- */
 type IsRequiredField<C extends FieldConfig> = IsOptionalField<C> extends true ? false : true
 
 // eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
 type EmptyObject = {}
 
-// Infer entity type from schema (without trait methods for now)
-// If schema defines 'id', use it; otherwise add 'readonly id: number'
 export type InferEntityBase<T extends EntitySchema> = Prettify<
   ('id' extends keyof T
     ? EmptyObject
@@ -198,7 +163,6 @@ export type InferEntityBase<T extends EntitySchema> = Prettify<
     }
 >
 
-// Infer entity type with trait methods
 export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDefinition<any, any>[] = []> = Prettify<
   InferEntityBase<T> & UnionToIntersection<{
     [K in keyof TTraits]: TTraits[K] extends TraitDefinition<any, infer Methods>
@@ -207,40 +171,20 @@ export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDe
   }[number]>
 >
 
-/**
- * Infer data type for create operations
- * - Required fields: not nullable AND no default value
- * - Optional fields: nullable OR has default value
- * - Never includes 'id' field (auto-generated)
- */
 export type InferCreateData<T extends EntitySchema> = Prettify<
   {
-    // Required fields (using helper type)
     [K in keyof T as IsRequiredField<T[K]> extends true ? K : never]: InferFieldType<T[K]>
   } & {
-    // Optional fields (using helper type)
     [K in keyof T as IsOptionalField<T[K]> extends true ? K : never]?: InferField<T[K]>
   }
 >
 
-/**
- * Infer data type for update operations
- * - All fields are optional (partial update)
- * - Preserves nullability of each field
- * - Never includes 'id' field (cannot be updated)
- */
 export type InferUpdateData<T extends EntitySchema> = Prettify<Partial<{
   [K in keyof T]: InferField<T[K]>
 }>>
 
-// ============================================================================
-// Projection Types
-// ============================================================================
-
-// Extract union from tuple of field names
 type TupleToUnion<T extends readonly (keyof any)[]> = T[number]
 
-// Infer projected entity type (subset of fields)
 export type InferProjection<
   T extends EntitySchema,
   Fields extends readonly (keyof T | 'id')[],
@@ -249,15 +193,10 @@ export type InferProjection<
   K extends 'id' ? number : K extends keyof T ? InferField<T[K]> : never
 }
 
-// Clean projection type (flatten for IDE display)
 export type InferProjectionClean<
   T extends EntitySchema,
   Fields extends readonly (keyof T | 'id')[],
 > = Prettify<InferProjection<T, Fields>>
-
-// ============================================================================
-// Aggregation Types
-// ============================================================================
 
 export interface AggregationResult {
   count?: number
@@ -265,18 +204,13 @@ export interface AggregationResult {
   avg?: number
   min?: number
   max?: number
-  [key: string]: number | undefined // Allow dynamic aliases
+  [key: string]: number | undefined
 }
 
-// For GROUP BY results - combines grouping fields with aggregations
 export type GroupByResult<
   T extends EntitySchema,
   GroupFields extends readonly (keyof T | 'id')[],
 > = Prettify<InferProjectionClean<T, GroupFields> & AggregationResult>
-
-// ============================================================================
-// Query Types
-// ============================================================================
 
 export type WhereOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'ILIKE' | 'IN' | 'NOT IN'
 
@@ -348,10 +282,6 @@ export interface CursorPaginationResult<T> {
   pageSize: number
 }
 
-// ============================================================================
-// Hook Types
-// ============================================================================
-
 export type BeforeCreateHook<T extends EntitySchema> = (data: InferCreateData<T>) => void | Promise<void>
 
 export type AfterCreateHook<T extends EntitySchema> = (entity: InferEntity<T>) => void | Promise<void>
@@ -373,11 +303,6 @@ export interface EntityHooks<T extends EntitySchema> {
   afterDelete: AfterDeleteHook<T>[]
 }
 
-// ============================================================================
-// Trait Types
-// ============================================================================
-
-// Forward declaration for Repository to avoid circular dependency
 export interface AnyRepository {
   find: (id: number) => Promise<any>
   findBy: (options: any) => Promise<any[]>
@@ -387,9 +312,6 @@ export interface AnyRepository {
   [key: string]: any
 }
 
-// Trait method with repository context
-// - 'this' is bound to the entity instance
-// - 'repo' is the repository instance for database operations
 export type TraitMethod<Entity = any, Args extends any[] = any[], Return = any> = (
   this: Entity,
   repo: AnyRepository,
@@ -407,36 +329,23 @@ export interface TraitDefinition<
   readonly hooks?: Partial<EntityHooks<TFields>>
 }
 
-// Helper to extract trait fields from a trait definition
 export type InferTraitFields<T> = T extends TraitDefinition<infer Fields, any> ? Fields : never
 
-// Helper to extract trait methods from a trait definition
 export type InferTraitMethods<T> = T extends TraitDefinition<any, infer Methods> ? Methods : never
 
-// Helper to convert trait method signatures to entity instance methods
-// Removes the 'repo' parameter since it's injected automatically
 export type ConvertTraitMethod<M> = M extends (this: infer This, repo: any, ...args: infer Args) => infer Return
   ? (this: This, ...args: Args) => Return
   : never
 
-// Helper to convert all trait methods to entity instance methods
 export type ConvertTraitMethods<TMethods extends TraitMethods> = {
   [K in keyof TMethods]: ConvertTraitMethod<TMethods[K]>
 }
-
-// ============================================================================
-// Plugin Types
-// ============================================================================
 
 export interface Plugin {
   name: string
   applyToEntity?: <_T extends EntitySchema>(entity: EntityDefinition<_T>) => void
   applyToRepository?: <_T extends EntitySchema>(repository: any) => void
 }
-
-// ============================================================================
-// Entity Definition (built by EntityBuilder)
-// ============================================================================
 
 export interface EntityDefinition<
   T extends EntitySchema,
@@ -449,46 +358,31 @@ export interface EntityDefinition<
   readonly unique?: string[][]
 }
 
-// ============================================================================
-// Utility Types
-// ============================================================================
-
-// Convert union to intersection
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
 
-// Flatten intersection types for better IDE display
 export type Prettify<T> = {
   [K in keyof T]: T[K]
 } & {}
 
-// Deep readonly for immutable structures
 export type DeepReadonly<T> = {
   readonly [K in keyof T]: T[K] extends object ? DeepReadonly<T[K]> : T[K]
 }
 
-// Extract non-nullable type
 export type NonNullable<T> = T extends null | undefined ? never : T
 
-// Check if a field is required
 export type IsRequired<T extends FieldConfig> = T['nullable'] extends true
   ? false
   : T['hasDefault'] extends true
     ? false
     : true
 
-// Get all required field names from schema
 export type RequiredFieldNames<T extends EntitySchema> = {
   [K in keyof T]: IsRequired<T[K]> extends true ? K : never
 }[keyof T]
 
-// Get all optional field names from schema
 export type OptionalFieldNames<T extends EntitySchema> = {
   [K in keyof T]: IsRequired<T[K]> extends false ? K : never
 }[keyof T]
-
-// ============================================================================
-// Validation Types
-// ============================================================================
 
 export interface ValidationErrorDetail {
   field: string
@@ -496,10 +390,6 @@ export interface ValidationErrorDetail {
   message: string
   value?: unknown
 }
-
-// ============================================================================
-// Type Guards
-// ============================================================================
 
 export function hasColumnName(config: FieldConfig): config is FieldConfig & { columnName: string } {
   return 'columnName' in config && typeof config.columnName === 'string'

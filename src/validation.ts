@@ -8,10 +8,6 @@ import type {
   ValidationErrorDetail,
 } from './types'
 
-// ============================================================================
-// Validation Layer
-// ============================================================================
-
 export class ValidationError extends Error {
   constructor(
     message: string,
@@ -23,17 +19,9 @@ export class ValidationError extends Error {
   }
 }
 
-// Pre-compiled regex for UUID validation
 const UUID_REGEX = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
-
-// Default DoS protection limit for JSON nesting depth
 const DEFAULT_MAX_JSON_DEPTH = 32
 
-/**
- * Calculate the maximum nesting depth of an object
- * @param obj - Object to analyze
- * @returns Maximum depth of nested objects/arrays
- */
 function getObjectDepth(obj: unknown): number {
   if (obj === null || typeof obj !== 'object') {
     return 0
@@ -64,21 +52,15 @@ export class Validator {
     }
   }
 
-  // ========================================================================
-  // Validate Single Field
-  // ========================================================================
-
   validateField(fieldName: string, value: unknown, fieldConfig: FieldConfig): void {
-    // Check nullable constraints
     if (value === null || value === undefined) {
       if (!fieldConfig.nullable && fieldConfig.default === undefined) {
         this.addError(fieldName, 'required', `Field "${fieldName}" is required`, value)
       }
 
-      return // No further validation needed for null/undefined
+      return
     }
 
-    // Type-specific validation
     switch (fieldConfig.type) {
     case 'string':
       this.validateString(fieldName, value, fieldConfig as StringFieldConfig)
@@ -120,10 +102,6 @@ export class Validator {
       break
     }
   }
-
-  // ========================================================================
-  // Type-Specific Validators
-  // ========================================================================
 
   private validateString(fieldName: string, value: unknown, config: StringFieldConfig): void {
     if (typeof value !== 'string') {
@@ -231,7 +209,6 @@ export class Validator {
       return
     }
 
-    // DoS protection: Check nesting depth
     const depth = getObjectDepth(value)
 
     if (depth > this.maxJsonDepth) {
@@ -260,17 +237,12 @@ export class Validator {
     }
   }
 
-  // ========================================================================
-  // Validate Full Data Object
-  // ========================================================================
-
   validate(data: Record<string, unknown>, schema: EntitySchema, operation: 'create' | 'update', tableName?: string): void {
     this.errors = []
 
     for (const [fieldName, fieldConfig] of Object.entries(schema)) {
       const value = data[fieldName]
 
-      // For create operations, check required fields
       if (operation === 'create') {
         if (value === undefined && !fieldConfig.nullable && fieldConfig.default === undefined) {
           this.addError(fieldName, 'required', `Field "${fieldName}" is required`, value)
@@ -279,7 +251,6 @@ export class Validator {
         }
       }
 
-      // Skip validation if value is not provided in update
       if (operation === 'update' && value === undefined) {
         continue
       }
@@ -297,10 +268,6 @@ export class Validator {
       )
     }
   }
-
-  // ========================================================================
-  // Error Management
-  // ========================================================================
 
   private addError(field: string, constraint: string, message: string, value?: unknown): void {
     this.errors.push({
