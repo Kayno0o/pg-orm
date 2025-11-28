@@ -13,10 +13,6 @@ import type {
 } from './types'
 import { validateSQLIdentifier } from './sql-utils'
 
-// ============================================================================
-// Entity Builder
-// ============================================================================
-
 export class EntityBuilder<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly [],
@@ -30,7 +26,6 @@ export class EntityBuilder<
     private readonly schema: T,
     traits: TTraits = [] as any,
   ) {
-    // Validate table name on construction to prevent SQL injection
     validateSQLIdentifier(tableName, 'table')
 
     this._hooks = {
@@ -43,10 +38,6 @@ export class EntityBuilder<
     }
     this._traits = traits
   }
-
-  // ========================================================================
-  // Lifecycle Hooks
-  // ========================================================================
 
   beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
@@ -96,23 +87,13 @@ export class EntityBuilder<
     return newBuilder
   }
 
-  // ========================================================================
-  // Traits
-  // ========================================================================
-
   use<TraitFields extends EntitySchema, TraitMethods extends Record<string, any>>(
     trait: TraitDefinition<TraitFields, TraitMethods>,
   ): EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>]> {
-    // Merge trait fields into schema
     const newSchema = { ...this.schema, ...trait.fields } as T & TraitFields
-
-    // Create new traits array with the new trait
     const newTraits = [...this._traits, trait] as unknown as readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>]
-
     const newBuilder = new EntityBuilder(this.tableName, newSchema, newTraits)
 
-    // Merge hooks: trait hooks appended in order they're applied, then entity hooks
-    // Type assertion at the end is safe because we're merging compatible hook types
     newBuilder._hooks = {
       beforeCreate: [...this._hooks.beforeCreate, ...(trait.hooks?.beforeCreate || [])],
       afterCreate: [...this._hooks.afterCreate, ...(trait.hooks?.afterCreate || [])],
@@ -126,10 +107,6 @@ export class EntityBuilder<
     return newBuilder
   }
 
-  // ========================================================================
-  // Constraints
-  // ========================================================================
-
   unique(...columns: (keyof T)[][]): EntityBuilder<T, TTraits> {
     const newBuilder = this.clone()
 
@@ -137,10 +114,6 @@ export class EntityBuilder<
 
     return newBuilder
   }
-
-  // ========================================================================
-  // Build Final Definition
-  // ========================================================================
 
   build(): EntityDefinition<T, TTraits> {
     return Object.freeze({
@@ -151,10 +124,6 @@ export class EntityBuilder<
       unique: this._unique,
     })
   }
-
-  // ========================================================================
-  // Internal Helpers
-  // ========================================================================
 
   private clone(): EntityBuilder<T, TTraits> {
     const cloned = new EntityBuilder(this.tableName, { ...this.schema }, this._traits)
@@ -172,10 +141,6 @@ export class EntityBuilder<
     return cloned
   }
 }
-
-// ============================================================================
-// Helper: Extract schema from field builders
-// ============================================================================
 
 export function createEntitySchema<T extends Record<string, { toConfig: () => FieldConfig }>>(
   fields: T,

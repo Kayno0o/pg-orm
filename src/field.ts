@@ -13,95 +13,39 @@ import type {
 } from './types'
 import { validateSQLIdentifier } from './sql-utils'
 
-// ============================================================================
-// String Field Builder
-// ============================================================================
-
-/**
- * Builder for string field configuration
- * @template Nullable - Whether the field allows NULL values
- * @template HasDefault - Whether the field has a default value
- */
 export class StringFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: StringFieldConfig<Nullable, HasDefault>) {}
 
-  /**
-   * Set maximum string length
-   * @param length - Maximum number of characters
-   * @example
-   * ```ts
-   * orm.string().maxLength(255)
-   * ```
-   */
   maxLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.maxLength = length
 
     return this
   }
 
-  /**
-   * Set minimum string length
-   * @param length - Minimum number of characters
-   * @example
-   * ```ts
-   * orm.string().minLength(3)
-   * ```
-   */
   minLength(length: number): StringFieldBuilder<Nullable, HasDefault> {
     this.config.minLength = length
 
     return this
   }
 
-  /**
-   * Make this field nullable (allows NULL values in database)
-   * @returns Builder with nullable type set to true
-   * @example
-   * ```ts
-   * orm.string().nullable() // Type: string | null
-   * ```
-   */
   nullable(): StringFieldBuilder<true, HasDefault> {
     (this.config as StringFieldConfig<true, HasDefault>).nullable = true
 
     return this as StringFieldBuilder<true, HasDefault>
   }
 
-  /**
-   * Make this field required (NOT NULL constraint)
-   * @returns Builder with nullable type set to false
-   * @example
-   * ```ts
-   * orm.string().required() // Type: string
-   * ```
-   */
   required(): StringFieldBuilder<false, HasDefault> {
     (this.config as StringFieldConfig<false, HasDefault>).nullable = false
 
     return this as StringFieldBuilder<false, HasDefault>
   }
 
-  /**
-   * Add UNIQUE constraint to this field
-   * @example
-   * ```ts
-   * orm.string().unique()
-   * ```
-   */
   unique(): StringFieldBuilder<Nullable, HasDefault> {
     this.config.unique = true
 
     return this
   }
 
-  /**
-   * Set default value for this field
-   * @param value - Default string value
-   * @example
-   * ```ts
-   * orm.string().default('guest')
-   * ```
-   */
   default(value: string): StringFieldBuilder<Nullable, true> {
     (this.config as StringFieldConfig<Nullable, true>).default = value;
     (this.config as StringFieldConfig<Nullable, true>).hasDefault = true
@@ -109,14 +53,6 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
     return this as StringFieldBuilder<Nullable, true>
   }
 
-  /**
-   * Override the database column name (default is snake_case of field name)
-   * @param name - Custom column name
-   * @example
-   * ```ts
-   * orm.string().column('full_name') // DB column: full_name
-   * ```
-   */
   column(name: string): StringFieldBuilder<Nullable, HasDefault> {
     validateSQLIdentifier(name, 'column')
     this.config.columnName = name
@@ -128,10 +64,6 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
     return this.config
   }
 }
-
-// ============================================================================
-// Number Field Builder
-// ============================================================================
 
 export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: NumberFieldConfig<Nullable, HasDefault>) {}
@@ -209,10 +141,6 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 }
 
-// ============================================================================
-// Boolean Field Builder
-// ============================================================================
-
 export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: BooleanFieldConfig<Nullable, HasDefault>) {}
 
@@ -240,10 +168,6 @@ export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault ex
     return this.config
   }
 }
-
-// ============================================================================
-// JSON Field Builder
-// ============================================================================
 
 export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: JsonFieldConfig<T, Nullable, HasDefault>) {}
@@ -278,10 +202,6 @@ export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, Has
     return this.config
   }
 }
-
-// ============================================================================
-// UUID Field Builder
-// ============================================================================
 
 export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: UuidFieldConfig<Nullable, HasDefault>) {}
@@ -323,10 +243,6 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 }
 
-// ============================================================================
-// Timestamp Field Builder
-// ============================================================================
-
 export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: TimestampFieldConfig<Nullable, HasDefault>) {}
 
@@ -354,10 +270,6 @@ export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault 
     return this.config
   }
 }
-
-// ============================================================================
-// Date Field Builder
-// ============================================================================
 
 export class DateFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: DateFieldConfig<Nullable, HasDefault>) {}
@@ -387,10 +299,6 @@ export class DateFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 }
 
-// ============================================================================
-// Array Field Builder
-// ============================================================================
-
 export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: ArrayFieldConfig<ArrayType, Nullable, HasDefault>) {}
 
@@ -418,10 +326,6 @@ export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean'
     return this.config
   }
 }
-
-// ============================================================================
-// Enum Field Builder
-// ============================================================================
 
 export class EnumFieldBuilder<Values extends readonly string[], Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: EnumFieldConfig<Values, Nullable, HasDefault>) {}
@@ -451,10 +355,6 @@ export class EnumFieldBuilder<Values extends readonly string[], Nullable extends
   }
 }
 
-// ============================================================================
-// Blob Field Builder
-// ============================================================================
-
 export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: BlobFieldConfig<Nullable, HasDefault>) {}
 
@@ -475,10 +375,6 @@ export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault exten
     return this.config
   }
 }
-
-// ============================================================================
-// Field Factory Functions
-// ============================================================================
 
 export const field = {
   string: () =>

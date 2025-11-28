@@ -14,10 +14,6 @@ import { QueryBuilder } from './query'
 import { hasColumnName, isArrayFieldConfig } from './types'
 import { ValidationError, Validator } from './validation'
 
-// ============================================================================
-// Base Repository (Secure & Optimized)
-// ============================================================================
-
 export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
@@ -28,8 +24,6 @@ export class Repository<
   private txContext?: SQL
   private validator: Validator
   private entityPrototype: any
-
-  // Performance caches
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
@@ -39,31 +33,26 @@ export class Repository<
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
 
-    // Initialize validator with default config (will be updated when DB connects)
     this.validator = new Validator({
-      maxJsonDepth: 32, // Default, can be overridden by database config
+      maxJsonDepth: 32,
     })
 
-    // Pre-compute column name map
     this.columnNameMap = new Map()
     this.columnNameMap.set('id', 'id')
     for (const fieldName of Object.keys(this.schema)) {
       this.columnNameMap.set(fieldName, this.computeColumnName(fieldName))
     }
 
-    // Pre-compute field configs for mapRowToEntity
     this.fieldConfigs = Object.entries(this.schema).map(([fieldName, config]) => ({
       fieldName,
       columnName: this.columnNameMap.get(fieldName)!,
       config,
     }))
 
-    // Cache select columns string (inlined from QueryGenerator.buildSelectColumns)
     const columns = ['id', ...Object.keys(this.schema).map(k => this.columnNameMap.get(k)!)]
 
     this.cachedSelectColumns = columns
       .map((col) => {
-        // Check if column is array type and add TEXT[] casting for proper deserialization
         const fieldName = [...this.columnNameMap.entries()].find(([_, v]) => v === col)?.[0]
 
         if (fieldName) {
@@ -78,7 +67,6 @@ export class Repository<
       })
       .join(', ')
 
-    // Build entity prototype once for performance (instead of per-entity injection)
     this.entityPrototype = this.buildEntityPrototype()
   }
 
@@ -96,7 +84,6 @@ export class Repository<
     return toSnake(fieldName)
   }
 
-  // Get configured limits with defaults
   private getLimits() {
     try {
       const config = getDatabaseConfig()
@@ -110,7 +97,6 @@ export class Repository<
       }
     }
     catch {
-      // If config not available, use defaults
       return {
         bulkOperations: 1000,
         arraySize: 1000,
@@ -121,11 +107,9 @@ export class Repository<
     }
   }
 
-  // Get validator with correct config
   private getValidator(): Validator {
     const limits = this.getLimits()
 
-    // Update validator's maxJsonDepth if different from default
     if (limits.jsonDepth !== 32) {
       return new Validator({ maxJsonDepth: limits.jsonDepth })
     }
@@ -133,7 +117,6 @@ export class Repository<
     return this.validator
   }
 
-  // Check if strict validation mode is enabled
   private isStrictMode(): boolean {
     try {
       const config = getDatabaseConfig()
@@ -144,10 +127,6 @@ export class Repository<
       return false
     }
   }
-
-  // ========================================================================
-  // Core CRUD Operations
-  // ========================================================================
 
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
@@ -171,12 +150,10 @@ export class Repository<
   async create(data: InferCreateData<T>, options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
-    // Validate input data (skip if explicitly disabled for performance)
     if (!options?.skipValidation) {
       this.getValidator().validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
     }
 
-    // Execute before hooks
     for (const hook of this.definition.hooks.beforeCreate) {
       await hook(data)
     }
@@ -189,7 +166,6 @@ export class Repository<
 
     const entity = this.mapRowToEntity(result)
 
-    // Execute after hooks
     for (const hook of this.definition.hooks.afterCreate) {
       await hook(entity as any)
     }
@@ -200,10 +176,8 @@ export class Repository<
   async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
-    // Validate input data
     this.getValidator().validate(data as Record<string, unknown>, this.schema, 'update', this.tableName)
 
-    // Execute before hooks
     for (const hook of this.definition.hooks.beforeUpdate) {
       await hook(id, data)
     }
@@ -225,7 +199,6 @@ export class Repository<
 
     const entity = this.mapRowToEntity(result)
 
-    // Execute after hooks
     for (const hook of this.definition.hooks.afterUpdate) {
       await hook(entity as any)
     }
@@ -236,7 +209,6 @@ export class Repository<
   async delete(id: number): Promise<void> {
     const db = this.getDB()
 
-    // Execute before hooks
     for (const hook of this.definition.hooks.beforeDelete) {
       await hook(id)
     }
@@ -253,20 +225,14 @@ export class Repository<
       })
     }
 
-    // Execute after hooks
     for (const hook of this.definition.hooks.afterDelete) {
       await hook(id)
     }
   }
 
-  // ========================================================================
-  // Query Operations
-  // ========================================================================
-
   async count(exact = true): Promise<number> {
     const db = this.getDB()
 
-    // Fast estimation for large tables
     if (!exact) {
       try {
         const [result] = await db`
@@ -278,11 +244,10 @@ export class Repository<
         return Number(result.estimate)
       }
       catch {
-        // Fall back to exact count if estimation fails
+        // Fall back to exact count
       }
     }
 
-    // Exact count - use QueryBuilder for consistency
     return await this.query().count()
   }
 
@@ -297,22 +262,16 @@ export class Repository<
     return result !== undefined
   }
 
-  // ========================================================================
-  // Bulk Operations
-  // ========================================================================
-
   async createMany(dataArray: InferCreateData<T>[], options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>[]> {
     if (dataArray.length === 0)
       return []
 
-    // Check bulk operation limit
     const limits = this.getLimits()
 
     if (dataArray.length > limits.bulkOperations) {
       throw new BulkOperationError('createMany', dataArray.length, limits.bulkOperations)
     }
 
-    // Check strict validation mode
     if (options?.skipValidation && this.isStrictMode()) {
       throw new Error(
         'Cannot skip validation in strict mode. '
@@ -322,7 +281,6 @@ export class Repository<
 
     const db = this.getDB()
 
-    // Step 1: Validate all items first (skip if explicitly disabled for performance)
     if (!options?.skipValidation) {
       const validator = this.getValidator()
 
@@ -331,7 +289,6 @@ export class Repository<
       }
     }
 
-    // Step 2: Execute beforeCreate hooks (parallelized across items)
     const beforeHooks = this.definition.hooks.beforeCreate
 
     if (beforeHooks.length > 0) {
@@ -342,19 +299,15 @@ export class Repository<
       }))
     }
 
-    // Step 3: Prepare all data for insertion
     const preparedDataArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
-    // Step 4: Single bulk INSERT for performance
     const results = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
       RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
-    // Step 5: Map database rows to entities
     const entities = results.map((row: DatabaseRow) => this.mapRowToEntity(row))
 
-    // Step 6: Execute afterCreate hooks (parallelized across items)
     const afterHooks = this.definition.hooks.afterCreate
 
     if (afterHooks.length > 0) {
@@ -372,7 +325,6 @@ export class Repository<
     if (ids.length === 0)
       return
 
-    // Check bulk operation limit
     const limits = this.getLimits()
 
     if (ids.length > limits.bulkOperations) {
@@ -387,10 +339,6 @@ export class Repository<
     `
   }
 
-  // ========================================================================
-  // Query Builder
-  // ========================================================================
-
   query(): QueryBuilder<T> {
     return new QueryBuilder<T>(
       this.tableName,
@@ -400,24 +348,9 @@ export class Repository<
     )
   }
 
-  // ========================================================================
-  // Projections
-  // ========================================================================
-
-  /**
-   * Select specific fields for projection
-   * @example
-   * const users = await repo.select('id', 'name', 'email')
-   *   .where('age', '>', 18)
-   *   .execute()
-   * // Type: { id: number, name: string, email: string }[]
-   * @deprecated Use query().select() instead for better clarity.
-   * Example: repo.query().select('id', 'name').where(...).execute()
-   */
   select<F extends readonly (keyof T | 'id')[]>(
     ...fields: F
   ): QueryBuilder<T, F> {
-    // Emit deprecation warning in development
     if (process.env.NODE_ENV !== 'production') {
       console.warn(
         `[DEPRECATED] repo.select() is deprecated. Use repo.query().select() instead.\n`
@@ -433,12 +366,7 @@ export class Repository<
     ).select(...fields)
   }
 
-  // ========================================================================
-  // Transaction Support
-  // ========================================================================
-
   withTransaction(tx: SQL): this {
-    // Create lightweight wrapper sharing precomputed caches
     const wrapper = Object.create(this)
 
     wrapper.txContext = tx
@@ -456,10 +384,6 @@ export class Repository<
     })
   }
 
-  // ========================================================================
-  // Extension API
-  // ========================================================================
-
   extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: never[]) => unknown>>(
     methods: Methods,
   ): Repository<T, TTraits> & Methods {
@@ -472,17 +396,9 @@ export class Repository<
     return extended as Repository<T, TTraits> & Methods
   }
 
-  // ========================================================================
-  // Cleanup
-  // ========================================================================
-
   cleanup(): void {
     this.txContext = undefined
   }
-
-  // ========================================================================
-  // Internal Helpers
-  // ========================================================================
 
   private getDB(): SQL {
     return this.txContext || getDatabase()
@@ -495,15 +411,12 @@ export class Repository<
   private buildEntityPrototype(): any {
     const prototype: any = {}
     // eslint-disable-next-line ts/no-this-alias
-    const self = this // Capture repository in closure for direct access
+    const self = this
 
-    // Inject trait methods into prototype (performance optimization)
     for (const trait of this.definition.traits) {
       if (trait.methods) {
         for (const [methodName, method] of Object.entries(trait.methods)) {
           prototype[methodName] = function (this: any, ...args: any[]) {
-            // 'this' is bound to entity instance
-            // Use 'self' from closure - no WeakMap lookup needed (10-20% faster)
             return (method as any).call(this, self, ...args)
           }
         }
@@ -514,36 +427,30 @@ export class Repository<
   }
 
   private mapRowToEntity(row: DatabaseRow): InferEntity<T, TTraits> {
-    // Use prototype for trait methods (performance optimization)
     const entity: any = Object.create(this.entityPrototype)
 
     entity.id = row.id
 
-    // Map database columns using pre-computed field configs
     for (const { fieldName, columnName, config } of this.fieldConfigs) {
       const value = row[columnName]
 
       if (value === undefined)
         continue
 
-      // Deserialize arrays (they come as TEXT format from PostgreSQL due to casting)
       if (config.type === 'array' && value !== null) {
         if (Array.isArray(value)) {
           entity[fieldName] = value
         }
         else if (typeof value === 'string') {
-          // Parse PostgreSQL array text format: {val1,val2,val3}
           entity[fieldName] = this.parsePostgresArray(value, config.arrayType)
         }
         else {
           entity[fieldName] = Array.from(value as any)
         }
       }
-      // Deserialize timestamps/dates
       else if ((config.type === 'timestamp' || config.type === 'date') && value !== null) {
         entity[fieldName] = value instanceof Date ? value : new Date(value as string)
       }
-      // Default
       else {
         entity[fieldName] = value
       }
@@ -553,23 +460,18 @@ export class Repository<
   }
 
   private parsePostgresArray(textValue: string, elementType: string): any[] {
-    // Handle empty array
     if (textValue === '{}') {
       return []
     }
 
-    // Remove surrounding braces
     const content = textValue.slice(1, -1)
 
     if (content === '') {
       return []
     }
 
-    // Fast path: simple arrays without quotes (most common case)
-    // Single-pass parsing with inline type conversion
     if (!content.includes('"')) {
       if (elementType === 'number') {
-        // Single-pass number parsing
         const result: number[] = []
         let start = 0
 
@@ -584,7 +486,6 @@ export class Repository<
       }
 
       if (elementType === 'boolean') {
-        // Single-pass boolean parsing
         const result: boolean[] = []
         let start = 0
 
@@ -600,11 +501,9 @@ export class Repository<
         return result
       }
 
-      // String: split is efficient enough
       return content.split(',')
     }
 
-    // Slow path: parse complex arrays with quoted strings
     const elements: string[] = []
     let current = ''
     let inQuotes = false
@@ -659,24 +558,17 @@ export class Repository<
       if (!fieldConfig)
         continue
 
-      // Get the database column name (converts camelCase to snake_case)
       const columnName = this.getColumnName(key)
 
-      // Convert arrays to PostgreSQL array format
       if (isArrayFieldConfig(fieldConfig) && Array.isArray(value)) {
-        // Convert JavaScript array to PostgreSQL array literal format
         const arrayType = fieldConfig.arrayType
 
         if (arrayType === 'string') {
-          // For strings, properly escape and quote when necessary
           const formatted = value.map((v) => {
             const str = String(v)
-
-            // Check if string needs quoting (contains special characters)
             const needsQuoting = (/[",\\{}\s]/).test(str) || str === ''
 
             if (needsQuoting) {
-              // Escape backslashes and quotes, then wrap in quotes
               const escaped = str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
               return `"${escaped}"`
@@ -688,7 +580,6 @@ export class Repository<
           prepared[columnName] = `{${formatted.join(',')}}`
         }
         else {
-          // For numbers and booleans, no escaping needed
           prepared[columnName] = `{${value.join(',')}}`
         }
       }
@@ -701,5 +592,4 @@ export class Repository<
   }
 }
 
-// Export ValidationError for user error handling
 export { ValidationError }

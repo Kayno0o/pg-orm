@@ -15,19 +15,11 @@ import type {
 } from './types'
 import { field } from './field'
 
-// ============================================================================
-// Empty Types (to avoid index signature issues)
-// ============================================================================
-
 // eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
 type EmptySchema = {}
 
 // eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
 type EmptyMethods = {}
-
-// ============================================================================
-// Trait Builder
-// ============================================================================
 
 export class TraitBuilder<
   TFields extends EntitySchema = EmptySchema,
@@ -47,10 +39,6 @@ export class TraitBuilder<
     this._hooks = hooks
   }
 
-  // ========================================================================
-  // Add Fields
-  // ========================================================================
-
   field<K extends string, F extends { toConfig: () => FieldConfig }>(
     name: K,
     fieldBuilder: F,
@@ -63,7 +51,6 @@ export class TraitBuilder<
     return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
-  // Convenience method to add multiple fields at once
   fields<T extends Record<string, { toConfig: () => FieldConfig }>>(
     fieldsObj: T,
   ): TraitBuilder<
@@ -79,10 +66,6 @@ export class TraitBuilder<
     return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
-  // ========================================================================
-  // Add Methods
-  // ========================================================================
-
   method<K extends string, M extends TraitMethod>(
     name: K,
     method: M,
@@ -95,7 +78,6 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
 
-  // Convenience method to add multiple methods at once
   methods<T extends Record<string, TraitMethod>>(
     methodsObj: T,
   ): TraitBuilder<TFields, TMethods & T> {
@@ -103,10 +85,6 @@ export class TraitBuilder<
 
     return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
-
-  // ========================================================================
-  // Add Hooks
-  // ========================================================================
 
   beforeCreate(hook: BeforeCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
@@ -156,10 +134,6 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
-  // ========================================================================
-  // Build Final Trait Definition
-  // ========================================================================
-
   build(): TraitDefinition<TFields, TMethods> {
     return Object.freeze({
       fields: this._fields,
@@ -169,21 +143,10 @@ export class TraitBuilder<
   }
 }
 
-// ============================================================================
-// Trait Factory Function
-// ============================================================================
-
 export function createTrait(): TraitBuilder<EmptySchema, EmptyMethods> {
   return new TraitBuilder()
 }
 
-// ============================================================================
-// Built-in Traits
-// ============================================================================
-
-/**
- * Timestamps trait - adds createdAt and updatedAt fields with automatic updates
- */
 export function timestamps() {
   return createTrait()
     .fields({
@@ -202,9 +165,6 @@ export function timestamps() {
     .build()
 }
 
-/**
- * Soft delete trait - adds deletedAt field and soft delete methods
- */
 export function softDelete() {
   return createTrait()
     .field('deletedAt', field.timestamp().nullable())
@@ -220,9 +180,6 @@ export function softDelete() {
     .build()
 }
 
-/**
- * Paranoid trait - combines timestamps and soft delete with automatic updates
- */
 export function paranoid() {
   return createTrait()
     .fields({
@@ -253,18 +210,12 @@ export function paranoid() {
     .build()
 }
 
-/**
- * UUID primary key trait - adds uuid field
- */
 export function uuidPrimary() {
   return createTrait()
     .field('uuid', field.uuid().unique())
     .build()
 }
 
-/**
- * Sluggable trait - adds slug field and slug generation method
- */
 export function sluggable() {
   return createTrait()
     .field('slug', field.string().unique())
@@ -282,9 +233,6 @@ export function sluggable() {
     .build()
 }
 
-/**
- * Publishable trait - adds published field and publishing methods
- */
 export function publishable() {
   return createTrait()
     .fields({
@@ -314,9 +262,6 @@ export function publishable() {
     .build()
 }
 
-/**
- * Sortable trait - adds position field for ordering
- */
 export function sortable() {
   return createTrait()
     .field('position', field.number().integer().default(0))
@@ -332,9 +277,6 @@ export function sortable() {
     .build()
 }
 
-/**
- * Versionable trait - adds version field for optimistic locking
- */
 export function versionable() {
   return createTrait()
     .field('version', field.number().integer().default(1))

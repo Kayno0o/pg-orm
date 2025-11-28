@@ -4,10 +4,6 @@ import { toSnake } from '@kaynooo/utils'
 import { InvalidColumnError } from './errors'
 import { validateSQLIdentifier } from './sql-utils'
 
-// ============================================================================
-// Query Builder (Secure with Parameterized Queries)
-// ============================================================================
-
 export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id')[] = never,
@@ -28,29 +24,23 @@ export class QueryBuilder<
     private schema: T,
     private mapper?: (row: DatabaseRow) => any,
   ) {
-    // Validate table name on construction to prevent SQL injection
     validateSQLIdentifier(tableName, 'table')
-    // Cache valid columns at construction time for O(1) lookup
     this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
   }
 
-  // Helper to get column name from field name
   private getColumnName(fieldName: string): string {
     if (fieldName === 'id')
       return 'id'
 
     const fieldConfig = this.schema[fieldName]
 
-    // If explicit columnName is set, use it
     if ((fieldConfig as any)?.columnName) {
       return (fieldConfig as any).columnName
     }
 
-    // Otherwise, convert camelCase to snake_case automatically
     return toSnake(fieldName)
   }
 
-  // Helper to validate column name (security: prevent SQL injection)
   private validateColumnName(field: string): string {
     const columnName = this.getColumnName(field)
 
@@ -65,16 +55,11 @@ export class QueryBuilder<
     return columnName
   }
 
-  // Helper to add parameter and return placeholder
   private addParam(value: any): string {
     this.whereParams.push(value)
 
     return `$${this.whereParams.length}`
   }
-
-  // ========================================================================
-  // Select
-  // ========================================================================
 
   select<F extends readonly (keyof T | 'id')[]>(
     ...fields: F
@@ -83,10 +68,6 @@ export class QueryBuilder<
 
     return this as any as QueryBuilder<T, F>
   }
-
-  // ========================================================================
-  // Where Clauses (Secure with Parameterization)
-  // ========================================================================
 
   where(field: keyof T | 'id', operator: string, value: any): this {
     const columnName = this.validateColumnName(String(field))
