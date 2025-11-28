@@ -22,7 +22,7 @@ describe('SchemaDiffer Unit Tests', () => {
     tableName: string,
     columnName: string,
     dataType: string,
-    isNullable: boolean = false,
+    isNullable = false,
     columnDefault: string | null = null,
   ): DatabaseColumn => ({
     tableName,
