@@ -2,53 +2,35 @@ import type { MigrationConfig, SchemaChange } from './types'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-// ============================================================================
-// Migration Generator - Create Migration Files
-// ============================================================================
-
 export class MigrationGenerator {
   constructor(private config: Required<MigrationConfig>) {}
 
-  /** Create a new migration file */
   async create(name: string): Promise<string> {
     const timestamp = this.generateTimestamp()
     const fileName = `${timestamp}_${this.sanitizeName(name)}.ts`
     const filePath = join(this.config.migrationsPath, fileName)
 
-    // Ensure migrations directory exists
     await this.ensureDirectory()
-
-    // Generate migration content
     const content = this.generateEmptyMigration(fileName)
 
-    // Write file
     await writeFile(filePath, content, 'utf-8')
 
     return filePath
   }
 
-  /** Create a migration file from schema changes (auto-migration) */
   async createFromChanges(changes: SchemaChange[], name?: string): Promise<string> {
     const timestamp = this.generateTimestamp()
     const migrationName = name || 'auto_migration'
     const fileName = `${timestamp}_${this.sanitizeName(migrationName)}.ts`
     const filePath = join(this.config.migrationsPath, fileName)
 
-    // Ensure migrations directory exists
     await this.ensureDirectory()
-
-    // Generate migration content from changes
     const content = this.generateMigrationFromChanges(fileName, changes)
 
-    // Write file
     await writeFile(filePath, content, 'utf-8')
 
     return filePath
   }
-
-  // ========================================================================
-  // Template Generation
-  // ========================================================================
 
   private generateEmptyMigration(fileName: string): string {
     const migrationName = fileName.replace('.ts', '')
@@ -89,9 +71,7 @@ export const migration: Migration = {
 
     return `import type { Migration } from '@kaynooo/orm'
 
-// Auto-generated migration
-// Changes detected:
-${changes.map(c => `//   - ${c.description}`).join('\n')}
+${changes.map(c => `// ${c.description}`).join('\n')}
 
 export const migration: Migration = {
   name: '${migrationName}',
@@ -110,7 +90,6 @@ ${downSQL || '    // No automatic rollback generated'}
   private generateRollbackStatements(changes: SchemaChange[]): string[] {
     const rollback: string[] = []
 
-    // Reverse order for rollback
     for (const change of changes.reverse()) {
       switch (change.type) {
       case 'CREATE_TABLE':
@@ -119,7 +98,6 @@ ${downSQL || '    // No automatic rollback generated'}
         break
 
       case 'DROP_TABLE':
-        // Cannot auto-generate rollback for dropped tables
         rollback.push(`-- Cannot auto-rollback DROP TABLE ${change.tableName}`)
 
         break
@@ -132,13 +110,11 @@ ${downSQL || '    // No automatic rollback generated'}
         break
 
       case 'DROP_COLUMN':
-        // Cannot auto-generate rollback for dropped columns
         rollback.push(`-- Cannot auto-rollback DROP COLUMN ${change.tableName}.${change.metadata?.columnName}`)
 
         break
 
       case 'MODIFY_COLUMN':
-        // Try to reverse the modification
         if (change.metadata?.columnName && change.metadata?.oldValue !== undefined) {
           const columnName = change.metadata.columnName
 
@@ -169,10 +145,6 @@ ${downSQL || '    // No automatic rollback generated'}
     return rollback.filter(s => s.trim() !== '')
   }
 
-  // ========================================================================
-  // Helpers
-  // ========================================================================
-
   private generateTimestamp(): string {
     const now = new Date()
     const year = now.getFullYear()
@@ -198,7 +170,7 @@ ${downSQL || '    // No automatic rollback generated'}
       await mkdir(this.config.migrationsPath, { recursive: true })
     }
     catch (error) {
-      // Directory might already exist
+      //
     }
   }
 }

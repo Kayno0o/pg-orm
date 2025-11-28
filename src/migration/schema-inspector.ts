@@ -8,9 +8,7 @@ import type {
   ForeignKeyInfo,
 } from './types'
 
-// ============================================================================
 // Schema Inspector - Query PostgreSQL Metadata
-// ============================================================================
 
 export class SchemaInspector {
   constructor(private db: SQL) {}

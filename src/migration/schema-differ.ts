@@ -13,9 +13,7 @@ import type {
 import { toSnake } from '@kaynooo/utils'
 import { DependencySorter } from './dependency-sorter'
 
-// ============================================================================
 // Schema Differ - Compare Entity Definitions with Database Schema
-// ============================================================================
 
 export class SchemaDiffer {
   constructor(

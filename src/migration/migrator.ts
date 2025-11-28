@@ -6,10 +6,6 @@ import { MigrationRunner } from './runner'
 import { SchemaDiffer } from './schema-differ'
 import { SchemaInspector } from './schema-inspector'
 
-// ============================================================================
-// Migrator - Main Orchestrator for Migrations
-// ============================================================================
-
 export class Migrator {
   private inspector: SchemaInspector
   private runner: MigrationRunner
@@ -21,7 +17,6 @@ export class Migrator {
     private entities: Map<string, EntityDefinition<any>>,
     private config: MigrationConfig = {},
   ) {
-    // Apply defaults
     const fullConfig: Required<MigrationConfig> = {
       autoMigrate: config.autoMigrate ?? true,
       noInteraction: config.noInteraction ?? false,
@@ -37,24 +32,12 @@ export class Migrator {
     this.differ = new SchemaDiffer(entities, fullConfig)
   }
 
-  /**
-   * Initialize migrations system
-   * 1. Ensure migrations table exists
-   * 2. Run pending migrations (file-based)
-   * 3. Run auto-migration (schema diff)
-   */
   async initialize(): Promise<void> {
-    // Step 1: Ensure migrations table exists
     await this.runner.ensureMigrationsTable()
-
-    // Step 2: Run pending file-based migrations
     await this.runPendingMigrations()
-
-    // Step 3: Run auto-migration (schema diff)
     await this.runAutoMigration()
   }
 
-  /** Run pending file-based migrations */
   private async runPendingMigrations(): Promise<void> {
     const status = await this.runner.status()
 
@@ -86,23 +69,18 @@ export class Migrator {
     }
   }
 
-  /** Run auto-migration (schema diff) */
   private async runAutoMigration(): Promise<void> {
     if (!this.differ) {
       return
     }
 
-    // Get current database schema
     const dbSchema = await this.inspector.getSchema()
-
-    // Compare with entity definitions
     const diff = await this.differ.diff(dbSchema)
 
     if (!diff.hasChanges) {
       return
     }
 
-    // Check if this exact auto-migration was already applied
     const migrationHash = this.hashChanges(diff.changes)
     const alreadyApplied = await this.isAutoMigrationApplied(migrationHash)
 
@@ -112,14 +90,10 @@ export class Migrator {
       return
     }
 
-    // Display changes
     this.displaySchemaDiff(diff)
-
-    // Handle based on configuration
     const config = this.getConfig()
 
     if (!config.autoMigrate) {
-      // Auto-migration disabled - just show the changes and exit
       console.log('\n⚠️  Auto-migration is disabled. Set autoMigrate: true to apply changes.')
 
       if (config.killIfUpdate) {
@@ -130,7 +104,6 @@ export class Migrator {
       return
     }
 
-    // Auto-migration enabled - prompt or auto-apply
     const shouldApply = config.noInteraction
       ? true
       : await this.promptUser('Apply these changes?')
@@ -146,12 +119,10 @@ export class Migrator {
       return
     }
 
-    // Apply changes and track them
     await this.applySchemaChanges(diff)
     await this.recordAutoMigration(migrationHash)
   }
 
-  /** Apply schema changes to database */
   private async applySchemaChanges(diff: SchemaDiff): Promise<void> {
     console.log('\n🔄 Applying schema changes...')
 
@@ -159,7 +130,6 @@ export class Migrator {
     let errorCount = 0
 
     try {
-      // Wrap all changes in a single transaction
       await this.db.begin(async (tx) => {
         for (const change of diff.changes) {
           try {
@@ -172,7 +142,6 @@ export class Migrator {
             console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`)
             errorCount++
 
-            // Re-throw to trigger transaction rollback
             throw error
           }
         }
@@ -187,7 +156,6 @@ export class Migrator {
     console.log(`\n✅ Successfully applied ${successCount} schema change(s).`)
   }
 
-  /** Display schema diff */
   private displaySchemaDiff(diff: SchemaDiff): void {
     console.log('\n🔍 Schema changes detected:')
     console.log('─'.repeat(60))
@@ -215,25 +183,17 @@ export class Migrator {
     console.log('─'.repeat(60))
   }
 
-  /** Prompt user for confirmation */
   private async promptUser(question: string): Promise<boolean> {
-    // Use Bun's built-in prompt if available, otherwise use readline
     // eslint-disable-next-line no-alert
     const answer = prompt(`\n${question} [y/n]: `)
 
     return answer?.toLowerCase() === 'y'
   }
 
-  // ========================================================================
-  // Public API for Manual Migrations
-  // ========================================================================
-
-  /** Create a new migration file */
   async create(name: string): Promise<string> {
     return this.generator.create(name)
   }
 
-  /** Run all pending migrations */
   async run(): Promise<void> {
     const result = await this.runner.run()
 
@@ -249,7 +209,6 @@ export class Migrator {
     }
   }
 
-  /** Rollback the last batch of migrations */
   async rollback(): Promise<void> {
     const result = await this.runner.rollback()
 
@@ -265,7 +224,6 @@ export class Migrator {
     }
   }
 
-  /** Rollback all migrations */
   async reset(): Promise<void> {
     const result = await this.runner.reset()
 
@@ -281,7 +239,6 @@ export class Migrator {
     }
   }
 
-  /** Show migration status */
   async status(): Promise<void> {
     const status = await this.runner.status()
 
@@ -308,7 +265,6 @@ export class Migrator {
     console.log('─'.repeat(60))
   }
 
-  /** Generate migration file from current schema diff */
   async generate(name?: string): Promise<string> {
     if (!this.differ) {
       throw new Error('Schema differ not initialized')
@@ -330,10 +286,6 @@ export class Migrator {
     return filePath
   }
 
-  // ========================================================================
-  // Helpers
-  // ========================================================================
-
   private getConfig(): Required<MigrationConfig> {
     return {
       autoMigrate: this.config.autoMigrate ?? true,
@@ -345,24 +297,20 @@ export class Migrator {
     }
   }
 
-  /** Create a hash of schema changes to track if they've been applied */
   private hashChanges(changes: { sql: string, description: string }[]): string {
-    // Create a stable hash from SQL statements
     const sqlStatements = changes.map(c => c.sql).sort().join('\n')
-    // Simple hash - in production you might want crypto.createHash
     let hash = 0
 
     for (let i = 0; i < sqlStatements.length; i++) {
       const char = sqlStatements.charCodeAt(i)
 
       hash = (hash << 5) - hash + char
-      hash &= hash // Convert to 32-bit integer
+      hash &= hash
     }
 
     return `auto_${Math.abs(hash).toString(36)}`
   }
 
-  /** Check if an auto-migration with this hash has already been applied */
   private async isAutoMigrationApplied(migrationHash: string): Promise<boolean> {
     const config = this.getConfig()
     const [result] = await this.db`
@@ -374,10 +322,8 @@ export class Migrator {
     return (result?.count ?? 0) > 0
   }
 
-  /** Record that an auto-migration has been applied */
   private async recordAutoMigration(migrationHash: string): Promise<void> {
     const config = this.getConfig()
-    // Get the next batch number
     const [batchResult] = await this.db`
       SELECT COALESCE(MAX(batch), 0) + 1 as batch
       FROM ${this.db(config.migrationsTable)}
@@ -392,10 +338,6 @@ export class Migrator {
     console.log(`\n📝 Recorded auto-migration: ${migrationHash}`)
   }
 
-  /**
-   * Clear auto-migration tracking
-   * Useful for testing environments where schema changes frequently
-   */
   async clearAutoMigrations(): Promise<void> {
     const config = this.getConfig()
 

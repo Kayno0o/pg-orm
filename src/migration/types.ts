@@ -1,63 +1,17 @@
 import type { SQL } from 'bun'
 
-// ============================================================================
-// Migration Configuration
-// ============================================================================
-
 export interface MigrationConfig {
-  /**
-   * Enable auto-migration (schema diffing) at startup
-   * If true, prompts user to apply schema changes
-   * If false, schema changes are ignored
-   * @default false (changed from v1 where it was true)
-   */
   autoMigrate?: boolean
-
-  /**
-   * Auto-approve migrations without user interaction
-   * Only works when autoMigrate is true
-   * @default false
-   */
   noInteraction?: boolean
-
-  /**
-   * Kill process if schema updates are detected and user declines
-   * @default true
-   */
   killIfUpdate?: boolean
-
-  /**
-   * Prevent auto-dropping columns (safety feature)
-   * When true, column drops are detected but not auto-executed
-   * @default true
-   */
   safeMigrations?: boolean
-
-  /**
-   * Path to migration files directory
-   * @default 'migrations'
-   */
   migrationsPath?: string
-
-  /**
-   * Name of the migrations tracking table
-   * @default '_migrations'
-   */
   migrationsTable?: string
 }
 
-// ============================================================================
-// Migration File Definition
-// ============================================================================
-
 export interface Migration {
-  /** Unique migration name (usually timestamp-based) */
   name: string
-
-  /** Apply the migration */
   up: (db: SQL) => Promise<void>
-
-  /** Revert the migration */
   down: (db: SQL) => Promise<void>
 }
 
@@ -87,7 +41,7 @@ export interface DatabaseColumn {
   numericPrecision: number | null
   numericScale: number | null
   datetimePrecision: number | null
-  udtName: string // Underlying PostgreSQL type (e.g., _text for TEXT[])
+  udtName: string
 }
 
 export interface DatabaseConstraint {
@@ -118,15 +72,11 @@ export interface ForeignKeyInfo {
 
 export interface DatabaseSchema {
   tables: Map<string, DatabaseTable>
-  columns: Map<string, DatabaseColumn[]> // Key: tableName
-  constraints: Map<string, DatabaseConstraint[]> // Key: tableName
-  indexes: Map<string, DatabaseIndex[]> // Key: tableName
-  foreignKeys: Map<string, ForeignKeyInfo[]> // Key: tableName
+  columns: Map<string, DatabaseColumn[]>
+  constraints: Map<string, DatabaseConstraint[]>
+  indexes: Map<string, DatabaseIndex[]>
+  foreignKeys: Map<string, ForeignKeyInfo[]>
 }
-
-// ============================================================================
-// Schema Comparison Types
-// ============================================================================
 
 export type SchemaChangeType
   = | 'CREATE_TABLE'
@@ -148,9 +98,7 @@ export interface SchemaChange {
   tableName: string
   sql: string
   description: string
-  /** Set to true for dangerous operations (DROP TABLE, DROP COLUMN) */
   destructive?: boolean
-  /** Additional metadata for the change */
   metadata?: {
     columnName?: string
     oldValue?: any
@@ -166,10 +114,6 @@ export interface SchemaDiff {
   hasDestructiveChanges: boolean
 }
 
-// ============================================================================
-// Migration Runner Types
-// ============================================================================
-
 export interface MigrationRunResult {
   executed: string[]
   failed: string[]
@@ -183,10 +127,6 @@ export interface MigrationStatus {
   pendingCount: number
   executedCount: number
 }
-
-// ============================================================================
-// Field Type Mapping
-// ============================================================================
 
 export interface PostgresTypeMapping {
   type: string
@@ -215,10 +155,6 @@ export type PostgresType
     | 'TEXT[]'
     | 'INTEGER[]'
     | 'BOOLEAN[]'
-
-// ============================================================================
-// Dependency Sorting Types
-// ============================================================================
 
 export interface TableDependency {
   tableName: string

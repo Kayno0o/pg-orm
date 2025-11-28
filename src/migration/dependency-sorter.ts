@@ -10,9 +10,7 @@ import type {
 } from './types'
 import { toSnake } from '@kaynooo/utils'
 
-// ============================================================================
 // Dependency Graph Builder
-// ============================================================================
 
 class DependencyGraphBuilder {
   constructor(private entities: Map<string, EntityDefinition<any>>) {}
@@ -77,9 +75,7 @@ class DependencyGraphBuilder {
   }
 }
 
-// ============================================================================
 // Topological Sorter - Kahn's Algorithm
-// ============================================================================
 
 class TopologicalSorter {
   /**
@@ -190,9 +186,7 @@ class TopologicalSorter {
   }
 }
 
-// ============================================================================
 // Foreign Key Validator
-// ============================================================================
 
 class ForeignKeyValidator {
   constructor(
@@ -528,9 +522,7 @@ class ForeignKeyValidator {
   }
 }
 
-// ============================================================================
 // Dependency Sorter - Main Class
-// ============================================================================
 
 export class DependencySorter {
   private graphBuilder: DependencyGraphBuilder
