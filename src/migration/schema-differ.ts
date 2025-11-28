@@ -23,9 +23,7 @@ export class SchemaDiffer {
     private config: Required<MigrationConfig>,
   ) {}
 
-  /**
-   * Compare entity definitions with current database schema
-   */
+  /** Compare entity definitions with current database schema */
   async diff(dbSchema: DatabaseSchema): Promise<SchemaDiff> {
     // Store database schema for accessing indexes during comparison
     this.setDatabaseSchema(dbSchema)

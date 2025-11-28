@@ -405,9 +405,7 @@ async function getCachedPage(cacheKey: string, cursor?: number) {
 
 ```typescript
 interface CursorPaginationOptions {
-  /**
-   * Number of records to return per page
-   */
+  /** Number of records to return per page */
   pageSize: number
 
   /**
@@ -416,14 +414,10 @@ interface CursorPaginationOptions {
    */
   after?: number
 
-  /**
-   * Filter conditions (same as findBy)
-   */
+  /** Filter conditions (same as findBy) */
   where?: WhereCondition<T>
 
-  /**
-   * Sort order (same as findBy)
-   */
+  /** Sort order (same as findBy) */
   order?: OrderBy<T>
 }
 ```
@@ -432,9 +426,7 @@ interface CursorPaginationOptions {
 
 ```typescript
 interface CursorPaginationResult<T> {
-  /**
-   * Array of entities for this page
-   */
+  /** Array of entities for this page */
   data: T[]
 
   /**
@@ -443,9 +435,7 @@ interface CursorPaginationResult<T> {
    */
   nextCursor?: number
 
-  /**
-   * Whether more pages exist
-   */
+  /** Whether more pages exist */
   hasMore: boolean
 }
 ```

@@ -15,9 +15,7 @@ import type {
 export class SchemaInspector {
   constructor(private db: SQL) {}
 
-  /**
-   * Get complete database schema (tables, columns, constraints, indexes, foreign keys)
-   */
+  /** Get complete database schema (tables, columns, constraints, indexes, foreign keys) */
   async getSchema(): Promise<DatabaseSchema> {
     const [tables, columns, constraints, indexes, foreignKeys] = await Promise.all([
       this.getTables(),
@@ -36,9 +34,7 @@ export class SchemaInspector {
     }
   }
 
-  /**
-   * Get all user-defined tables (excluding system tables)
-   */
+  /** Get all user-defined tables (excluding system tables) */
   async getTables(): Promise<DatabaseTable[]> {
     const results = await this.db`
       SELECT
@@ -57,9 +53,7 @@ export class SchemaInspector {
     }))
   }
 
-  /**
-   * Get all columns for all tables
-   */
+  /** Get all columns for all tables */
   async getColumns(): Promise<DatabaseColumn[]> {
     const results = await this.db`
       SELECT
@@ -93,9 +87,7 @@ export class SchemaInspector {
     }))
   }
 
-  /**
-   * Get all constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK)
-   */
+  /** Get all constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) */
   async getConstraints(): Promise<DatabaseConstraint[]> {
     const results = await this.db`
       SELECT
@@ -130,9 +122,7 @@ export class SchemaInspector {
     }))
   }
 
-  /**
-   * Get all indexes
-   */
+  /** Get all indexes */
   async getIndexes(): Promise<DatabaseIndex[]> {
     const results = await this.db`
       SELECT
@@ -167,9 +157,7 @@ export class SchemaInspector {
     }))
   }
 
-  /**
-   * Get all foreign keys
-   */
+  /** Get all foreign keys */
   async getForeignKeys(): Promise<ForeignKeyInfo[]> {
     const results = await this.db`
       SELECT
@@ -207,9 +195,7 @@ export class SchemaInspector {
     }))
   }
 
-  /**
-   * Check if a table exists
-   */
+  /** Check if a table exists */
   async tableExists(tableName: string): Promise<boolean> {
     const [result] = await this.db`
       SELECT EXISTS (
@@ -223,9 +209,7 @@ export class SchemaInspector {
     return result.exists
   }
 
-  /**
-   * Check if a column exists in a table
-   */
+  /** Check if a column exists in a table */
   async columnExists(tableName: string, columnName: string): Promise<boolean> {
     const [result] = await this.db`
       SELECT EXISTS (
@@ -240,9 +224,7 @@ export class SchemaInspector {
     return result.exists
   }
 
-  /**
-   * Get PostgreSQL version
-   */
+  /** Get PostgreSQL version */
   async getVersion(): Promise<string> {
     const [result] = await this.db`SELECT version() as version`
 
@@ -266,9 +248,7 @@ export class SchemaInspector {
     return grouped
   }
 
-  /**
-   * Normalize PostgreSQL referential action names to our standard format
-   */
+  /** Normalize PostgreSQL referential action names to our standard format */
   private normalizeReferentialAction(
     action: string,
   ): 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION' | 'SET DEFAULT' {

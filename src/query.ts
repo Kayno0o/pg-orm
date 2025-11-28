@@ -262,9 +262,7 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Execute aggregation query
-   */
+  /** Execute aggregation query */
   async aggregate(): Promise<AggregationResult> {
     // Build aggregation SELECT
     const aggParts: string[] = []

@@ -54,9 +54,7 @@ export class Migrator {
     await this.runAutoMigration()
   }
 
-  /**
-   * Run pending file-based migrations
-   */
+  /** Run pending file-based migrations */
   private async runPendingMigrations(): Promise<void> {
     const status = await this.runner.status()
 
@@ -88,9 +86,7 @@ export class Migrator {
     }
   }
 
-  /**
-   * Run auto-migration (schema diff)
-   */
+  /** Run auto-migration (schema diff) */
   private async runAutoMigration(): Promise<void> {
     if (!this.differ) {
       return
@@ -155,9 +151,7 @@ export class Migrator {
     await this.recordAutoMigration(migrationHash)
   }
 
-  /**
-   * Apply schema changes to database
-   */
+  /** Apply schema changes to database */
   private async applySchemaChanges(diff: SchemaDiff): Promise<void> {
     console.log('\n🔄 Applying schema changes...')
 
@@ -193,9 +187,7 @@ export class Migrator {
     console.log(`\n✅ Successfully applied ${successCount} schema change(s).`)
   }
 
-  /**
-   * Display schema diff
-   */
+  /** Display schema diff */
   private displaySchemaDiff(diff: SchemaDiff): void {
     console.log('\n🔍 Schema changes detected:')
     console.log('─'.repeat(60))
@@ -223,9 +215,7 @@ export class Migrator {
     console.log('─'.repeat(60))
   }
 
-  /**
-   * Prompt user for confirmation
-   */
+  /** Prompt user for confirmation */
   private async promptUser(question: string): Promise<boolean> {
     // Use Bun's built-in prompt if available, otherwise use readline
     // eslint-disable-next-line no-alert
@@ -238,16 +228,12 @@ export class Migrator {
   // Public API for Manual Migrations
   // ========================================================================
 
-  /**
-   * Create a new migration file
-   */
+  /** Create a new migration file */
   async create(name: string): Promise<string> {
     return this.generator.create(name)
   }
 
-  /**
-   * Run all pending migrations
-   */
+  /** Run all pending migrations */
   async run(): Promise<void> {
     const result = await this.runner.run()
 
@@ -263,9 +249,7 @@ export class Migrator {
     }
   }
 
-  /**
-   * Rollback the last batch of migrations
-   */
+  /** Rollback the last batch of migrations */
   async rollback(): Promise<void> {
     const result = await this.runner.rollback()
 
@@ -281,9 +265,7 @@ export class Migrator {
     }
   }
 
-  /**
-   * Rollback all migrations
-   */
+  /** Rollback all migrations */
   async reset(): Promise<void> {
     const result = await this.runner.reset()
 
@@ -299,9 +281,7 @@ export class Migrator {
     }
   }
 
-  /**
-   * Show migration status
-   */
+  /** Show migration status */
   async status(): Promise<void> {
     const status = await this.runner.status()
 
@@ -328,9 +308,7 @@ export class Migrator {
     console.log('─'.repeat(60))
   }
 
-  /**
-   * Generate migration file from current schema diff
-   */
+  /** Generate migration file from current schema diff */
   async generate(name?: string): Promise<string> {
     if (!this.differ) {
       throw new Error('Schema differ not initialized')
@@ -367,9 +345,7 @@ export class Migrator {
     }
   }
 
-  /**
-   * Create a hash of schema changes to track if they've been applied
-   */
+  /** Create a hash of schema changes to track if they've been applied */
   private hashChanges(changes: { sql: string, description: string }[]): string {
     // Create a stable hash from SQL statements
     const sqlStatements = changes.map(c => c.sql).sort().join('\n')
@@ -386,9 +362,7 @@ export class Migrator {
     return `auto_${Math.abs(hash).toString(36)}`
   }
 
-  /**
-   * Check if an auto-migration with this hash has already been applied
-   */
+  /** Check if an auto-migration with this hash has already been applied */
   private async isAutoMigrationApplied(migrationHash: string): Promise<boolean> {
     const config = this.getConfig()
     const [result] = await this.db`
@@ -400,9 +374,7 @@ export class Migrator {
     return (result?.count ?? 0) > 0
   }
 
-  /**
-   * Record that an auto-migration has been applied
-   */
+  /** Record that an auto-migration has been applied */
   private async recordAutoMigration(migrationHash: string): Promise<void> {
     const config = this.getConfig()
     // Get the next batch number

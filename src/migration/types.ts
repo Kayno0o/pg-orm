@@ -51,19 +51,13 @@ export interface MigrationConfig {
 // ============================================================================
 
 export interface Migration {
-  /**
-   * Unique migration name (usually timestamp-based)
-   */
+  /** Unique migration name (usually timestamp-based) */
   name: string
 
-  /**
-   * Apply the migration
-   */
+  /** Apply the migration */
   up: (db: SQL) => Promise<void>
 
-  /**
-   * Revert the migration
-   */
+  /** Revert the migration */
   down: (db: SQL) => Promise<void>
 }
 
@@ -154,13 +148,9 @@ export interface SchemaChange {
   tableName: string
   sql: string
   description: string
-  /**
-   * Set to true for dangerous operations (DROP TABLE, DROP COLUMN)
-   */
+  /** Set to true for dangerous operations (DROP TABLE, DROP COLUMN) */
   destructive?: boolean
-  /**
-   * Additional metadata for the change
-   */
+  /** Additional metadata for the change */
   metadata?: {
     columnName?: string
     oldValue?: any

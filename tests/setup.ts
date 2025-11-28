@@ -47,9 +47,7 @@ export function setupTestSuite(suiteName: string): void {
   console.log(`✅ Test suite setup: ${suiteName}`)
 }
 
-/**
- * Standard teardown for test suite
- */
+/** Standard teardown for test suite */
 export function teardownTestSuite(suiteName: string): void {
   console.log(`✅ Test suite teardown: ${suiteName}`)
 }

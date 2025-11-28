@@ -19,9 +19,7 @@ export class MigrationRunner {
     private config: Required<MigrationConfig>,
   ) {}
 
-  /**
-   * Ensure migrations table exists
-   */
+  /** Ensure migrations table exists */
   async ensureMigrationsTable(): Promise<void> {
     const tableName = this.config.migrationsTable
 
@@ -35,9 +33,7 @@ export class MigrationRunner {
     `
   }
 
-  /**
-   * Run all pending migrations
-   */
+  /** Run all pending migrations */
   async run(): Promise<MigrationRunResult> {
     const pending = await this.getPendingMigrations()
 
@@ -84,9 +80,7 @@ export class MigrationRunner {
     }
   }
 
-  /**
-   * Rollback the last batch of migrations
-   */
+  /** Rollback the last batch of migrations */
   async rollback(): Promise<MigrationRunResult> {
     const lastBatch = await this.getLastBatch()
 
@@ -144,9 +138,7 @@ export class MigrationRunner {
     }
   }
 
-  /**
-   * Rollback all migrations
-   */
+  /** Rollback all migrations */
   async reset(): Promise<MigrationRunResult> {
     const executed: string[] = []
     const failed: string[] = []
@@ -171,9 +163,7 @@ export class MigrationRunner {
     }
   }
 
-  /**
-   * Get migration status (pending and executed)
-   */
+  /** Get migration status (pending and executed) */
   async status(): Promise<MigrationStatus> {
     const allMigrations = await this.loadMigrations()
     const executed = await this.getExecutedMigrations()
@@ -196,9 +186,7 @@ export class MigrationRunner {
   // Migration Loading
   // ========================================================================
 
-  /**
-   * Load all migration files from directory
-   */
+  /** Load all migration files from directory */
   private async loadMigrations(): Promise<Migration[]> {
     const migrationsPath = this.config.migrationsPath
 
@@ -248,9 +236,7 @@ export class MigrationRunner {
     }
   }
 
-  /**
-   * Get pending migrations (not yet executed)
-   */
+  /** Get pending migrations (not yet executed) */
   private async getPendingMigrations(): Promise<Migration[]> {
     const allMigrations = await this.loadMigrations()
     const executed = await this.getExecutedMigrations()
@@ -263,9 +249,7 @@ export class MigrationRunner {
   // Migration Tracking
   // ========================================================================
 
-  /**
-   * Get all executed migrations
-   */
+  /** Get all executed migrations */
   private async getExecutedMigrations(): Promise<MigrationRecord[]> {
     const results = await this.db`
       SELECT
@@ -285,9 +269,7 @@ export class MigrationRunner {
     }))
   }
 
-  /**
-   * Get migrations from a specific batch
-   */
+  /** Get migrations from a specific batch */
   private async getMigrationsByBatch(batch: number): Promise<MigrationRecord[]> {
     const results = await this.db`
       SELECT
@@ -308,9 +290,7 @@ export class MigrationRunner {
     }))
   }
 
-  /**
-   * Get the last batch number
-   */
+  /** Get the last batch number */
   private async getLastBatch(): Promise<number | null> {
     const [result] = await this.db`
       SELECT MAX(batch) as batch
@@ -320,9 +300,7 @@ export class MigrationRunner {
     return result?.batch || null
   }
 
-  /**
-   * Get the next batch number
-   */
+  /** Get the next batch number */
   private async getNextBatch(): Promise<number> {
     const lastBatch = await this.getLastBatch()
 

@@ -17,9 +17,7 @@ import { toSnake } from '@kaynooo/utils'
 class DependencyGraphBuilder {
   constructor(private entities: Map<string, EntityDefinition<any>>) {}
 
-  /**
-   * Build dependency graph from entity definitions
-   */
+  /** Build dependency graph from entity definitions */
   buildGraph(): Map<string, TableDependency> {
     const graph = new Map<string, TableDependency>()
 
@@ -53,9 +51,7 @@ class DependencyGraphBuilder {
     return graph
   }
 
-  /**
-   * Extract all foreign key relationships from an entity
-   */
+  /** Extract all foreign key relationships from an entity */
   extractForeignKeys(
     tableName: string,
     schema: EntitySchema,
@@ -159,9 +155,7 @@ class TopologicalSorter {
     return cycles
   }
 
-  /**
-   * DFS to find cycles
-   */
+  /** DFS to find cycles */
   private dfs(
     table: string,
     graph: Map<string, TableDependency>,
@@ -206,9 +200,7 @@ class ForeignKeyValidator {
     private dbSchema: DatabaseSchema,
   ) {}
 
-  /**
-   * Validate all foreign key references
-   */
+  /** Validate all foreign key references */
   validateForeignKeys(changes: SchemaChange[]): ValidationResult {
     const errors: ValidationError[] = []
     const warnings: string[] = []
@@ -245,9 +237,7 @@ class ForeignKeyValidator {
     }
   }
 
-  /**
-   * Extract FK metadata from ADD_FOREIGN_KEY change
-   */
+  /** Extract FK metadata from ADD_FOREIGN_KEY change */
   private extractForeignKeyInfo(change: SchemaChange): {
     sourceTable: string
     sourceColumn: string
@@ -271,9 +261,7 @@ class ForeignKeyValidator {
     }
   }
 
-  /**
-   * Validate that referenced table exists
-   */
+  /** Validate that referenced table exists */
   private validateReferencedTable(
     fkInfo: { sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string },
     changes: SchemaChange[],
@@ -316,9 +304,7 @@ class ForeignKeyValidator {
     }
   }
 
-  /**
-   * Validate type compatibility between FK column and referenced column
-   */
+  /** Validate type compatibility between FK column and referenced column */
   private validateTypeCompatibility(
     fkInfo: { sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string },
     changes: SchemaChange[],
@@ -353,9 +339,7 @@ class ForeignKeyValidator {
     }
   }
 
-  /**
-   * Resolve the PostgreSQL type for a column from entity definition or database schema
-   */
+  /** Resolve the PostgreSQL type for a column from entity definition or database schema */
   private resolveColumnType(
     tableName: string,
     columnName: string,
@@ -417,9 +401,7 @@ class ForeignKeyValidator {
     return null
   }
 
-  /**
-   * Convert field config to PostgreSQL type
-   */
+  /** Convert field config to PostgreSQL type */
   private fieldConfigToPostgresType(fieldConfig: FieldConfig): string {
     switch (fieldConfig.type) {
     case 'string':
@@ -458,9 +440,7 @@ class ForeignKeyValidator {
     return 'TEXT'
   }
 
-  /**
-   * Normalize database column type for comparison
-   */
+  /** Normalize database column type for comparison */
   private normalizeDBColumnType(column: DatabaseColumn): string {
     // Handle array types
     if (column.udtName.startsWith('_')) {
@@ -538,9 +518,7 @@ class ForeignKeyValidator {
     return upperType
   }
 
-  /**
-   * Get column name from field name (same logic as Repository)
-   */
+  /** Get column name from field name (same logic as Repository) */
   private getColumnName(fieldName: string, fieldConfig: FieldConfig): string {
     if (fieldConfig.columnName) {
       return fieldConfig.columnName
@@ -568,9 +546,7 @@ export class DependencySorter {
     this.validator = new ForeignKeyValidator(entities, dbSchema)
   }
 
-  /**
-   * Sort schema changes by dependency order
-   */
+  /** Sort schema changes by dependency order */
   sortChanges(changes: SchemaChange[]): SchemaChange[] {
     // Step 1: Validate foreign key references
     const validation = this.validator.validateForeignKeys(changes)
@@ -628,9 +604,7 @@ export class DependencySorter {
     ]
   }
 
-  /**
-   * Group changes by type for ordered execution
-   */
+  /** Group changes by type for ordered execution */
   private groupChangesByType(changes: SchemaChange[]): SortedChangeGroups {
     const groups: SortedChangeGroups = {
       createTables: [],
@@ -683,9 +657,7 @@ export class DependencySorter {
     return groups
   }
 
-  /**
-   * Sort changes by table dependency order
-   */
+  /** Sort changes by table dependency order */
   private sortByDependency(changes: SchemaChange[], sortedTables: string[]): SchemaChange[] {
     if (changes.length === 0) {
       return changes

@@ -80,9 +80,7 @@ export class ValidationError extends Error {
   }
 }
 
-/**
- * Thrown when optimistic locking detects concurrent modification
- */
+/** Thrown when optimistic locking detects concurrent modification */
 export class OptimisticLockError extends Error {
   constructor(
     public entityName: string,
@@ -102,9 +100,7 @@ export class OptimisticLockError extends Error {
 // Database Errors
 // ============================================================================
 
-/**
- * Thrown when a database query fails
- */
+/** Thrown when a database query fails */
 export class QueryError extends Error {
   declare query?: string
   declare cause?: Error
@@ -121,9 +117,7 @@ export class QueryError extends Error {
   }
 }
 
-/**
- * Thrown when a general database error occurs
- */
+/** Thrown when a general database error occurs */
 export class DatabaseError extends Error {
   declare cause?: Error
 

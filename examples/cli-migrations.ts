@@ -170,9 +170,7 @@ Environment Variables:
 `)
 }
 
-/**
- * Parse PostgreSQL connection string
- */
+/** Parse PostgreSQL connection string */
 function parseConnectionString(url: string) {
   const parsed = new URL(url)
 

@@ -9,9 +9,7 @@ import { join } from 'node:path'
 export class MigrationGenerator {
   constructor(private config: Required<MigrationConfig>) {}
 
-  /**
-   * Create a new migration file
-   */
+  /** Create a new migration file */
   async create(name: string): Promise<string> {
     const timestamp = this.generateTimestamp()
     const fileName = `${timestamp}_${this.sanitizeName(name)}.ts`
@@ -29,9 +27,7 @@ export class MigrationGenerator {
     return filePath
   }
 
-  /**
-   * Create a migration file from schema changes (auto-migration)
-   */
+  /** Create a migration file from schema changes (auto-migration) */
   async createFromChanges(changes: SchemaChange[], name?: string): Promise<string> {
     const timestamp = this.generateTimestamp()
     const migrationName = name || 'auto_migration'
