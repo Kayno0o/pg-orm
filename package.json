@@ -43,7 +43,13 @@
     "lint:fix": "bunx eslint . --fix",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:reset": "docker compose down -v && docker compose up -d"
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "migrate:create": "bun examples/cli-migrations.ts create",
+    "migrate:run": "bun examples/cli-migrations.ts run",
+    "migrate:rollback": "bun examples/cli-migrations.ts rollback",
+    "migrate:reset": "bun examples/cli-migrations.ts reset",
+    "migrate:status": "bun examples/cli-migrations.ts status",
+    "migrate:generate": "bun examples/cli-migrations.ts generate"
   },
   "peerDependencies": {
     "bun-types": "latest"
