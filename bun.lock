@@ -5,17 +5,18 @@
     "": {
       "name": "@kaynooo/orm-v2",
       "dependencies": {
-        "@kaynooo/utils": "latest",
+        "@kaynooo/utils": "^1.7.2",
+        "husky": "^9.1.7",
       },
       "devDependencies": {
-        "@kaynooo/eslint": "latest",
-        "@types/benchmark": "latest",
-        "@types/bun": "latest",
-        "benchmark": "latest",
-        "bun-types": "latest",
-        "knip": "latest",
-        "typedoc": "latest",
-        "typedoc-github-theme": "latest",
+        "@kaynooo/eslint": "^1.5.3",
+        "@types/benchmark": "^2.1.5",
+        "@types/bun": "^1.3.3",
+        "benchmark": "^2.1.4",
+        "bun-types": "^1.3.3",
+        "knip": "^5.70.2",
+        "typedoc": "^0.28.14",
+        "typedoc-github-theme": "^0.3.1",
       },
       "peerDependencies": {
         "bun-types": "latest",
@@ -550,6 +551,8 @@
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
 
     "html-entities": ["html-entities@2.6.0", "", {}, "sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ=="],
+
+    "husky": ["husky@9.1.7", "", { "bin": { "husky": "bin.js" } }, "sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA=="],
 
     "ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 

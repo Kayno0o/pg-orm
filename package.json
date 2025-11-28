@@ -61,7 +61,8 @@
     "bun-types": "latest"
   },
   "dependencies": {
-    "@kaynooo/utils": "^1.7.2"
+    "@kaynooo/utils": "^1.7.2",
+    "husky": "^9.1.7"
   },
   "devDependencies": {
     "@kaynooo/eslint": "^1.5.3",
