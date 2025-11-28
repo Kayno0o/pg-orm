@@ -11,7 +11,7 @@ import { toSnake } from '@kaynooo/utils'
 import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
 import { QueryBuilder } from './query'
-import { hasAutoUpdate, hasColumnName, isArrayFieldConfig } from './types'
+import { hasColumnName, isArrayFieldConfig } from './types'
 import { ValidationError, Validator } from './validation'
 
 // ============================================================================
@@ -33,7 +33,6 @@ export class Repository<
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
-  private autoUpdateColumns: string[] // Pre-computed for update operations
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
@@ -58,11 +57,6 @@ export class Repository<
       columnName: this.columnNameMap.get(fieldName)!,
       config,
     }))
-
-    // Pre-compute auto-update columns (avoid scanning all fields on every update)
-    this.autoUpdateColumns = this.fieldConfigs
-      .filter(({ config }) => hasAutoUpdate(config))
-      .map(({ columnName }) => columnName)
 
     // Cache select columns string (inlined from QueryGenerator.buildSelectColumns)
     const columns = ['id', ...Object.keys(this.schema).map(k => this.columnNameMap.get(k)!)]
@@ -215,15 +209,6 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
-
-    // Handle auto-update fields (using pre-computed list)
-    if (this.autoUpdateColumns.length > 0) {
-      const now = new Date()
-
-      for (const columnName of this.autoUpdateColumns) {
-        (preparedData as any)[columnName] = now
-      }
-    }
 
     const [result] = await db`
       UPDATE ${db(this.tableName)}

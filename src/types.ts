@@ -80,7 +80,6 @@ export interface UuidFieldConfig<Nullable extends boolean = boolean, HasDefault 
 
 export interface TimestampFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'timestamp'
-  autoUpdate?: boolean
 }
 
 export interface DateFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
@@ -508,10 +507,6 @@ export function hasColumnName(config: FieldConfig): config is FieldConfig & { co
 
 export function isArrayFieldConfig(config: FieldConfig): config is ArrayFieldConfig {
   return config.type === 'array'
-}
-
-export function hasAutoUpdate(config: FieldConfig): config is TimestampFieldConfig & { autoUpdate: true } {
-  return config.type === 'timestamp' && 'autoUpdate' in config && config.autoUpdate === true
 }
 
 export function hasForeignKey(config: FieldConfig): config is NumberFieldConfig & { foreignKey: NonNullable<NumberFieldConfig['foreignKey']> } {

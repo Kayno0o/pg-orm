@@ -1,6 +1,7 @@
 import type { EntityDefinition, EntitySchema, FieldConfig } from '../types'
 import type {
   DatabaseColumn,
+  DatabaseIndex,
   DatabaseSchema,
   ForeignKeyInfo,
   MigrationConfig,
@@ -26,6 +27,9 @@ export class SchemaDiffer {
    * Compare entity definitions with current database schema
    */
   async diff(dbSchema: DatabaseSchema): Promise<SchemaDiff> {
+    // Store database schema for accessing indexes during comparison
+    this.setDatabaseSchema(dbSchema)
+
     const changes: SchemaChange[] = []
 
     // Check for new tables and modified tables
@@ -282,9 +286,79 @@ export class SchemaDiffer {
       }
     }
 
-    // TODO: Compare unique constraints (requires more complex logic with indexes)
+    // Compare unique constraints
+    // Note: Single-column unique constraints are handled by field.unique
+    // Multi-column unique constraints are not yet supported by field builders
+    const hasUniqueConstraint = fieldConfig.unique === true
+    const dbHasUniqueIndex = this.hasUniqueIndex(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
+
+    if (hasUniqueConstraint && !dbHasUniqueIndex) {
+      // Add unique constraint
+      changes.push({
+        type: 'ADD_CONSTRAINT',
+        tableName,
+        sql: `ALTER TABLE ${tableName} ADD CONSTRAINT ${tableName}_${columnName}_unique UNIQUE (${columnName})`,
+        description: `Add UNIQUE constraint to ${tableName}.${columnName}`,
+        metadata: {
+          columnName,
+          constraintName: `${tableName}_${columnName}_unique`,
+        },
+      })
+    }
+    else if (!hasUniqueConstraint && dbHasUniqueIndex) {
+      // Drop unique constraint (only if safeMigrations is false)
+      if (!this.config.safeMigrations) {
+        const uniqueIndexName = this.findUniqueIndexName(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
+
+        if (uniqueIndexName) {
+          changes.push({
+            type: 'DROP_CONSTRAINT',
+            tableName,
+            sql: `ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${uniqueIndexName}`,
+            description: `Drop UNIQUE constraint from ${tableName}.${columnName}`,
+            destructive: true,
+            metadata: {
+              columnName,
+              constraintName: uniqueIndexName,
+            },
+          })
+        }
+      }
+    }
 
     return changes
+  }
+
+  private dbSchema?: DatabaseSchema
+
+  setDatabaseSchema(schema: DatabaseSchema): void {
+    this.dbSchema = schema
+  }
+
+  private getDbIndexes(tableName: string): DatabaseIndex[] {
+    return this.dbSchema?.indexes.get(tableName) || []
+  }
+
+  private hasUniqueIndex(columnName: string, tableName: string, indexes: DatabaseIndex[]): boolean {
+    return indexes.some(
+      idx =>
+        idx.isUnique
+        && !idx.isPrimary
+        && idx.columnNames.length === 1
+        && idx.columnNames[0] === columnName,
+    )
+  }
+
+  private findUniqueIndexName(columnName: string, tableName: string, indexes: DatabaseIndex[]): string | null {
+    const uniqueIndex = indexes.find(
+      idx =>
+        idx.isUnique
+        && !idx.isPrimary
+        && idx.columnNames.length === 1
+        && idx.columnNames[0] === columnName,
+    )
+
+    return uniqueIndex?.indexName || null
   }
 
   // ========================================================================
@@ -369,10 +443,6 @@ export class SchemaDiffer {
 
     case 'timestamp':
       baseMapping.type = 'TIMESTAMP WITH TIME ZONE'
-
-      if (fieldConfig.autoUpdate) {
-        // Note: Auto-update is handled at application level, not database level
-      }
 
       break
 

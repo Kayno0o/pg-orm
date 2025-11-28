@@ -330,12 +330,6 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
 export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> {
   constructor(private config: TimestampFieldConfig<Nullable, HasDefault>) {}
 
-  autoUpdate(): TimestampFieldBuilder<Nullable, HasDefault> {
-    this.config.autoUpdate = true
-
-    return this
-  }
-
   nullable(): TimestampFieldBuilder<true, HasDefault> {
     (this.config as TimestampFieldConfig<true, HasDefault>).nullable = true
 

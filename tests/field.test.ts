@@ -170,13 +170,6 @@ describe('Field Builders', () => {
       expect(config.nullable).toBe(false)
     })
 
-    test('should set autoUpdate', () => {
-      const field = orm.timestamp().autoUpdate()
-      const config = field.toConfig()
-
-      expect(config.autoUpdate).toBe(true)
-    })
-
     test('should set default value', () => {
       const field = orm.timestamp().default('NOW()')
       const config = field.toConfig()
