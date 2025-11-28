@@ -12,6 +12,15 @@ export default typescript({
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+      'max-depth': ['warn', 4],
     },
+  },
+}, {
+  ignores: ['./tests/**/*.ts', './benchmark.ts'],
+  rules: {
+    // 'complexity': ['warn', 20],
+    'max-nested-callbacks': ['warn', 4],
+    'max-lines-per-function': ['warn', 75],
+    'max-params': ['warn', 4],
   },
 })
