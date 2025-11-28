@@ -40,7 +40,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "check": "tsc --noEmit --strict",
-    "lint:fix": "bunx eslint . --fix",
+    "lint:fix": "eslint_d . --fix --cache",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
@@ -49,19 +49,24 @@
     "migrate:rollback": "bun examples/cli-migrations.ts rollback",
     "migrate:reset": "bun examples/cli-migrations.ts reset",
     "migrate:status": "bun examples/cli-migrations.ts status",
-    "migrate:generate": "bun examples/cli-migrations.ts generate"
+    "migrate:generate": "bun examples/cli-migrations.ts generate",
+    "circular": "madge --circular ./src/index.ts",
+    "circular:schema": "madge ./src/index.ts --image graph.png",
+    "duplicates": "jscpd ./src",
+    "unused": "knip"
   },
   "peerDependencies": {
     "bun-types": "latest"
   },
   "dependencies": {
-    "@kaynooo/eslint": "^1.4.0",
     "@kaynooo/utils": "^1.6.7"
   },
   "devDependencies": {
+    "@kaynooo/eslint": "^1.4.0",
     "@types/benchmark": "^2.1.5",
     "@types/bun": "^1.3.1",
     "benchmark": "^2.1.4",
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "knip": "^5.70.2"
   }
 }
