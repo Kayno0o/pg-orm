@@ -4,11 +4,30 @@
 
 **@kaynooo/pg-orm** is a lightweight, fully type-safe Object-Relational Mapping (ORM) library built specifically for Bun's SQL API with PostgreSQL support. It provides a modern builder pattern API inspired by Zod and Elysia for clean, type-inferred entity definitions.
 
-**Project Type:** Database ORM Library
+**Project Type:** Personal Production Database ORM
 **Target Runtime:** Bun
 **Database:** PostgreSQL
 **Language:** TypeScript
 **Distribution:** bun package (@kaynooo/orm)
+
+## Project Context
+
+**This is a PERSONAL project for production use** - not intended for public distribution at this time.
+
+### Documentation & Comments Policy
+
+- **Minimize documentation**: Only document complex/non-obvious logic
+- **Reduce comments**: Code should be self-explanatory through naming
+- **Focus on functionality**: Prioritize working code over extensive guides
+- **Production-ready**: Built for real-world use, not teaching/sharing
+
+When working on this codebase:
+- ✅ Write clean, self-documenting code
+- ✅ Add comments only for complex algorithms or non-obvious behavior
+- ✅ Keep existing critical documentation (MIGRATIONS.md, SECURITY.md, PERFORMANCE.md)
+- ❌ Don't add JSDoc comments unless truly necessary
+- ❌ Don't create excessive README sections
+- ❌ Don't over-explain obvious patterns
 
 ## Key Differentiators
 
@@ -334,7 +353,12 @@ await orm.connect({
   port: 5432,
   database: 'mydb',
   username: 'user',
-  password: 'pass'
+  password: 'pass',
+
+  // Migration config
+  autoMigrate: true,      // Auto-detect schema changes
+  noInteraction: false,   // Prompt before applying
+  safeMigrations: true,   // Prevent DROP TABLE/COLUMN
 })
 
 // Get raw database instance
@@ -343,6 +367,28 @@ await db`SELECT * FROM custom_table`
 
 // Disconnect
 await orm.disconnect()
+```
+
+### 11. Migrations
+
+```typescript
+// Auto-migration (on connect)
+// Detects schema changes automatically and prompts
+
+// Manual migrations via CLI
+bun run migrate:create add_user_bio
+bun run migrate:run
+bun run migrate:rollback
+bun run migrate:status
+bun run migrate:generate  // From schema diff
+
+// Programmatic API
+await orm.migration.create('migration_name')
+await orm.migration.run()
+await orm.migration.rollback()
+await orm.migration.reset()
+await orm.migration.status()
+await orm.migration.generate('name')
 ```
 
 ## Type System
