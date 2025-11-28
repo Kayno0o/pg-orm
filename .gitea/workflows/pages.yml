@@ -48,7 +48,7 @@ jobs:
       - name: Build pages
         run: |
           bun run doc
-          bun run test
+          bun run test:coverage
 
       - name: Combine docs and coverage
         run: |
