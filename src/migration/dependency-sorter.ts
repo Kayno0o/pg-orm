@@ -152,6 +152,7 @@ class TopologicalSorter {
   }
 
   /** DFS to find cycles */
+  // eslint-disable-next-line max-params -- DFS algorithm requires state tracking
   private dfs(
     table: string,
     graph: Map<string, TableDependency>,

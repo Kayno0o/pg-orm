@@ -19,7 +19,7 @@ export default typescript({
   rules: {
     // 'complexity': ['warn', 20],
     'max-nested-callbacks': ['warn', 4],
-    'max-lines-per-function': ['warn', 75],
+    'max-lines-per-function': ['warn', { skipComments: true, skipBlankLines: true, max: 75 }],
     'max-params': ['warn', 4],
   },
 })

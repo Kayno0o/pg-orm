@@ -1,4 +1,4 @@
-import type { EntityDefinition, EntitySchema, FieldConfig } from '../types'
+import type { EntityDefinition, EntitySchema, FieldConfig, NumberFieldConfig } from '../types'
 import type {
   DatabaseColumn,
   DatabaseIndex,
@@ -205,6 +205,143 @@ export class SchemaDiffer {
     }
   }
 
+  private compareColumnType(
+    tableName: string,
+    columnName: string,
+    expectedType: PostgresTypeMapping,
+    dbColumn: DatabaseColumn,
+  ): SchemaChange | null {
+    const actualType = this.normalizePostgresType(dbColumn)
+
+    if (expectedType.type !== actualType) {
+      return {
+        type: 'MODIFY_COLUMN',
+        tableName,
+        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} TYPE ${expectedType.type}`,
+        description: `Change ${tableName}.${columnName} type from ${actualType} to ${expectedType.type}`,
+        metadata: {
+          columnName,
+          oldValue: actualType,
+          newValue: expectedType.type,
+        },
+      }
+    }
+
+    return null
+  }
+
+  private compareColumnNullability(
+    tableName: string,
+    columnName: string,
+    expectedType: PostgresTypeMapping,
+    dbColumn: DatabaseColumn,
+  ): SchemaChange | null {
+    if (expectedType.nullable !== dbColumn.isNullable) {
+      const nullConstraint = expectedType.nullable ? 'DROP NOT NULL' : 'SET NOT NULL'
+
+      return {
+        type: 'MODIFY_COLUMN',
+        tableName,
+        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} ${nullConstraint}`,
+        description: `Change ${tableName}.${columnName} nullable from ${dbColumn.isNullable} to ${expectedType.nullable}`,
+        metadata: {
+          columnName,
+          oldValue: dbColumn.isNullable,
+          newValue: expectedType.nullable,
+        },
+      }
+    }
+
+    return null
+  }
+
+  private compareColumnDefault(
+    tableName: string,
+    columnName: string,
+    expectedType: PostgresTypeMapping,
+    dbColumn: DatabaseColumn,
+  ): SchemaChange | null {
+    const expectedDefault = expectedType.default
+    const actualDefault = this.normalizeDefault(dbColumn.columnDefault)
+
+    if (expectedDefault !== actualDefault) {
+      if (expectedDefault) {
+        return {
+          type: 'MODIFY_COLUMN',
+          tableName,
+          sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} SET DEFAULT ${expectedDefault}`,
+          description: `Set default value for ${tableName}.${columnName}`,
+          metadata: {
+            columnName,
+            oldValue: actualDefault,
+            newValue: expectedDefault,
+          },
+        }
+      }
+
+      if (actualDefault) {
+        return {
+          type: 'MODIFY_COLUMN',
+          tableName,
+          sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} DROP DEFAULT`,
+          description: `Drop default value for ${tableName}.${columnName}`,
+          metadata: {
+            columnName,
+            oldValue: actualDefault,
+            newValue: null,
+          },
+        }
+      }
+    }
+
+    return null
+  }
+
+  private compareColumnUnique(
+    tableName: string,
+    columnName: string,
+    fieldConfig: FieldConfig,
+    dbColumn: DatabaseColumn,
+  ): SchemaChange | null {
+    const hasUniqueConstraint = fieldConfig.unique === true
+    const dbHasUniqueIndex = this.hasUniqueIndex(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
+
+    if (hasUniqueConstraint && !dbHasUniqueIndex) {
+      return {
+        type: 'ADD_CONSTRAINT',
+        tableName,
+        sql: `ALTER TABLE ${tableName} ADD CONSTRAINT ${tableName}_${columnName}_unique UNIQUE (${columnName})`,
+        description: `Add UNIQUE constraint to ${tableName}.${columnName}`,
+        metadata: {
+          columnName,
+          constraintName: `${tableName}_${columnName}_unique`,
+        },
+      }
+    }
+
+    if (!hasUniqueConstraint && dbHasUniqueIndex) {
+      if (!this.config.safeMigrations) {
+        const uniqueIndexName = this.findUniqueIndexName(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
+
+        if (uniqueIndexName) {
+          return {
+            type: 'DROP_CONSTRAINT',
+            tableName,
+            sql: `ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${uniqueIndexName}`,
+            description: `Drop UNIQUE constraint from ${tableName}.${columnName}`,
+            destructive: true,
+            metadata: {
+              columnName,
+              constraintName: uniqueIndexName,
+            },
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
   private compareColumnDefinition(
     tableName: string,
     fieldName: string,
@@ -215,112 +352,25 @@ export class SchemaDiffer {
     const columnName = this.getColumnName(fieldName)
     const expectedType = this.fieldToPostgresType(fieldConfig, columnName)
 
-    // Compare data type
-    const actualType = this.normalizePostgresType(dbColumn)
+    const typeChange = this.compareColumnType(tableName, columnName, expectedType, dbColumn)
 
-    if (expectedType.type !== actualType) {
-      changes.push({
-        type: 'MODIFY_COLUMN',
-        tableName,
-        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} TYPE ${expectedType.type}`,
-        description: `Change ${tableName}.${columnName} type from ${actualType} to ${expectedType.type}`,
-        metadata: {
-          columnName,
-          oldValue: actualType,
-          newValue: expectedType.type,
-        },
-      })
-    }
+    if (typeChange)
+      changes.push(typeChange)
 
-    // Compare nullable
-    if (expectedType.nullable !== dbColumn.isNullable) {
-      const nullConstraint = expectedType.nullable ? 'DROP NOT NULL' : 'SET NOT NULL'
+    const nullChange = this.compareColumnNullability(tableName, columnName, expectedType, dbColumn)
 
-      changes.push({
-        type: 'MODIFY_COLUMN',
-        tableName,
-        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} ${nullConstraint}`,
-        description: `Change ${tableName}.${columnName} nullable from ${dbColumn.isNullable} to ${expectedType.nullable}`,
-        metadata: {
-          columnName,
-          oldValue: dbColumn.isNullable,
-          newValue: expectedType.nullable,
-        },
-      })
-    }
+    if (nullChange)
+      changes.push(nullChange)
 
-    // Compare default value
-    const expectedDefault = expectedType.default // Already formatted by fieldToPostgresType
-    const actualDefault = this.normalizeDefault(dbColumn.columnDefault)
+    const defaultChange = this.compareColumnDefault(tableName, columnName, expectedType, dbColumn)
 
-    if (expectedDefault !== actualDefault) {
-      if (expectedDefault) {
-        changes.push({
-          type: 'MODIFY_COLUMN',
-          tableName,
-          sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} SET DEFAULT ${expectedDefault}`,
-          description: `Set default value for ${tableName}.${columnName}`,
-          metadata: {
-            columnName,
-            oldValue: actualDefault,
-            newValue: expectedDefault,
-          },
-        })
-      }
-      else if (actualDefault) {
-        changes.push({
-          type: 'MODIFY_COLUMN',
-          tableName,
-          sql: `ALTER TABLE ${tableName} ALTER COLUMN ${columnName} DROP DEFAULT`,
-          description: `Drop default value for ${tableName}.${columnName}`,
-          metadata: {
-            columnName,
-            oldValue: actualDefault,
-            newValue: null,
-          },
-        })
-      }
-    }
+    if (defaultChange)
+      changes.push(defaultChange)
 
-    // Compare unique constraints
-    // Note: Single-column unique constraints are handled by field.unique
-    // Multi-column unique constraints are not yet supported by field builders
-    const hasUniqueConstraint = fieldConfig.unique === true
-    const dbHasUniqueIndex = this.hasUniqueIndex(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
+    const uniqueChange = this.compareColumnUnique(tableName, columnName, fieldConfig, dbColumn)
 
-    if (hasUniqueConstraint && !dbHasUniqueIndex) {
-      // Add unique constraint
-      changes.push({
-        type: 'ADD_CONSTRAINT',
-        tableName,
-        sql: `ALTER TABLE ${tableName} ADD CONSTRAINT ${tableName}_${columnName}_unique UNIQUE (${columnName})`,
-        description: `Add UNIQUE constraint to ${tableName}.${columnName}`,
-        metadata: {
-          columnName,
-          constraintName: `${tableName}_${columnName}_unique`,
-        },
-      })
-    }
-    else if (!hasUniqueConstraint && dbHasUniqueIndex) {
-      // Drop unique constraint (only if safeMigrations is false)
-      if (!this.config.safeMigrations) {
-        const uniqueIndexName = this.findUniqueIndexName(columnName, dbColumn.tableName, this.getDbIndexes(tableName))
-
-        if (uniqueIndexName) {
-          changes.push({
-            type: 'DROP_CONSTRAINT',
-            tableName,
-            sql: `ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${uniqueIndexName}`,
-            description: `Drop UNIQUE constraint from ${tableName}.${columnName}`,
-            destructive: true,
-            metadata: {
-              columnName,
-              constraintName: uniqueIndexName,
-            },
-          })
-        }
-      }
-    }
+    if (uniqueChange)
+      changes.push(uniqueChange)
 
     return changes
   }
@@ -634,16 +684,25 @@ export class SchemaDiffer {
   // Foreign Key Operations
   // ========================================================================
 
+  private generateForeignKeySQL(
+    tableName: string,
+    fieldName: string,
+    fk: NonNullable<NumberFieldConfig['foreignKey']>,
+  ): { sql: string, constraintName: string, columnName: string } {
+    const columnName = this.getColumnName(fieldName)
+    const constraintName = `fk_${tableName}_${columnName}`
+    const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+
+    return { sql, constraintName, columnName }
+  }
+
   private generateForeignKeys(tableName: string, entitySchema: EntitySchema): SchemaChange[] {
     const changes: SchemaChange[] = []
 
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
       if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
         const fk = fieldConfig.foreignKey
-        const columnName = this.getColumnName(fieldName)
-        const constraintName = `fk_${tableName}_${columnName}`
-
-        const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+        const { sql, constraintName, columnName } = this.generateForeignKeySQL(tableName, fieldName, fk)
 
         changes.push({
           type: 'ADD_FOREIGN_KEY',
@@ -661,17 +720,13 @@ export class SchemaDiffer {
     return changes
   }
 
-  private compareForeignKeys(
+  private findNewAndModifiedForeignKeys(
     tableName: string,
     entitySchema: EntitySchema,
-    dbForeignKeys: ForeignKeyInfo[],
+    dbFkMap: Map<string, ForeignKeyInfo>,
   ): SchemaChange[] {
     const changes: SchemaChange[] = []
-    const dbFkMap = new Map(
-      dbForeignKeys.map(fk => [fk.columnName, fk]),
-    )
 
-    // Check for new foreign keys and modified foreign keys
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
       if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
         const fk = fieldConfig.foreignKey
@@ -679,9 +734,7 @@ export class SchemaDiffer {
         const dbFk = dbFkMap.get(columnName)
 
         if (!dbFk) {
-          // New foreign key
-          const constraintName = `fk_${tableName}_${columnName}`
-          const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+          const { sql, constraintName } = this.generateForeignKeySQL(tableName, fieldName, fk)
 
           changes.push({
             type: 'ADD_FOREIGN_KEY',
@@ -695,7 +748,6 @@ export class SchemaDiffer {
           })
         }
         else {
-          // Check if foreign key definition changed
           const needsUpdate
             = dbFk.foreignTableName !== fk.table
               || dbFk.foreignColumnName !== fk.column
@@ -703,7 +755,6 @@ export class SchemaDiffer {
               || dbFk.onUpdate !== fk.onUpdate
 
           if (needsUpdate) {
-            // Drop old constraint
             changes.push({
               type: 'DROP_FOREIGN_KEY',
               tableName,
@@ -714,9 +765,7 @@ export class SchemaDiffer {
               },
             })
 
-            // Add new constraint
-            const constraintName = `fk_${tableName}_${columnName}`
-            const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+            const { sql, constraintName } = this.generateForeignKeySQL(tableName, fieldName, fk)
 
             changes.push({
               type: 'ADD_FOREIGN_KEY',
@@ -733,33 +782,58 @@ export class SchemaDiffer {
       }
     }
 
-    // Check for dropped foreign keys
-    if (!this.config.safeMigrations) {
-      const entityFkColumns = new Set<string>()
+    return changes
+  }
 
-      for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
-        if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
-          entityFkColumns.add(this.getColumnName(fieldName))
-        }
+  private findDroppedForeignKeys(
+    tableName: string,
+    entitySchema: EntitySchema,
+    dbForeignKeys: ForeignKeyInfo[],
+  ): SchemaChange[] {
+    if (this.config.safeMigrations) {
+      return []
+    }
+
+    const changes: SchemaChange[] = []
+    const entityFkColumns = new Set<string>()
+
+    for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
+      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
+        entityFkColumns.add(this.getColumnName(fieldName))
       }
+    }
 
-      for (const dbFk of dbForeignKeys) {
-        if (!entityFkColumns.has(dbFk.columnName)) {
-          changes.push({
-            type: 'DROP_FOREIGN_KEY',
-            tableName,
-            sql: `ALTER TABLE ${tableName} DROP CONSTRAINT ${dbFk.constraintName}`,
-            description: `Drop foreign key constraint ${dbFk.constraintName}`,
-            destructive: true,
-            metadata: {
-              constraintName: dbFk.constraintName,
-            },
-          })
-        }
+    for (const dbFk of dbForeignKeys) {
+      if (!entityFkColumns.has(dbFk.columnName)) {
+        changes.push({
+          type: 'DROP_FOREIGN_KEY',
+          tableName,
+          sql: `ALTER TABLE ${tableName} DROP CONSTRAINT ${dbFk.constraintName}`,
+          description: `Drop foreign key constraint ${dbFk.constraintName}`,
+          destructive: true,
+          metadata: {
+            constraintName: dbFk.constraintName,
+          },
+        })
       }
     }
 
     return changes
+  }
+
+  private compareForeignKeys(
+    tableName: string,
+    entitySchema: EntitySchema,
+    dbForeignKeys: ForeignKeyInfo[],
+  ): SchemaChange[] {
+    const dbFkMap = new Map(
+      dbForeignKeys.map(fk => [fk.columnName, fk]),
+    )
+
+    const newAndModified = this.findNewAndModifiedForeignKeys(tableName, entitySchema, dbFkMap)
+    const dropped = this.findDroppedForeignKeys(tableName, entitySchema, dbForeignKeys)
+
+    return [...newAndModified, ...dropped]
   }
 
   // ========================================================================

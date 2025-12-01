@@ -134,6 +134,31 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  merge<
+    TNewFields extends EntitySchema,
+    TNewMethods extends TraitMethods,
+  >(
+    trait: TraitDefinition<TNewFields, TNewMethods>,
+  ): TraitBuilder<
+    TFields & TNewFields,
+    TMethods & TNewMethods
+  > {
+    const newFields = { ...this._fields, ...trait.fields } as TFields & TNewFields
+    const newMethods = { ...this._methods, ...trait.methods } as TMethods & TNewMethods
+
+    const newHooks = { ...this._hooks } as any
+
+    if (trait.hooks) {
+      for (const [hookName, hookArray] of Object.entries(trait.hooks)) {
+        if (Array.isArray(hookArray)) {
+          newHooks[hookName] = [...(newHooks[hookName] || []), ...hookArray]
+        }
+      }
+    }
+
+    return new TraitBuilder(newFields, newMethods, newHooks)
+  }
+
   build(): TraitDefinition<TFields, TMethods> {
     return Object.freeze({
       fields: this._fields,
@@ -182,31 +207,8 @@ export function softDelete() {
 
 export function paranoid() {
   return createTrait()
-    .fields({
-      createdAt: field.timestamp().default('NOW()'),
-      updatedAt: field.timestamp().default('NOW()'),
-      deletedAt: field.timestamp().nullable(),
-    })
-    .beforeCreate((data: any) => {
-      const now = new Date()
-
-      data.createdAt ||= now
-      data.updatedAt ||= now
-    })
-    .beforeUpdate((_id: number, data: any) => {
-      data.updatedAt = new Date()
-    })
-    .methods({
-      async softDelete(repo: AnyRepository) {
-        return repo.update(this.id, { deletedAt: new Date() })
-      },
-      async restore(repo: AnyRepository) {
-        return repo.update(this.id, { deletedAt: null })
-      },
-      isDeleted(_repo: AnyRepository) {
-        return this.deletedAt !== null
-      },
-    })
+    .merge(timestamps())
+    .merge(softDelete())
     .build()
 }
 
