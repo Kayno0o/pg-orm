@@ -1,4 +1,4 @@
-export { closeDatabase, type DatabaseConfig, getDatabase, initializeDatabase, sql, SQL, transaction } from './db'
+export { closeDatabase, type DatabaseConfig, getDatabase, getPoolHealth, initializeDatabase, type PoolHealth, sql, SQL, transaction } from './db'
 export { createEntitySchema, EntityBuilder } from './entity'
 export {
   ArraySizeError,
@@ -11,6 +11,7 @@ export {
   JsonSizeError,
   OptimisticLockError,
   QueryError,
+  sanitizeError,
   StringLengthError,
   ValidationError,
 } from './errors'

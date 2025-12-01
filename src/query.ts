@@ -1,5 +1,5 @@
 import type { SQL } from 'bun'
-import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferProjectionClean, OrderDirection } from './types'
+import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferProjectionClean, OrderDirection, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { InvalidColumnError } from './errors'
 import { validateSQLIdentifier } from './sql-utils'
@@ -10,7 +10,7 @@ export class QueryBuilder<
 > {
   private selectFields: string[] = ['*']
   private whereConditions: string[] = []
-  private whereParams: any[] = []
+  private whereParams: SQLValue[] = []
   private orderByFields: { field: string, direction: OrderDirection }[] = []
   private limitValue?: number
   private offsetValue?: number
@@ -34,8 +34,8 @@ export class QueryBuilder<
 
     const fieldConfig = this.schema[fieldName]
 
-    if ((fieldConfig as any)?.columnName) {
-      return (fieldConfig as any).columnName
+    if (fieldConfig && 'columnName' in fieldConfig && typeof fieldConfig.columnName === 'string') {
+      return fieldConfig.columnName
     }
 
     return toSnake(fieldName)
@@ -55,7 +55,7 @@ export class QueryBuilder<
     return columnName
   }
 
-  private addParam(value: any): string {
+  private addParam(value: SQLValue): string {
     this.whereParams.push(value)
 
     return `$${this.whereParams.length}`
@@ -66,10 +66,10 @@ export class QueryBuilder<
   ): QueryBuilder<T, F> {
     this.selectFields = fields.map(f => this.validateColumnName(String(f)))
 
-    return this as any as QueryBuilder<T, F>
+    return this as unknown as QueryBuilder<T, F>
   }
 
-  where(field: keyof T | 'id', operator: string, value: any): this {
+  where(field: keyof T | 'id', operator: string, value: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(value)
 
@@ -78,11 +78,11 @@ export class QueryBuilder<
     return this
   }
 
-  whereEquals(field: keyof T | 'id', value: any): this {
+  whereEquals(field: keyof T | 'id', value: SQLValue): this {
     return this.where(field, '=', value)
   }
 
-  whereIn(field: keyof T | 'id', values: any[]): this {
+  whereIn(field: keyof T | 'id', values: SQLValue[]): this {
     if (values.length === 0) {
       // Empty IN clause always returns false
       this.whereConditions.push('FALSE')
@@ -98,7 +98,7 @@ export class QueryBuilder<
     return this
   }
 
-  whereNotIn(field: keyof T | 'id', values: any[]): this {
+  whereNotIn(field: keyof T | 'id', values: SQLValue[]): this {
     if (values.length === 0) {
       // Empty NOT IN clause always returns true
       return this
@@ -136,7 +136,7 @@ export class QueryBuilder<
     return this
   }
 
-  whereBetween(field: keyof T | 'id', min: any, max: any): this {
+  whereBetween(field: keyof T | 'id', min: SQLValue, max: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
     const minPlaceholder = this.addParam(min)
     const maxPlaceholder = this.addParam(max)
@@ -147,7 +147,7 @@ export class QueryBuilder<
   }
 
   // PostgreSQL-specific operators
-  whereJsonContains(field: keyof T, value: any): this {
+  whereJsonContains(field: keyof T, value: unknown): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(JSON.stringify(value))
 
@@ -165,7 +165,7 @@ export class QueryBuilder<
     return this
   }
 
-  whereArrayContains(field: keyof T, value: any): this {
+  whereArrayContains(field: keyof T, value: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
 
     // For array operations, we need to pass the array value directly and let PostgreSQL handle it
@@ -178,7 +178,7 @@ export class QueryBuilder<
     return this
   }
 
-  whereArrayOverlaps(field: keyof T, values: any[]): this {
+  whereArrayOverlaps(field: keyof T, values: SQLValue[]): this {
     const columnName = this.validateColumnName(String(field))
 
     // For array overlap, pass array directly through parameterization
@@ -320,7 +320,7 @@ export class QueryBuilder<
   // Build Query (Public for inspection/debugging)
   // ========================================================================
 
-  build(): { sql: string, params: any[] } {
+  build(): { sql: string, params: SQLValue[] } {
     return {
       sql: this.buildQuery(),
       params: [...this.whereParams],
@@ -339,7 +339,7 @@ export class QueryBuilder<
     if (this.aggregations.size > 0) {
       // Convert string numbers from aggregations to actual numbers
       return results.map((row: DatabaseRow) => {
-        const converted: any = { ...row }
+        const converted: Record<string, unknown> = { ...row }
 
         for (const alias of this.aggregations.keys()) {
           if (converted[alias] !== null && converted[alias] !== undefined) {
@@ -380,11 +380,11 @@ export class QueryBuilder<
   }
 
   async latest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
-    return this.orderByDesc(field).findOne() as any
+    return this.orderByDesc(field).findOne()
   }
 
   async oldest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
-    return this.orderBy(field, 'ASC').findOne() as any
+    return this.orderBy(field, 'ASC').findOne()
   }
 
   async random(limitValue = 1): Promise<SelectedFields extends never ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {

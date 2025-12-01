@@ -65,7 +65,7 @@ export function hasMany<
   return {
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits>[]> {
       return relatedRepo.query()
-        .where(foreignKey as any, '=', entity.id)
+        .where(foreignKey as any, '=', entity.id as any)
         .execute()
     },
 
@@ -79,7 +79,7 @@ export function hasMany<
       }
 
       const allRelated = await relatedRepo.query()
-        .whereIn(foreignKey as any, parentIds)
+        .whereIn(foreignKey as any, parentIds as any)
         .execute() as InferEntity<R, RTraits>[]
 
       const relatedMap = new Map<number, InferEntity<R, RTraits>[]>()
@@ -101,7 +101,7 @@ export function hasMany<
 
     async count(entity: InferEntity<T, TTraits>): Promise<number> {
       return relatedRepo.query()
-        .where(foreignKey as any, '=', entity.id)
+        .where(foreignKey as any, '=', entity.id as any)
         .count()
     },
   }
@@ -119,7 +119,7 @@ export function hasOne<
   return {
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits> | null> {
       return relatedRepo.query()
-        .where(foreignKey as any, '=', entity.id)
+        .where(foreignKey as any, '=', entity.id as any)
         .findOne()
     },
 
@@ -133,7 +133,7 @@ export function hasOne<
       }
 
       const allRelated = await relatedRepo.query()
-        .whereIn(foreignKey as any, parentIds)
+        .whereIn(foreignKey as any, parentIds as any)
         .execute() as InferEntity<R, RTraits>[]
 
       const relatedMap = new Map<number, InferEntity<R, RTraits>>()

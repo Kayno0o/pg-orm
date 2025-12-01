@@ -1,4 +1,5 @@
 import { findClosestMatches } from './utils/levenshtein'
+import { ValidationError } from './validation'
 
 export class EntityNotFoundError extends Error {
   constructor(
@@ -182,4 +183,50 @@ export class JsonDepthError extends Error {
     )
     this.name = 'JsonDepthError'
   }
+}
+
+export function sanitizeError(error: Error, config?: { exposeInternalErrors?: boolean, includeStackTraces?: boolean }): Error {
+  const shouldExpose = config?.exposeInternalErrors ?? (process.env.NODE_ENV === 'development')
+  const includeStack = config?.includeStackTraces ?? (process.env.NODE_ENV === 'development')
+
+  if (shouldExpose) {
+    if (!includeStack && error.stack) {
+      const sanitized = new Error(error.message)
+
+      sanitized.name = error.name
+      Object.setPrototypeOf(sanitized, Object.getPrototypeOf(error))
+
+      return sanitized
+    }
+
+    return error
+  }
+
+  if (error instanceof EntityNotFoundError
+    || error instanceof ValidationError
+    || error instanceof BulkOperationError
+    || error instanceof ArraySizeError
+    || error instanceof StringLengthError
+    || error instanceof JsonSizeError
+    || error instanceof JsonDepthError
+    || error instanceof InvalidColumnError
+    || error instanceof InvalidIdentifierError
+    || error instanceof OptimisticLockError) {
+    if (!includeStack && error.stack) {
+      const sanitized = new Error(error.message)
+
+      sanitized.name = error.name
+      Object.setPrototypeOf(sanitized, Object.getPrototypeOf(error))
+
+      return sanitized
+    }
+
+    return error
+  }
+
+  const sanitized = new Error('A database error occurred. Please contact support if the issue persists.')
+
+  sanitized.name = 'DatabaseError'
+
+  return sanitized
 }

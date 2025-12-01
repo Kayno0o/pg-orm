@@ -29,6 +29,10 @@ export interface DatabaseConfig {
     strict?: boolean
   }
   logging?: QueryLoggingConfig
+  errorHandling?: {
+    exposeInternalErrors?: boolean
+    includeStackTraces?: boolean
+  }
 }
 
 let dbInstance: SQL | null = null
@@ -108,6 +112,22 @@ export async function closeDatabase(options?: { timeout?: number }): Promise<voi
     await dbInstance.close(options)
     dbInstance = null
     dbConfig = null
+  }
+}
+
+export interface PoolHealth {
+  isHealthy: boolean
+  hasConnection: boolean
+  lastError?: Error
+}
+
+export function getPoolHealth(): PoolHealth {
+  const hasConnection = dbInstance !== null
+
+  return {
+    isHealthy: hasConnection,
+    hasConnection,
+    lastError: undefined,
   }
 }
 
