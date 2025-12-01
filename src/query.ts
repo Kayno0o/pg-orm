@@ -15,7 +15,7 @@ export class QueryBuilder<
   private limitValue?: number
   private offsetValue?: number
   private groupByFields: string[] = []
-  private aggregations = new Map<string, { func: string, field: string }>()
+  private readonly aggregations = new Map<string, { func: string, field: string }>()
   private validColumns: Set<string>
 
   constructor(

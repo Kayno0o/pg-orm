@@ -65,7 +65,7 @@ describe('Projections/Select', () => {
         role: 'user',
       })
 
-      const projected = await users.select('name', 'role').execute()
+      const projected = await users.query().select('name', 'role').execute()
 
       expect(projected.length).toBeGreaterThan(0)
       expect(projected[0]).toHaveProperty('name')
@@ -92,9 +92,7 @@ describe('Projections/Select', () => {
         role: 'user',
       })
 
-      const admins = await users.select('id', 'name', 'role')
-        .where('role', '=', 'admin')
-        .execute()
+      const admins = await users.query().select('id', 'name', 'role').where('role', '=', 'admin').execute()
 
       expect(admins.length).toBeGreaterThan(0)
       for (const admin of admins) {
@@ -115,10 +113,7 @@ describe('Projections/Select', () => {
       await users.create({ name: 'Charlie', email: testData.user.valid().email, age: 28, role: 'user' })
       await users.create({ name: 'Diana', email: testData.user.valid().email, age: 32, role: 'admin' })
 
-      const top3 = await users.select('id', 'name')
-        .orderBy('name', 'ASC')
-        .limit(3)
-        .execute()
+      const top3 = await users.query().select('id', 'name').orderBy('name', 'ASC').limit(3).execute()
 
       expect(top3.length).toBeLessThanOrEqual(3)
       for (const user of top3) {

@@ -26,6 +26,7 @@ export class Repository<
   private entityPrototype: any
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
+  private reverseColumnMap: Map<string, string>
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
@@ -43,6 +44,12 @@ export class Repository<
       this.columnNameMap.set(fieldName, this.computeColumnName(fieldName))
     }
 
+    this.reverseColumnMap = new Map()
+    this.reverseColumnMap.set('id', 'id')
+    for (const [fieldName, columnName] of this.columnNameMap) {
+      this.reverseColumnMap.set(columnName, fieldName)
+    }
+
     this.fieldConfigs = Object.entries(this.schema).map(([fieldName, config]) => ({
       fieldName,
       columnName: this.columnNameMap.get(fieldName)!,
@@ -53,7 +60,7 @@ export class Repository<
 
     this.cachedSelectColumns = columns
       .map((col) => {
-        const fieldName = [...this.columnNameMap.entries()].find(([_, v]) => v === col)?.[0]
+        const fieldName = this.reverseColumnMap.get(col)
 
         if (fieldName) {
           const config = this.schema[fieldName]
@@ -346,24 +353,6 @@ export class Repository<
       this.schema,
       (row: DatabaseRow) => this.mapRowToEntity(row),
     )
-  }
-
-  select<F extends readonly (keyof T | 'id')[]>(
-    ...fields: F
-  ): QueryBuilder<T, F> {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(
-        `[DEPRECATED] repo.select() is deprecated. Use repo.query().select() instead.\n`
-        + `Example: repo.query().select('id', 'name').where(...).execute()`,
-      )
-    }
-
-    return new QueryBuilder<T, F>(
-      this.tableName,
-      this.getDB(),
-      this.schema,
-      (row: DatabaseRow) => this.mapRowToEntity(row),
-    ).select(...fields)
   }
 
   withTransaction(tx: SQL): this {

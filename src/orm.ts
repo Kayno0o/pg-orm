@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import type { DatabaseConfig } from './db'
-import type { EntityDefinition, EntitySchema, FieldConfig, Plugin } from './types'
+import type { EntityDefinition, EntitySchema, FieldConfig } from './types'
 import { closeDatabase, getDatabase, initializeDatabase, transaction } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
@@ -9,7 +9,6 @@ import { Repository } from './repository'
 import { createTrait } from './traits'
 
 export class ORM {
-  private plugins: Plugin[] = []
   private repositories = new WeakMap<EntityDefinition<any>, Repository<any>>()
   private allRepositories = new Set<Repository<any>>()
   private entities = new Map<string, EntityDefinition<any>>()
@@ -72,15 +71,8 @@ export class ORM {
     [K in keyof T]: ReturnType<T[K]['toConfig']>
   }> {
     const schema = createEntitySchema(fields)
-    const builder = new EntityBuilder(tableName, schema)
 
-    for (const plugin of this.plugins) {
-      if (plugin.applyToEntity) {
-        // plugin.applyToEntity(builder as any)
-      }
-    }
-
-    return builder
+    return new EntityBuilder(tableName, schema)
   }
 
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[]>(
@@ -99,25 +91,7 @@ export class ORM {
     this.repositories.set(entityDef, repository)
     this.allRepositories.add(repository)
 
-    for (const plugin of this.plugins) {
-      if (plugin.applyToRepository) {
-        plugin.applyToRepository(repository)
-      }
-    }
-
     return repository
-  }
-
-  use(plugin: Plugin): this {
-    this.plugins.push(plugin)
-
-    for (const repository of this.allRepositories) {
-      if (plugin.applyToRepository) {
-        plugin.applyToRepository(repository)
-      }
-    }
-
-    return this
   }
 
   trait() {

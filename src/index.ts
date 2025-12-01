@@ -12,6 +12,7 @@ export {
   OptimisticLockError,
   QueryError,
   StringLengthError,
+  ValidationError,
 } from './errors'
 export { field } from './field'
 export type {
@@ -46,7 +47,7 @@ export type {
 export { ORM, orm } from './orm'
 export { QueryBuilder } from './query'
 export { belongsTo, hasMany, hasOne } from './relations'
-export { Repository, ValidationError } from './repository'
+export { Repository } from './repository'
 export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
 export type {
   AfterCreateHook,
@@ -82,7 +83,6 @@ export type {
   NumberFieldConfig,
   OrderDirection,
   PaginationResult,
-  Plugin,
   SQLInstance,
   SQLValue,
   StringFieldConfig,

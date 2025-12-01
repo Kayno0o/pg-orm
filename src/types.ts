@@ -341,12 +341,6 @@ export type ConvertTraitMethods<TMethods extends TraitMethods> = {
   [K in keyof TMethods]: ConvertTraitMethod<TMethods[K]>
 }
 
-export interface Plugin {
-  name: string
-  applyToEntity?: <_T extends EntitySchema>(entity: EntityDefinition<_T>) => void
-  applyToRepository?: <_T extends EntitySchema>(repository: any) => void
-}
-
 export interface EntityDefinition<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],

@@ -1,4 +1,3 @@
-import type { ValidationErrorDetail } from './types'
 import { findClosestMatches } from './utils/levenshtein'
 
 export class EntityNotFoundError extends Error {
@@ -33,17 +32,7 @@ export class EntityNotFoundError extends Error {
   }
 }
 
-export class ValidationError extends Error {
-  constructor(
-    public entityName: string,
-    public violations: ValidationErrorDetail[],
-  ) {
-    const messages = violations.map(v => `${v.field}: ${v.message}`).join(', ')
-
-    super(`Validation failed for ${entityName}: ${messages}`)
-    this.name = 'ValidationError'
-  }
-}
+export { ValidationError } from './validation.js'
 
 export class OptimisticLockError extends Error {
   constructor(
