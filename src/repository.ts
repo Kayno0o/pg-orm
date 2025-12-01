@@ -12,6 +12,7 @@ import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
 import { QueryBuilder } from './query'
 import { hasColumnName, isArrayFieldConfig } from './types'
+import { parsePostgresArray } from './utils/array-parser'
 import { ValidationError, Validator } from './validation'
 
 export class Repository<
@@ -23,6 +24,7 @@ export class Repository<
   private definition: EntityDefinition<T, TTraits>
   private txContext?: SQL
   private validator: Validator
+  private validatorCache: Map<number, Validator>
   private entityPrototype: any
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
@@ -37,6 +39,8 @@ export class Repository<
     this.validator = new Validator({
       maxJsonDepth: 32,
     })
+
+    this.validatorCache = new Map()
 
     this.columnNameMap = new Map()
     this.columnNameMap.set('id', 'id')
@@ -117,11 +121,18 @@ export class Repository<
   private getValidator(): Validator {
     const limits = this.getLimits()
 
-    if (limits.jsonDepth !== 32) {
-      return new Validator({ maxJsonDepth: limits.jsonDepth })
+    if (limits.jsonDepth === 32) {
+      return this.validator
     }
 
-    return this.validator
+    let cached = this.validatorCache.get(limits.jsonDepth)
+
+    if (!cached) {
+      cached = new Validator({ maxJsonDepth: limits.jsonDepth })
+      this.validatorCache.set(limits.jsonDepth, cached)
+    }
+
+    return cached
   }
 
   private isStrictMode(): boolean {
