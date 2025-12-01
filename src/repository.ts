@@ -128,10 +128,10 @@ export class Repository<
     try {
       const config = getDatabaseConfig()
 
-      return config.validation?.strict ?? false
+      return config.validation?.strict ?? true
     }
     catch {
-      return false
+      return true
     }
   }
 
