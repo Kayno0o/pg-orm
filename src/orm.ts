@@ -10,7 +10,6 @@ import { createTrait } from './traits'
 
 export class ORM {
   private repositories = new WeakMap<EntityDefinition<any>, Repository<any>>()
-  private allRepositories = new Set<Repository<any>>()
   private entities = new Map<string, EntityDefinition<any>>()
   private migrator: Migrator | null = null
   private migrationConfig: DatabaseConfig['migrations'] | undefined
@@ -37,11 +36,6 @@ export class ORM {
   }
 
   async disconnect(options?: { timeout?: number }): Promise<void> {
-    for (const repo of this.allRepositories) {
-      repo.cleanup()
-    }
-    this.allRepositories.clear()
-
     if (this.migrator) {
       try {
         await this.migrator.clearAutoMigrations()
@@ -89,7 +83,6 @@ export class ORM {
     const repository = new Repository(entityDef)
 
     this.repositories.set(entityDef, repository)
-    this.allRepositories.add(repository)
 
     return repository
   }
