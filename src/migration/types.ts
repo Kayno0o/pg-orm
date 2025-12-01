@@ -142,6 +142,7 @@ export interface PostgresTypeMapping {
 export type PostgresType
   = | 'TEXT'
     | 'VARCHAR'
+    | `VARCHAR(${string})`
     | 'INTEGER'
     | 'BIGINT'
     | 'DOUBLE PRECISION'

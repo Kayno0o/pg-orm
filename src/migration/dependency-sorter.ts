@@ -1,6 +1,5 @@
 import type { EntityDefinition, EntitySchema, FieldConfig } from '../types'
 import type {
-  DatabaseColumn,
   DatabaseSchema,
   SchemaChange,
   SortedChangeGroups,
@@ -9,6 +8,7 @@ import type {
   ValidationResult,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
+import normalizePostgresType from '../utils/normalizePostgresType'
 
 // Dependency Graph Builder
 
@@ -367,7 +367,7 @@ class ForeignKeyValidator {
       const column = dbColumns.find(c => c.columnName === columnName)
 
       if (column) {
-        return this.normalizeDBColumnType(column)
+        return normalizePostgresType(column)
       }
     }
 
@@ -433,53 +433,6 @@ class ForeignKeyValidator {
     }
 
     return 'TEXT'
-  }
-
-  /** Normalize database column type for comparison */
-  private normalizeDBColumnType(column: DatabaseColumn): string {
-    // Handle array types
-    if (column.udtName.startsWith('_')) {
-      switch (column.udtName) {
-      case '_text':
-        return 'TEXT[]'
-      case '_int4':
-      case '_int8':
-        return 'INTEGER[]'
-      case '_bool':
-        return 'BOOLEAN[]'
-      }
-    }
-
-    // Handle standard types
-    switch (column.dataType.toUpperCase()) {
-    case 'CHARACTER VARYING':
-      return column.characterMaximumLength ? `VARCHAR(${column.characterMaximumLength})` : 'VARCHAR'
-    case 'TEXT':
-      return 'TEXT'
-    case 'INTEGER':
-    case 'BIGINT':
-      return 'INTEGER'
-    case 'DOUBLE PRECISION':
-    case 'REAL':
-      return 'DOUBLE PRECISION'
-    case 'BOOLEAN':
-      return 'BOOLEAN'
-    case 'JSON':
-      return 'JSON'
-    case 'JSONB':
-      return 'JSONB'
-    case 'UUID':
-      return 'UUID'
-    case 'TIMESTAMP WITH TIME ZONE':
-    case 'TIMESTAMP WITHOUT TIME ZONE':
-      return 'TIMESTAMP WITH TIME ZONE'
-    case 'DATE':
-      return 'DATE'
-    case 'BYTEA':
-      return 'BYTEA'
-    default:
-      return column.dataType.toUpperCase()
-    }
   }
 
   /**

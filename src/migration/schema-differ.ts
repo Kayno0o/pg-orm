@@ -5,12 +5,12 @@ import type {
   DatabaseSchema,
   ForeignKeyInfo,
   MigrationConfig,
-  PostgresType,
   PostgresTypeMapping,
   SchemaChange,
   SchemaDiff,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
+import normalizePostgresType from '../utils/normalizePostgresType'
 import { DependencySorter } from './dependency-sorter'
 
 // Schema Differ - Compare Entity Definitions with Database Schema
@@ -211,7 +211,7 @@ export class SchemaDiffer {
     expectedType: PostgresTypeMapping,
     dbColumn: DatabaseColumn,
   ): SchemaChange | null {
-    const actualType = this.normalizePostgresType(dbColumn)
+    const actualType = normalizePostgresType(dbColumn)
 
     if (expectedType.type !== actualType) {
       return {
@@ -539,57 +539,6 @@ export class SchemaDiffer {
     }
 
     return baseMapping
-  }
-
-  private normalizePostgresType(dbColumn: DatabaseColumn): PostgresType {
-    // Handle array types
-    if (dbColumn.udtName.startsWith('_')) {
-      switch (dbColumn.udtName) {
-      case '_text':
-        return 'TEXT[]'
-      case '_int4':
-      case '_int8':
-        return 'INTEGER[]'
-      case '_bool':
-        return 'BOOLEAN[]'
-      }
-    }
-
-    // Handle standard types
-    switch (dbColumn.dataType.toUpperCase()) {
-    case 'CHARACTER VARYING':
-      // Preserve length for VARCHAR columns
-      if (dbColumn.characterMaximumLength) {
-        return `VARCHAR(${dbColumn.characterMaximumLength})` as PostgresType
-      }
-
-      return 'VARCHAR'
-    case 'TEXT':
-      return 'TEXT'
-    case 'INTEGER':
-    case 'BIGINT':
-      return 'INTEGER'
-    case 'DOUBLE PRECISION':
-    case 'REAL':
-      return 'DOUBLE PRECISION'
-    case 'BOOLEAN':
-      return 'BOOLEAN'
-    case 'JSON':
-      return 'JSON'
-    case 'JSONB':
-      return 'JSONB'
-    case 'UUID':
-      return 'UUID'
-    case 'TIMESTAMP WITH TIME ZONE':
-    case 'TIMESTAMP WITHOUT TIME ZONE':
-      return 'TIMESTAMP WITH TIME ZONE'
-    case 'DATE':
-      return 'DATE'
-    case 'BYTEA':
-      return 'BYTEA'
-    default:
-      return dbColumn.dataType.toUpperCase() as PostgresType
-    }
   }
 
   private formatDefaultValue(value: any, fieldConfig: FieldConfig): string | undefined {
