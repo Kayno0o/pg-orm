@@ -373,16 +373,20 @@ export class Repository<
     })
   }
 
-  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: never[]) => unknown>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: any[]) => any>>(
     methods: Methods,
-  ): Repository<T, TTraits> & Methods {
+  ): Repository<T, TTraits> & {
+    [K in keyof Methods]: Methods[K] extends (this: any, ...args: infer Args) => infer Return
+      ? (...args: Args) => Return
+      : never
+  } {
     const extended = Object.create(this)
 
     for (const [name, method] of Object.entries(methods)) {
       extended[name] = method.bind(extended)
     }
 
-    return extended as Repository<T, TTraits> & Methods
+    return extended as any
   }
 
   cleanup(): void {
@@ -397,16 +401,16 @@ export class Repository<
     return this.columnNameMap.get(fieldName) || toSnake(fieldName)
   }
 
-  private buildEntityPrototype(): any {
-    const prototype: any = {}
+  private buildEntityPrototype(): Record<string, (...args: unknown[]) => unknown> {
+    const prototype: Record<string, (...args: unknown[]) => unknown> = {}
     // eslint-disable-next-line ts/no-this-alias
     const self = this
 
     for (const trait of this.definition.traits) {
       if (trait.methods) {
         for (const [methodName, method] of Object.entries(trait.methods)) {
-          prototype[methodName] = function (this: any, ...args: any[]) {
-            return (method as any).call(this, self, ...args)
+          prototype[methodName] = function (this: InferEntity<T, TTraits>, ...args: unknown[]) {
+            return (method as (...args: unknown[]) => unknown).call(this, self, ...args)
           }
         }
       }
