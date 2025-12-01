@@ -27,6 +27,7 @@ export type {
   TimestampFieldBuilder,
   UuidFieldBuilder,
 } from './field'
+export { extractOperation, type QueryLogEntry, queryLogger, type QueryLogger, type QueryLoggingConfig } from './logger'
 export type {
   DatabaseColumn,
   DatabaseConstraint,

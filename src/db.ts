@@ -1,5 +1,7 @@
+import type { QueryLoggingConfig } from './logger'
 import type { MigrationConfig } from './migration/types'
 import { sql as bunSql, SQL } from 'bun'
+import { queryLogger } from './logger'
 
 export interface DatabaseConfig {
   connectionString?: string
@@ -26,6 +28,7 @@ export interface DatabaseConfig {
   validation?: {
     strict?: boolean
   }
+  logging?: QueryLoggingConfig
 }
 
 let dbInstance: SQL | null = null
@@ -34,6 +37,10 @@ let dbConfig: DatabaseConfig | null = null
 export async function initializeDatabase(connectionString: string | DatabaseConfig): Promise<SQL> {
   if (typeof connectionString === 'object') {
     dbConfig = connectionString
+
+    if (connectionString.logging) {
+      queryLogger.configure(connectionString.logging)
+    }
   }
   else {
     dbConfig = { connectionString }
@@ -49,6 +56,7 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
       idleTimeout: _idleTimeout,
       connectionTimeout: _connectionTimeout,
       migrations: _migrations,
+      logging: _logging,
       ...rest
     } = connectionString
 
