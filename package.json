@@ -37,8 +37,6 @@
   "scripts": {
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
     "test:coverage": "rm -rf coverage coverage-report && bun test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
     "doc": "typedoc ./src/**/*.ts --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
     "check": "tsc --noEmit --strict",
@@ -54,7 +52,7 @@
     "migrate:generate": "bun examples/cli-migrations.ts generate",
     "circular": "madge --circular ./src/index.ts",
     "circular:schema": "madge ./src/index.ts --image graph.png",
-    "duplicates": "jscpd ./src",
+    "duplicates": "jscpd ./src --threshold 2 --min-lines 10",
     "unused": "knip",
     "prepare": "husky"
   },
