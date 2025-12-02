@@ -489,7 +489,7 @@ export class Repository<
     this.txContext = undefined
   }
 
-  private getDB(): SQL {
+  getDB(): SQL {
     return this.txContext || getDatabase()
   }
 

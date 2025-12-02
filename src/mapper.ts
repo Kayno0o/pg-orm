@@ -16,7 +16,6 @@ export class EntityMapper<
   private reverseColumnMap: Map<string, string>
   private entityPrototype: any
 
-  // eslint-disable-next-line max-params
   constructor(
     schema: T,
     definition: EntityDefinition<T, TTraits>,

@@ -6,6 +6,16 @@ import { extractOperation, queryLogger } from './logger'
 import { validateSQLIdentifier } from './sql-utils'
 import { mapDatabaseError } from './utils/error-mapper'
 
+type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL'
+
+interface JoinClause {
+  type: JoinType
+  table: string
+  leftColumn: string
+  operator: string
+  rightColumn: string
+}
+
 export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id')[] = never,
@@ -21,8 +31,8 @@ export class QueryBuilder<
   private readonly aggregations = new Map<string, { func: string, field: string }>()
   private validColumns: Set<string>
   private scopes?: Map<string, ScopeDefinition<T>>
+  private joinClauses: JoinClause[] = []
 
-  // eslint-disable-next-line max-params
   constructor(
     private tableName: string,
     private db: SQL,
@@ -327,6 +337,50 @@ export class QueryBuilder<
   }
 
   // ========================================================================
+  // JOIN Operations
+  // ========================================================================
+
+  join(table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
+  }
+
+  innerJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
+  }
+
+  leftJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    return this.addJoin('LEFT', table, leftColumn, operator, rightColumn)
+  }
+
+  rightJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    return this.addJoin('RIGHT', table, leftColumn, operator, rightColumn)
+  }
+
+  fullJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    return this.addJoin('FULL', table, leftColumn, operator, rightColumn)
+  }
+
+  private addJoin(type: JoinType, table: string, leftColumn: string, operator: string, rightColumn: string): this {
+    validateSQLIdentifier(table, 'table')
+
+    const validOperators = ['=', '!=', '>', '>=', '<', '<=']
+
+    if (!validOperators.includes(operator)) {
+      throw new Error(`Invalid JOIN operator: ${operator}`)
+    }
+
+    this.joinClauses.push({
+      type,
+      table,
+      leftColumn,
+      operator,
+      rightColumn,
+    })
+
+    return this
+  }
+
+  // ========================================================================
   // Scopes
   // ========================================================================
 
@@ -410,6 +464,11 @@ export class QueryBuilder<
 
           return converted
         }) as any
+      }
+
+      // If JOINs are present, return raw results (flattened objects from multiple tables)
+      if (this.joinClauses.length > 0) {
+        return results as any
       }
 
       // Use mapper if provided to properly convert database rows to entities
@@ -535,6 +594,13 @@ export class QueryBuilder<
     }
 
     let query = `SELECT ${selectClause} FROM ${this.tableName}`
+
+    // Add JOIN clauses
+    if (this.joinClauses.length > 0) {
+      for (const join of this.joinClauses) {
+        query += ` ${join.type} JOIN ${join.table} ON ${join.leftColumn} ${join.operator} ${join.rightColumn}`
+      }
+    }
 
     if (this.whereConditions.length > 0) {
       query += ` WHERE ${this.whereConditions.join(' AND ')}`
