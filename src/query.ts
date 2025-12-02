@@ -7,6 +7,7 @@ import { validateSQLIdentifier } from './sql-utils'
 export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id')[] = never,
+  TScopes extends string = string,
 > {
   private selectFields: string[] = ['*']
   private whereConditions: string[] = []
@@ -67,10 +68,10 @@ export class QueryBuilder<
 
   select<F extends readonly (keyof T | 'id')[]>(
     ...fields: F
-  ): QueryBuilder<T, F> {
+  ): QueryBuilder<T, F, TScopes> {
     this.selectFields = fields.map(f => this.validateColumnName(String(f)))
 
-    return this as unknown as QueryBuilder<T, F>
+    return this as unknown as QueryBuilder<T, F, TScopes>
   }
 
   where(field: keyof T | 'id', operator: string, value: SQLValue): this {
@@ -305,7 +306,7 @@ export class QueryBuilder<
   // Scopes
   // ========================================================================
 
-  scope(name: string): QueryBuilder<T, SelectedFields> {
+  scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes> {
     if (!this.scopes) {
       throw new Error('Scopes are not available on this QueryBuilder instance')
     }
@@ -316,7 +317,7 @@ export class QueryBuilder<
       throw new Error(`Scope "${name}" not found`)
     }
 
-    return scopeFn(this) as QueryBuilder<T, SelectedFields>
+    return scopeFn(this) as QueryBuilder<T, SelectedFields, TScopes>
   }
 
   // ========================================================================

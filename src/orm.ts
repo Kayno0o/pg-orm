@@ -69,15 +69,15 @@ export class ORM {
     return new EntityBuilder(tableName, schema)
   }
 
-  repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[]>(
-    entityDef: EntityDefinition<T, TTraits>,
-  ): Repository<T, TTraits> {
+  repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string>(
+    entityDef: EntityDefinition<T, TTraits, TScopes>,
+  ): Repository<T, TTraits, TScopes> {
     if (!this.entities.has(entityDef.tableName)) {
       this.entities.set(entityDef.tableName, entityDef)
     }
 
     if (this.repositories.has(entityDef)) {
-      return this.repositories.get(entityDef)! as Repository<T, TTraits>
+      return this.repositories.get(entityDef)! as Repository<T, TTraits, TScopes>
     }
 
     const repository = new Repository(entityDef)

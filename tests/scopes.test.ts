@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
-import { setupTestDatabase, teardownTestDatabase } from './setup'
+import { setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
 
 // Define entities at module level so migrations can run
 const User = orm.entity('scope_users', {
@@ -53,6 +53,10 @@ describe('Scopes', () => {
 
   afterAll(teardownTestDatabase)
 
+  beforeEach(async () => {
+    await truncateTables('scope_users', 'scope_products', 'scope_posts', 'scope_articles')
+  })
+
   test('should define and use scopes', async () => {
     const users = orm.repo(User)
 
@@ -86,7 +90,7 @@ describe('Scopes', () => {
   test('should throw error for non-existent scope', () => {
     const users = orm.repo(User)
 
-    expect(() => users.scope('nonexistent')).toThrow('Scope "nonexistent" not found')
+    expect(() => users.scope('nonexistent' as any)).toThrow('Scope "nonexistent" not found')
   })
 
   test('should allow scope to add complex filters', async () => {

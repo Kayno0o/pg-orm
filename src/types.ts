@@ -348,6 +348,7 @@ export type ScopeDefinition<T extends EntitySchema> = (query: QueryBuilder<T, an
 export interface EntityDefinition<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],
+  _TScopes extends string = string,
 > {
   readonly tableName: string
   readonly schema: T

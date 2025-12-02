@@ -19,10 +19,11 @@ import { ValidationError } from './validation'
 export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
+  TScopes extends string = string,
 > {
   private tableName: string
   private schema: T
-  private definition: EntityDefinition<T, TTraits>
+  private definition: EntityDefinition<T, TTraits, TScopes>
   private txContext?: SQL
   private entityPrototype: any
   private cachedSelectColumns: string
@@ -32,7 +33,7 @@ export class Repository<
   private mapper: EntityMapper<T, TTraits>
   private schemaValidator: SchemaValidator<T>
 
-  constructor(entityDef: EntityDefinition<T, TTraits>) {
+  constructor(entityDef: EntityDefinition<T, TTraits, TScopes>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
@@ -358,8 +359,8 @@ export class Repository<
     `
   }
 
-  query(): QueryBuilder<T> {
-    return new QueryBuilder<T>(
+  query(): QueryBuilder<T, never, TScopes> {
+    return new QueryBuilder<T, never, TScopes>(
       this.tableName,
       this.getDB(),
       this.schema,
@@ -368,7 +369,7 @@ export class Repository<
     )
   }
 
-  scope(name: string) {
+  scope(name: TScopes) {
     const scopeFn = this.definition.scopes.get(name)
 
     if (!scopeFn) {
@@ -388,7 +389,7 @@ export class Repository<
     return wrapper
   }
 
-  async transaction<R>(callback: (repo: Repository<T, TTraits>) => Promise<R>): Promise<R> {
+  async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes>) => Promise<R>): Promise<R> {
     const db = this.getDB()
 
     return await db.begin(async (tx) => {
@@ -398,9 +399,9 @@ export class Repository<
     })
   }
 
-  extend<Methods extends Record<string, (this: Repository<T, TTraits>, ...args: any[]) => any>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes>, ...args: any[]) => any>>(
     methods: Methods,
-  ): Repository<T, TTraits> & {
+  ): Repository<T, TTraits, TScopes> & {
     [K in keyof Methods]: Methods[K] extends (this: any, ...args: infer Args) => infer Return
       ? (...args: Args) => Return
       : never
