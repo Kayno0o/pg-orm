@@ -5,14 +5,17 @@ export {
   BulkOperationError,
   DatabaseError,
   EntityNotFoundError,
+  ForeignKeyConstraintViolationError,
   InvalidColumnError,
   InvalidIdentifierError,
   JsonDepthError,
   JsonSizeError,
+  NotNullConstraintViolationError,
   OptimisticLockError,
   QueryError,
   sanitizeError,
   StringLengthError,
+  UniqueConstraintViolationError,
   ValidationError,
 } from './errors'
 export { field } from './field'
@@ -50,6 +53,8 @@ export { ORM, orm } from './orm'
 export { QueryBuilder } from './query'
 export { belongsTo, hasMany, hasOne } from './relations'
 export { Repository } from './repository'
+export type { Seeder, SeederContext } from './seeder'
+export { SeederRunner } from './seeder'
 export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
 export type {
   AfterCreateHook,

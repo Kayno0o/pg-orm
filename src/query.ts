@@ -2,7 +2,9 @@ import type { SQL } from 'bun'
 import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferEntityBase, InferProjectionClean, OrderDirection, ScopeDefinition, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { InvalidColumnError } from './errors'
+import { extractOperation, queryLogger } from './logger'
 import { validateSQLIdentifier } from './sql-utils'
+import { mapDatabaseError } from './utils/error-mapper'
 
 export class QueryBuilder<
   T extends EntitySchema,
@@ -287,19 +289,41 @@ export class QueryBuilder<
     // - whereConditions: built with parameterized placeholders ($N) in where() methods
     // - whereParams: actual values passed separately to prevent SQL injection
     const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause}`
-    const [result] = await this.db.unsafe(query, this.whereParams)
+    const start = performance.now()
+    let error: Error | undefined
 
-    if (!result)
-      return {}
+    try {
+      const [result] = await this.db.unsafe(query, this.whereParams)
 
-    // Convert string numbers to actual numbers
-    const converted: AggregationResult = {}
+      if (!result)
+        return {}
 
-    for (const [key, value] of Object.entries(result)) {
-      (converted as any)[key] = value !== null ? Number(value) : undefined
+      // Convert string numbers to actual numbers
+      const converted: AggregationResult = {}
+
+      for (const [key, value] of Object.entries(result)) {
+        (converted as any)[key] = value !== null ? Number(value) : undefined
+      }
+
+      return converted
     }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
 
-    return converted
+      await queryLogger.log({
+        query,
+        params: this.whereParams,
+        duration,
+        timestamp: new Date(),
+        operation: extractOperation(query),
+        table: this.tableName,
+        error,
+      })
+    }
   }
 
   // ========================================================================
@@ -361,37 +385,59 @@ export class QueryBuilder<
 
   async execute(): Promise<SelectedFields extends never ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     const { sql, params } = this.build()
-    // SECURITY AUDIT: SQL is built by build() method with:
-    // - Validated column names (via validateColumnName())
-    // - Parameterized WHERE values (params array passed separately)
-    // - Validated ORDER BY fields (via validateColumnName())
-    // - Parameterized LIMIT/OFFSET values
-    const results = await this.db.unsafe(sql, params)
+    const start = performance.now()
+    let error: Error | undefined
 
-    // If aggregations are present, don't use mapper (aggregation results are plain objects)
-    if (this.aggregations.size > 0) {
-      // Convert string numbers from aggregations to actual numbers
-      return results.map((row: DatabaseRow) => {
-        const converted: Record<string, unknown> = { ...row }
+    try {
+      // SECURITY AUDIT: SQL is built by build() method with:
+      // - Validated column names (via validateColumnName())
+      // - Parameterized WHERE values (params array passed separately)
+      // - Validated ORDER BY fields (via validateColumnName())
+      // - Parameterized LIMIT/OFFSET values
+      const results = await this.db.unsafe(sql, params)
 
-        for (const alias of this.aggregations.keys()) {
-          if (converted[alias] !== null && converted[alias] !== undefined) {
-            converted[alias] = Number(converted[alias])
+      // If aggregations are present, don't use mapper (aggregation results are plain objects)
+      if (this.aggregations.size > 0) {
+        // Convert string numbers from aggregations to actual numbers
+        return results.map((row: DatabaseRow) => {
+          const converted: Record<string, unknown> = { ...row }
+
+          for (const alias of this.aggregations.keys()) {
+            if (converted[alias] !== null && converted[alias] !== undefined) {
+              converted[alias] = Number(converted[alias])
+            }
           }
-        }
 
-        return converted
-      }) as any
+          return converted
+        }) as any
+      }
+
+      // Use mapper if provided to properly convert database rows to entities
+      // This ensures arrays are parsed, dates are converted, and trait methods work
+      if (this.mapper) {
+        return results.map((row: DatabaseRow) => this.mapper!(row))
+      }
+
+      // Fallback to raw results (won't have trait methods or proper array/date handling)
+      return results as any
     }
-
-    // Use mapper if provided to properly convert database rows to entities
-    // This ensures arrays are parsed, dates are converted, and trait methods work
-    if (this.mapper) {
-      return results.map((row: DatabaseRow) => this.mapper!(row))
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
     }
+    finally {
+      const duration = performance.now() - start
 
-    // Fallback to raw results (won't have trait methods or proper array/date handling)
-    return results as any
+      await queryLogger.log({
+        query: sql,
+        params,
+        duration,
+        timestamp: new Date(),
+        operation: extractOperation(sql),
+        table: this.tableName,
+        error,
+      })
+    }
   }
 
   async findOne(): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
@@ -408,9 +454,31 @@ export class QueryBuilder<
 
     // SECURITY AUDIT: Query uses validated table name and parameterized WHERE clause (see aggregate() audit)
     const query = `SELECT COUNT(id) as count FROM ${this.tableName} ${whereClause}`
-    const [result] = await this.db.unsafe(query, this.whereParams)
+    const start = performance.now()
+    let error: Error | undefined
 
-    return Number(result.count)
+    try {
+      const [result] = await this.db.unsafe(query, this.whereParams)
+
+      return Number(result.count)
+    }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
+
+      await queryLogger.log({
+        query,
+        params: this.whereParams,
+        duration,
+        timestamp: new Date(),
+        operation: 'SELECT',
+        table: this.tableName,
+        error,
+      })
+    }
   }
 
   async latest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {

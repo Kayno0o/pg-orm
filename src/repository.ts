@@ -10,10 +10,12 @@ import type {
 import { toSnake } from '@kaynooo/utils'
 import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
+import { extractOperation, queryLogger } from './logger'
 import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
 import { SchemaValidator } from './schema-validator'
 import { hasColumnName, isArrayFieldConfig } from './types'
+import { mapDatabaseError } from './utils/error-mapper'
 import { ValidationError } from './validation'
 
 export class Repository<
@@ -139,25 +141,68 @@ export class Repository<
     }
   }
 
+  private async loggedQuery<R>(
+    queryFn: () => Promise<R>,
+    query: string,
+    params: unknown[],
+  ): Promise<R> {
+    const start = performance.now()
+    let error: Error | undefined
+
+    try {
+      return await queryFn()
+    }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
+
+      await queryLogger.log({
+        query,
+        params,
+        duration,
+        timestamp: new Date(),
+        operation: extractOperation(query),
+        table: this.tableName,
+        error,
+      })
+    }
+  }
+
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
-    const [result] = await db`
-      SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}
-      WHERE id = ${id}
-      LIMIT 1
-    `
+    return this.loggedQuery(
+      async () => {
+        const [result] = await db`
+          SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}
+          WHERE id = ${id}
+          LIMIT 1
+        `
 
-    return result ? this.mapper.mapRowToEntity(result) : null
+        return result ? this.mapper.mapRowToEntity(result) : null
+      },
+      `SELECT ${this.cachedSelectColumns} FROM ${this.tableName} WHERE id = $1 LIMIT 1`,
+      [id],
+    )
   }
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
-    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
-    const results = await db`SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}`
 
-    return results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
+    return this.loggedQuery(
+      async () => {
+        const results = await db`SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}`
+
+        return results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
+      },
+      `SELECT ${this.cachedSelectColumns} FROM ${this.tableName}`,
+      [],
+    )
   }
 
   async create(data: InferCreateData<T>, options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>> {
@@ -174,19 +219,26 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
+
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
-    const [result] = await db`
-      INSERT INTO ${db(this.tableName)} ${db(preparedData)}
-      RETURNING ${db.unsafe(this.cachedSelectColumns)}
-    `
+    return this.loggedQuery(
+      async () => {
+        const [result] = await db`
+          INSERT INTO ${db(this.tableName)} ${db(preparedData)}
+          RETURNING ${db.unsafe(this.cachedSelectColumns)}
+        `
 
-    const entity = this.mapper.mapRowToEntity(result)
+        const entity = this.mapper.mapRowToEntity(result)
 
-    for (const hook of this.definition.hooks.afterCreate) {
-      await hook(entity as any)
-    }
+        for (const hook of this.definition.hooks.afterCreate) {
+          await hook(entity as any)
+        }
 
-    return entity
+        return entity
+      },
+      `INSERT INTO ${this.tableName} RETURNING ${this.cachedSelectColumns}`,
+      [preparedData],
+    )
   }
 
   async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
@@ -203,26 +255,32 @@ export class Repository<
     const preparedData = this.prepareData(data as Record<string, unknown>)
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
-    const [result] = await db`
-      UPDATE ${db(this.tableName)}
-      SET ${db(preparedData)}
-      WHERE id = ${id}
-      RETURNING ${db.unsafe(this.cachedSelectColumns)}
-    `
+    return this.loggedQuery(
+      async () => {
+        const [result] = await db`
+          UPDATE ${db(this.tableName)}
+          SET ${db(preparedData)}
+          WHERE id = ${id}
+          RETURNING ${db.unsafe(this.cachedSelectColumns)}
+        `
 
-    if (!result) {
-      throw new EntityNotFoundError(this.tableName, id, {
-        suggestion: `Check if entity exists using repo.exists(${id})`,
-      })
-    }
+        if (!result) {
+          throw new EntityNotFoundError(this.tableName, id, {
+            suggestion: `Check if entity exists using repo.exists(${id})`,
+          })
+        }
 
-    const entity = this.mapper.mapRowToEntity(result)
+        const entity = this.mapper.mapRowToEntity(result)
 
-    for (const hook of this.definition.hooks.afterUpdate) {
-      await hook(entity as any)
-    }
+        for (const hook of this.definition.hooks.afterUpdate) {
+          await hook(entity as any)
+        }
 
-    return entity
+        return entity
+      },
+      `UPDATE ${this.tableName} SET ... WHERE id = $1 RETURNING ${this.cachedSelectColumns}`,
+      [id, preparedData],
+    )
   }
 
   async delete(id: number): Promise<void> {
@@ -232,21 +290,27 @@ export class Repository<
       await hook(id)
     }
 
-    const [result] = await db`
-      DELETE FROM ${db(this.tableName)}
-      WHERE id = ${id}
-      RETURNING id
-    `
+    return this.loggedQuery(
+      async () => {
+        const [result] = await db`
+          DELETE FROM ${db(this.tableName)}
+          WHERE id = ${id}
+          RETURNING id
+        `
 
-    if (!result) {
-      throw new EntityNotFoundError(this.tableName, id, {
-        suggestion: `Entity may have already been deleted`,
-      })
-    }
+        if (!result) {
+          throw new EntityNotFoundError(this.tableName, id, {
+            suggestion: `Entity may have already been deleted`,
+          })
+        }
 
-    for (const hook of this.definition.hooks.afterDelete) {
-      await hook(id)
-    }
+        for (const hook of this.definition.hooks.afterDelete) {
+          await hook(id)
+        }
+      },
+      `DELETE FROM ${this.tableName} WHERE id = $1 RETURNING id`,
+      [id],
+    )
   }
 
   async count(exact = true): Promise<number> {
@@ -321,24 +385,30 @@ export class Repository<
     const preparedDataArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
-    const results = await db`
-      INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
-      RETURNING ${db.unsafe(this.cachedSelectColumns)}
-    `
+    return this.loggedQuery(
+      async () => {
+        const results = await db`
+          INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
+          RETURNING ${db.unsafe(this.cachedSelectColumns)}
+        `
 
-    const entities = results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
+        const entities = results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
 
-    const afterHooks = this.definition.hooks.afterCreate
+        const afterHooks = this.definition.hooks.afterCreate
 
-    if (afterHooks.length > 0) {
-      await Promise.all(entities.map(async (entity: any) => {
-        for (const hook of afterHooks) {
-          await hook(entity as any)
+        if (afterHooks.length > 0) {
+          await Promise.all(entities.map(async (entity: any) => {
+            for (const hook of afterHooks) {
+              await hook(entity as any)
+            }
+          }))
         }
-      }))
-    }
 
-    return entities
+        return entities
+      },
+      `INSERT INTO ${this.tableName} (bulk ${dataArray.length} rows) RETURNING ${this.cachedSelectColumns}`,
+      preparedDataArray,
+    )
   }
 
   async deleteMany(ids: number[]): Promise<void> {

@@ -185,6 +185,62 @@ export class JsonDepthError extends Error {
   }
 }
 
+export class UniqueConstraintViolationError extends Error {
+  constructor(
+    public entityName: string,
+    public constraintName: string,
+    public fields?: string[],
+  ) {
+    let message = `Unique constraint violation in ${entityName}`
+
+    if (fields && fields.length > 0) {
+      message += ` on field(s): ${fields.join(', ')}`
+    }
+    else if (constraintName) {
+      message += ` (constraint: ${constraintName})`
+    }
+
+    super(message)
+    this.name = 'UniqueConstraintViolationError'
+  }
+}
+
+export class ForeignKeyConstraintViolationError extends Error {
+  constructor(
+    public entityName: string,
+    public constraintName: string,
+    public referencedTable?: string,
+  ) {
+    let message = `Foreign key constraint violation in ${entityName}`
+
+    if (referencedTable) {
+      message += ` referencing ${referencedTable}`
+    }
+    else if (constraintName) {
+      message += ` (constraint: ${constraintName})`
+    }
+
+    super(message)
+    this.name = 'ForeignKeyConstraintViolationError'
+  }
+}
+
+export class NotNullConstraintViolationError extends Error {
+  constructor(
+    public entityName: string,
+    public columnName?: string,
+  ) {
+    let message = `Not null constraint violation in ${entityName}`
+
+    if (columnName) {
+      message += ` on column: ${columnName}`
+    }
+
+    super(message)
+    this.name = 'NotNullConstraintViolationError'
+  }
+}
+
 export function sanitizeError(error: Error, config?: { exposeInternalErrors?: boolean, includeStackTraces?: boolean }): Error {
   const shouldExpose = config?.exposeInternalErrors ?? (process.env.NODE_ENV === 'development')
   const includeStack = config?.includeStackTraces ?? (process.env.NODE_ENV === 'development')
@@ -211,7 +267,10 @@ export function sanitizeError(error: Error, config?: { exposeInternalErrors?: bo
     || error instanceof JsonDepthError
     || error instanceof InvalidColumnError
     || error instanceof InvalidIdentifierError
-    || error instanceof OptimisticLockError) {
+    || error instanceof OptimisticLockError
+    || error instanceof UniqueConstraintViolationError
+    || error instanceof ForeignKeyConstraintViolationError
+    || error instanceof NotNullConstraintViolationError) {
     if (!includeStack && error.stack) {
       const sanitized = new Error(error.message)
 
