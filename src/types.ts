@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { QueryBuilder } from './query'
 
 export type SQLValue
   = | string
@@ -342,8 +343,7 @@ export type ConvertTraitMethods<TMethods extends TraitMethods> = {
 }
 
 // Scope function that takes a query builder and returns it (with added filters)
-// Using 'any' to avoid circular dependency with QueryBuilder
-export type ScopeDefinition<_T extends EntitySchema> = (query: any) => any
+export type ScopeDefinition<T extends EntitySchema> = (query: QueryBuilder<T, any>) => QueryBuilder<T, any>
 
 export interface EntityDefinition<
   T extends EntitySchema,
