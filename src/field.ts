@@ -5,6 +5,7 @@ import type {
   BooleanFieldConfig,
   DateFieldConfig,
   EnumFieldConfig,
+  ForeignKeyFieldConfig,
   JsonFieldConfig,
   NumberFieldConfig,
   SQLValue,
@@ -139,24 +140,6 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
 
   column(name: string): this {
     this.setColumnName(name)
-
-    return this
-  }
-
-  foreignKey(
-    table: string,
-    column = 'id',
-    options?: {
-      onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
-      onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
-    },
-  ): this {
-    this.config.foreignKey = {
-      table,
-      column,
-      onDelete: options?.onDelete || 'NO ACTION',
-      onUpdate: options?.onUpdate || 'NO ACTION',
-    }
 
     return this
   }
@@ -402,6 +385,46 @@ export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 }
 
+export class ForeignKeyFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<ForeignKeyFieldConfig<Nullable, HasDefault>, Nullable, HasDefault> {
+  constructor(config: ForeignKeyFieldConfig<Nullable, HasDefault>) {
+    super(config)
+  }
+
+  nullable(): ForeignKeyFieldBuilder<true, HasDefault> {
+    this.setNullable()
+
+    return this as ForeignKeyFieldBuilder<true, HasDefault>
+  }
+
+  unique(): this {
+    this.config.unique = true
+
+    return this
+  }
+
+  column(name: string): this {
+    this.setColumnName(name)
+
+    return this
+  }
+
+  onDelete(action: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'): this {
+    this.config.foreignKey.onDelete = action
+
+    return this
+  }
+
+  onUpdate(action: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'): this {
+    this.config.foreignKey.onUpdate = action
+
+    return this
+  }
+
+  toConfig(): ForeignKeyFieldConfig<Nullable, HasDefault> {
+    return this.config
+  }
+}
+
 export const field = {
   string: () =>
     new StringFieldBuilder<false, false>({
@@ -493,5 +516,19 @@ export const field = {
       nullable: false,
       unique: false,
       hasDefault: false,
+    }),
+
+  foreignKey: (table: string, column = 'id') =>
+    new ForeignKeyFieldBuilder<false, false>({
+      type: 'foreignKey',
+      nullable: false,
+      unique: false,
+      hasDefault: false,
+      foreignKey: {
+        table,
+        column,
+        onDelete: 'NO ACTION',
+        onUpdate: 'NO ACTION',
+      },
     }),
 }

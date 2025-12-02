@@ -22,7 +22,7 @@ import { orm } from '@kaynooo/pg-orm'
 const Post = orm.entity('posts', {
   title: orm.string(),
   content: orm.string(),
-  authorId: orm.number().foreignKey('users', 'id', {
+  authorId: orm.foreignKey('users', 'id', {
     onDelete: 'CASCADE',
     onUpdate: 'NO ACTION'
   }),
@@ -32,7 +32,7 @@ const Post = orm.entity('posts', {
 ### Foreign Key Options
 
 ```typescript
-orm.number().foreignKey(
+orm.foreignKey(
   'table_name',    // Referenced table
   'column_name',   // Referenced column (default: 'id')
   {
@@ -46,7 +46,7 @@ orm.number().foreignKey(
 
 ```typescript
 // CASCADE - Delete related records when parent is deleted
-authorId: orm.number().foreignKey('users', 'id', {
+authorId: orm.foreignKey('users', 'id', {
   onDelete: 'CASCADE'
 })
 
@@ -56,12 +56,12 @@ assigneeId: orm.number().nullable().foreignKey('users', 'id', {
 })
 
 // RESTRICT - Prevent deletion if related records exist
-customerId: orm.number().foreignKey('customers', 'id', {
+customerId: orm.foreignKey('customers', 'id', {
   onDelete: 'RESTRICT'
 })
 
 // Default (NO ACTION)
-categoryId: orm.number().foreignKey('categories')
+categoryId: orm.foreignKey('categories')
 ```
 
 ## Loading Related Data
@@ -82,7 +82,7 @@ const User = orm.entity('users', {
 
 const Post = orm.entity('posts', {
   title: orm.string(),
-  authorId: orm.number().foreignKey('users'),
+  authorId: orm.foreignKey('users'),
 }).build()
 
 const users = orm.repo(User)
@@ -127,7 +127,7 @@ Load a single related entity (typically for one-to-one relationships).
 import { hasOne, orm } from '@kaynooo/pg-orm'
 
 const Profile = orm.entity('profiles', {
-  userId: orm.number().foreignKey('users').unique(),
+  userId: orm.foreignKey('users').unique(),
   bio: orm.string(),
   website: orm.string().nullable(),
 }).build()
@@ -222,7 +222,7 @@ const User = orm.entity('users', {
 }).build()
 
 const Profile = orm.entity('profiles', {
-  userId: orm.number().foreignKey('users', 'id', {
+  userId: orm.foreignKey('users', 'id', {
     onDelete: 'CASCADE'
   }).unique(),
   bio: orm.string(),
@@ -232,17 +232,17 @@ const Profile = orm.entity('profiles', {
 const Post = orm.entity('posts', {
   title: orm.string(),
   content: orm.string(),
-  authorId: orm.number().foreignKey('users', 'id', {
+  authorId: orm.foreignKey('users', 'id', {
     onDelete: 'CASCADE'
   }),
   published: orm.boolean().default(false),
 }).build()
 
 const Comment = orm.entity('comments', {
-  postId: orm.number().foreignKey('posts', 'id', {
+  postId: orm.foreignKey('posts', 'id', {
     onDelete: 'CASCADE'
   }),
-  userId: orm.number().foreignKey('users', 'id', {
+  userId: orm.foreignKey('users', 'id', {
     onDelete: 'SET NULL'
   }).nullable(),
   content: orm.string(),
@@ -378,7 +378,7 @@ Foreign keys defined with `.foreignKey()` are automatically detected by the migr
 
 ```typescript
 const Post = orm.entity('posts', {
-  authorId: orm.number().foreignKey('users', 'id', {
+  authorId: orm.foreignKey('users', 'id', {
     onDelete: 'CASCADE'
   }),
 }).build()

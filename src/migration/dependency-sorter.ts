@@ -26,9 +26,12 @@ class DependencyGraphBuilder {
       // Extract FK dependencies from entity schema
       for (const [_fieldName, fieldConfig] of Object.entries(entityDef.schema)) {
         const config = fieldConfig as FieldConfig
+        const fk = (config.type === 'number' && config.foreignKey)
+          ? config.foreignKey
+          : (config.type === 'foreignKey' ? config.foreignKey : null)
 
-        if (config.type === 'number' && config.foreignKey) {
-          const refTable = config.foreignKey.table
+        if (fk) {
+          const refTable = fk.table
 
           if (refTable === tableName) {
             selfReferencing = true
@@ -58,10 +61,11 @@ class DependencyGraphBuilder {
 
     for (const [fieldName, fieldConfig] of Object.entries(schema)) {
       const config = fieldConfig as FieldConfig
+      const fk = (config.type === 'number' && config.foreignKey)
+        ? config.foreignKey
+        : (config.type === 'foreignKey' ? config.foreignKey : null)
 
-      if (config.type === 'number' && config.foreignKey) {
-        const fk = config.foreignKey
-
+      if (fk) {
         foreignKeys.push({
           fieldName,
           table: fk.table,
@@ -345,33 +349,8 @@ class ForeignKeyValidator {
       return 'INTEGER'
     }
 
-    // Try to get from entity definition
-    const entity = this.entities.get(tableName)
-
-    if (entity) {
-      // Find field by column name
-      for (const [fieldName, fieldConfig] of Object.entries(entity.schema)) {
-        const config = fieldConfig as FieldConfig
-        const fieldColumnName = this.getColumnName(fieldName, config)
-
-        if (fieldColumnName === columnName) {
-          return this.fieldConfigToPostgresType(config)
-        }
-      }
-    }
-
-    // Try to get from database schema
-    const dbColumns = this.dbSchema.columns.get(tableName)
-
-    if (dbColumns) {
-      const column = dbColumns.find(c => c.columnName === columnName)
-
-      if (column) {
-        return normalizePostgresType(column)
-      }
-    }
-
-    // Try to get from pending changes (CREATE_TABLE or ADD_COLUMN)
+    // First, check pending changes (CREATE_TABLE or ADD_COLUMN) - these take precedence
+    // because they represent the actual SQL that will be executed
     for (const change of changes) {
       if (change.tableName === tableName) {
         if (change.type === 'CREATE_TABLE') {
@@ -389,6 +368,32 @@ class ForeignKeyValidator {
           if (typeMatch) {
             return typeMatch[1]!.trim().split(/\s+/)[0]!
           }
+        }
+      }
+    }
+
+    // Try to get from database schema (existing columns)
+    const dbColumns = this.dbSchema.columns.get(tableName)
+
+    if (dbColumns) {
+      const column = dbColumns.find(c => c.columnName === columnName)
+
+      if (column) {
+        return normalizePostgresType(column)
+      }
+    }
+
+    // Finally, fall back to entity definition
+    const entity = this.entities.get(tableName)
+
+    if (entity) {
+      // Find field by column name
+      for (const [fieldName, fieldConfig] of Object.entries(entity.schema)) {
+        const config = fieldConfig as FieldConfig
+        const fieldColumnName = this.getColumnName(fieldName, config)
+
+        if (fieldColumnName === columnName) {
+          return this.fieldConfigToPostgresType(config)
         }
       }
     }
@@ -430,6 +435,8 @@ class ForeignKeyValidator {
       break
     case 'enum':
       return 'TEXT'
+    case 'foreignKey':
+      return 'INTEGER'
     }
 
     return 'TEXT'

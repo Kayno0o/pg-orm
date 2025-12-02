@@ -48,7 +48,7 @@ describe('DependencySorter Unit Tests', () => {
 
     const Post = orm.entity('test_order_posts', {
       title: orm.string(),
-      authorId: orm.number().integer().foreignKey('test_order_users'),
+      authorId: orm.foreignKey('test_order_users'),
     }).build()
 
     const entities = new Map()
@@ -93,17 +93,17 @@ describe('DependencySorter Unit Tests', () => {
     // Create circular dependency: A → B → C → A
     const TableA = orm.entity('dep_circ_a', {
       name: orm.string(),
-      cId: orm.number().integer().foreignKey('dep_circ_c'),
+      cId: orm.foreignKey('dep_circ_c'),
     }).build()
 
     const TableB = orm.entity('dep_circ_b', {
       name: orm.string(),
-      aId: orm.number().integer().foreignKey('dep_circ_a'),
+      aId: orm.foreignKey('dep_circ_a'),
     }).build()
 
     const TableC = orm.entity('dep_circ_c', {
       name: orm.string(),
-      bId: orm.number().integer().foreignKey('dep_circ_b'),
+      bId: orm.foreignKey('dep_circ_b'),
     }).build()
 
     const entities = new Map()
@@ -138,7 +138,7 @@ describe('DependencySorter Unit Tests', () => {
 
     const Child = orm.entity('dep_type_child', {
       name: orm.string(),
-      parentId: orm.number().foreignKey('dep_type_parent'), // DOUBLE PRECISION
+      parentId: orm.foreignKey('dep_type_parent'), // DOUBLE PRECISION
     }).build()
 
     const entities = new Map()

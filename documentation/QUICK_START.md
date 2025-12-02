@@ -104,7 +104,7 @@ const Post = orm
   .entity('posts', {
     title: orm.string(),
     content: orm.string(),
-    authorId: orm.number().integer().foreignKey('users'),
+    authorId: orm.foreignKey('users'),
   })
   .build()
 

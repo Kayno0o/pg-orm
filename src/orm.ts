@@ -135,6 +135,10 @@ export class ORM {
     return field.blob
   }
 
+  get foreignKey() {
+    return field.foreignKey
+  }
+
   get migration() {
     return {
       create: async (name: string) => {

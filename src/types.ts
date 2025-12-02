@@ -27,6 +27,7 @@ export type FieldType
     | 'array'
     | 'enum'
     | 'blob'
+    | 'foreignKey'
 
 export interface BaseFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> {
   type: FieldType
@@ -93,6 +94,16 @@ export interface BlobFieldConfig<Nullable extends boolean = boolean, HasDefault 
   type: 'blob'
 }
 
+export interface ForeignKeyFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
+  type: 'foreignKey'
+  foreignKey: {
+    table: string
+    column: string
+    onDelete: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+    onUpdate: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'
+  }
+}
+
 export type FieldConfig
   = | StringFieldConfig<boolean, boolean>
     | NumberFieldConfig<boolean, boolean>
@@ -104,6 +115,7 @@ export type FieldConfig
     | ArrayFieldConfig<'string' | 'number' | 'boolean', boolean, boolean>
     | EnumFieldConfig<readonly string[], boolean, boolean>
     | BlobFieldConfig<boolean, boolean>
+    | ForeignKeyFieldConfig<boolean, boolean>
 
 export type EntitySchema = Record<string, FieldConfig>
 
@@ -121,6 +133,7 @@ interface FieldTypeMapping {
   timestamp: Date
   date: Date
   blob: Uint8Array
+  foreignKey: number
 }
 
 type InferArrayType<AT extends 'string' | 'number' | 'boolean'>

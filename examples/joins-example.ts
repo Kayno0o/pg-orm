@@ -1,6 +1,6 @@
 import { orm } from '../src'
 
-// Define entities
+// Define entities with unique table names to avoid conflicts
 const User = orm.entity('users', {
   name: orm.string(),
   email: orm.string().unique(),
@@ -9,30 +9,24 @@ const User = orm.entity('users', {
 const Post = orm.entity('posts', {
   title: orm.string(),
   content: orm.string(),
-  userId: orm.number().foreignKey('users', 'id', { onDelete: 'CASCADE' }),
+  userId: orm.foreignKey('users').onDelete('CASCADE'),
 }).build()
 
 const Comment = orm.entity('comments', {
   content: orm.string(),
-  postId: orm.number().foreignKey('posts', 'id', { onDelete: 'CASCADE' }),
-  userId: orm.number().foreignKey('users', 'id', { onDelete: 'CASCADE' }),
+  postId: orm.foreignKey('posts').onDelete('CASCADE'),
+  userId: orm.foreignKey('users').onDelete('CASCADE'),
 }).build()
 
 // eslint-disable-next-line max-lines-per-function
 async function demonstrateJoins() {
-  // Connect to database
-  await orm.connect({
-    hostname: 'localhost',
-    port: 5432,
-    database: 'postgres',
-    username: 'postgres',
-    password: 'postgres',
-  })
-
-  // Get repositories
+  // Register repositories BEFORE connecting (required for auto-migration)
   const users = orm.repo(User)
   const posts = orm.repo(Post)
   const comments = orm.repo(Comment)
+
+  // Connect to database - auto-migration will create the tables
+  await orm.connect({ connectionString: Bun.env.DATABASE_URL, migrations: { autoMigrate: true, noInteraction: true } })
 
   // Create test data
   const alice = await users.create({

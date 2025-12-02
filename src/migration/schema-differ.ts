@@ -531,6 +531,11 @@ export class SchemaDiffer {
       baseMapping.type = 'BYTEA'
 
       break
+
+    case 'foreignKey':
+      baseMapping.type = 'INTEGER'
+
+      break
     }
 
     // Add default value
@@ -649,8 +654,11 @@ export class SchemaDiffer {
     const changes: SchemaChange[] = []
 
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
-      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
-        const fk = fieldConfig.foreignKey
+      const fk = (fieldConfig.type === 'number' && fieldConfig.foreignKey)
+        ? fieldConfig.foreignKey
+        : (fieldConfig.type === 'foreignKey' ? fieldConfig.foreignKey : null)
+
+      if (fk) {
         const { sql, constraintName, columnName } = this.generateForeignKeySQL(tableName, fieldName, fk)
 
         changes.push({
@@ -677,8 +685,11 @@ export class SchemaDiffer {
     const changes: SchemaChange[] = []
 
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
-      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
-        const fk = fieldConfig.foreignKey
+      const fk = (fieldConfig.type === 'number' && fieldConfig.foreignKey)
+        ? fieldConfig.foreignKey
+        : (fieldConfig.type === 'foreignKey' ? fieldConfig.foreignKey : null)
+
+      if (fk) {
         const columnName = this.getColumnName(fieldName)
         const dbFk = dbFkMap.get(columnName)
 
@@ -747,7 +758,9 @@ export class SchemaDiffer {
     const entityFkColumns = new Set<string>()
 
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
-      if (fieldConfig.type === 'number' && fieldConfig.foreignKey) {
+      const hasFk = (fieldConfig.type === 'number' && fieldConfig.foreignKey) || fieldConfig.type === 'foreignKey'
+
+      if (hasFk) {
         entityFkColumns.add(this.getColumnName(fieldName))
       }
     }

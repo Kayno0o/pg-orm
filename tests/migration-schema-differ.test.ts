@@ -405,7 +405,7 @@ describe('SchemaDiffer Unit Tests', () => {
 
       const Post = orm.entity('posts', {
         title: orm.string(),
-        authorId: orm.number().integer().foreignKey('users'),
+        authorId: orm.foreignKey('users'),
       }).build()
 
       const entities = new Map<string, any>([
@@ -454,7 +454,7 @@ describe('SchemaDiffer Unit Tests', () => {
 
       const Post = orm.entity('posts', {
         title: orm.string(),
-        authorId: orm.number().integer().foreignKey('users', 'id', { onDelete: 'CASCADE' }), // Changed to CASCADE
+        authorId: orm.foreignKey('users').onDelete('CASCADE'), // Changed to CASCADE
       }).build()
 
       const entities = new Map<string, any>([

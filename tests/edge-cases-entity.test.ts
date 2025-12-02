@@ -187,7 +187,7 @@ describe('Edge Cases - Field Definitions', () => {
     expect(() => {
       orm.entity('posts', {
         title: orm.string(),
-        authorId: orm.number().integer().foreignKey('users'),
+        authorId: orm.foreignKey('users'),
       }).build()
     }).not.toThrow()
   })
@@ -196,7 +196,7 @@ describe('Edge Cases - Field Definitions', () => {
     expect(() => {
       orm.entity('comments', {
         content: orm.string(),
-        postId: orm.number().integer().foreignKey('posts', 'id'),
+        postId: orm.foreignKey('posts', 'id'),
       }).build()
     }).not.toThrow()
   })
@@ -204,8 +204,8 @@ describe('Edge Cases - Field Definitions', () => {
   test('should handle foreign key with CASCADE options', () => {
     expect(() => {
       orm.entity('likes', {
-        userId: orm.number().integer().foreignKey('users', 'id', { onDelete: 'CASCADE' }),
-        postId: orm.number().integer().foreignKey('posts', 'id', { onDelete: 'CASCADE', onUpdate: 'CASCADE' }),
+        userId: orm.foreignKey('users').onDelete('CASCADE'),
+        postId: orm.foreignKey('posts').onDelete('CASCADE').onUpdate('CASCADE'),
       }).build()
     }).not.toThrow()
   })
