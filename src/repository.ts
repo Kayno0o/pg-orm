@@ -10,10 +10,11 @@ import type {
 import { toSnake } from '@kaynooo/utils'
 import { getDatabase, getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
+import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
+import { SchemaValidator } from './schema-validator'
 import { hasColumnName, isArrayFieldConfig } from './types'
-import { parsePostgresArray } from './utils/array-parser'
-import { ValidationError, Validator } from './validation'
+import { ValidationError } from './validation'
 
 export class Repository<
   T extends EntitySchema,
@@ -23,24 +24,18 @@ export class Repository<
   private schema: T
   private definition: EntityDefinition<T, TTraits>
   private txContext?: SQL
-  private validator: Validator
-  private validatorCache: Map<number, Validator>
   private entityPrototype: any
   private cachedSelectColumns: string
   private columnNameMap: Map<string, string>
   private reverseColumnMap: Map<string, string>
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
+  private mapper: EntityMapper<T, TTraits>
+  private schemaValidator: SchemaValidator<T>
 
   constructor(entityDef: EntityDefinition<T, TTraits>) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
-
-    this.validator = new Validator({
-      maxJsonDepth: 32,
-    })
-
-    this.validatorCache = new Map()
 
     this.columnNameMap = new Map()
     this.columnNameMap.set('id', 'id')
@@ -62,6 +57,10 @@ export class Repository<
 
     const columns = ['id', ...Object.keys(this.schema).map(k => this.columnNameMap.get(k)!)]
 
+    // SECURITY AUDIT: cachedSelectColumns is constructed from schema field names only,
+    // which are validated at entity definition time. All column names are derived from
+    // schema keys via computeColumnName() which applies toSnake() transformation.
+    // This string is safe for use with db.unsafe() since it contains no user input.
     this.cachedSelectColumns = columns
       .map((col) => {
         const fieldName = this.reverseColumnMap.get(col)
@@ -79,6 +78,16 @@ export class Repository<
       .join(', ')
 
     this.entityPrototype = this.buildEntityPrototype()
+
+    this.mapper = new EntityMapper(
+      this.schema,
+      this.definition,
+      this.fieldConfigs,
+      this.reverseColumnMap,
+      this.entityPrototype,
+    )
+
+    this.schemaValidator = new SchemaValidator(this.schema, this.tableName)
   }
 
   private computeColumnName(fieldName: string): string {
@@ -118,23 +127,6 @@ export class Repository<
     }
   }
 
-  private getValidator(): Validator {
-    const limits = this.getLimits()
-
-    if (limits.jsonDepth === 32) {
-      return this.validator
-    }
-
-    let cached = this.validatorCache.get(limits.jsonDepth)
-
-    if (!cached) {
-      cached = new Validator({ maxJsonDepth: limits.jsonDepth })
-      this.validatorCache.set(limits.jsonDepth, cached)
-    }
-
-    return cached
-  }
-
   private isStrictMode(): boolean {
     try {
       const config = getDatabaseConfig()
@@ -149,27 +141,31 @@ export class Repository<
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     const [result] = await db`
       SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}
       WHERE id = ${id}
       LIMIT 1
     `
 
-    return result ? this.mapRowToEntity(result) : null
+    return result ? this.mapper.mapRowToEntity(result) : null
   }
 
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     const results = await db`SELECT ${db.unsafe(this.cachedSelectColumns)} FROM ${db(this.tableName)}`
 
-    return results.map((row: DatabaseRow) => this.mapRowToEntity(row))
+    return results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
   }
 
   async create(data: InferCreateData<T>, options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
     if (!options?.skipValidation) {
-      this.getValidator().validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+      const limits = this.getLimits()
+
+      this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
     }
 
     for (const hook of this.definition.hooks.beforeCreate) {
@@ -177,12 +173,13 @@ export class Repository<
     }
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     const [result] = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedData)}
       RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
-    const entity = this.mapRowToEntity(result)
+    const entity = this.mapper.mapRowToEntity(result)
 
     for (const hook of this.definition.hooks.afterCreate) {
       await hook(entity as any)
@@ -194,7 +191,9 @@ export class Repository<
   async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
-    this.getValidator().validate(data as Record<string, unknown>, this.schema, 'update', this.tableName)
+    const limits = this.getLimits()
+
+    this.schemaValidator.validateUpdate(data as Record<string, unknown>, limits.jsonDepth)
 
     for (const hook of this.definition.hooks.beforeUpdate) {
       await hook(id, data)
@@ -202,6 +201,7 @@ export class Repository<
 
     const preparedData = this.prepareData(data as Record<string, unknown>)
 
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     const [result] = await db`
       UPDATE ${db(this.tableName)}
       SET ${db(preparedData)}
@@ -215,7 +215,7 @@ export class Repository<
       })
     }
 
-    const entity = this.mapRowToEntity(result)
+    const entity = this.mapper.mapRowToEntity(result)
 
     for (const hook of this.definition.hooks.afterUpdate) {
       await hook(entity as any)
@@ -300,10 +300,10 @@ export class Repository<
     const db = this.getDB()
 
     if (!options?.skipValidation) {
-      const validator = this.getValidator()
+      const limits = this.getLimits()
 
       for (const data of dataArray) {
-        validator.validate(data as Record<string, unknown>, this.schema, 'create', this.tableName)
+        this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
       }
     }
 
@@ -319,12 +319,13 @@ export class Repository<
 
     const preparedDataArray = dataArray.map(data => this.prepareData(data as Record<string, unknown>))
 
+    // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     const results = await db`
       INSERT INTO ${db(this.tableName)} ${db(preparedDataArray)}
       RETURNING ${db.unsafe(this.cachedSelectColumns)}
     `
 
-    const entities = results.map((row: DatabaseRow) => this.mapRowToEntity(row))
+    const entities = results.map((row: DatabaseRow) => this.mapper.mapRowToEntity(row))
 
     const afterHooks = this.definition.hooks.afterCreate
 
@@ -362,8 +363,21 @@ export class Repository<
       this.tableName,
       this.getDB(),
       this.schema,
-      (row: DatabaseRow) => this.mapRowToEntity(row),
+      (row: DatabaseRow) => this.mapper.mapRowToEntity(row),
+      this.definition.scopes,
     )
+  }
+
+  scope(name: string) {
+    const scopeFn = this.definition.scopes.get(name)
+
+    if (!scopeFn) {
+      throw new Error(`Scope "${name}" not found on entity ${this.tableName}`)
+    }
+
+    const query = this.query()
+
+    return scopeFn(query)
   }
 
   withTransaction(tx: SQL): this {
@@ -428,43 +442,6 @@ export class Repository<
     }
 
     return prototype
-  }
-
-  private mapRowToEntity(row: DatabaseRow): InferEntity<T, TTraits> {
-    const entity: any = Object.create(this.entityPrototype)
-
-    entity.id = row.id
-
-    for (const { fieldName, columnName, config } of this.fieldConfigs) {
-      const value = row[columnName]
-
-      if (value === undefined)
-        continue
-
-      if (config.type === 'array' && value !== null) {
-        if (Array.isArray(value)) {
-          entity[fieldName] = value
-        }
-        else if (typeof value === 'string') {
-          entity[fieldName] = this.parsePostgresArray(value, config.arrayType)
-        }
-        else {
-          entity[fieldName] = Array.from(value as any)
-        }
-      }
-      else if ((config.type === 'timestamp' || config.type === 'date') && value !== null) {
-        entity[fieldName] = value instanceof Date ? value : new Date(value as string)
-      }
-      else {
-        entity[fieldName] = value
-      }
-    }
-
-    return entity as InferEntity<T, TTraits>
-  }
-
-  private parsePostgresArray(textValue: string, elementType: string): any[] {
-    return parsePostgresArray(textValue, elementType as 'string' | 'number' | 'boolean')
   }
 
   private prepareData(data: Record<string, unknown>): Record<string, unknown> {

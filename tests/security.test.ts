@@ -29,7 +29,7 @@ describe('Security - SQL Injection Protection', () => {
       const longIdentifier = 'a'.repeat(64)
 
       expect(() => validateSQLIdentifier(longIdentifier, 'table')).toThrow(InvalidIdentifierError)
-      expect(() => validateSQLIdentifier(longIdentifier, 'table')).toThrow(/exceeds 63 character limit/)
+      expect(() => validateSQLIdentifier(longIdentifier, 'table')).toThrow(/exceeds PostgreSQL 63 character limit/)
     })
 
     test('should reject invalid patterns', () => {

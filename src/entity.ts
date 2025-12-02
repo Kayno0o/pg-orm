@@ -9,6 +9,7 @@ import type {
   EntityHooks,
   EntitySchema,
   FieldConfig,
+  ScopeDefinition,
   TraitDefinition,
 } from './types'
 import { validateSQLIdentifier } from './sql-utils'
@@ -20,6 +21,7 @@ export class EntityBuilder<
   private _hooks: EntityHooks<T>
   private _traits: TTraits
   private _unique?: string[][]
+  private _scopes: Map<string, ScopeDefinition<T>>
 
   constructor(
     private readonly tableName: string,
@@ -37,6 +39,7 @@ export class EntityBuilder<
       afterDelete: [],
     }
     this._traits = traits
+    this._scopes = new Map()
   }
 
   beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits> {
@@ -115,6 +118,14 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  scope(name: string, scopeFn: ScopeDefinition<T>): EntityBuilder<T, TTraits> {
+    const newBuilder = this.clone()
+
+    newBuilder._scopes.set(name, scopeFn)
+
+    return newBuilder
+  }
+
   build(): EntityDefinition<T, TTraits> {
     return Object.freeze({
       tableName: this.tableName,
@@ -122,6 +133,7 @@ export class EntityBuilder<
       hooks: this._hooks,
       traits: this._traits,
       unique: this._unique,
+      scopes: this._scopes,
     })
   }
 
@@ -137,6 +149,7 @@ export class EntityBuilder<
       afterDelete: [...this._hooks.afterDelete],
     }
     cloned._unique = this._unique
+    cloned._scopes = new Map(this._scopes)
 
     return cloned
   }

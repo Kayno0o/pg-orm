@@ -341,6 +341,10 @@ export type ConvertTraitMethods<TMethods extends TraitMethods> = {
   [K in keyof TMethods]: ConvertTraitMethod<TMethods[K]>
 }
 
+// Scope function that takes a query builder and returns it (with added filters)
+// Using 'any' to avoid circular dependency with QueryBuilder
+export type ScopeDefinition<_T extends EntitySchema> = (query: any) => any
+
 export interface EntityDefinition<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],
@@ -350,6 +354,7 @@ export interface EntityDefinition<
   readonly hooks: EntityHooks<T>
   readonly traits: TTraits
   readonly unique?: string[][]
+  readonly scopes: Map<string, ScopeDefinition<T>>
 }
 
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never

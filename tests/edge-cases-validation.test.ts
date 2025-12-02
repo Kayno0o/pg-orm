@@ -8,23 +8,17 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { name: 'a'.repeat(11) },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { name: 'a'.repeat(10) },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -35,17 +29,14 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const hugeArray = Array.from({ length: 10001 }, (_, i) => `tag${i}`)
 
     // Large arrays should pass validation (limit enforcement is at different level)
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { tags: hugeArray },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -56,7 +47,7 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     let deepJson: any = { value: 1 }
 
@@ -65,11 +56,8 @@ describe('Edge Cases - Validation Limits', () => {
     }
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { metadata: deepJson },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
   })
@@ -80,17 +68,14 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const largeJson = { data: 'x'.repeat(1_000_001) }
 
     // Large JSON should pass basic validation (size check is at different level)
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { metadata: largeJson },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -101,23 +86,17 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { role: 'superadmin' as any },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { role: 'admin' },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -128,32 +107,23 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { age: -1 },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { age: 121 },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { age: 25 },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -164,32 +134,23 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { username: 'ab' },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { username: 'a'.repeat(21) },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { username: 'alice' },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -201,32 +162,23 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { name: 'Alice' },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { name: 'Alice', bio: null },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { bio: 'My bio' },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
   })
@@ -237,14 +189,11 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { tags: [] },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -256,14 +205,11 @@ describe('Edge Cases - Validation Limits', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { name: '', bio: '' },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -277,7 +223,7 @@ describe('Edge Cases - Special Characters', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const sqlInjectionAttempts = [
       '\'; DROP TABLE users; --',
@@ -288,7 +234,7 @@ describe('Edge Cases - Special Characters', () => {
 
     for (const attempt of sqlInjectionAttempts) {
       expect(() => {
-        validator.validate(
+        schemaValidator.validateCreate(
           { name: attempt },
           User.schema,
           'create',
@@ -304,7 +250,7 @@ describe('Edge Cases - Special Characters', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const unicodeStrings = [
       '你好世界',
@@ -316,7 +262,7 @@ describe('Edge Cases - Special Characters', () => {
 
     for (const str of unicodeStrings) {
       expect(() => {
-        validator.validate(
+        schemaValidator.validateCreate(
           { name: str },
           User.schema,
           'create',
@@ -332,7 +278,7 @@ describe('Edge Cases - Special Characters', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const specialJsonValues = [
       { quote: 'He said "hello"' },
@@ -344,7 +290,7 @@ describe('Edge Cases - Special Characters', () => {
 
     for (const value of specialJsonValues) {
       expect(() => {
-        validator.validate(
+        schemaValidator.validateCreate(
           { metadata: value },
           User.schema,
           'create',
@@ -362,7 +308,7 @@ describe('Edge Cases - Boundary Values', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const boundaryValues = [
       0,
@@ -374,7 +320,7 @@ describe('Edge Cases - Boundary Values', () => {
 
     for (const value of boundaryValues) {
       expect(() => {
-        validator.validate(
+        schemaValidator.validateCreate(
           { count: value },
           User.schema,
           'create',
@@ -390,7 +336,7 @@ describe('Edge Cases - Boundary Values', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const precisionValues = [
       0.1,
@@ -403,7 +349,7 @@ describe('Edge Cases - Boundary Values', () => {
 
     for (const value of precisionValues) {
       expect(() => {
-        validator.validate(
+        schemaValidator.validateCreate(
           { price: value },
           User.schema,
           'create',
@@ -421,14 +367,11 @@ describe('Edge Cases - Boundary Values', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { count: 0, price: 0.0, age: 0 },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -439,14 +382,11 @@ describe('Edge Cases - Boundary Values', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { balance: -100.50 },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -459,14 +399,11 @@ describe('Edge Cases - Array Edge Cases', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { tags: ['tag1', '', 'tag3'] },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -477,16 +414,13 @@ describe('Edge Cases - Array Edge Cases', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     const largeArray = Array.from({ length: 1000 }, (_, i) => i)
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { numbers: largeArray },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -497,14 +431,11 @@ describe('Edge Cases - Array Edge Cases', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { tags: ['tag,with,commas', 'tag"with"quotes', 'tag\\with\\backslash'] },
-        User.schema,
-        'create',
-        'users',
       )
     }).not.toThrow()
   })
@@ -518,32 +449,23 @@ describe('Edge Cases - Type Coercion', () => {
     }).build()
 
     const repo = orm.repo(User)
-    const validator = (repo as any).getValidator()
+    const schemaValidator = (repo as any).schemaValidator
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { age: '25' as any },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { active: 'true' as any },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
 
     expect(() => {
-      validator.validate(
+      schemaValidator.validateCreate(
         { active: 1 as any },
-        User.schema,
-        'create',
-        'users',
       )
     }).toThrow()
   })
