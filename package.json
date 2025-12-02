@@ -31,8 +31,12 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "pg-orm": "./src/cli.ts"
+  },
   "files": [
-    "dist"
+    "dist",
+    "src/cli.ts"
   ],
   "scripts": {
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
