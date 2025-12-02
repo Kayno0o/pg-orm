@@ -9,6 +9,7 @@ export interface SeederContext {
 
 export interface Seeder {
   name: string
+  groups?: string[]
   run: (context: SeederContext) => Promise<void>
 }
 
@@ -19,7 +20,7 @@ export class SeederRunner {
     this.seedsPath = resolve(process.cwd(), seedsPath)
   }
 
-  async run(seederNames?: string[]): Promise<void> {
+  async run(options?: { seederNames?: string[], group?: string }): Promise<void> {
     const db = getDatabase()
 
     if (!existsSync(this.seedsPath)) {
@@ -41,9 +42,17 @@ export class SeederRunner {
 
     const seeders = await this.loadSeeders(files)
 
-    const toRun = seederNames
-      ? seeders.filter(s => seederNames.includes(s.name))
-      : seeders
+    let toRun = seeders
+
+    // Filter by group if specified
+    if (options?.group) {
+      toRun = toRun.filter(s => s.groups?.includes(options.group!))
+    }
+
+    // Filter by names if specified
+    if (options?.seederNames && options.seederNames.length > 0) {
+      toRun = toRun.filter(s => options.seederNames!.includes(s.name))
+    }
 
     if (toRun.length === 0) {
       console.log('\nNo matching seeders found.')
@@ -54,8 +63,11 @@ export class SeederRunner {
     console.log(`\nRunning ${toRun.length} seeder(s)...\n`)
 
     for (const seeder of toRun) {
+      const groupInfo = seeder.groups ? ` [${seeder.groups.join(', ')}]` : ''
+
+      console.log(`  → ${seeder.name}${groupInfo}`)
+
       try {
-        console.log(`  → ${seeder.name}`)
         await seeder.run({ db })
         console.log(`    ✓ Completed`)
       }
@@ -114,6 +126,9 @@ export class SeederRunner {
 
     console.log('\nAvailable seeders:\n')
 
+    const groupedSeeders = new Map<string, Seeder[]>()
+    const ungrouped: Seeder[] = []
+
     for (const file of files) {
       const filePath = resolve(this.seedsPath, file)
 
@@ -121,10 +136,42 @@ export class SeederRunner {
         const module = await import(filePath)
         const seeder: Seeder = module.default || module
 
-        console.log(`  • ${seeder.name || file}`)
+        if (!seeder.groups || seeder.groups.length === 0) {
+          ungrouped.push(seeder)
+
+          continue
+        }
+
+        for (const group of seeder.groups) {
+          if (!groupedSeeders.has(group)) {
+            groupedSeeders.set(group, [])
+          }
+
+          groupedSeeders.get(group)!.push(seeder)
+        }
       }
       catch {
         console.log(`  • ${file} (invalid)`)
+      }
+    }
+
+    // Display grouped seeders
+    for (const [group, seeders] of groupedSeeders) {
+      console.log(`  [${group}]`)
+
+      for (const seeder of seeders) {
+        console.log(`    • ${seeder.name}`)
+      }
+    }
+
+    // Display ungrouped seeders
+    if (ungrouped.length > 0) {
+      if (groupedSeeders.size > 0) {
+        console.log('\n  [no group]')
+      }
+
+      for (const seeder of ungrouped) {
+        console.log(`    • ${seeder.name}`)
       }
     }
 

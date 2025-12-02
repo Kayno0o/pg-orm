@@ -31,12 +31,8 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "pg-orm": "./src/cli.ts"
-  },
   "files": [
-    "dist",
-    "src/cli.ts"
+    "dist"
   ],
   "scripts": {
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
@@ -44,17 +40,10 @@
     "test:coverage": "rm -rf coverage coverage-report && bun test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
     "doc": "typedoc ./src/**/*.ts --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
     "check": "tsc --noEmit --strict",
-    "lint:fix": "bunx --bun eslint . --fix --cache",
+    "lint:fix": "eslint . --fix --cache",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
-    "migrate:create": "bun src/cli.ts migrate:create",
-    "migrate:run": "bun src/cli.ts migrate:run",
-    "migrate:rollback": "bun src/cli.ts migrate:rollback",
-    "migrate:reset": "bun src/cli.ts migrate:reset",
-    "migrate:status": "bun src/cli.ts migrate:status",
-    "migrate:generate": "bun src/cli.ts migrate:generate",
-    "db:seed": "bun src/cli.ts db:seed",
     "circular": "madge --circular ./src/index.ts",
     "circular:schema": "madge ./src/index.ts --image graph.png",
     "duplicates": "jscpd ./src --threshold 2 --min-lines 10",

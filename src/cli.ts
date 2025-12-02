@@ -1,57 +1,53 @@
-#!/usr/bin/env bun
-
-import { orm } from './orm'
+import type { ORM } from './orm'
 import { SeederRunner } from './seeder'
 
-const [command, ...args] = process.argv.slice(2)
-
-async function main() {
-  const dbUrl = process.env.DATABASE_URL
-
-  if (!dbUrl) {
-    console.error('❌ DATABASE_URL environment variable is required')
-    console.error('   Example: DATABASE_URL=postgres://user:pass@localhost/mydb')
-    process.exit(1)
-  }
+export async function runCLI(orm: ORM): Promise<void> {
+  const [command, ...args] = process.argv.slice(2)
 
   try {
-    await orm.connect(parseConnectionString(dbUrl))
-
-    console.log('✅ Connected to database\n')
-
     switch (command) {
     case 'migrate:create':
-      await createMigration(args[0])
+      await createMigration(orm, args[0])
 
       break
 
     case 'migrate:run':
-      await runMigrations()
+      await runMigrations(orm)
 
       break
 
     case 'migrate:rollback':
-      await rollbackMigrations()
+      await rollbackMigrations(orm)
 
       break
 
     case 'migrate:reset':
-      await resetMigrations()
+      await resetMigrations(orm)
 
       break
 
     case 'migrate:status':
-      await showStatus()
+      await showStatus(orm)
 
       break
 
     case 'migrate:generate':
-      await generateMigration(args[0])
+      await generateMigration(orm, args[0])
 
       break
 
     case 'db:seed':
       await runSeeders(args)
+
+      break
+
+    case 'seed:create':
+      await createSeeder(args[0])
+
+      break
+
+    case 'seed:list':
+      await listSeeders()
 
       break
 
@@ -64,15 +60,12 @@ async function main() {
     console.error('❌ Error:', error instanceof Error ? error.message : String(error))
     process.exit(1)
   }
-  finally {
-    await orm.disconnect()
-  }
 }
 
-async function createMigration(name?: string) {
+async function createMigration(orm: ORM, name?: string) {
   if (!name) {
     console.error('❌ Migration name is required')
-    console.error('   Usage: bun cli.ts migrate:create <name>')
+    console.error('   Usage: migrate:create <name>')
     process.exit(1)
   }
 
@@ -81,20 +74,20 @@ async function createMigration(name?: string) {
   console.log(`✅ Created migration: ${filePath}`)
   console.log('\nNext steps:')
   console.log('1. Edit the migration file to add your changes')
-  console.log('2. Run: bun cli.ts migrate:run')
+  console.log('2. Run: migrate:run')
 }
 
-async function runMigrations() {
+async function runMigrations(orm: ORM) {
   console.log('🔄 Running pending migrations...\n')
   await orm.migration.run()
 }
 
-async function rollbackMigrations() {
+async function rollbackMigrations(orm: ORM) {
   console.log('⏪ Rolling back last batch...\n')
   await orm.migration.rollback()
 }
 
-async function resetMigrations() {
+async function resetMigrations(orm: ORM) {
   console.log('⚠️  This will rollback ALL migrations!')
   // eslint-disable-next-line no-alert
   const answer = prompt('Are you sure? [y/n]: ')
@@ -109,11 +102,11 @@ async function resetMigrations() {
   await orm.migration.reset()
 }
 
-async function showStatus() {
+async function showStatus(orm: ORM) {
   await orm.migration.status()
 }
 
-async function generateMigration(name?: string) {
+async function generateMigration(orm: ORM, name?: string) {
   console.log('🔍 Detecting schema changes...\n')
 
   const filePath = await orm.migration.generate(name)
@@ -126,20 +119,91 @@ async function generateMigration(name?: string) {
 
   console.log('\nNext steps:')
   console.log('1. Review the generated migration file')
-  console.log('2. Run: bun cli.ts migrate:run')
+  console.log('2. Run: migrate:run')
 }
 
-async function runSeeders(seederNames?: string[]) {
+async function createSeeder(name?: string) {
+  if (!name) {
+    console.error('❌ Seeder name is required')
+    console.error('   Usage: seed:create <name>')
+    process.exit(1)
+  }
+
+  const { existsSync, mkdirSync, writeFileSync } = await import('node:fs')
+  const { resolve } = await import('node:path')
+
+  const seedsDir = resolve(process.cwd(), 'seeds')
+
+  if (!existsSync(seedsDir)) {
+    mkdirSync(seedsDir, { recursive: true })
+  }
+
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0]?.replace('T', '_') || ''
+  const fileName = `${timestamp}_${name}.ts`
+  const filePath = resolve(seedsDir, fileName)
+
+  const template = `import type { SeederContext } from '@kaynooo/pg-orm'
+
+export default {
+  name: '${name}',
+  groups: ['development'], // Optional: specify one or more groups
+  async run({ db }: SeederContext) {
+    // Add your seeding logic here
+    // Example:
+    // await db\`INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com')\`
+  }
+}
+`
+
+  writeFileSync(filePath, template)
+
+  console.log(`✅ Created seeder: ${filePath}`)
+  console.log('\nNext steps:')
+  console.log('1. Edit the seeder file to add your seeding logic')
+  console.log('2. Optionally set groups: ["development", "testing", "production"]')
+  console.log('3. Run: db:seed or db:seed --group development')
+}
+
+async function listSeeders() {
   const runner = new SeederRunner()
 
-  if (seederNames && seederNames.length > 0) {
-    console.log(`🌱 Running specific seeders: ${seederNames.join(', ')}\n`)
-    await runner.run(seederNames)
+  await runner.listSeeders()
+}
+
+async function runSeeders(args: string[]) {
+  const runner = new SeederRunner()
+
+  // Parse arguments
+  let group: string | undefined
+  const seederNames: string[] = []
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--group' && args[i + 1]) {
+      group = args[i + 1]
+      i++ // Skip next arg
+    }
+    else if (!args[i]?.startsWith('--')) {
+      seederNames.push(args[i]!)
+    }
   }
-  else {
-    console.log('🌱 Running all seeders...\n')
-    await runner.run()
-  }
+
+  // Build status message
+  const filters: string[] = []
+
+  if (group)
+    filters.push(`group: ${group}`)
+
+  if (seederNames.length > 0)
+    filters.push(`names: ${seederNames.join(', ')}`)
+
+  const filterMsg = filters.length > 0 ? ` (${filters.join(', ')})` : ''
+
+  console.log(`🌱 Running seeders${filterMsg}...\n`)
+
+  await runner.run({
+    seederNames: seederNames.length > 0 ? seederNames : undefined,
+    group,
+  })
 }
 
 function showHelp() {
@@ -147,7 +211,7 @@ function showHelp() {
 @kaynooo/pg-orm CLI
 
 Usage:
-  bun cli.ts <command> [options]
+  <command> [options]
 
 Migration Commands:
   migrate:create <name>     Create a new migration file
@@ -158,33 +222,24 @@ Migration Commands:
   migrate:generate [name]   Generate migration from schema changes
 
 Seeding Commands:
-  db:seed [names...]        Run database seeders (all or specific ones)
+  seed:create <name>        Create a new seeder file
+  seed:list                 List all available seeders
+  db:seed [options] [names...]  Run database seeders
+
+Seeding Options:
+  --group <group>           Run only seeders in specified group
 
 Examples:
-  bun cli.ts migrate:create add_user_bio
-  bun cli.ts migrate:run
-  bun cli.ts migrate:rollback
-  bun cli.ts migrate:status
-  bun cli.ts migrate:generate sync_schema
-  bun cli.ts db:seed
-  bun cli.ts db:seed users posts
-
-Environment Variables:
-  DATABASE_URL      PostgreSQL connection string (required)
-                    Example: postgres://user:pass@localhost/mydb
+  migrate:create add_user_bio
+  migrate:run
+  migrate:rollback
+  migrate:status
+  migrate:generate sync_schema
+  seed:create users
+  seed:list                         # List all seeders grouped
+  db:seed                           # Run all seeders
+  db:seed --group development       # Run seeders in 'development' group
+  db:seed --group testing users     # Run 'users' seeder in 'testing' group
+  db:seed users posts               # Run specific seeders
 `)
 }
-
-function parseConnectionString(url: string) {
-  const parsed = new URL(url)
-
-  return {
-    hostname: parsed.hostname,
-    port: parsed.port ? Number.parseInt(parsed.port) : 5432,
-    database: parsed.pathname.slice(1),
-    username: parsed.username,
-    password: parsed.password,
-  }
-}
-
-main()

@@ -1,8 +1,8 @@
 import type { SQL } from 'bun'
 import type { Repository } from '../src/repository'
 import type { EntityDefinition, EntitySchema } from '../src/types'
-import { afterAll, beforeAll, expect } from 'bun:test'
 import { ObjectEntries, toSnake } from '@kaynooo/utils'
+import { afterAll, beforeAll, expect } from 'bun:test'
 import { orm } from '../src'
 
 // ============================================================================

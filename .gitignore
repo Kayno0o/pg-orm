@@ -35,5 +35,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 *.sqlite
 migrations
+seeds
 testPkg
 docs

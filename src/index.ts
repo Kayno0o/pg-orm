@@ -1,3 +1,4 @@
+export { runCLI } from './cli'
 export { closeDatabase, type DatabaseConfig, getDatabase, getPoolHealth, initializeDatabase, type PoolHealth, sql, SQL, transaction } from './db'
 export { createEntitySchema, EntityBuilder } from './entity'
 export {

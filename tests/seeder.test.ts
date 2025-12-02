@@ -5,9 +5,9 @@ import { orm } from '../src'
 import { SeederRunner } from '../src/seeder'
 import { setupTestDatabase, teardownTestDatabase } from './setup'
 
-const TEST_SEEDS_DIR = resolve(process.cwd(), 'test-seeds')
-
 describe('Seeder System', () => {
+  const TEST_SEEDS_DIR = resolve(process.cwd(), 'test-seeds')
+
   beforeAll(async () => {
     await setupTestDatabase()
 
@@ -87,7 +87,7 @@ export default {
 
     const runner = new SeederRunner(TEST_SEEDS_DIR)
 
-    await runner.run(['users'])
+    await runner.run({ seederNames: ['users'] })
 
     const db = orm.getDB()
     const usersExist = await db`SELECT COUNT(*) as count FROM test_seeder_users`
@@ -135,7 +135,7 @@ export default {
 
     const runner = new SeederRunner(TEST_SEEDS_DIR)
 
-    await runner.run(['create_users'])
+    await runner.run({ seederNames: ['create_users'] })
 
     const allUsers = await users.findAll()
 
@@ -162,6 +162,53 @@ export default {
     const runner = new SeederRunner('non-existent-dir')
 
     await runner.run()
+  })
+
+  test('should filter seeders by group', async () => {
+    writeFileSync(
+      resolve(TEST_SEEDS_DIR, 'dev_users.ts'),
+      `
+export default {
+  name: 'dev_users',
+  groups: ['development'],
+  async run({ db }) {
+    await db\`CREATE TABLE IF NOT EXISTS test_dev_users (id SERIAL PRIMARY KEY, name TEXT)\`
+    await db\`INSERT INTO test_dev_users (name) VALUES ('Dev User')\`
+  }
+}
+`,
+    )
+
+    writeFileSync(
+      resolve(TEST_SEEDS_DIR, 'prod_users.ts'),
+      `
+export default {
+  name: 'prod_users',
+  groups: ['production'],
+  async run({ db }) {
+    await db\`CREATE TABLE IF NOT EXISTS test_prod_users (id SERIAL PRIMARY KEY, name TEXT)\`
+  }
+}
+`,
+    )
+
+    const runner = new SeederRunner(TEST_SEEDS_DIR)
+
+    await runner.run({ group: 'development' })
+
+    const db = orm.getDB()
+    const devUsersExist = await db`SELECT COUNT(*) as count FROM test_dev_users`
+    const prodTableExists = await db`
+      SELECT EXISTS (
+        SELECT FROM pg_tables
+        WHERE tablename = 'test_prod_users'
+      ) as exists
+    `
+
+    expect(Number(devUsersExist[0].count)).toBe(1)
+    expect(prodTableExists[0].exists).toBe(false)
+
+    await db`DROP TABLE IF EXISTS test_dev_users`
   })
 
   test('should list available seeders', async () => {
