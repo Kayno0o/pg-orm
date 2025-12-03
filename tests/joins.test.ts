@@ -438,7 +438,7 @@ describe('QueryBuilder JOINs', () => {
 
         const result = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
-          .findOne() as any
+          .findOne()
 
         expect(result).not.toBeNull()
         expect(result?.title).toBe('Post')

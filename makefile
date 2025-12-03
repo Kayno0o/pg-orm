@@ -1,3 +1,8 @@
+full-check:
+	bun check
+	bun lint:fix
+	bun test
+
 patch: # v0.0.X
 	npm version patch
 	git push

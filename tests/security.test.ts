@@ -171,7 +171,7 @@ describe('Security - SQL Injection Protection', () => {
       // Should safely query with single quote
       const found = await safeRepo.query()
         .where('name', '=', 'O\'Reilly')
-        .findOne() as any
+        .findOne()
 
       expect(found?.id).toBe(created.id)
       expect(found?.name).toBe(testData.name)
@@ -187,7 +187,7 @@ describe('Security - SQL Injection Protection', () => {
       const results = await safeRepo.query()
         .limit(2)
         .offset(0)
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBe(2)
     })
@@ -199,7 +199,7 @@ describe('Security - SQL Injection Protection', () => {
       // Should safely handle array of IDs
       const results = await safeRepo.query()
         .whereIn('id', [user1.id, user2.id])
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBe(2)
     })
@@ -235,7 +235,7 @@ describe('Security - SQL Injection Protection', () => {
       // Query builder should use parameterized queries
       const results = await testRepo.query()
         .where('name', '=', '\'; DROP TABLE users; --')
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBe(0) // Should find nothing, not execute SQL
     })
@@ -246,7 +246,7 @@ describe('Security - SQL Injection Protection', () => {
 
       const results = await testRepo.query()
         .whereIn('status', ['active', '\'; DROP TABLE users; --'])
-        .execute() as any[]
+        .execute()
 
       // Should only find users with 'active' status, not execute injection
       expect(results.length).toBe(2)
@@ -260,7 +260,7 @@ describe('Security - SQL Injection Protection', () => {
       // Single quotes should be safely escaped
       const result1 = await testRepo.query()
         .whereLike('name', 'O\'%')
-        .execute() as any[]
+        .execute()
 
       expect(result1.length).toBe(1)
       expect(result1[0]!.name).toBe('O\'Reilly')
@@ -268,7 +268,7 @@ describe('Security - SQL Injection Protection', () => {
       // Percent signs in data should not be treated as wildcards
       const result2 = await testRepo.query()
         .whereLike('name', 'Test%User')
-        .execute() as any[]
+        .execute()
 
       expect(result2.length).toBe(1)
       expect(result2[0]!.name).toBe('Test%User')
@@ -280,7 +280,7 @@ describe('Security - SQL Injection Protection', () => {
       // Malicious values should be treated as data
       const results = await testRepo.query()
         .whereBetween('name', 'A', '\'; DROP TABLE users; --')
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBeGreaterThanOrEqual(0) // No SQL injection
     })
@@ -291,7 +291,7 @@ describe('Security - SQL Injection Protection', () => {
       // NULL checks should not be injectable
       const results = await testRepo.query()
         .whereNotNull('name')
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBe(1)
     })
@@ -353,7 +353,7 @@ describe('Security - SQL Injection Protection', () => {
       // Valid column should work
       const results = await testRepo.query()
         .orderBy('score', 'DESC')
-        .execute() as any[]
+        .execute()
 
       expect(results[0]!.score).toBe(20)
       expect(results[1]!.score).toBe(10)
@@ -366,7 +366,7 @@ describe('Security - SQL Injection Protection', () => {
       // Valid ORDER BY through query builder
       const results = await testRepo.query()
         .orderBy('name', 'ASC')
-        .execute() as any[]
+        .execute()
 
       expect(results[0]!.name).toBe('A')
       expect(results[1]!.name).toBe('B')
@@ -472,7 +472,7 @@ describe('Security - SQL Injection Protection', () => {
       const results = await testRepo.query()
         .limit(1000000)
         .offset(0)
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBeLessThanOrEqual(1)
     })
@@ -486,14 +486,14 @@ describe('Security - SQL Injection Protection', () => {
       const page1 = await testRepo.query()
         .limit(3)
         .offset(0)
-        .execute() as any[]
+        .execute()
 
       expect(page1.length).toBe(3)
 
       const page2 = await testRepo.query()
         .limit(3)
         .offset(3)
-        .execute() as any[]
+        .execute()
 
       expect(page2.length).toBe(3)
     })
@@ -583,13 +583,13 @@ describe('Security - SQL Injection Protection', () => {
       // Malicious values in JSON operations
       const results1 = await testRepo.query()
         .whereJsonContains('metadata', { role: '\'; DROP TABLE users; --' })
-        .execute() as any[]
+        .execute()
 
       expect(results1.length).toBe(0) // Should find nothing, not execute SQL
 
       const results2 = await testRepo.query()
         .whereJsonHasKey('metadata', 'role')
-        .execute() as any[]
+        .execute()
 
       expect(results2.length).toBe(1)
       expect(results2[0]!.metadata.role).toBe('admin')
@@ -647,7 +647,7 @@ describe('Security - SQL Injection Protection', () => {
       // Use stored value in a new query - should still be safe
       const results = await testRepo.query()
         .where('username', '=', found!.username)
-        .execute() as any[]
+        .execute()
 
       expect(results.length).toBe(1)
       expect(results[0]!.id).toBe(created.id)
@@ -701,15 +701,15 @@ describe('Security - SQL Injection Protection', () => {
         // These should be ignored
         extraField: 'malicious',
         sqlInjection: '\'; DROP TABLE users; --',
-      } as any
+      }
 
       const created = await testRepo.create(dataWithExtra)
 
       expect(created.username).toBe('testuser')
       expect(created.role).toBe('user')
       expect(created.isAdmin).toBe(false)
-      expect((created as any).extraField).toBeUndefined()
-      expect((created as any).sqlInjection).toBeUndefined()
+      expect(created.extraField).toBeUndefined()
+      expect(created.sqlInjection).toBeUndefined()
     })
 
     test('should ignore extra fields not in schema during update', async () => {
@@ -724,7 +724,7 @@ describe('Security - SQL Injection Protection', () => {
         // Attempt to escalate privileges through mass assignment
         extraField: 'malicious',
         __proto__: { isAdmin: true },
-      } as any
+      }
 
       const updated = await testRepo.update(user.id, updateData)
 
@@ -744,7 +744,7 @@ describe('Security - SQL Injection Protection', () => {
       await expect(async () => {
         await testRepo.query()
           .where('nonExistentField' as any, '=', 'value')
-          .execute() as any[]
+          .execute()
       }).toThrow()
     })
   })
@@ -780,14 +780,14 @@ describe('Security - SQL Injection Protection', () => {
       const start1 = performance.now()
       const existing = await testRepo.query()
         .where('email', '=', 'exists@example.com')
-        .findOne() as any
+        .findOne()
       const time1 = performance.now() - start1
 
       // Time queries for non-existing user
       const start2 = performance.now()
       const nonExisting = await testRepo.query()
         .where('email', '=', 'nonexist@example.com')
-        .findOne() as any
+        .findOne()
       const time2 = performance.now() - start2
 
       expect(existing).not.toBeNull()

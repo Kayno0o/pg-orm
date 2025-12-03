@@ -118,7 +118,7 @@ describe('Edge Cases - Performance', () => {
       .whereIn('status', ['active', 'pending'])
       .orderBy('age', 'ASC')
       .limit(20)
-      .execute() as any[]
+      .execute()
     const duration = performance.now() - start
 
     expect(results.length).toBeGreaterThan(0)

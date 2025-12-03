@@ -66,7 +66,7 @@ export function hasMany<
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits>[]> {
       return relatedRepo.query()
         .where(foreignKey as any, '=', entity.id as any)
-        .execute()
+        .execute() as Promise<InferEntity<R, RTraits>[]>
     },
 
     async loadMany(
@@ -120,7 +120,7 @@ export function hasOne<
     async load(entity: InferEntity<T, TTraits>): Promise<InferEntity<R, RTraits> | null> {
       return relatedRepo.query()
         .where(foreignKey as any, '=', entity.id as any)
-        .findOne()
+        .findOne() as Promise<InferEntity<R, RTraits> | null>
     },
 
     async loadMany(

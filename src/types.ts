@@ -356,7 +356,7 @@ export type ConvertTraitMethods<TMethods extends TraitMethods> = {
 }
 
 // Scope function that takes a query builder and returns it (with added filters)
-export type ScopeDefinition<T extends EntitySchema> = (query: QueryBuilder<T, any>) => QueryBuilder<T, any>
+export type ScopeDefinition<T extends EntitySchema> = (query: QueryBuilder<T, any, any>) => QueryBuilder<T, any, any>
 
 export interface EntityDefinition<
   T extends EntitySchema,

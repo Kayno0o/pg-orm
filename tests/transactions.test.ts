@@ -272,7 +272,7 @@ describe('Transactions', () => {
 
       expect(foundUser?.name).toBe('Updated Multi Author')
 
-      const foundPosts = await posts.query().where('authorId', '=', userId!).execute() as any[]
+      const foundPosts = await posts.query().where('authorId', '=', userId!).execute()
 
       expect(foundPosts.length).toBe(2)
 
@@ -362,7 +362,7 @@ describe('Transactions', () => {
       expect(errorCaught).toBe(true)
 
       // Verify no entities were created (transaction rolled back)
-      const results = await users.query().where('email', '=', uniqueEmail).execute() as any[]
+      const results = await users.query().where('email', '=', uniqueEmail).execute()
 
       expect(results.length).toBe(0)
       // No cleanup needed - transaction was rolled back
@@ -396,7 +396,7 @@ describe('Transactions', () => {
         })
       })
 
-      const found = await users.query().whereIn('id', createdIds).execute() as any[]
+      const found = await users.query().whereIn('id', createdIds).execute()
 
       expect(found.length).toBeGreaterThanOrEqual(1)
 

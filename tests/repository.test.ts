@@ -140,7 +140,7 @@ describe('Repository CRUD Operations', () => {
         await users.create({ ...testData.user.valid(), role: 'admin' })
         await users.create({ ...testData.user.valid(), role: 'user' })
 
-        const admins = await users.query().where('role', '=', 'admin').execute() as any[]
+        const admins = await users.query().where('role', '=', 'admin').execute()
 
         expect(admins.length).toBe(2)
         expect(admins.every(u => u.role === 'admin')).toBe(true)
@@ -152,7 +152,7 @@ describe('Repository CRUD Operations', () => {
         const users = createTxRepo(User, tx)
         const created = await users.create(testData.user.valid())
 
-        const found = await users.query().where('email', '=', created.email).findOne() as any
+        const found = await users.query().where('email', '=', created.email).findOne()
 
         expect(found).not.toBeNull()
         expect(found?.id).toBe(created.id)
@@ -162,7 +162,7 @@ describe('Repository CRUD Operations', () => {
     test('should return null when findOneBy has no match', async () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
-        const found = await users.query().where('email', '=', 'nonexistent@example.com').findOne() as any
+        const found = await users.query().where('email', '=', 'nonexistent@example.com').findOne()
 
         expect(found).toBeNull()
       })

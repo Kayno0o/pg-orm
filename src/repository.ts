@@ -448,7 +448,7 @@ export class Repository<
 
     const query = this.query()
 
-    return scopeFn(query)
+    return scopeFn(query as QueryBuilder<T, any, any>)
   }
 
   withTransaction(tx: SQL): this {

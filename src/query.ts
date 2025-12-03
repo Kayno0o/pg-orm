@@ -437,7 +437,7 @@ export class QueryBuilder<
   // Execution
   // ========================================================================
 
-  async execute(): Promise<SelectedFields extends never ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]> {
+  async execute(): Promise<[SelectedFields] extends [never] ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     const { sql, params } = this.build()
     const start = performance.now()
     let error: Error | undefined
@@ -499,7 +499,7 @@ export class QueryBuilder<
     }
   }
 
-  async findOne(): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
+  async findOne(): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     this.limit(1)
     const results = await this.execute()
 
@@ -540,15 +540,15 @@ export class QueryBuilder<
     }
   }
 
-  async latest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
+  async latest(field: keyof T | 'id' = 'id'): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     return this.orderByDesc(field).findOne()
   }
 
-  async oldest(field: keyof T | 'id' = 'id'): Promise<SelectedFields extends never ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
+  async oldest(field: keyof T | 'id' = 'id'): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     return this.orderBy(field, 'ASC').findOne()
   }
 
-  async random(limitValue = 1): Promise<SelectedFields extends never ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
+  async random(limitValue = 1): Promise<[SelectedFields] extends [never] ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     if (!Number.isInteger(limitValue) || limitValue < 1) {
       throw new Error(`Invalid random limit: ${limitValue}. Must be a positive integer.`)
     }
@@ -564,6 +564,144 @@ export class QueryBuilder<
     const results = await this.db.unsafe(query, this.whereParams)
 
     return results as any
+  }
+
+  // ========================================================================
+  // Build Query (Private)
+  // ========================================================================
+
+  // ========================================================================
+  // Batch Update & Delete Operations
+  // ========================================================================
+
+  async update(data: Partial<Record<keyof T, SQLValue>>): Promise<number> {
+    if (Object.keys(data).length === 0) {
+      throw new Error('Update data cannot be empty')
+    }
+
+    const setParts: string[] = []
+    const updateParams: SQLValue[] = [...this.whereParams]
+
+    for (const [field, value] of Object.entries(data)) {
+      const columnName = this.validateColumnName(field)
+
+      updateParams.push(value as SQLValue)
+      setParts.push(`${columnName} = $${updateParams.length}`)
+    }
+
+    const whereClause = this.whereConditions.length > 0
+      ? `WHERE ${this.whereConditions.join(' AND ')}`
+      : ''
+
+    const query = `UPDATE ${this.tableName} SET ${setParts.join(', ')} ${whereClause} RETURNING id`
+    const start = performance.now()
+    let error: Error | undefined
+
+    try {
+      const result = await this.db.unsafe(query, updateParams)
+
+      return result.length
+    }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
+
+      await queryLogger.log({
+        query,
+        params: updateParams,
+        duration,
+        timestamp: new Date(),
+        operation: 'UPDATE',
+        table: this.tableName,
+        error,
+      })
+    }
+  }
+
+  async deleteMany(): Promise<number> {
+    const whereClause = this.whereConditions.length > 0
+      ? `WHERE ${this.whereConditions.join(' AND ')}`
+      : ''
+
+    if (!whereClause) {
+      throw new Error('DELETE without WHERE clause is not allowed. Use deleteMany([ids]) on repository for bulk deletes.')
+    }
+
+    const query = `DELETE FROM ${this.tableName} ${whereClause} RETURNING id`
+    const start = performance.now()
+    let error: Error | undefined
+
+    try {
+      const result = await this.db.unsafe(query, this.whereParams)
+
+      return result.length
+    }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
+
+      await queryLogger.log({
+        query,
+        params: this.whereParams,
+        duration,
+        timestamp: new Date(),
+        operation: 'DELETE',
+        table: this.tableName,
+        error,
+      })
+    }
+  }
+
+  // ========================================================================
+  // Pagination
+  // ========================================================================
+
+  async paginate(options: {
+    page: number
+    limit: number
+  }): Promise<{
+    data: [SelectedFields] extends [never] ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]
+    meta: {
+      total: number
+      page: number
+      pageSize: number
+      totalPages: number
+    }
+  }> {
+    const { page, limit } = options
+
+    if (!Number.isInteger(page) || page < 1) {
+      throw new Error(`Invalid page number: ${page}. Must be a positive integer.`)
+    }
+
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(`Invalid page size: ${limit}. Must be a positive integer.`)
+    }
+
+    const total = await this.count()
+    const totalPages = Math.ceil(total / limit)
+    const offsetValue = (page - 1) * limit
+
+    this.limitValue = limit
+    this.offsetValue = offsetValue
+
+    const data = await this.execute()
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        pageSize: limit,
+        totalPages,
+      },
+    }
   }
 
   // ========================================================================
