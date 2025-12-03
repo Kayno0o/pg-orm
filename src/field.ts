@@ -37,12 +37,9 @@ abstract class BaseFieldBuilder<
     (this.config as any).hasDefault = true
   }
 
-  refine(validator: CustomValidator, message: string): this {
-    this.config.validators ||= []
-
-    this.config.validators.push({ validator, message })
-
-    return this
+  protected addValidator<T>(validator: CustomValidator<T>, message: string): void {
+    this.config.validators ||= [];
+    (this.config.validators as any).push({ validator, message })
   }
 
   abstract toConfig(): Config
@@ -91,6 +88,12 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? string | null : string>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -153,6 +156,12 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
     return this
   }
 
+  refine(validator: CustomValidator<Nullable extends true ? number | null : number>, message: string): this {
+    this.addValidator(validator, message)
+
+    return this
+  }
+
   toConfig(): NumberFieldConfig<Nullable, HasDefault> {
     return this.config
   }
@@ -177,6 +186,12 @@ export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault ex
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? boolean | null : boolean>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -211,6 +226,12 @@ export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, Has
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? T | null : T>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -255,6 +276,12 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
     return this
   }
 
+  refine(validator: CustomValidator<Nullable extends true ? string | null : string>, message: string): this {
+    this.addValidator(validator, message)
+
+    return this
+  }
+
   toConfig(): UuidFieldConfig<Nullable, HasDefault> {
     return this.config
   }
@@ -279,6 +306,12 @@ export class TimestampFieldBuilder<Nullable extends boolean = false, HasDefault 
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? Date | null : Date>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -311,10 +344,22 @@ export class DateFieldBuilder<Nullable extends boolean = false, HasDefault exten
     return this
   }
 
+  refine(validator: CustomValidator<Nullable extends true ? Date | null : Date>, message: string): this {
+    this.addValidator(validator, message)
+
+    return this
+  }
+
   toConfig(): DateFieldConfig<Nullable, HasDefault> {
     return this.config
   }
 }
+
+type InferArrayType<AT extends 'string' | 'number' | 'boolean'>
+  = AT extends 'string' ? string[]
+    : AT extends 'number' ? number[]
+      : AT extends 'boolean' ? boolean[]
+        : never
 
 export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean' = 'string' | 'number' | 'boolean', Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<ArrayFieldConfig<ArrayType, Nullable, HasDefault>, Nullable, HasDefault> {
   constructor(config: ArrayFieldConfig<ArrayType, Nullable, HasDefault>) {
@@ -335,6 +380,12 @@ export class ArrayFieldBuilder<ArrayType extends 'string' | 'number' | 'boolean'
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? InferArrayType<ArrayType> | null : InferArrayType<ArrayType>>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -367,6 +418,12 @@ export class EnumFieldBuilder<Values extends readonly string[], Nullable extends
     return this
   }
 
+  refine(validator: CustomValidator<Nullable extends true ? Values[number] | null : Values[number]>, message: string): this {
+    this.addValidator(validator, message)
+
+    return this
+  }
+
   toConfig(): EnumFieldConfig<Values, Nullable, HasDefault> {
     return this.config
   }
@@ -385,6 +442,12 @@ export class BlobFieldBuilder<Nullable extends boolean = false, HasDefault exten
 
   column(name: string): this {
     this.setColumnName(name)
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? Uint8Array | null : Uint8Array>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }
@@ -425,6 +488,12 @@ export class ForeignKeyFieldBuilder<Nullable extends boolean = false, HasDefault
 
   onUpdate(action: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION'): this {
     this.config.foreignKey.onUpdate = action
+
+    return this
+  }
+
+  refine(validator: CustomValidator<Nullable extends true ? number | null : number>, message: string): this {
+    this.addValidator(validator, message)
 
     return this
   }

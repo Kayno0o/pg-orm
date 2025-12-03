@@ -16,7 +16,7 @@ describe('Custom Field Validators', () => {
     test('should validate custom string validator', async () => {
       const User = orm.entity('custom_val_string', {
         name: orm.string().refine(
-          val => (val as string).length >= 3,
+          val => val.length >= 3,
           'Name must be at least 3 characters',
         ),
         email: orm.string(),
@@ -41,7 +41,7 @@ describe('Custom Field Validators', () => {
       const User = orm.entity('custom_val_number', {
         name: orm.string(),
         age: orm.number().refine(
-          val => (val as number) >= 18,
+          val => val >= 18,
           'Age must be at least 18',
         ),
       }).build()
@@ -67,7 +67,7 @@ describe('Custom Field Validators', () => {
           async (val) => {
             await new Promise(resolve => setTimeout(resolve, 10))
 
-            return (val as string).includes('@')
+            return val.includes('@')
           },
           'Email must contain @',
         ),
@@ -92,9 +92,9 @@ describe('Custom Field Validators', () => {
       const User = orm.entity('custom_val_multiple', {
         password: orm
           .string()
-          .refine(val => (val as string).length >= 8, 'Password must be at least 8 characters')
-          .refine(val => (/[A-Z]/).test(val as string), 'Password must contain uppercase letter')
-          .refine(val => (/\d/).test(val as string), 'Password must contain number'),
+          .refine(val => val.length >= 8, 'Password must be at least 8 characters')
+          .refine(val => (/[A-Z]/).test(val), 'Password must contain uppercase letter')
+          .refine(val => (/\d/).test(val), 'Password must contain number'),
       }).build()
 
       await createTestTable(User)
@@ -124,10 +124,10 @@ describe('Custom Field Validators', () => {
       const User = orm.entity('custom_val_messages', {
         code: orm.string().refine(
           (val) => {
-            if ((val as string).length !== 6)
+            if (val.length !== 6)
               return 'Code must be exactly 6 characters'
 
-            if (!(/^\d+$/).test(val as string))
+            if (!(/^\d+$/).test(val))
               return 'Code must contain only digits'
 
             return true
