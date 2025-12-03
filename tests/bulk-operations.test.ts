@@ -71,7 +71,7 @@ describe('Bulk Operations', () => {
           { name: 'User B', email: 'duplicate@example.com', role: 'user' as const }, // Duplicate email
         ]
 
-        await expect(users.createMany(userData)).rejects.toThrow()
+        expect(users.createMany(userData)).rejects.toThrow()
       })
     })
 
@@ -184,7 +184,7 @@ describe('Bulk Operations', () => {
           { title: 'Valid Title 2', content: 'Valid content here', views: 50 },
         ]
 
-        await expect(articles.createMany(articleData)).rejects.toThrow()
+        expect(articles.createMany(articleData)).rejects.toThrow()
       })
     })
 

@@ -1,3 +1,5 @@
+export { hashCacheKey, InMemoryCache } from './cache'
+export type { CacheAdapter, CacheEntry } from './cache'
 export { runCLI } from './cli'
 export { closeDatabase, type DatabaseConfig, getDatabase, getPoolHealth, initializeDatabase, type PoolHealth, sql, SQL, transaction } from './db'
 export { createEntitySchema, EntityBuilder } from './entity'
@@ -19,6 +21,8 @@ export {
   UniqueConstraintViolationError,
   ValidationError,
 } from './errors'
+export { defineFactory, Factory } from './factory'
+export type { FactoryGenerator } from './factory'
 export { field } from './field'
 export type {
   ArrayFieldBuilder,
@@ -69,6 +73,7 @@ export type {
   BlobFieldConfig,
   BooleanFieldConfig,
   CursorPaginationResult,
+  CustomValidator,
   DatabaseRow,
   DateFieldConfig,
   EntityDefinition,

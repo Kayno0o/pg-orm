@@ -29,6 +29,8 @@ export type FieldType
     | 'blob'
     | 'foreignKey'
 
+export type CustomValidator<T = unknown> = (value: T) => boolean | string | Promise<boolean | string>
+
 export interface BaseFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> {
   type: FieldType
   nullable: Nullable
@@ -37,6 +39,7 @@ export interface BaseFieldConfig<Nullable extends boolean = boolean, HasDefault 
   default?: SQLValue
   columnName?: string
   primary?: boolean
+  validators?: { validator: CustomValidator, message: string }[]
 }
 
 export interface StringFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {

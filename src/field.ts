@@ -3,6 +3,7 @@ import type {
   BaseFieldConfig,
   BlobFieldConfig,
   BooleanFieldConfig,
+  CustomValidator,
   DateFieldConfig,
   EnumFieldConfig,
   ForeignKeyFieldConfig,
@@ -34,6 +35,14 @@ abstract class BaseFieldBuilder<
   protected setDefault(value: SQLValue): void {
     (this.config as any).default = value;
     (this.config as any).hasDefault = true
+  }
+
+  refine(validator: CustomValidator, message: string): this {
+    this.config.validators ||= []
+
+    this.config.validators.push({ validator, message })
+
+    return this
   }
 
   abstract toConfig(): Config

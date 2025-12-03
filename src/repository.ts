@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { CacheAdapter } from './cache'
 import type {
   DatabaseRow,
   EntityDefinition,
@@ -34,11 +35,13 @@ export class Repository<
   private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
   private mapper: EntityMapper<T, TTraits>
   private schemaValidator: SchemaValidator<T>
+  private cacheAdapter?: CacheAdapter
 
-  constructor(entityDef: EntityDefinition<T, TTraits, TScopes>) {
+  constructor(entityDef: EntityDefinition<T, TTraits, TScopes>, cacheAdapter?: CacheAdapter) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
+    this.cacheAdapter = cacheAdapter
 
     this.columnNameMap = new Map()
     this.columnNameMap.set('id', 'id')
@@ -211,7 +214,7 @@ export class Repository<
     if (!options?.skipValidation) {
       const limits = this.getLimits()
 
-      this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
+      await this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
     }
 
     for (const hook of this.definition.hooks.beforeCreate) {
@@ -246,7 +249,7 @@ export class Repository<
 
     const limits = this.getLimits()
 
-    this.schemaValidator.validateUpdate(data as Record<string, unknown>, limits.jsonDepth)
+    await this.schemaValidator.validateUpdate(data as Record<string, unknown>, limits.jsonDepth)
 
     for (const hook of this.definition.hooks.beforeUpdate) {
       await hook(id, data)
@@ -368,7 +371,7 @@ export class Repository<
       const limits = this.getLimits()
 
       for (const data of dataArray) {
-        this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
+        await this.schemaValidator.validateCreate(data as Record<string, unknown>, limits.jsonDepth)
       }
     }
 
@@ -436,6 +439,7 @@ export class Repository<
       this.schema,
       (row: DatabaseRow) => this.mapper.mapRowToEntity(row),
       this.definition.scopes,
+      this.cacheAdapter,
     )
   }
 

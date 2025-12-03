@@ -607,7 +607,7 @@ test("should throw error for invalid input", () => {
 });
 
 test("should handle async errors", async () => {
-  await expect(async () => {
+  expect(async () => {
     await fetchUser("invalid-id");
   }).rejects.toThrow("User not found");
 });

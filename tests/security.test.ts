@@ -741,7 +741,7 @@ describe('Security - SQL Injection Protection', () => {
       })
 
       // Querying with non-schema fields should throw
-      await expect(async () => {
+      expect(async () => {
         await testRepo.query()
           .where('nonExistentField' as any, '=', 'value')
           .execute()

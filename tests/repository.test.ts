@@ -87,7 +87,7 @@ describe('Repository CRUD Operations', () => {
 
         await users.create(data)
 
-        await expect(async () => {
+        expect(async () => {
           await users.create(data)
         }).toThrow()
       })
@@ -206,7 +206,7 @@ describe('Repository CRUD Operations', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(async () => {
+        expect(async () => {
           await users.update(999999, { name: 'Test' })
         }).toThrow()
       })
@@ -231,7 +231,7 @@ describe('Repository CRUD Operations', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(async () => {
+        expect(async () => {
           await users.delete(999999)
         }).toThrow()
       })

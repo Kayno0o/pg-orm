@@ -23,7 +23,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({ name: 'Test' } as any)
       }).toThrow()
 
@@ -82,7 +82,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'This name is way too long',
           email: 'test@example.com',
@@ -102,7 +102,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Joe',
           email: 'test@example.com',
@@ -143,7 +143,7 @@ describe('Data Validation', () => {
 
       const products = orm.repo(Product)
 
-      await expect(async () => {
+      expect(async () => {
         await products.create({
           name: 'Product',
           price: -10,
@@ -163,7 +163,7 @@ describe('Data Validation', () => {
 
       const products = orm.repo(Product)
 
-      await expect(async () => {
+      expect(async () => {
         await products.create({
           name: 'Product',
           rating: 10,
@@ -183,7 +183,7 @@ describe('Data Validation', () => {
 
       const products = orm.repo(Product)
 
-      await expect(async () => {
+      expect(async () => {
         await products.create({
           name: 'Product',
           quantity: 3.14,
@@ -225,7 +225,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
@@ -269,7 +269,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 123 as any,
           email: 'test@example.com',
@@ -289,7 +289,7 @@ describe('Data Validation', () => {
 
       const products = orm.repo(Product)
 
-      await expect(async () => {
+      expect(async () => {
         await products.create({
           name: 'Product',
           price: 'not a number' as any,
@@ -310,7 +310,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
@@ -332,7 +332,7 @@ describe('Data Validation', () => {
 
       const users = orm.repo(User)
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
@@ -359,7 +359,7 @@ describe('Data Validation', () => {
         email: 'test@example.com',
       })
 
-      await expect(async () => {
+      expect(async () => {
         await users.update(user.id, {
           name: 'This is way too long for validation',
         })
@@ -474,7 +474,7 @@ describe('Data Validation', () => {
         deepObject = { nested: deepObject }
       }
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
@@ -548,7 +548,7 @@ describe('Data Validation', () => {
         deepArray = [deepArray]
       }
 
-      await expect(async () => {
+      expect(async () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
@@ -586,7 +586,7 @@ describe('Data Validation', () => {
       expect(valid.name).toBe('Valid Product')
 
       // Invalid - multiple constraint violations
-      await expect(async () => {
+      expect(async () => {
         await products.create({
           name: 'X', // Too short
           price: -10, // Below min

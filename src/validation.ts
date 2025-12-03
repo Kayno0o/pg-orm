@@ -52,7 +52,7 @@ export class Validator {
     }
   }
 
-  validateField(fieldName: string, value: unknown, fieldConfig: FieldConfig): void {
+  async validateField(fieldName: string, value: unknown, fieldConfig: FieldConfig): Promise<void> {
     if (value === null || value === undefined) {
       if (!fieldConfig.nullable && fieldConfig.default === undefined) {
         this.addError(fieldName, 'required', `Field "${fieldName}" is required`, value)
@@ -100,6 +100,26 @@ export class Validator {
       this.validateBlob(fieldName, value)
 
       break
+    }
+
+    if (fieldConfig.validators && fieldConfig.validators.length > 0) {
+      await this.validateCustom(fieldName, value, fieldConfig)
+    }
+  }
+
+  private async validateCustom(fieldName: string, value: unknown, config: FieldConfig): Promise<void> {
+    if (!config.validators)
+      return
+
+    for (const { validator, message } of config.validators) {
+      const result = await validator(value)
+
+      if (result === false) {
+        this.addError(fieldName, 'custom', message, value)
+      }
+      else if (typeof result === 'string') {
+        this.addError(fieldName, 'custom', result, value)
+      }
     }
   }
 
@@ -237,7 +257,7 @@ export class Validator {
     }
   }
 
-  validate(data: Record<string, unknown>, schema: EntitySchema, operation: 'create' | 'update', tableName?: string): void {
+  async validate(data: Record<string, unknown>, schema: EntitySchema, operation: 'create' | 'update', tableName?: string): Promise<void> {
     this.errors = []
 
     for (const [fieldName, fieldConfig] of Object.entries(schema)) {
@@ -255,7 +275,7 @@ export class Validator {
         continue
       }
 
-      this.validateField(fieldName, value, fieldConfig)
+      await this.validateField(fieldName, value, fieldConfig)
     }
 
     if (this.errors.length > 0) {

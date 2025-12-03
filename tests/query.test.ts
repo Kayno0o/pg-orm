@@ -417,7 +417,7 @@ describe('Query Builder', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(
+        expect(
           users.query().where('role', '=', 'user').update({}),
         ).rejects.toThrow('Update data cannot be empty')
       })
@@ -493,7 +493,7 @@ describe('Query Builder', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(
+        expect(
           users.query().deleteMany(),
         ).rejects.toThrow('DELETE without WHERE clause is not allowed')
       })
@@ -589,11 +589,11 @@ describe('Query Builder', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(
+        expect(
           users.query().paginate({ page: 0, limit: 10 }),
         ).rejects.toThrow('Invalid page number')
 
-        await expect(
+        expect(
           users.query().paginate({ page: -1, limit: 10 }),
         ).rejects.toThrow('Invalid page number')
       })
@@ -603,11 +603,11 @@ describe('Query Builder', () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
 
-        await expect(
+        expect(
           users.query().paginate({ page: 1, limit: 0 }),
         ).rejects.toThrow('Invalid page size')
 
-        await expect(
+        expect(
           users.query().paginate({ page: 1, limit: -1 }),
         ).rejects.toThrow('Invalid page size')
       })

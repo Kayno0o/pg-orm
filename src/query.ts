@@ -1,6 +1,8 @@
 import type { SQL } from 'bun'
+import type { CacheAdapter } from './cache'
 import type { AggregationResult, DatabaseRow, EntitySchema, InferEntity, InferEntityBase, InferProjectionClean, OrderDirection, ScopeDefinition, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
+import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
 import { extractOperation, queryLogger } from './logger'
 import { validateSQLIdentifier } from './sql-utils'
@@ -32,17 +34,22 @@ export class QueryBuilder<
   private validColumns: Set<string>
   private scopes?: Map<string, ScopeDefinition<T>>
   private joinClauses: JoinClause[] = []
+  private cacheTtl?: number
+  private cacheAdapter?: CacheAdapter
 
+  // eslint-disable-next-line max-params
   constructor(
     private tableName: string,
     private db: SQL,
     private schema: T,
     private mapper?: (row: DatabaseRow) => any,
     scopes?: Map<string, ScopeDefinition<T>>,
+    cacheAdapter?: CacheAdapter,
   ) {
     validateSQLIdentifier(tableName, 'table')
     this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
     this.scopes = scopes
+    this.cacheAdapter = cacheAdapter
   }
 
   private getColumnName(fieldName: string): string {
@@ -423,6 +430,24 @@ export class QueryBuilder<
   }
 
   // ========================================================================
+  // Cache
+  // ========================================================================
+
+  cache(ttlSeconds: number): this {
+    if (!this.cacheAdapter) {
+      throw new Error('Cache adapter not configured. Pass a cache adapter to the repository or ORM instance.')
+    }
+
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) {
+      throw new Error(`Invalid cache TTL: ${ttlSeconds}. Must be a positive integer (seconds).`)
+    }
+
+    this.cacheTtl = ttlSeconds
+
+    return this
+  }
+
+  // ========================================================================
   // Build Query (Public for inspection/debugging)
   // ========================================================================
 
@@ -439,6 +464,46 @@ export class QueryBuilder<
 
   async execute(): Promise<[SelectedFields] extends [never] ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     const { sql, params } = this.build()
+
+    // Check cache if enabled
+    if (this.cacheTtl && this.cacheAdapter) {
+      const cacheKey = hashCacheKey(sql, params)
+      const cached = await this.cacheAdapter.get<any[]>(cacheKey)
+
+      if (cached) {
+        return cached
+      }
+
+      const start = performance.now()
+      let error: Error | undefined
+
+      try {
+        const results = await this.db.unsafe(sql, params)
+        const processedResults = this.processResults(results)
+
+        await this.cacheAdapter.set(cacheKey, processedResults, this.cacheTtl)
+
+        return processedResults
+      }
+      catch (err) {
+        error = mapDatabaseError(err, this.tableName)
+        throw error
+      }
+      finally {
+        const duration = performance.now() - start
+
+        await queryLogger.log({
+          query: sql,
+          params,
+          duration,
+          timestamp: new Date(),
+          operation: extractOperation(sql),
+          table: this.tableName,
+          error,
+        })
+      }
+    }
+
     const start = performance.now()
     let error: Error | undefined
 
@@ -450,35 +515,7 @@ export class QueryBuilder<
       // - Parameterized LIMIT/OFFSET values
       const results = await this.db.unsafe(sql, params)
 
-      // If aggregations are present, don't use mapper (aggregation results are plain objects)
-      if (this.aggregations.size > 0) {
-        // Convert string numbers from aggregations to actual numbers
-        return results.map((row: DatabaseRow) => {
-          const converted: Record<string, unknown> = { ...row }
-
-          for (const alias of this.aggregations.keys()) {
-            if (converted[alias] !== null && converted[alias] !== undefined) {
-              converted[alias] = Number(converted[alias])
-            }
-          }
-
-          return converted
-        }) as any
-      }
-
-      // If JOINs are present, return raw results (flattened objects from multiple tables)
-      if (this.joinClauses.length > 0) {
-        return results as any
-      }
-
-      // Use mapper if provided to properly convert database rows to entities
-      // This ensures arrays are parsed, dates are converted, and trait methods work
-      if (this.mapper) {
-        return results.map((row: DatabaseRow) => this.mapper!(row))
-      }
-
-      // Fallback to raw results (won't have trait methods or proper array/date handling)
-      return results as any
+      return this.processResults(results)
     }
     catch (err) {
       error = mapDatabaseError(err, this.tableName)
@@ -497,6 +534,38 @@ export class QueryBuilder<
         error,
       })
     }
+  }
+
+  private processResults(results: DatabaseRow[]): any[] {
+    // If aggregations are present, don't use mapper (aggregation results are plain objects)
+    if (this.aggregations.size > 0) {
+      // Convert string numbers from aggregations to actual numbers
+      return results.map((row: DatabaseRow) => {
+        const converted: Record<string, unknown> = { ...row }
+
+        for (const alias of this.aggregations.keys()) {
+          if (converted[alias] !== null && converted[alias] !== undefined) {
+            converted[alias] = Number(converted[alias])
+          }
+        }
+
+        return converted
+      }) as any
+    }
+
+    // If JOINs are present, return raw results (flattened objects from multiple tables)
+    if (this.joinClauses.length > 0) {
+      return results as any
+    }
+
+    // Use mapper if provided to properly convert database rows to entities
+    // This ensures arrays are parsed, dates are converted, and trait methods work
+    if (this.mapper) {
+      return results.map((row: DatabaseRow) => this.mapper!(row))
+    }
+
+    // Fallback to raw results (won't have trait methods or proper array/date handling)
+    return results as any
   }
 
   async findOne(): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {

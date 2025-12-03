@@ -31,10 +31,10 @@ export class SchemaValidator<T extends EntitySchema> {
     return cached
   }
 
-  validateCreate(data: Record<string, unknown>, jsonDepth?: number): void {
+  async validateCreate(data: Record<string, unknown>, jsonDepth?: number): Promise<void> {
     const validator = this.getValidator(jsonDepth)
 
-    validator.validate(data, this.schema, 'create', this.tableName)
+    await validator.validate(data, this.schema, 'create', this.tableName)
 
     if (validator.hasErrors()) {
       throw new ValidationError(
@@ -45,10 +45,10 @@ export class SchemaValidator<T extends EntitySchema> {
     }
   }
 
-  validateUpdate(data: Record<string, unknown>, jsonDepth?: number): void {
+  async validateUpdate(data: Record<string, unknown>, jsonDepth?: number): Promise<void> {
     const validator = this.getValidator(jsonDepth)
 
-    validator.validate(data, this.schema, 'update', this.tableName)
+    await validator.validate(data, this.schema, 'update', this.tableName)
 
     if (validator.hasErrors()) {
       throw new ValidationError(

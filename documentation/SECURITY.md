@@ -483,7 +483,7 @@ describe('Security Tests', () => {
       deepObject = { nested: deepObject }
     }
 
-    await expect(async () => {
+    expect(async () => {
       await users.create({
         name: 'Test',
         metadata: deepObject
@@ -497,7 +497,7 @@ describe('Security Tests', () => {
       email: 'test@example.com'
     })
 
-    await expect(async () => {
+    expect(async () => {
       await users.createMany(tooManyUsers)
     }).toThrow(BulkOperationError)
   })

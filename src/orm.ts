@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { CacheAdapter } from './cache'
 import type { DatabaseConfig } from './db'
 import type { EntityDefinition, EntitySchema, FieldConfig } from './types'
 import { closeDatabase, getDatabase, initializeDatabase, transaction } from './db'
@@ -71,6 +72,7 @@ export class ORM {
 
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string>(
     entityDef: EntityDefinition<T, TTraits, TScopes>,
+    cacheAdapter?: CacheAdapter,
   ): Repository<T, TTraits, TScopes> {
     if (!this.entities.has(entityDef.tableName)) {
       this.entities.set(entityDef.tableName, entityDef)
@@ -80,7 +82,7 @@ export class ORM {
       return this.repositories.get(entityDef)! as Repository<T, TTraits, TScopes>
     }
 
-    const repository = new Repository(entityDef)
+    const repository = new Repository(entityDef, cacheAdapter)
 
     this.repositories.set(entityDef, repository)
 
