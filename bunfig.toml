@@ -6,3 +6,11 @@ coverageReporter = [
 coverageDir = "./coverage"
 coverage = true
 root = "./tests"
+coveragePathIgnorePatterns = [
+  "node_modules/**",
+  "dist/**",
+  "tests/**",
+  "migrations/**",
+  "test-seeds/**"
+]
+coverageSkipTestFiles = true
