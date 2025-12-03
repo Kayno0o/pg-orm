@@ -290,9 +290,7 @@ await orm.connect({
 
 - 📖 **[Migration Guide](./MIGRATIONS.md)** - Learn about migrations
 - 🔐 **[Security Guide](./SECURITY.md)** - Security best practices
-- ⚡ **[Performance Guide](./PERFORMANCE.md)** - Optimization tips
-- 🔗 **[Relations Guide](./relations.md)** - Working with relations
-- 📄 **[Pagination Guide](./pagination.md)** - Pagination patterns
+-  **[Pagination Guide](./pagination.md)** - Pagination patterns
 
 ## Getting Help
 
