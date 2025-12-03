@@ -52,7 +52,6 @@ export type {
 } from './migration/types'
 export { ORM, orm } from './orm'
 export { QueryBuilder } from './query'
-export { belongsTo, hasMany, hasOne } from './relations'
 export { Repository } from './repository'
 export type { Seeder, SeederContext } from './seeder'
 export { SeederRunner } from './seeder'
