@@ -26,7 +26,7 @@ export class QueryBuilder<
   SelectedFields extends readonly (keyof T | 'id')[] = never,
   TScopes extends string = string,
 > {
-  private selectFields: string[] = ['*']
+  private selectFields: string[]
   private whereConditions: string[] = []
   private whereParams: SQLValue[] = []
   private orderByFields: { field: string, direction: OrderDirection }[] = []
@@ -39,6 +39,7 @@ export class QueryBuilder<
   private joinClauses: JoinClause[] = []
   private cacheTtl?: number
   private cacheAdapter?: CacheAdapter
+  private hasCustomSelect = false
 
   // eslint-disable-next-line max-params
   constructor(
@@ -50,6 +51,7 @@ export class QueryBuilder<
     cacheAdapter?: CacheAdapter,
   ) {
     validateSQLIdentifier(tableName, 'table')
+    this.selectFields = [`${tableName}.*`]
     this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
     this.scopes = scopes
     this.cacheAdapter = cacheAdapter
@@ -92,10 +94,21 @@ export class QueryBuilder<
    * Selects specific fields to return.
    * @param fields - The fields to select.
    */
-  select<F extends readonly (keyof T | 'id')[]>(
+  select<F extends readonly (keyof T | 'id' | string)[]>(
     ...fields: F
   ): QueryBuilder<T, F, TScopes> {
-    this.selectFields = fields.map(f => this.validateColumnName(String(f)))
+    this.hasCustomSelect = true
+    this.selectFields = fields.map((f) => {
+      const fieldStr = String(f)
+
+      // Allow cross-table references (e.g., "posts.title") to bypass validation
+      if (fieldStr.includes('.')) {
+        return fieldStr
+      }
+
+      // Validate single-table fields against schema
+      return this.validateColumnName(fieldStr)
+    })
 
     return this as unknown as QueryBuilder<T, F, TScopes>
   }
@@ -586,8 +599,10 @@ export class QueryBuilder<
       }) as any
     }
 
-    // If JOINs are present, return raw results (flattened objects from multiple tables)
-    if (this.joinClauses.length > 0) {
+    // If JOINs are present AND user has explicitly selected cross-table fields, return raw results
+    // Otherwise, if JOINs are present but user hasn't selected anything, we still use mapper
+    // because we defaulted to selecting tableName.*, which matches the Entity schema
+    if (this.joinClauses.length > 0 && this.hasCustomSelect) {
       return results as any
     }
 

@@ -487,5 +487,112 @@ describe('QueryBuilder JOINs', () => {
         expect(sql).toContain('INNER JOIN test_join_users')
       })
     })
+
+    test('should default to selecting tableName.* for joins', async () => {
+      await runInTransaction(async (tx) => {
+        const posts = createTxRepo(Post, tx)
+
+        const { sql } = posts.query()
+          .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
+          .build()
+
+        expect(sql).toContain('SELECT test_join_posts.*')
+      })
+    })
+  })
+
+  describe('JOIN result mapping', () => {
+    test('should return mapped entities by default (without custom select)', async () => {
+      await runInTransaction(async (tx) => {
+        const users = createTxRepo(User, tx)
+        const posts = createTxRepo(Post, tx)
+
+        const user = await users.create({
+          name: 'Alice',
+          email: 'alice@example.com',
+        })
+
+        await posts.create({
+          title: 'First Post',
+          content: 'Content here',
+          userId: user.id,
+        })
+
+        const results = await posts.query()
+          .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
+          .execute()
+
+        expect(results.length).toBe(1)
+        expect(results[0]?.title).toBe('First Post')
+        expect(results[0]?.content).toBe('Content here')
+        expect(results[0]?.userId).toBe(user.id)
+        // Should only have Post fields, not User fields (since we're selecting test_join_posts.*)
+        expect(results[0]).toHaveProperty('title')
+        expect(results[0]).toHaveProperty('content')
+        expect(results[0]).toHaveProperty('userId')
+        // Should NOT have user's name or email from the joined table
+        expect(results[0]).not.toHaveProperty('name')
+        expect(results[0]).not.toHaveProperty('email')
+      })
+    })
+
+    test('should return raw objects with custom cross-table select', async () => {
+      await runInTransaction(async (tx) => {
+        const users = createTxRepo(User, tx)
+        const posts = createTxRepo(Post, tx)
+
+        const user = await users.create({
+          name: 'Alice',
+          email: 'alice@example.com',
+        })
+
+        await posts.create({
+          title: 'First Post',
+          content: 'Content here',
+          userId: user.id,
+        })
+
+        const results = await posts.query()
+          .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
+          .select('test_join_posts.title', 'test_join_posts.content', 'test_join_users.name', 'test_join_users.email')
+          .execute() as any[]
+
+        expect(results.length).toBe(1)
+        // Should have fields from both tables
+        expect(results[0]?.title).toBe('First Post')
+        expect(results[0]?.content).toBe('Content here')
+        expect(results[0]?.name).toBe('Alice')
+        expect(results[0]?.email).toBe('alice@example.com')
+      })
+    })
+
+    test('should allow selecting specific fields from main table with joins', async () => {
+      await runInTransaction(async (tx) => {
+        const users = createTxRepo(User, tx)
+        const posts = createTxRepo(Post, tx)
+
+        const user = await users.create({
+          name: 'Alice',
+          email: 'alice@example.com',
+        })
+
+        await posts.create({
+          title: 'First Post',
+          content: 'Content here',
+          userId: user.id,
+        })
+
+        const results = await posts.query()
+          .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
+          .select('title')
+          .execute() as any[]
+
+        expect(results.length).toBe(1)
+        expect(results[0]?.title).toBe('First Post')
+        // Should only have the selected field
+        expect(results[0]).toHaveProperty('title')
+        expect(results[0]).not.toHaveProperty('content')
+      })
+    })
   })
 })
