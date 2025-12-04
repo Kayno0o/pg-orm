@@ -213,10 +213,7 @@ export class QueryBuilder<
     return this
   }
 
-  // ========================================================================
-  // Order By (Validated Column Names)
-  // ========================================================================
-
+  /** Adds an ORDER BY clause. */
   orderBy(field: keyof T | 'id', direction: OrderDirection = 'ASC'): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -234,20 +231,14 @@ export class QueryBuilder<
     return this.orderBy(field, 'DESC')
   }
 
-  // ========================================================================
-  // Group By (Validated Column Names)
-  // ========================================================================
-
+  /** Adds a GROUP BY clause. */
   groupBy(...fields: (keyof T | 'id')[]): this {
     this.groupByFields = fields.map(f => this.validateColumnName(String(f)))
 
     return this
   }
 
-  // ========================================================================
-  // Aggregations
-  // ========================================================================
-
+  /** Calculates the sum of a field. */
   sum(field: keyof T): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -256,6 +247,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Calculates the average of a field. */
   avg(field: keyof T): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -264,6 +256,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Finds the minimum value of a field. */
   min(field: keyof T): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -272,6 +265,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Finds the maximum value of a field. */
   max(field: keyof T): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -280,6 +274,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Counts the number of rows. */
   countAs(alias = 'count'): this {
     this.aggregations.set(alias, { func: 'COUNT', field: '*' })
 
@@ -343,26 +338,27 @@ export class QueryBuilder<
     }
   }
 
-  // ========================================================================
-  // JOIN Operations
-  // ========================================================================
-
+  /** Adds a JOIN clause. */
   join(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
   }
 
+  /** Adds an INNER JOIN clause. */
   innerJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
   }
 
+  /** Adds a LEFT JOIN clause. */
   leftJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('LEFT', table, leftColumn, operator, rightColumn)
   }
 
+  /** Adds a RIGHT JOIN clause. */
   rightJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('RIGHT', table, leftColumn, operator, rightColumn)
   }
 
+  /** Adds a FULL JOIN clause. */
   fullJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('FULL', table, leftColumn, operator, rightColumn)
   }
@@ -387,10 +383,7 @@ export class QueryBuilder<
     return this
   }
 
-  // ========================================================================
-  // Scopes
-  // ========================================================================
-
+  /** Applies a named scope to the query. */
   scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes> {
     if (!this.scopes) {
       throw new Error('Scopes are not available on this QueryBuilder instance')
@@ -405,10 +398,7 @@ export class QueryBuilder<
     return scopeFn(this) as QueryBuilder<T, SelectedFields, TScopes>
   }
 
-  // ========================================================================
-  // Limit/Offset
-  // ========================================================================
-
+  /** Sets the limit for the query. */
   limit(value: number): this {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid LIMIT value: ${value}. Must be a non-negative integer.`)
@@ -419,6 +409,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Sets the offset for the query. */
   offset(value: number): this {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid OFFSET value: ${value}. Must be a non-negative integer.`)
@@ -429,10 +420,7 @@ export class QueryBuilder<
     return this
   }
 
-  // ========================================================================
-  // Cache
-  // ========================================================================
-
+  /** Sets the cache TTL for the query results. */
   cache(ttlSeconds: number): this {
     if (!this.cacheAdapter) {
       throw new Error('Cache adapter not configured. Pass a cache adapter to the repository or ORM instance.')
@@ -447,10 +435,7 @@ export class QueryBuilder<
     return this
   }
 
-  // ========================================================================
-  // Build Query (Public for inspection/debugging)
-  // ========================================================================
-
+  /** Builds the SQL query and parameters. */
   build(): { sql: string, params: SQLValue[] } {
     return {
       sql: this.buildQuery(),
@@ -458,10 +443,7 @@ export class QueryBuilder<
     }
   }
 
-  // ========================================================================
-  // Execution
-  // ========================================================================
-
+  /** Executes the query and returns the results. */
   async execute(): Promise<[SelectedFields] extends [never] ? InferEntityBase<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     const { sql, params } = this.build()
 
@@ -568,6 +550,7 @@ export class QueryBuilder<
     return results as any
   }
 
+  /** Executes the query and returns the first result or null. */
   async findOne(): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     this.limit(1)
     const results = await this.execute()
@@ -575,6 +558,7 @@ export class QueryBuilder<
     return (results[0] || null) as any
   }
 
+  /** Counts the number of rows matching the query. */
   async count(): Promise<number> {
     const whereClause = this.whereConditions.length > 0
       ? `WHERE ${this.whereConditions.join(' AND ')}`
@@ -609,14 +593,17 @@ export class QueryBuilder<
     }
   }
 
+  /** Finds the latest record based on a field. */
   async latest(field: keyof T | 'id' = 'id'): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     return this.orderByDesc(field).findOne()
   }
 
+  /** Finds the oldest record based on a field. */
   async oldest(field: keyof T | 'id' = 'id'): Promise<[SelectedFields] extends [never] ? InferEntity<T> | null : InferProjectionClean<T, SelectedFields> | null> {
     return this.orderBy(field, 'ASC').findOne()
   }
 
+  /** Finds random records. */
   async random(limitValue = 1): Promise<[SelectedFields] extends [never] ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     if (!Number.isInteger(limitValue) || limitValue < 1) {
       throw new Error(`Invalid random limit: ${limitValue}. Must be a positive integer.`)
@@ -635,10 +622,7 @@ export class QueryBuilder<
     return results as any
   }
 
-  // ========================================================================
-  // Batch Update & Delete Operations
-  // ========================================================================
-
+  /** Updates records matching the query. */
   async update(data: Partial<Record<keyof T, SQLValue>>): Promise<number> {
     if (Object.keys(data).length === 0) {
       throw new Error('Update data cannot be empty')
@@ -686,6 +670,7 @@ export class QueryBuilder<
     }
   }
 
+  /** Deletes records matching the query. */
   async deleteMany(): Promise<number> {
     const whereClause = this.whereConditions.length > 0
       ? `WHERE ${this.whereConditions.join(' AND ')}`
@@ -723,10 +708,7 @@ export class QueryBuilder<
     }
   }
 
-  // ========================================================================
-  // Pagination
-  // ========================================================================
-
+  /** Paginates the query results. */
   async paginate(options: {
     page: number
     limit: number
@@ -769,10 +751,7 @@ export class QueryBuilder<
     }
   }
 
-  // ========================================================================
-  // Build Query (Private)
-  // ========================================================================
-
+  /** Builds the SQL query string internally. */
   private buildQuery(): string {
     // Handle aggregation SELECT
     let selectClause: string

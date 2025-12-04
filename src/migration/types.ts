@@ -22,10 +22,7 @@ export interface MigrationRecord {
   batch: number
 }
 
-// ============================================================================
-// Schema Inspection Types
-// ============================================================================
-
+/** Represents a database table structure. */
 export interface DatabaseTable {
   tableName: string
   schemaName: string

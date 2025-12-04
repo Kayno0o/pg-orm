@@ -90,10 +90,7 @@ export class SchemaDiffer {
     }
   }
 
-  // ========================================================================
-  // Table Operations
-  // ========================================================================
-
+  /** Generates a CREATE TABLE statement. */
   private generateCreateTable(entityDef: EntityDefinition<any>): SchemaChange {
     const { tableName, schema } = entityDef
     const columnDefs: string[] = []
@@ -127,10 +124,7 @@ export class SchemaDiffer {
     }
   }
 
-  // ========================================================================
-  // Column Operations
-  // ========================================================================
-
+  /** Compares columns between entity definition and database schema. */
   private compareColumns(
     tableName: string,
     entitySchema: EntitySchema,
@@ -188,6 +182,7 @@ export class SchemaDiffer {
     return changes
   }
 
+  /** Generates an ADD COLUMN statement. */
   private generateAddColumn(
     tableName: string,
     fieldName: string,
@@ -205,6 +200,7 @@ export class SchemaDiffer {
     }
   }
 
+  /** Compares column type. */
   private compareColumnType(
     tableName: string,
     columnName: string,
@@ -230,6 +226,7 @@ export class SchemaDiffer {
     return null
   }
 
+  /** Compares column nullability. */
   private compareColumnNullability(
     tableName: string,
     columnName: string,
@@ -255,6 +252,7 @@ export class SchemaDiffer {
     return null
   }
 
+  /** Compares column default value. */
   private compareColumnDefault(
     tableName: string,
     columnName: string,
@@ -297,6 +295,7 @@ export class SchemaDiffer {
     return null
   }
 
+  /** Compares column uniqueness. */
   private compareColumnUnique(
     tableName: string,
     columnName: string,
@@ -342,6 +341,7 @@ export class SchemaDiffer {
     return null
   }
 
+  /** Compares full column definition. */
   private compareColumnDefinition(
     tableName: string,
     fieldName: string,
@@ -377,14 +377,17 @@ export class SchemaDiffer {
 
   private dbSchema?: DatabaseSchema
 
+  /** Sets the database schema for reference. */
   setDatabaseSchema(schema: DatabaseSchema): void {
     this.dbSchema = schema
   }
 
+  /** Gets indexes for a table. */
   private getDbIndexes(tableName: string): DatabaseIndex[] {
     return this.dbSchema?.indexes.get(tableName) || []
   }
 
+  /** Checks if a column has a unique index. */
   private hasUniqueIndex(columnName: string, tableName: string, indexes: DatabaseIndex[]): boolean {
     return indexes.some(
       idx =>
@@ -395,6 +398,7 @@ export class SchemaDiffer {
     )
   }
 
+  /** Finds the name of a unique index. */
   private findUniqueIndexName(columnName: string, tableName: string, indexes: DatabaseIndex[]): string | null {
     const uniqueIndex = indexes.find(
       idx =>
@@ -407,10 +411,7 @@ export class SchemaDiffer {
     return uniqueIndex?.indexName || null
   }
 
-  // ========================================================================
-  // Field to PostgreSQL Mapping
-  // ========================================================================
-
+  /** Converts a field configuration to a PostgreSQL column definition. */
   private fieldToColumnDefinition(fieldName: string, fieldConfig: FieldConfig): string {
     const columnName = this.getColumnName(fieldName)
     const pgType = this.fieldToPostgresType(fieldConfig, columnName)
@@ -440,6 +441,7 @@ export class SchemaDiffer {
     return definition
   }
 
+  /** Maps a field type to a PostgreSQL type. */
   private fieldToPostgresType(fieldConfig: FieldConfig, columnName?: string): PostgresTypeMapping {
     const baseMapping: PostgresTypeMapping = {
       type: 'TEXT',
@@ -546,6 +548,7 @@ export class SchemaDiffer {
     return baseMapping
   }
 
+  /** Formats a default value for SQL. */
   private formatDefaultValue(value: any, fieldConfig: FieldConfig): string | undefined {
     if (value === undefined)
       return undefined
@@ -603,6 +606,7 @@ export class SchemaDiffer {
     return undefined
   }
 
+  /** Normalizes a PostgreSQL default value. */
   private normalizeDefault(defaultValue: string | null): string | undefined {
     if (!defaultValue)
       return undefined
@@ -634,10 +638,7 @@ export class SchemaDiffer {
     return normalized
   }
 
-  // ========================================================================
-  // Foreign Key Operations
-  // ========================================================================
-
+  /** Generates SQL for a foreign key constraint. */
   private generateForeignKeySQL(
     tableName: string,
     fieldName: string,
@@ -650,6 +651,7 @@ export class SchemaDiffer {
     return { sql, constraintName, columnName }
   }
 
+  /** Generates foreign key changes for a table. */
   private generateForeignKeys(tableName: string, entitySchema: EntitySchema): SchemaChange[] {
     const changes: SchemaChange[] = []
 
@@ -677,6 +679,7 @@ export class SchemaDiffer {
     return changes
   }
 
+  /** Finds new and modified foreign keys. */
   private findNewAndModifiedForeignKeys(
     tableName: string,
     entitySchema: EntitySchema,
@@ -745,6 +748,7 @@ export class SchemaDiffer {
     return changes
   }
 
+  /** Finds dropped foreign keys. */
   private findDroppedForeignKeys(
     tableName: string,
     entitySchema: EntitySchema,
@@ -783,6 +787,7 @@ export class SchemaDiffer {
     return changes
   }
 
+  /** Compares foreign keys between entity definition and database schema. */
   private compareForeignKeys(
     tableName: string,
     entitySchema: EntitySchema,
@@ -798,10 +803,7 @@ export class SchemaDiffer {
     return [...newAndModified, ...dropped]
   }
 
-  // ========================================================================
-  // Helpers
-  // ========================================================================
-
+  /** Converts a field name to a column name. */
   private getColumnName(fieldName: string): string {
     // Convert camelCase to snake_case (same logic as Repository)
     return toSnake(fieldName)

@@ -229,10 +229,7 @@ export class SchemaInspector {
     return result.version
   }
 
-  // ========================================================================
-  // Internal Helpers
-  // ========================================================================
-
+  /** Groups items by table name. */
   private groupByTable<T extends { tableName: string }>(items: T[]): Map<string, T[]> {
     const grouped = new Map<string, T[]>()
 
