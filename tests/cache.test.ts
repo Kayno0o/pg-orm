@@ -15,6 +15,8 @@ describe('Query Caching', () => {
     test('should cache query results', async () => {
       const cache = new InMemoryCache(60000)
 
+      orm.useCache(cache)
+
       const User = orm.entity('cache_test_users', {
         name: orm.string(),
         email: orm.string().unique(),
@@ -23,7 +25,7 @@ describe('Query Caching', () => {
 
       await createTestTable(User)
 
-      const users = orm.repo(User, cache)
+      const users = orm.repo(User)
 
       await users.create({ name: 'Alice', email: 'alice@test.com', age: 30 })
       await users.create({ name: 'Bob', email: 'bob@test.com', age: 25 })
@@ -41,6 +43,7 @@ describe('Query Caching', () => {
       expect(cache.size()).toBeGreaterThan(0)
 
       cache.stopCleanup()
+      orm.useCache(undefined as any)
       await cleanupTables('cache_test_users')
     })
 
@@ -63,13 +66,15 @@ describe('Query Caching', () => {
     test('should validate cache TTL', async () => {
       const cache = new InMemoryCache(60000)
 
+      orm.useCache(cache)
+
       const User = orm.entity('cache_test_ttl', {
         name: orm.string(),
       }).build()
 
       await createTestTable(User)
 
-      const users = orm.repo(User, cache)
+      const users = orm.repo(User)
 
       expect(() => {
         users.query().cache(0)
@@ -80,11 +85,14 @@ describe('Query Caching', () => {
       }).toThrow('Invalid cache TTL')
 
       cache.stopCleanup()
+      orm.useCache(undefined as any)
       await cleanupTables('cache_test_ttl')
     })
 
     test('should handle different cache keys', async () => {
       const cache = new InMemoryCache(60000)
+
+      orm.useCache(cache)
 
       const User = orm.entity('cache_test_keys', {
         name: orm.string(),
@@ -93,7 +101,7 @@ describe('Query Caching', () => {
 
       await createTestTable(User)
 
-      const users = orm.repo(User, cache)
+      const users = orm.repo(User)
 
       await users.create({ name: 'Alice', age: 30 })
       await users.create({ name: 'Bob', age: 25 })
@@ -107,6 +115,7 @@ describe('Query Caching', () => {
       expect(result2[0]!.name).toBe('Bob')
 
       cache.stopCleanup()
+      orm.useCache(undefined as any)
       await cleanupTables('cache_test_keys')
     })
   })

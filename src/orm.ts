@@ -14,6 +14,7 @@ export class ORM {
   private entities = new Map<string, EntityDefinition<any>>()
   private migrator: Migrator | null = null
   private migrationConfig: DatabaseConfig['migrations'] | undefined
+  private cacheAdapter?: CacheAdapter
 
   async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
@@ -72,7 +73,6 @@ export class ORM {
 
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string>(
     entityDef: EntityDefinition<T, TTraits, TScopes>,
-    cacheAdapter?: CacheAdapter,
   ): Repository<T, TTraits, TScopes> {
     if (!this.entities.has(entityDef.tableName)) {
       this.entities.set(entityDef.tableName, entityDef)
@@ -82,11 +82,17 @@ export class ORM {
       return this.repositories.get(entityDef)! as Repository<T, TTraits, TScopes>
     }
 
-    const repository = new Repository(entityDef, cacheAdapter)
+    const repository = new Repository(entityDef, this.cacheAdapter)
 
     this.repositories.set(entityDef, repository)
 
     return repository
+  }
+
+  useCache(cacheAdapter: CacheAdapter): this {
+    this.cacheAdapter = cacheAdapter
+
+    return this
   }
 
   trait() {
