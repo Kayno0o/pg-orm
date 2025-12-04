@@ -19,6 +19,10 @@ import { hasColumnName, isArrayFieldConfig } from './types'
 import { mapDatabaseError } from './utils/error-mapper'
 import { ValidationError } from './validation'
 
+/**
+ * Repository for managing entity persistence and data access.
+ * Provides generic CRUD operations and query building capabilities.
+ */
 export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
@@ -174,6 +178,10 @@ export class Repository<
     }
   }
 
+  /**
+   * Finds a single entity by its ID.
+   * @param id - The entity ID.
+   */
   async find(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
@@ -193,6 +201,9 @@ export class Repository<
     )
   }
 
+  /**
+   * Retrieves all entities.
+   */
   async findAll(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
 
@@ -208,6 +219,12 @@ export class Repository<
     )
   }
 
+  /**
+   * Creates a new entity.
+   * @param data - The data for the new entity.
+   * @param options - Optional configuration object.
+   * @param options.skipValidation - If true, skips validation for the data.
+   */
   async create(data: InferCreateData<T>, options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
@@ -244,6 +261,11 @@ export class Repository<
     )
   }
 
+  /**
+   * Updates an existing entity.
+   * @param id - The ID of the entity to update.
+   * @param data - The data to update.
+   */
   async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
@@ -286,6 +308,10 @@ export class Repository<
     )
   }
 
+  /**
+   * Deletes an entity.
+   * @param id - The ID of the entity to delete.
+   */
   async delete(id: number): Promise<void> {
     const db = this.getDB()
 
@@ -316,6 +342,10 @@ export class Repository<
     )
   }
 
+  /**
+   * Counts entities in the table.
+   * @param exact - Whether to perform an exact count (default: true).
+   */
   async count(exact = true): Promise<number> {
     const db = this.getDB()
 
@@ -337,6 +367,10 @@ export class Repository<
     return await this.query().count()
   }
 
+  /**
+   * Checks if an entity exists.
+   * @param id - The entity ID.
+   */
   async exists(id: number): Promise<boolean> {
     const db = this.getDB()
     const [result] = await db`
@@ -348,6 +382,12 @@ export class Repository<
     return result !== undefined
   }
 
+  /**
+   * Creates multiple entities in bulk.
+   * @param dataArray - Array of entity data.
+   * @param options - Optional configuration object.
+   * @param options.skipValidation - If true, skips validation for the data.
+   */
   async createMany(dataArray: InferCreateData<T>[], options?: { skipValidation?: boolean }): Promise<InferEntity<T, TTraits>[]> {
     if (dataArray.length === 0)
       return []
@@ -414,6 +454,10 @@ export class Repository<
     )
   }
 
+  /**
+   * Deletes multiple entities by ID.
+   * @param ids - Array of entity IDs to delete.
+   */
   async deleteMany(ids: number[]): Promise<void> {
     if (ids.length === 0)
       return
@@ -432,6 +476,9 @@ export class Repository<
     `
   }
 
+  /**
+   * Creates a query builder for the entity.
+   */
   query(): QueryBuilder<T, never, TScopes> {
     return new QueryBuilder<T, never, TScopes>(
       this.tableName,
@@ -443,6 +490,10 @@ export class Repository<
     )
   }
 
+  /**
+   * Applies a named scope to the query.
+   * @param name - The name of the scope.
+   */
   scope(name: TScopes) {
     const scopeFn = this.definition.scopes.get(name)
 
@@ -455,6 +506,10 @@ export class Repository<
     return scopeFn(query as QueryBuilder<T, any, any>)
   }
 
+  /**
+   * Binds the repository to a specific transaction.
+   * @param tx - The transaction instance.
+   */
   withTransaction(tx: SQL): this {
     const wrapper = Object.create(this)
 
@@ -463,6 +518,10 @@ export class Repository<
     return wrapper
   }
 
+  /**
+   * Executes a callback within a transaction.
+   * @param callback - Function to execute with a transaction-bound repository.
+   */
   async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes>) => Promise<R>): Promise<R> {
     const db = this.getDB()
 
@@ -473,6 +532,10 @@ export class Repository<
     })
   }
 
+  /**
+   * Extends the repository with custom methods.
+   * @param methods - Object containing custom methods.
+   */
   extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes>, ...args: any[]) => any>>(
     methods: Methods,
   ): Repository<T, TTraits, TScopes> & {
@@ -489,10 +552,16 @@ export class Repository<
     return extended as any
   }
 
+  /**
+   * Cleans up the repository state (e.g., transaction context).
+   */
   cleanup(): void {
     this.txContext = undefined
   }
 
+  /**
+   * Gets the current database connection (or transaction).
+   */
   getDB(): SQL {
     return this.txContext || getDatabase()
   }

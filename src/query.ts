@@ -18,6 +18,9 @@ interface JoinClause {
   rightColumn: string
 }
 
+/**
+ * Builder for constructing and executing type-safe SQL queries.
+ */
 export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id')[] = never,
@@ -85,6 +88,10 @@ export class QueryBuilder<
     return `$${this.whereParams.length}`
   }
 
+  /**
+   * Selects specific fields to return.
+   * @param fields - The fields to select.
+   */
   select<F extends readonly (keyof T | 'id')[]>(
     ...fields: F
   ): QueryBuilder<T, F, TScopes> {
@@ -93,6 +100,12 @@ export class QueryBuilder<
     return this as unknown as QueryBuilder<T, F, TScopes>
   }
 
+  /**
+   * Adds a WHERE clause.
+   * @param field - The field to check.
+   * @param operator - The comparison operator.
+   * @param value - The value to compare against.
+   */
   where(field: keyof T | 'id', operator: string, value: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(value)
@@ -102,10 +115,16 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a WHERE clause checking for equality.
+   */
   whereEquals(field: keyof T | 'id', value: SQLValue): this {
     return this.where(field, '=', value)
   }
 
+  /**
+   * Adds a WHERE IN clause.
+   */
   whereIn(field: keyof T | 'id', values: SQLValue[]): this {
     if (values.length === 0) {
       // Empty IN clause always returns false
@@ -122,6 +141,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a WHERE NOT IN clause.
+   */
   whereNotIn(field: keyof T | 'id', values: SQLValue[]): this {
     if (values.length === 0) {
       // Empty NOT IN clause always returns true
@@ -136,14 +158,23 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a WHERE LIKE clause.
+   */
   whereLike(field: keyof T | 'id', pattern: string): this {
     return this.where(field, 'LIKE', pattern)
   }
 
+  /**
+   * Adds a WHERE ILIKE (case-insensitive) clause.
+   */
   whereILike(field: keyof T | 'id', pattern: string): this {
     return this.where(field, 'ILIKE', pattern)
   }
 
+  /**
+   * Adds a WHERE IS NULL clause.
+   */
   whereNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -152,6 +183,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a WHERE IS NOT NULL clause.
+   */
   whereNotNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -160,6 +194,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a WHERE BETWEEN clause.
+   */
   whereBetween(field: keyof T | 'id', min: SQLValue, max: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
     const minPlaceholder = this.addParam(min)
@@ -171,6 +208,10 @@ export class QueryBuilder<
   }
 
   // PostgreSQL-specific operators
+
+  /**
+   * Adds a JSON containment check (@>).
+   */
   whereJsonContains(field: keyof T, value: unknown): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(JSON.stringify(value))
@@ -180,6 +221,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds a JSON key existence check (?).
+   */
   whereJsonHasKey(field: keyof T, key: string): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(key)
@@ -189,6 +233,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds an array containment check (= ANY).
+   */
   whereArrayContains(field: keyof T, value: SQLValue): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -202,6 +249,9 @@ export class QueryBuilder<
     return this
   }
 
+  /**
+   * Adds an array overlap check (&&).
+   */
   whereArrayOverlaps(field: keyof T, values: SQLValue[]): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -227,6 +277,7 @@ export class QueryBuilder<
     return this
   }
 
+  /** Adds an ORDER BY DESC clause. */
   orderByDesc(field: keyof T | 'id'): this {
     return this.orderBy(field, 'DESC')
   }

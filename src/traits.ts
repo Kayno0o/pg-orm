@@ -21,6 +21,10 @@ type EmptySchema = {}
 // eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
 type EmptyMethods = {}
 
+/**
+ * Builder for defining reusable entity traits.
+ * Allows composing fields, methods, and hooks.
+ */
 export class TraitBuilder<
   TFields extends EntitySchema = EmptySchema,
   TMethods extends TraitMethods = EmptyMethods,
@@ -39,6 +43,11 @@ export class TraitBuilder<
     this._hooks = hooks
   }
 
+  /**
+   * Adds a field to the trait.
+   * @param name - The name of the field.
+   * @param fieldBuilder - The field builder instance.
+   */
   field<K extends string, F extends { toConfig: () => FieldConfig }>(
     name: K,
     fieldBuilder: F,
@@ -51,6 +60,10 @@ export class TraitBuilder<
     return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
+  /**
+   * Adds multiple fields to the trait.
+   * @param fieldsObj - Object mapping field names to field builders.
+   */
   fields<T extends Record<string, { toConfig: () => FieldConfig }>>(
     fieldsObj: T,
   ): TraitBuilder<
@@ -66,6 +79,11 @@ export class TraitBuilder<
     return new TraitBuilder(newFields, this._methods, this._hooks as any)
   }
 
+  /**
+   * Adds a custom method to the trait.
+   * @param name - The name of the method.
+   * @param method - The function implementation.
+   */
   method<K extends string, M extends TraitMethod>(
     name: K,
     method: M,
@@ -78,6 +96,10 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
 
+  /**
+   * Adds multiple custom methods to the trait.
+   * @param methodsObj - Object mapping method names to implementations.
+   */
   methods<T extends Record<string, TraitMethod>>(
     methodsObj: T,
   ): TraitBuilder<TFields, TMethods & T> {
@@ -86,6 +108,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, newMethods, this._hooks)
   }
 
+  /** Registers a beforeCreate hook. */
   beforeCreate(hook: BeforeCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -94,6 +117,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /** Registers an afterCreate hook. */
   afterCreate(hook: AfterCreateHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -102,6 +126,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /** Registers a beforeUpdate hook. */
   beforeUpdate(hook: BeforeUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -110,6 +135,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /** Registers an afterUpdate hook. */
   afterUpdate(hook: AfterUpdateHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -118,6 +144,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /** Registers a beforeDelete hook. */
   beforeDelete(hook: BeforeDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -126,6 +153,7 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /** Registers an afterDelete hook. */
   afterDelete(hook: AfterDeleteHook<TFields>): TraitBuilder<TFields, TMethods> {
     const newHooks = { ...this._hooks }
 
@@ -134,6 +162,10 @@ export class TraitBuilder<
     return new TraitBuilder(this._fields, this._methods, newHooks)
   }
 
+  /**
+   * Merges another trait into this one.
+   * @param trait - The trait to merge.
+   */
   merge<
     TNewFields extends EntitySchema,
     TNewMethods extends TraitMethods,
@@ -159,6 +191,9 @@ export class TraitBuilder<
     return new TraitBuilder(newFields, newMethods, newHooks)
   }
 
+  /**
+   * Finalizes the trait definition.
+   */
   build(): TraitDefinition<TFields, TMethods> {
     return Object.freeze({
       fields: this._fields,
@@ -168,10 +203,15 @@ export class TraitBuilder<
   }
 }
 
+/** Creates a new trait builder. */
 export function createTrait(): TraitBuilder<EmptySchema, EmptyMethods> {
   return new TraitBuilder()
 }
 
+/**
+ * Adds `createdAt` and `updatedAt` timestamp fields.
+ * Automatically manages these fields via hooks.
+ */
 export function timestamps() {
   return createTrait()
     .fields({
@@ -190,6 +230,10 @@ export function timestamps() {
     .build()
 }
 
+/**
+ * Adds soft delete functionality.
+ * Includes `deletedAt` field and methods: `softDelete`, `restore`, `isDeleted`.
+ */
 export function softDelete() {
   return createTrait()
     .field('deletedAt', field.timestamp().nullable())
@@ -205,6 +249,9 @@ export function softDelete() {
     .build()
 }
 
+/**
+ * Combines `timestamps` and `softDelete` traits.
+ */
 export function paranoid() {
   return createTrait()
     .merge(timestamps())
@@ -212,12 +259,19 @@ export function paranoid() {
     .build()
 }
 
+/**
+ * Adds a unique UUID primary key field (named `uuid`).
+ * @note This does not replace the standard `id` primary key.
+ */
 export function uuidPrimary() {
   return createTrait()
     .field('uuid', field.uuid().unique())
     .build()
 }
 
+/**
+ * Adds a slug field and methods to generate and update it.
+ */
 export function sluggable() {
   return createTrait()
     .field('slug', field.string().unique())
@@ -235,6 +289,10 @@ export function sluggable() {
     .build()
 }
 
+/**
+ * Adds publishing functionality.
+ * Includes `published`, `publishedAt` fields and methods like `publish`, `unpublish`.
+ */
 export function publishable() {
   return createTrait()
     .fields({
@@ -264,6 +322,10 @@ export function publishable() {
     .build()
 }
 
+/**
+ * Adds sorting capability.
+ * Includes `position` field and methods to move items up/down.
+ */
 export function sortable() {
   return createTrait()
     .field('position', field.number().integer().default(0))
@@ -279,6 +341,10 @@ export function sortable() {
     .build()
 }
 
+/**
+ * Adds optimistic concurrency control via versioning.
+ * Includes `version` field and methods to increment it.
+ */
 export function versionable() {
   return createTrait()
     .field('version', field.number().integer().default(1))

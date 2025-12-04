@@ -14,6 +14,10 @@ import type {
 } from './types'
 import { validateSQLIdentifier } from './sql-utils'
 
+/**
+ * Builder class for defining entity schemas and behaviors.
+ * Supports fluent API for adding hooks, traits, and scopes.
+ */
 export class EntityBuilder<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly [],
@@ -43,6 +47,10 @@ export class EntityBuilder<
     this._scopes = new Map()
   }
 
+  /**
+   * Registers a hook to run before creating an entity instance.
+   * @param hook - The hook function.
+   */
   beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -51,6 +59,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Registers a hook to run after creating an entity instance.
+   * @param hook - The hook function.
+   */
   afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -59,6 +71,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Registers a hook to run before updating an entity instance.
+   * @param hook - The hook function.
+   */
   beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -67,6 +83,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Registers a hook to run after updating an entity instance.
+   * @param hook - The hook function.
+   */
   afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -75,6 +95,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Registers a hook to run before deleting an entity instance.
+   * @param hook - The hook function.
+   */
   beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -83,6 +107,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Registers a hook to run after deleting an entity instance.
+   * @param hook - The hook function.
+   */
   afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -91,6 +119,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Mixes in a trait to the entity definition.
+   * @param trait - The trait definition to apply.
+   */
   use<TraitFields extends EntitySchema, TraitMethods extends Record<string, any>>(
     trait: TraitDefinition<TraitFields, TraitMethods>,
   ): EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>], TScopes> {
@@ -116,6 +148,10 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Defines unique constraints on the entity.
+   * @param columns - Array of column combinations that must be unique.
+   */
   unique(...columns: (keyof T)[][]): EntityBuilder<T, TTraits, TScopes> {
     const newBuilder = this.clone()
 
@@ -124,6 +160,11 @@ export class EntityBuilder<
     return newBuilder
   }
 
+  /**
+   * Defines a named query scope for the entity.
+   * @param name - The name of the scope.
+   * @param scopeFn - The function defining the scope logic.
+   */
   scope<Name extends string>(name: Name, scopeFn: ScopeDefinition<T>): EntityBuilder<T, TTraits, TScopes | Name> {
     const newBuilder = this.clone()
 
@@ -132,6 +173,10 @@ export class EntityBuilder<
     return newBuilder as unknown as EntityBuilder<T, TTraits, TScopes | Name>
   }
 
+  /**
+   * Finalizes the entity definition.
+   * @returns The immutable entity definition object.
+   */
   build(): EntityDefinition<T, TTraits, TScopes> {
     return Object.freeze({
       tableName: this.tableName,
@@ -161,6 +206,10 @@ export class EntityBuilder<
   }
 }
 
+/**
+ * Converts a field definition object into an entity schema.
+ * @param fields - Object map of field builders.
+ */
 export function createEntitySchema<T extends Record<string, { toConfig: () => FieldConfig }>>(
   fields: T,
 ): {

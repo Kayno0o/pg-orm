@@ -9,6 +9,10 @@ import { Migrator } from './migration/migrator'
 import { Repository } from './repository'
 import { createTrait } from './traits'
 
+/**
+ * Main entry point for the ORM.
+ * Manages database connections, entity definitions, and repositories.
+ */
 export class ORM {
   private repositories = new WeakMap<EntityDefinition<any>, Repository<any>>()
   private entities = new Map<string, EntityDefinition<any>>()
@@ -16,6 +20,10 @@ export class ORM {
   private migrationConfig: DatabaseConfig['migrations'] | undefined
   private cacheAdapter?: CacheAdapter
 
+  /**
+   * Connects to the database.
+   * @param connectionString - Connection string or configuration object.
+   */
   async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
 
@@ -37,13 +45,18 @@ export class ORM {
     }
   }
 
+  /**
+   * Closes the database connection.
+   * @param options - Optional configuration object.
+   * @param options.timeout - The maximum time in milliseconds to wait for connections to close.
+   */
   async disconnect(options?: { timeout?: number }): Promise<void> {
     if (this.migrator) {
       try {
         await this.migrator.clearAutoMigrations()
       }
       catch (error) {
-        // Ignore errors during cleanup
+        // Ignore cleanup errors.
       }
     }
 
@@ -52,14 +65,26 @@ export class ORM {
     await closeDatabase(options)
   }
 
+  /**
+   * Returns the underlying Bun SQL instance.
+   */
   getDB(): SQL {
     return getDatabase()
   }
 
+  /**
+   * Executes a callback within a database transaction.
+   * @param callback - Function to execute within the transaction.
+   */
   async transaction<T>(callback: (tx: SQL) => Promise<T>): Promise<T> {
     return transaction(callback)
   }
 
+  /**
+   * Defines a new entity.
+   * @param tableName - The name of the database table.
+   * @param fields - The schema definition for the entity.
+   */
   entity<T extends Record<string, { toConfig: () => FieldConfig }>>(
     tableName: string,
     fields: T,
@@ -71,6 +96,10 @@ export class ORM {
     return new EntityBuilder(tableName, schema)
   }
 
+  /**
+   * Retrieves or creates a repository for the given entity.
+   * @param entityDef - The entity definition.
+   */
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string>(
     entityDef: EntityDefinition<T, TTraits, TScopes>,
   ): Repository<T, TTraits, TScopes> {
@@ -89,64 +118,84 @@ export class ORM {
     return repository
   }
 
+  /**
+   * Configures a cache adapter for the ORM.
+   * @param cacheAdapter - The cache adapter to use.
+   */
   useCache(cacheAdapter: CacheAdapter): this {
     this.cacheAdapter = cacheAdapter
 
     return this
   }
 
+  /**
+   * Creates a new trait definition.
+   */
   trait() {
     return createTrait()
   }
 
+  /** Field builder for string types. */
   get string() {
     return field.string
   }
 
+  /** Field builder for number types. */
   get number() {
     return field.number
   }
 
+  /** Field builder for boolean types. */
   get boolean() {
     return field.boolean
   }
 
+  /** Field builder for JSON types. */
   get json() {
     return field.json
   }
 
+  /** Field builder for JSONB types. */
   get jsonb() {
     return field.jsonb
   }
 
+  /** Field builder for UUID types. */
   get uuid() {
     return field.uuid
   }
 
+  /** Field builder for timestamp types. */
   get timestamp() {
     return field.timestamp
   }
 
+  /** Field builder for date types. */
   get date() {
     return field.date
   }
 
+  /** Field builder for array types. */
   get array() {
     return field.array
   }
 
+  /** Field builder for enum types. */
   get enum() {
     return field.enum
   }
 
+  /** Field builder for blob types. */
   get blob() {
     return field.blob
   }
 
+  /** Field builder for foreign key references. */
   get foreignKey() {
     return field.foreignKey
   }
 
+  /** Migration management utilities. */
   get migration() {
     return {
       create: async (name: string) => {

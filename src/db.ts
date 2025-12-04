@@ -3,6 +3,9 @@ import type { MigrationConfig } from './migration/types'
 import { sql as bunSql, SQL } from 'bun'
 import { queryLogger } from './logger'
 
+/**
+ * Configuration options for the database connection.
+ */
 export interface DatabaseConfig {
   connectionString?: string
   hostname?: string
@@ -38,6 +41,10 @@ export interface DatabaseConfig {
 let dbInstance: SQL | null = null
 let dbConfig: DatabaseConfig | null = null
 
+/**
+ * Initializes the database connection.
+ * @param connectionString - Connection string or configuration object.
+ */
 export async function initializeDatabase(connectionString: string | DatabaseConfig): Promise<SQL> {
   if (typeof connectionString === 'object') {
     dbConfig = connectionString
@@ -91,6 +98,10 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
   return dbInstance
 }
 
+/**
+ * Retrieves the active database connection.
+ * @throws Error if the database is not initialized.
+ */
 export function getDatabase(): SQL {
   if (!dbInstance) {
     throw new Error('Database not initialized. Call orm.connect() first.')
@@ -99,6 +110,10 @@ export function getDatabase(): SQL {
   return dbInstance
 }
 
+/**
+ * Retrieves the current database configuration.
+ * @throws Error if the database is not initialized.
+ */
 export function getDatabaseConfig(): DatabaseConfig {
   if (!dbConfig) {
     throw new Error('Database not initialized. Call orm.connect() first.')
@@ -107,6 +122,11 @@ export function getDatabaseConfig(): DatabaseConfig {
   return dbConfig
 }
 
+/**
+ * Closes the database connection.
+ * @param options - Optional configuration object.
+ * @param options.timeout - The maximum time in milliseconds to wait for connections to close.
+ */
 export async function closeDatabase(options?: { timeout?: number }): Promise<void> {
   if (dbInstance) {
     await dbInstance.close(options)
@@ -115,12 +135,18 @@ export async function closeDatabase(options?: { timeout?: number }): Promise<voi
   }
 }
 
+/**
+ * Represents the health status of the connection pool.
+ */
 export interface PoolHealth {
   isHealthy: boolean
   hasConnection: boolean
   lastError?: Error
 }
 
+/**
+ * Checks the health of the database connection pool.
+ */
 export function getPoolHealth(): PoolHealth {
   const hasConnection = dbInstance !== null
 
@@ -131,6 +157,10 @@ export function getPoolHealth(): PoolHealth {
   }
 }
 
+/**
+ * Executes a callback within a database transaction.
+ * @param callback - The function to execute within the transaction.
+ */
 export async function transaction<T>(callback: (tx: SQL) => Promise<T>): Promise<T> {
   const db = getDatabase()
 
