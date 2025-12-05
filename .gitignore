@@ -38,3 +38,4 @@ migrations
 seeds
 testPkg
 docs
+schema.mermaid

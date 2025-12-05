@@ -28,6 +28,9 @@ async function main() {
   }
 
   try {
+    orm.repo(orm.entity('test', { test: orm.string() }).build())
+    orm.repo(orm.entity('test_2', { test: orm.string(), testId: orm.foreignKey('test') }).build())
+
     await orm.connect(parseConnectionString(dbUrl))
     console.log('✅ Connected to database\n')
 

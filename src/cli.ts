@@ -51,6 +51,11 @@ export async function runCLI(orm: ORM): Promise<void> {
 
       break
 
+    case 'docs:draw':
+      await drawSchema(orm)
+
+      break
+
     default:
       showHelp()
       process.exit(1)
@@ -206,6 +211,138 @@ async function runSeeders(args: string[]) {
   })
 }
 
+async function drawSchema(orm: ORM) {
+  console.log('📊 Generating schema diagram...\n')
+
+  const entities = (orm as any).entities as Map<string, any>
+
+  if (entities.size === 0) {
+    console.log('⚠️  No entities registered')
+    console.log('   Tip: Make sure you call orm.repo(Entity) before running docs:draw')
+
+    return
+  }
+
+  const mermaidLines: string[] = [
+    'erDiagram',
+    '',
+  ]
+
+  const relationships: string[] = []
+
+  for (const [tableName, entityDef] of entities) {
+    const fields: string[] = []
+    const schema = entityDef.schema
+
+    fields.push('int id PK')
+
+    for (const [fieldName, fieldConfig] of Object.entries(schema)) {
+      const config = fieldConfig as any
+      let fieldType = ''
+
+      switch (config.type) {
+      case 'string':
+        fieldType = config.maxLength ? `varchar(${config.maxLength})` : 'text'
+
+        break
+
+      case 'number':
+        fieldType = config.integer ? 'int' : 'float'
+
+        break
+
+      case 'boolean':
+        fieldType = 'boolean'
+
+        break
+
+      case 'json':
+      case 'jsonb':
+        fieldType = 'jsonb'
+
+        break
+
+      case 'uuid':
+        fieldType = 'uuid'
+
+        break
+
+      case 'timestamp':
+        fieldType = 'timestamp'
+
+        break
+
+      case 'date':
+        fieldType = 'date'
+
+        break
+
+      case 'array':
+        fieldType = `${config.arrayType}[]`
+
+        break
+
+      case 'enum':
+        fieldType = 'enum'
+
+        break
+
+      case 'blob':
+        fieldType = 'bytea'
+
+        break
+
+      case 'foreignKey':
+        fieldType = 'int'
+
+        relationships.push(
+          `  ${tableName} }o--|| ${config.foreignKey.table} : "${fieldName}"`,
+        )
+
+        break
+
+      default:
+        fieldType = 'unknown'
+      }
+
+      const nullable = config.nullable ? '' : ' "NOT NULL"'
+      const unique = config.unique ? ' "UNIQUE"' : ''
+      const fkMarker = config.type === 'foreignKey' ? ' FK' : ''
+
+      fields.push(`${fieldType} ${fieldName}${fkMarker}${nullable}${unique}`)
+    }
+
+    mermaidLines.push(`  ${tableName} {`)
+
+    for (const field of fields) {
+      mermaidLines.push(`    ${field}`)
+    }
+
+    mermaidLines.push('  }')
+    mermaidLines.push('')
+  }
+
+  if (relationships.length > 0) {
+    mermaidLines.push(...relationships)
+  }
+
+  const mermaidContent = mermaidLines.join('\n')
+  const { writeFileSync } = await import('node:fs')
+  const { resolve } = await import('node:path')
+
+  const outputPath = resolve(process.cwd(), 'schema.mermaid')
+
+  writeFileSync(outputPath, mermaidContent)
+
+  console.log(`✅ Schema diagram generated: ${outputPath}`)
+  console.log(`\n📝 Entity count: ${entities.size}`)
+  console.log(`🔗 Relationship count: ${relationships.length}`)
+  console.log('\nTo view the diagram:')
+  console.log('  - Open in VS Code with Mermaid extension')
+  console.log('  - Paste into https://mermaid.live')
+  console.log('  - Use any Mermaid renderer')
+}
+
 function showHelp() {
   console.log(`
 @kaynooo/pg-orm CLI
@@ -229,6 +366,9 @@ Seeding Commands:
 Seeding Options:
   --group <group>           Run only seeders in specified group
 
+Documentation Commands:
+  docs:draw                 Generate Mermaid.js ER diagram from schema
+
 Examples:
   migrate:create add_user_bio
   migrate:run
@@ -241,5 +381,6 @@ Examples:
   db:seed --group development       # Run seeders in 'development' group
   db:seed --group testing users     # Run 'users' seeder in 'testing' group
   db:seed users posts               # Run specific seeders
+  docs:draw                         # Generate schema.mermaid file
 `)
 }
