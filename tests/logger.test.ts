@@ -137,6 +137,45 @@ describe('Query Logger', () => {
     queryLogger.configure({ enabled: false })
   })
 
+  test('should log repository operations with query params', async () => {
+    const loggedEntries: QueryLogEntry[] = []
+
+    queryLogger.configure({
+      enabled: true,
+      logger: (entry) => {
+        loggedEntries.push(entry)
+      },
+    })
+
+    await runInTransaction(async (tx) => {
+      const users = createTxRepo(User, tx)
+
+      // Create operations should be logged with INSERT
+      await users.create(testData.user.valid())
+
+      // Find operations should be logged with SELECT
+      await users.findAll()
+
+      // All operations should be logged
+      expect(loggedEntries.length).toBeGreaterThanOrEqual(2)
+
+      // Check that INSERT was logged
+      const insertEntry = loggedEntries.find(e => e.operation === 'INSERT')
+
+      expect(insertEntry).toBeDefined()
+      expect(insertEntry?.table).toBe('test_logger_users')
+      expect(insertEntry?.params).toBeDefined()
+
+      // Check that SELECT was logged
+      const selectEntry = loggedEntries.find(e => e.operation === 'SELECT')
+
+      expect(selectEntry).toBeDefined()
+      expect(selectEntry?.table).toBe('test_logger_users')
+    })
+
+    queryLogger.configure({ enabled: false })
+  })
+
   test('should log successful queries without errors', async () => {
     let loggedEntry: QueryLogEntry | undefined
 
