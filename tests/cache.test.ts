@@ -3,20 +3,20 @@ import { InMemoryCache, orm } from '../src'
 import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Query Caching', () => {
+  let cache: InMemoryCache
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    cache = new InMemoryCache(60000)
+    await setupTestDatabase({ cache })
   })
 
   afterAll(async () => {
+    cache.stopCleanup()
     await teardownTestDatabase()
   })
 
   describe('InMemoryCache', () => {
     test('should cache query results', async () => {
-      const cache = new InMemoryCache(60000)
-
-      orm.useCache(cache)
-
       const User = orm.entity('cache_test_users', {
         name: orm.string(),
         email: orm.string().unique(),
@@ -42,12 +42,13 @@ describe('Query Caching', () => {
       expect(duration2).toBeLessThan(duration1 * 0.5) // Cache should be much faster
       expect(cache.size()).toBeGreaterThan(0)
 
-      cache.stopCleanup()
-      orm.useCache(undefined as any)
       await cleanupTables('cache_test_users')
     })
 
     test('should throw error if cache not configured', async () => {
+      await orm.disconnect()
+      await setupTestDatabase()
+
       const User = orm.entity('cache_test_no_adapter', {
         name: orm.string(),
       }).build()
@@ -61,13 +62,11 @@ describe('Query Caching', () => {
       }).toThrow('Cache adapter not configured')
 
       await cleanupTables('cache_test_no_adapter')
+      await orm.disconnect()
+      await setupTestDatabase({ cache })
     })
 
     test('should validate cache TTL', async () => {
-      const cache = new InMemoryCache(60000)
-
-      orm.useCache(cache)
-
       const User = orm.entity('cache_test_ttl', {
         name: orm.string(),
       }).build()
@@ -84,16 +83,10 @@ describe('Query Caching', () => {
         users.query().cache(-1)
       }).toThrow('Invalid cache TTL')
 
-      cache.stopCleanup()
-      orm.useCache(undefined as any)
       await cleanupTables('cache_test_ttl')
     })
 
     test('should handle different cache keys', async () => {
-      const cache = new InMemoryCache(60000)
-
-      orm.useCache(cache)
-
       const User = orm.entity('cache_test_keys', {
         name: orm.string(),
         age: orm.number(),
@@ -114,8 +107,6 @@ describe('Query Caching', () => {
       expect(result1[0]!.name).toBe('Alice')
       expect(result2[0]!.name).toBe('Bob')
 
-      cache.stopCleanup()
-      orm.useCache(undefined as any)
       await cleanupTables('cache_test_keys')
     })
   })

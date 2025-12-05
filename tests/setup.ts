@@ -16,7 +16,7 @@ export const TEST_DB_CONFIG = process.env.DATABASE_URL
 // Test Database Lifecycle
 // ============================================================================
 
-export async function setupTestDatabase() {
+export async function setupTestDatabase(options?: { cache?: any }) {
   await orm.connect({
     connectionString: TEST_DB_CONFIG,
     migrations: {
@@ -25,6 +25,7 @@ export async function setupTestDatabase() {
       killIfUpdate: false, // Don't exit on schema changes
       safeMigrations: false, // Allow dropping columns in tests
     },
+    cache: options?.cache,
   })
   console.log('✅ Test database connected')
 }

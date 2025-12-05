@@ -1,3 +1,4 @@
+import type { CacheAdapter } from './cache'
 import type { QueryLoggingConfig } from './logger'
 import type { MigrationConfig } from './migration/types'
 import { sql as bunSql, SQL } from 'bun'
@@ -21,6 +22,7 @@ export interface DatabaseConfig {
   max?: number
   min?: number
   migrations?: MigrationConfig
+  cache?: CacheAdapter
   limits?: {
     bulkOperations?: number
     arraySize?: number

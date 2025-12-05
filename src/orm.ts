@@ -27,9 +27,10 @@ export class ORM {
   async connect(connectionString: string | DatabaseConfig): Promise<void> {
     await initializeDatabase(connectionString)
 
-    this.migrationConfig = typeof connectionString === 'object'
-      ? connectionString.migrations
-      : undefined
+    if (typeof connectionString === 'object') {
+      this.migrationConfig = connectionString.migrations
+      this.cacheAdapter = connectionString.cache
+    }
 
     if (this.migrationConfig?.autoMigrate === true) {
       await this.ensureMigrator()
@@ -116,16 +117,6 @@ export class ORM {
     this.repositories.set(entityDef, repository)
 
     return repository
-  }
-
-  /**
-   * Configures a cache adapter for the ORM.
-   * @param cacheAdapter - The cache adapter to use.
-   */
-  useCache(cacheAdapter: CacheAdapter): this {
-    this.cacheAdapter = cacheAdapter
-
-    return this
   }
 
   /**
