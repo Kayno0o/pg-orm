@@ -373,13 +373,20 @@ export class Repository<
    */
   async exists(id: number): Promise<boolean> {
     const db = this.getDB()
-    const [result] = await db`
-      SELECT 1 FROM ${db(this.tableName)}
-      WHERE id = ${id}
-      LIMIT 1
-    `
 
-    return result !== undefined
+    return this.loggedQuery(
+      async () => {
+        const [result] = await db`
+          SELECT 1 FROM ${db(this.tableName)}
+          WHERE id = ${id}
+          LIMIT 1
+        `
+
+        return result !== undefined
+      },
+      `SELECT 1 FROM ${this.tableName} WHERE id = $1 LIMIT 1`,
+      [id],
+    )
   }
 
   /**
@@ -470,10 +477,16 @@ export class Repository<
 
     const db = this.getDB()
 
-    await db`
-      DELETE FROM ${db(this.tableName)}
-      WHERE id IN ${db(ids)}
-    `
+    await this.loggedQuery(
+      async () => {
+        await db`
+          DELETE FROM ${db(this.tableName)}
+          WHERE id IN ${db(ids)}
+        `
+      },
+      `DELETE FROM ${this.tableName} WHERE id IN ($1)`,
+      [ids],
+    )
   }
 
   /**

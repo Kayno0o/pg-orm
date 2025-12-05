@@ -683,9 +683,31 @@ export class QueryBuilder<
     const limitPlaceholder = this.addParam(limitValue)
     // SECURITY AUDIT: Query uses validated components with parameterized LIMIT (see aggregate() audit)
     const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
-    const results = await this.db.unsafe(query, this.whereParams)
+    const start = performance.now()
+    let error: Error | undefined
 
-    return results as any
+    try {
+      const results = await this.db.unsafe(query, this.whereParams)
+
+      return results as any
+    }
+    catch (err) {
+      error = mapDatabaseError(err, this.tableName)
+      throw error
+    }
+    finally {
+      const duration = performance.now() - start
+
+      await queryLogger.log({
+        query,
+        params: this.whereParams,
+        duration,
+        timestamp: new Date(),
+        operation: 'SELECT',
+        table: this.tableName,
+        error,
+      })
+    }
   }
 
   /** Updates records matching the query. */
