@@ -1,5 +1,4 @@
 import type { ORM } from './orm'
-import { SeederRunner } from './seeder'
 
 export async function runCLI(orm: ORM): Promise<void> {
   const [command, ...args] = process.argv.slice(2)

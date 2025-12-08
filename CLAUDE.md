@@ -95,15 +95,18 @@ The ORM supports **multiple independent instances**, each with its own:
 3. **Microservices:** Each service has its own ORM instance and database
 4. **Testing:** Isolated test instances with different schemas
 
-**Simple Usage (Singleton):**
+**Basic Usage:**
 ```typescript
-import { orm } from '@kaynooo/orm'  // Default singleton instance
+import { ORM } from '@kaynooo/orm'
 
+// Create ORM instance
+const orm = new ORM()
 await orm.connect(process.env.DATABASE_URL!)
+
 const User = orm.entity('users', { ... }).build()
 ```
 
-**Multi-Instance Usage:**
+**Multi-Database Usage:**
 ```typescript
 import { ORM } from '@kaynooo/orm'
 
@@ -148,7 +151,9 @@ const tenant2Users = tenant2.repo(User)
 ### 1. Entity Definition (Elysia-like Builder)
 
 ```typescript
-import { orm, timestamps } from '@kaynooo/orm'
+import { ORM, timestamps } from '@kaynooo/orm'
+
+const orm = new ORM()
 
 const User = orm
   .entity('users', {

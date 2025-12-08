@@ -11,8 +11,9 @@ bun add @kaynooo/pg-orm
 ## Quick Start
 
 ```typescript
-import { orm } from '@kaynooo/pg-orm'
+import { ORM } from '@kaynooo/pg-orm'
 
+const orm = new ORM()
 await orm.connect(process.env.DATABASE_URL!)
 
 const User = orm.entity('users', {
@@ -47,7 +48,9 @@ orm.blob()
 ## Traits
 
 ```typescript
-import { timestamps, softDelete } from '@kaynooo/pg-orm'
+import { ORM, timestamps, softDelete } from '@kaynooo/pg-orm'
+
+const orm = new ORM()
 
 const Post = orm.entity('posts', { title: orm.string() })
   .use(timestamps())

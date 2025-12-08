@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import { setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
+import { getTestSchema, orm, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 const User = orm.entity('test_tx_users', {
   name: orm.string(),
@@ -21,13 +20,13 @@ describe('Transactions', () => {
     // Register repositories before connecting to enable auto-migration
     users = orm.repo(User)
     posts = orm.repo(Post)
-    await setupTestDatabase()
+    await setupTestDatabase({ schema: getTestSchema() })
     setupTestSuite('transactions')
   })
 
   afterAll(async () => {
     teardownTestSuite('transactions')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   describe('Repository-Scoped Transactions', () => {

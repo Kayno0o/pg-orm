@@ -13,6 +13,7 @@ export class MigrationRunner {
   constructor(
     private db: SQL,
     private config: Required<MigrationConfig>,
+    private schema = 'public',
   ) {}
 
   async ensureMigrationsTable(): Promise<void> {

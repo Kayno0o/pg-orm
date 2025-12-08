@@ -1,14 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTxRepo,
-  runInTransaction,
-  setupTestDatabase,
-  setupTestSuite,
-  teardownTestDatabase,
-  teardownTestSuite,
-  testData,
-} from './setup'
+import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 const User = orm.entity('test_query_users', {
   name: orm.string(),
@@ -23,13 +14,13 @@ describe('Query Builder', () => {
   beforeAll(async () => {
     // Register repository before connecting to enable auto-migration
     orm.repo(User)
-    await setupTestDatabase()
+    await setupTestDatabase({ schema: getTestSchema() })
     setupTestSuite('query')
   })
 
   afterAll(async () => {
     teardownTestSuite('query')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   describe('Where Clauses', () => {

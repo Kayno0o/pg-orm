@@ -1,4 +1,7 @@
-import { orm, publishable, softDelete, timestamps } from './src'
+import { ORM, publishable, softDelete, timestamps } from './src'
+
+// Create ORM instance
+const orm = new ORM()
 
 // ============================================================================
 // 1. Define Entities with Builder Pattern

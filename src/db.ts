@@ -45,16 +45,6 @@ let dbInstance: SQL | null = null
 let dbConfig: DatabaseConfig | null = null
 
 /**
- * Sets the global database instance.
- * Used internally for backward compatibility with singleton pattern.
- * @param db - The SQL instance to set as global.
- * @internal
- */
-export function setGlobalDatabase(db: SQL): void {
-  dbInstance = db
-}
-
-/**
  * Initializes the database connection.
  * @param connectionString - Connection string or configuration object.
  */
@@ -71,7 +61,11 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
   }
 
   if (typeof connectionString === 'string') {
-    dbInstance = new SQL(connectionString)
+    dbInstance = new SQL(connectionString, {
+      connection: {
+        search_path: 'public',
+      },
+    })
   }
   else {
     const {
@@ -81,14 +75,27 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
       connectionTimeout: _connectionTimeout,
       migrations: _migrations,
       logging: _logging,
+      schema,
       ...rest
     } = connectionString
 
-    if (rest.connectionString) {
-      dbInstance = new SQL(rest.connectionString)
+    const targetSchema = schema || 'public'
+    const connString = rest.connectionString
+
+    if (connString) {
+      dbInstance = new SQL(connString, {
+        connection: {
+          search_path: targetSchema,
+        },
+      })
     }
     else {
-      dbInstance = new SQL(rest as any)
+      dbInstance = new SQL({
+        ...rest as any,
+        connection: {
+          search_path: targetSchema,
+        },
+      })
     }
   }
 
@@ -114,14 +121,12 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
 /**
  * Retrieves the active database connection.
  * @throws Error if the database is not initialized.
- * @deprecated Use orm.getDB() instead. This function will be removed in v2.0.0.
+ * @deprecated This function is deprecated. Use orm.getDB() instead where orm is your ORM instance.
  */
 export function getDatabase(): SQL {
   if (!dbInstance) {
     throw new Error('Database not initialized. Call orm.connect() first.')
   }
-
-  console.warn('DEPRECATED: getDatabase() will be removed in v2.0.0. Use orm.getDB() instead.')
 
   return dbInstance
 }

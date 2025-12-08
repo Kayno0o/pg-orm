@@ -1,18 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { InMemoryCache, orm } from '../src'
+import { InMemoryCache, ORM } from '../src'
 import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Query Caching', () => {
   let cache: InMemoryCache
+  const orm = new ORM()
 
   beforeAll(async () => {
     cache = new InMemoryCache(60000)
-    await setupTestDatabase({ cache })
+    await setupTestDatabase({ cache, autoMigrate: false, orm })
   })
 
   afterAll(async () => {
     cache.stopCleanup()
-    await teardownTestDatabase()
+    await teardownTestDatabase({ orm })
   })
 
   describe('InMemoryCache', () => {
@@ -23,7 +24,7 @@ describe('Query Caching', () => {
         age: orm.number(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -42,18 +43,18 @@ describe('Query Caching', () => {
       expect(duration2).toBeLessThan(duration1 * 0.5) // Cache should be much faster
       expect(cache.size()).toBeGreaterThan(0)
 
-      await cleanupTables('cache_test_users')
+      await cleanupTables(orm, 'cache_test_users')
     })
 
     test('should throw error if cache not configured', async () => {
       await orm.disconnect()
-      await setupTestDatabase()
+      await setupTestDatabase({ autoMigrate: false, orm })
 
       const User = orm.entity('cache_test_no_adapter', {
         name: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -61,9 +62,9 @@ describe('Query Caching', () => {
         await users.query().cache(60).execute()
       }).toThrow('Cache adapter not configured')
 
-      await cleanupTables('cache_test_no_adapter')
+      await cleanupTables(orm, 'cache_test_no_adapter')
       await orm.disconnect()
-      await setupTestDatabase({ cache })
+      await setupTestDatabase({ cache, autoMigrate: false, orm })
     })
 
     test('should validate cache TTL', async () => {
@@ -71,7 +72,7 @@ describe('Query Caching', () => {
         name: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -83,7 +84,7 @@ describe('Query Caching', () => {
         users.query().cache(-1)
       }).toThrow('Invalid cache TTL')
 
-      await cleanupTables('cache_test_ttl')
+      await cleanupTables(orm, 'cache_test_ttl')
     })
 
     test('should handle different cache keys', async () => {
@@ -92,7 +93,7 @@ describe('Query Caching', () => {
         age: orm.number(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -107,7 +108,7 @@ describe('Query Caching', () => {
       expect(result1[0]!.name).toBe('Alice')
       expect(result2[0]!.name).toBe('Bob')
 
-      await cleanupTables('cache_test_keys')
+      await cleanupTables(orm, 'cache_test_keys')
     })
   })
 })

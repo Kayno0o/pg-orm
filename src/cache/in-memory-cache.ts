@@ -96,9 +96,9 @@ export class InMemoryCache implements CacheAdapter {
   }
 }
 
-export function hashCacheKey(sql: string, params: SQLValue[]): string {
+export function hashCacheKey(sql: string, params: SQLValue[], schema?: string): string {
   const paramsStr = JSON.stringify(params)
-  const combined = `${sql}:${paramsStr}`
+  const combined = `${schema || ''}:${sql}:${paramsStr}`
 
   return Bun.hash(combined).toString(36)
 }

@@ -1,17 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { InvalidIdentifierError, orm } from '../src'
+import { InvalidIdentifierError, ORM } from '../src'
 import { quoteIdentifier, validateSQLIdentifier, validateSQLIdentifiers } from '../src/sql-utils'
 import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
 
 describe('Security - SQL Injection Protection', () => {
   const schema = getTestSchema()
+  const orm = new ORM()
 
   beforeAll(async () => {
-    await setupTestDatabase({ schema })
+    await setupTestDatabase({ schema, orm })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase({ schema })
+    await teardownTestDatabase({ schema, orm })
   })
 
   describe('SQL Identifier Validation', () => {
@@ -136,10 +137,7 @@ describe('Security - SQL Injection Protection', () => {
       safeRepo = orm.repo(SafeEntity)
 
       // Manually create table for nested describe entity
-      await createTestTable(SafeEntity)
-    })
-
-    afterAll(async () => {
+      await createTestTable(SafeEntity, orm)
     })
 
     test('should safely handle query values with SQL syntax', async () => {
@@ -218,15 +216,12 @@ describe('Security - SQL Injection Protection', () => {
       testRepo = orm.repo(TestEntity)
 
       // Manually create table for nested describe entity
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
       // Clean table before each test to avoid data pollution
-      await truncateTables('test_security_query')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_query')
     })
 
     test('should safely handle parameterized queries', async () => {
@@ -307,14 +302,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_orderby')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_orderby')
     })
 
     test('should reject invalid ORDER BY directions', async () => {
@@ -382,14 +374,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_groupby')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_groupby')
     })
 
     test('should reject invalid column names in GROUP BY', () => {
@@ -424,14 +413,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_limit')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_limit')
     })
 
     test('should reject non-integer LIMIT values', () => {
@@ -506,14 +492,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_pgops')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_pgops')
     })
 
     test('should safely handle array storage with special characters', async () => {
@@ -612,14 +595,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_second_order')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_second_order')
     })
 
     test('should safely store and retrieve malicious data without execution', async () => {
@@ -677,14 +657,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_mass_assign')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_mass_assign')
     })
 
     test('should ignore extra fields not in schema during create', async () => {
@@ -753,14 +730,11 @@ describe('Security - SQL Injection Protection', () => {
 
     beforeAll(async () => {
       testRepo = orm.repo(TestEntity)
-      await createTestTable(TestEntity)
+      await createTestTable(TestEntity, orm)
     })
 
     beforeEach(async () => {
-      await truncateTables('test_security_timing')
-    })
-
-    afterAll(async () => {
+      await truncateTables(orm, 'test_security_timing')
     })
 
     test('should have consistent query performance for existing and non-existing records', async () => {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { defineFactory, orm } from '../src'
-import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
+import { defineFactory } from '../src'
+import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Data Factories', () => {
   const schema = getTestSchema()
@@ -39,7 +39,6 @@ describe('Data Factories', () => {
       expect(data[2]!.name).toBe('User 2')
       expect(data[0]!.email).toBe('user0@test.com')
       expect(data[1]!.age).toBe(21)
-
     })
 
     test('should persist test data with create()', async () => {
@@ -69,7 +68,6 @@ describe('Data Factories', () => {
       const allUsers = await users.findAll()
 
       expect(allUsers.length).toBeGreaterThanOrEqual(3)
-
     })
 
     test('should support makeOne()', async () => {
@@ -94,7 +92,6 @@ describe('Data Factories', () => {
       expect(data.name).toBe('User 0')
       expect(data.email).toBe('user0@test.com')
       expect(data.age).toBe(20)
-
     })
 
     test('should support createOne()', async () => {
@@ -123,7 +120,6 @@ describe('Data Factories', () => {
       const allUsers = await users.findAll()
 
       expect(allUsers).toHaveLength(1)
-
     })
 
     test('should support state overrides', async () => {
@@ -148,7 +144,6 @@ describe('Data Factories', () => {
       expect(data[0]!.age).toBe(50)
       expect(data[1]!.age).toBe(50)
       expect(data[2]!.age).toBe(50)
-
     })
 
     test('should support async generators', async () => {
@@ -177,7 +172,6 @@ describe('Data Factories', () => {
       expect(data).toHaveLength(2)
       expect(data[0]!.name).toBe('User 0')
       expect(data[1]!.name).toBe('User 1')
-
     })
 
     test('should expose raw generator', async () => {
@@ -205,7 +199,6 @@ describe('Data Factories', () => {
 
       expect(data.name).toBe('User 5')
       expect(data.age).toBe(25)
-
     })
   })
 })

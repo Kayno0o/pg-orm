@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import { getTestSchema, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
+import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
 
 // Define entities at module level so migrations can run
 const User = orm.entity('scope_users', {
@@ -45,12 +44,19 @@ describe('Scopes', () => {
   const schema = getTestSchema()
 
   beforeAll(async () => {
-    // Register repositories before connecting to enable auto-migration
+    await setupTestDatabase({ schema })
+
+    // Create tables manually for schema-isolated tests
+    await createTestTable(User)
+    await createTestTable(Product)
+    await createTestTable(Post)
+    await createTestTable(Article)
+
+    // Register repos
     orm.repo(User)
     orm.repo(Product)
     orm.repo(Post)
     orm.repo(Article)
-    await setupTestDatabase({ schema })
   })
 
   afterAll(teardownTestDatabase)

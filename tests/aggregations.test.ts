@@ -1,13 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTxRepo,
-  runInTransaction,
-  setupTestDatabase,
-  setupTestSuite,
-  teardownTestDatabase,
-  teardownTestSuite,
-} from './setup'
+import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite } from './setup'
 
 describe('Aggregations', () => {
   const User = orm
@@ -21,13 +13,13 @@ describe('Aggregations', () => {
 
   beforeAll(async () => {
     orm.repo(User)
-    await setupTestDatabase()
+    await setupTestDatabase({ schema: getTestSchema() })
     setupTestSuite('aggregations')
   })
 
   afterAll(async () => {
     teardownTestSuite('aggregations')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   // Helper to create test data

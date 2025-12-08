@@ -16,7 +16,9 @@
  *   bun cli.ts db:seed [names...]
  */
 
-import { orm, runCLI } from '../src'
+import { ORM, runCLI } from '../src'
+
+const orm = new ORM()
 
 async function main() {
   const dbUrl = process.env.DATABASE_URL

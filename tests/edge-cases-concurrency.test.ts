@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import { setupGlobalTestHooks } from './setup'
+import { orm, setupGlobalTestHooks } from './setup'
 
 setupGlobalTestHooks()
 

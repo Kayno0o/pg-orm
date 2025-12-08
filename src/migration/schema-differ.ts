@@ -19,6 +19,7 @@ export class SchemaDiffer {
   constructor(
     private entities: Map<string, EntityDefinition<any>>,
     private config: Required<MigrationConfig>,
+    private schema = 'public',
   ) {}
 
   /** Compare entity definitions with current database schema */

@@ -1,17 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { ORM } from '../src'
 import { ValidationError } from '../src/validation'
 import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Data Validation', () => {
   const schema = getTestSchema()
+  const orm = new ORM()
 
   beforeAll(async () => {
-    await setupTestDatabase({ schema })
+    await setupTestDatabase({ schema, orm })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase({ schema })
+    await teardownTestDatabase({ schema, orm })
   })
 
   describe('Required Fields', () => {
@@ -21,14 +22,13 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
       expect(async () => {
         await users.create({ name: 'Test' } as any)
       }).toThrow()
-
     })
 
     test('should allow nullable fields to be omitted', async () => {
@@ -38,7 +38,7 @@ describe('Data Validation', () => {
         age: orm.number().nullable(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -47,7 +47,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.age).toBeNull()
-
     })
 
     test('should allow fields with defaults to be omitted', async () => {
@@ -57,7 +56,7 @@ describe('Data Validation', () => {
         isActive: orm.boolean().default(true),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -66,7 +65,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.isActive).toBe(true)
-
     })
   })
 
@@ -77,7 +75,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -87,7 +85,6 @@ describe('Data Validation', () => {
           email: 'test@example.com',
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate minLength constraint', async () => {
@@ -96,7 +93,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -106,7 +103,6 @@ describe('Data Validation', () => {
           email: 'test@example.com',
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should accept string within length constraints', async () => {
@@ -115,7 +111,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -124,7 +120,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.name).toBe('John Doe')
-
     })
   })
 
@@ -135,7 +130,7 @@ describe('Data Validation', () => {
         price: orm.number().min(0),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
 
@@ -145,7 +140,6 @@ describe('Data Validation', () => {
           price: -10,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate max constraint', async () => {
@@ -154,7 +148,7 @@ describe('Data Validation', () => {
         rating: orm.number().max(5),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
 
@@ -164,7 +158,6 @@ describe('Data Validation', () => {
           rating: 10,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate integer constraint', async () => {
@@ -173,7 +166,7 @@ describe('Data Validation', () => {
         quantity: orm.number().integer(),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
 
@@ -183,7 +176,6 @@ describe('Data Validation', () => {
           quantity: 3.14,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should accept number within constraints', async () => {
@@ -192,7 +184,7 @@ describe('Data Validation', () => {
         price: orm.number().min(0).max(1000),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
       const product = await products.create({
@@ -201,7 +193,6 @@ describe('Data Validation', () => {
       })
 
       expect(product.price).toBe(99.99)
-
     })
   })
 
@@ -213,7 +204,7 @@ describe('Data Validation', () => {
         role: orm.enum(['admin', 'user', 'moderator'] as const),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -224,7 +215,6 @@ describe('Data Validation', () => {
           role: 'invalid' as any,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should accept valid enum values', async () => {
@@ -234,7 +224,7 @@ describe('Data Validation', () => {
         role: orm.enum(['admin', 'user', 'moderator'] as const),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -244,7 +234,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.role).toBe('admin')
-
     })
   })
 
@@ -255,7 +244,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -265,7 +254,6 @@ describe('Data Validation', () => {
           email: 'test@example.com',
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate number type', async () => {
@@ -274,7 +262,7 @@ describe('Data Validation', () => {
         price: orm.number(),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
 
@@ -284,7 +272,6 @@ describe('Data Validation', () => {
           price: 'not a number' as any,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate boolean type', async () => {
@@ -294,7 +281,7 @@ describe('Data Validation', () => {
         isActive: orm.boolean(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -305,7 +292,6 @@ describe('Data Validation', () => {
           isActive: 'yes' as any,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should validate array type', async () => {
@@ -315,7 +301,7 @@ describe('Data Validation', () => {
         tags: orm.array('string'),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -326,7 +312,6 @@ describe('Data Validation', () => {
           tags: 'not an array' as any,
         })
       }).toThrow(ValidationError)
-
     })
   })
 
@@ -337,7 +322,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -350,7 +335,6 @@ describe('Data Validation', () => {
           name: 'This is way too long for validation',
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should allow partial updates without validation errors', async () => {
@@ -360,7 +344,7 @@ describe('Data Validation', () => {
         age: orm.number().min(0).nullable(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -375,7 +359,6 @@ describe('Data Validation', () => {
 
       expect(updated.age).toBe(25)
       expect(updated.name).toBe('Test')
-
     })
   })
 
@@ -386,7 +369,7 @@ describe('Data Validation', () => {
         email: orm.string(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -405,7 +388,6 @@ describe('Data Validation', () => {
         expect(validationError.errors).toBeDefined()
         expect(validationError.errors.length).toBeGreaterThan(0)
       }
-
     })
   })
 
@@ -422,7 +404,7 @@ describe('Data Validation', () => {
         metadata: orm.jsonb<UserMeta>(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
       const user = await users.create({
@@ -435,7 +417,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.metadata.theme).toBe('dark')
-
     })
 
     test('should reject deeply nested JSON (DoS protection)', async () => {
@@ -445,7 +426,7 @@ describe('Data Validation', () => {
         metadata: orm.jsonb<any>(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -463,7 +444,6 @@ describe('Data Validation', () => {
           metadata: deepObject,
         })
       }).toThrow(ValidationError)
-
     })
 
     test('should accept moderately nested JSON', async () => {
@@ -473,7 +453,7 @@ describe('Data Validation', () => {
         metadata: orm.jsonb<any>(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -507,7 +487,6 @@ describe('Data Validation', () => {
       })
 
       expect(user.metadata.level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.value).toBe('ok')
-
     })
 
     test('should validate deeply nested arrays in JSON', async () => {
@@ -517,7 +496,7 @@ describe('Data Validation', () => {
         metadata: orm.jsonb<any>(),
       }).build()
 
-      await createTestTable(User)
+      await createTestTable(User, orm)
 
       const users = orm.repo(User)
 
@@ -535,7 +514,6 @@ describe('Data Validation', () => {
           metadata: { data: deepArray },
         })
       }).toThrow(ValidationError)
-
     })
   })
 
@@ -549,7 +527,7 @@ describe('Data Validation', () => {
         tags: orm.array('string'),
       }).build()
 
-      await createTestTable(Product)
+      await createTestTable(Product, orm)
 
       const products = orm.repo(Product)
 
@@ -574,7 +552,6 @@ describe('Data Validation', () => {
           tags: ['valid'],
         })
       }).toThrow(ValidationError)
-
     })
   })
 })

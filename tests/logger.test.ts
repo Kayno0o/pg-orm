@@ -1,15 +1,7 @@
 import type { QueryLogEntry } from '../src/logger'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm, queryLogger } from '../src'
-import {
-  createTxRepo,
-  runInTransaction,
-  setupTestDatabase,
-  setupTestSuite,
-  teardownTestDatabase,
-  teardownTestSuite,
-  testData,
-} from './setup'
+import { queryLogger } from '../src'
+import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 const User = orm.entity('test_logger_users', {
   name: orm.string(),
@@ -20,13 +12,13 @@ const User = orm.entity('test_logger_users', {
 describe('Query Logger', () => {
   beforeAll(async () => {
     orm.repo(User)
-    await setupTestDatabase()
+    await setupTestDatabase({ schema: getTestSchema() })
     setupTestSuite('logger')
   })
 
   afterAll(async () => {
     teardownTestSuite('logger')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   test('should log query execution in QueryBuilder.execute()', async () => {

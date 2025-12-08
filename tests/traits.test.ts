@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm, publishable, softDelete, timestamps } from '../src'
-import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
+import { publishable, softDelete, timestamps } from '../src'
+import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Trait System', () => {
   const schema = getTestSchema()

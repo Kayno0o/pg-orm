@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { orm, timestamps } from '../src'
+import { timestamps } from '../src'
+import { orm } from './setup'
 
 describe('Entity Builder', () => {
   describe('Entity Creation', () => {

@@ -1,4 +1,6 @@
-import { orm } from '../src'
+import { ORM } from '../src'
+
+const orm = new ORM()
 
 // Define entities with unique table names to avoid conflicts
 const User = orm.entity('users', {

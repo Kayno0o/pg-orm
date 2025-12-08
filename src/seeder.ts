@@ -18,7 +18,7 @@ export class SeederRunner {
 
   constructor(
     private orm: ORM,
-    seedsPath: string = 'seeds',
+    seedsPath = 'seeds',
   ) {
     this.seedsPath = resolve(process.cwd(), seedsPath)
   }

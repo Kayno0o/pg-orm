@@ -1,4 +1,6 @@
-import { orm } from '../src'
+import { ORM } from '../src'
+
+const orm = new ORM()
 
 const User = orm.entity('users', {
   name: orm.string(),

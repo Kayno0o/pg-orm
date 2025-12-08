@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { createTrait, orm, softDelete, timestamps } from '../src'
+import { createTrait, softDelete, timestamps } from '../src'
 import { InvalidIdentifierError } from '../src/errors'
+import { orm } from './setup'
 
 describe('Edge Cases - Entity Definition', () => {
   test('should handle entity with single field', () => {

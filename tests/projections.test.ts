@@ -1,16 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTxRepo,
-  getTestSchema,
-  runInTransaction,
-  setupTestDatabase,
-  teardownTestDatabase,
-  testData,
-} from './setup'
+import { ORM } from '../src'
+import { createTestTable, createTxRepo, getTestSchema, runInTransaction, setupTestDatabase, teardownTestDatabase, testData } from './setup'
 
 describe('Projections/Select', () => {
   const schema = getTestSchema()
+  const orm = new ORM()
+
   const User = orm
     .entity('projection_users', {
       name: orm.string(),
@@ -21,17 +16,22 @@ describe('Projections/Select', () => {
     .build()
 
   beforeAll(async () => {
+    await setupTestDatabase({ schema, orm })
+
+    // Create tables manually for schema-isolated tests
+    await createTestTable(User, orm)
+
+    // Register repos
     orm.repo(User)
-    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase({ schema })
+    await teardownTestDatabase({ schema, orm })
   })
 
   test('should select specific fields via query builder', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
       const user = await users.create({
         name: 'Alice',
         email: testData.user.valid().email,
@@ -49,12 +49,12 @@ describe('Projections/Select', () => {
       expect(projected[0]!.name).toBe('Alice')
       expect(projected[0]!).not.toHaveProperty('email')
       expect(projected[0]!).not.toHaveProperty('age')
-    })
+    }, orm)
   })
 
   test('should select fields via repository shorthand', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
 
       await users.create({
         name: 'Bob',
@@ -70,12 +70,12 @@ describe('Projections/Select', () => {
       expect(projected[0]).toHaveProperty('role')
       expect(projected[0]).not.toHaveProperty('email')
       expect(projected[0]).not.toHaveProperty('age')
-    })
+    }, orm)
   })
 
   test('should work with where clauses', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
 
       await users.create({
         name: 'Admin1',
@@ -99,12 +99,12 @@ describe('Projections/Select', () => {
         expect(admin).toHaveProperty('name')
         expect(admin).not.toHaveProperty('email')
       }
-    })
+    }, orm)
   })
 
   test('should work with ordering and limits', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
 
       await users.create({ name: 'Alice', email: testData.user.valid().email, age: 25, role: 'user' })
       await users.create({ name: 'Bob', email: testData.user.valid().email, age: 30, role: 'user' })
@@ -119,12 +119,12 @@ describe('Projections/Select', () => {
         expect(user).toHaveProperty('name')
         expect(user).not.toHaveProperty('email')
       }
-    })
+    }, orm)
   })
 
   test('should select all fields with explicit id', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
 
       await users.create({
         name: 'Charlie',
@@ -144,12 +144,12 @@ describe('Projections/Select', () => {
       expect(allFields[0]).toHaveProperty('email')
       expect(allFields[0]).toHaveProperty('age')
       expect(allFields[0]).toHaveProperty('role')
-    })
+    }, orm)
   })
 
   test('should work with findOne', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
       const user = await users.create({
         name: 'Diana',
         email: testData.user.valid().email,
@@ -166,18 +166,18 @@ describe('Projections/Select', () => {
       expect(projected!.id).toBe(user.id)
       expect(projected!.name).toBe('Diana')
       expect(projected).not.toHaveProperty('email')
-    })
+    }, orm)
   })
 
   test('should return null when no results with findOne', async () => {
     await runInTransaction(async (tx) => {
-      const users = createTxRepo(User, tx)
+      const users = createTxRepo(User, tx, orm)
       const projected = await users.query()
         .select('id', 'name')
         .where('id', '=', 999999)
         .findOne()
 
       expect(projected).toBeNull()
-    })
+    }, orm)
   })
 })

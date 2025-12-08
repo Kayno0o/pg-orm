@@ -16,6 +16,7 @@ export class Migrator {
     private db: SQL,
     private entities: Map<string, EntityDefinition<any>>,
     private config: MigrationConfig = {},
+    private schema = 'public',
   ) {
     const fullConfig: Required<MigrationConfig> = {
       autoMigrate: config.autoMigrate ?? true,
@@ -26,16 +27,30 @@ export class Migrator {
       migrationsTable: config.migrationsTable ?? '_migrations',
     }
 
-    this.inspector = new SchemaInspector(db)
-    this.runner = new MigrationRunner(db, fullConfig)
+    this.inspector = new SchemaInspector(db, schema)
+    this.runner = new MigrationRunner(db, fullConfig, schema)
     this.generator = new MigrationGenerator(fullConfig)
-    this.differ = new SchemaDiffer(entities, fullConfig)
+    this.differ = new SchemaDiffer(entities, fullConfig, schema)
   }
 
   async initialize(): Promise<void> {
+    await this.ensureSchema()
     await this.runner.ensureMigrationsTable()
     await this.runPendingMigrations()
     await this.runAutoMigration()
+  }
+
+  private async ensureSchema(): Promise<void> {
+    const schemaExists = await this.db`
+      SELECT EXISTS(
+        SELECT 1 FROM pg_namespace WHERE nspname = ${this.schema}
+      ) as exists
+    `
+
+    if (!schemaExists[0]?.exists) {
+      console.log(`📦 Creating schema: ${this.schema}`)
+      await this.db.unsafe(`CREATE SCHEMA ${this.schema}`)
+    }
   }
 
   private async runPendingMigrations(): Promise<void> {

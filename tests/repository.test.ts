@@ -1,14 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTxRepo,
-  runInTransaction,
-  setupTestDatabase,
-  setupTestSuite,
-  teardownTestDatabase,
-  teardownTestSuite,
-  testData,
-} from './setup'
+import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 // Test entity definition
 const User = orm.entity('test_users', {
@@ -24,13 +15,13 @@ describe('Repository CRUD Operations', () => {
   beforeAll(async () => {
     // Register repository before connecting to enable auto-migration
     orm.repo(User)
-    await setupTestDatabase()
+    await setupTestDatabase({ schema: getTestSchema() })
     setupTestSuite('repository')
   })
 
   afterAll(async () => {
     teardownTestSuite('repository')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   describe('Create', () => {

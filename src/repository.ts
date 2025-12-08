@@ -565,6 +565,7 @@ export class Repository<
       (row: DatabaseRow) => this.mapper.mapRowToEntity(row),
       this.definition.scopes,
       this.cacheAdapter,
+      this.orm.getSchema(),
     )
   }
 

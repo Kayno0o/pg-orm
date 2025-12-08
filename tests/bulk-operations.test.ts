@@ -1,13 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTestTable,
-  createTxRepo,
-  getTestSchema,
-  runInTransaction,
-  setupTestDatabase,
-  teardownTestDatabase,
-} from './setup'
+import { createTestTable, createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, teardownTestDatabase } from './setup'
 
 // Define entities at module level for auto-migration
 const User = orm.entity('test_bulk_users', {
@@ -72,7 +64,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Insert with createMany', () => {
-
     test('should insert 100+ records efficiently', async () => {
       await runInTransaction(async (tx) => {
         const users = createTxRepo(User, tx)
@@ -143,7 +134,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Insert with Hooks', () => {
-
     test('should execute beforeCreate hooks for each item', async () => {
       await runInTransaction(async (tx) => {
         const products = createTxRepo(Product, tx)
@@ -179,7 +169,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Insert with Validation', () => {
-
     test('should validate all items before insertion', async () => {
       await runInTransaction(async (tx) => {
         const articles = createTxRepo(Article, tx)
@@ -211,7 +200,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Delete with deleteMany', () => {
-
     test('should delete multiple records by IDs', async () => {
       await runInTransaction(async (tx) => {
         const tags = createTxRepo(Tag, tx)
@@ -257,7 +245,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Performance Benchmarks', () => {
-
     test('should insert 1000 records in reasonable time', async () => {
       await runInTransaction(async (tx) => {
         const benchmark = createTxRepo(Benchmark, tx)

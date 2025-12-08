@@ -1,15 +1,16 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { ORM } from '../src'
 import { getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Seeder System', () => {
   const schema = getTestSchema()
   const TEST_SEEDS_DIR = resolve(process.cwd(), 'test-seeds')
+  const orm = new ORM()
 
   beforeAll(async () => {
-    await setupTestDatabase({ schema })
+    await setupTestDatabase({ schema, orm })
 
     if (existsSync(TEST_SEEDS_DIR)) {
       rmSync(TEST_SEEDS_DIR, { recursive: true })
@@ -19,7 +20,7 @@ describe('Seeder System', () => {
   })
 
   afterAll(async () => {
-    await teardownTestDatabase({ schema })
+    await teardownTestDatabase({ schema, orm })
 
     if (existsSync(TEST_SEEDS_DIR)) {
       rmSync(TEST_SEEDS_DIR, { recursive: true })

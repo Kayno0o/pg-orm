@@ -1,6 +1,6 @@
 import type { DatabaseSchema, SchemaChange } from '../src/migration/types'
 import { describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { ORM } from '../src'
 import { DependencySorter } from '../src/migration/dependency-sorter'
 
 // ============================================================================
@@ -42,13 +42,14 @@ describe('DependencySorter Unit Tests', () => {
 
   test('should order CREATE_TABLE changes by dependencies', () => {
     // Define entities with dependency: Post → User
-    const User = orm.entity('test_order_users', {
-      name: orm.string(),
+    const localOrm = new ORM()
+    const User = localOrm.entity('test_order_users', {
+      name: localOrm.string(),
     }).build()
 
-    const Post = orm.entity('test_order_posts', {
-      title: orm.string(),
-      authorId: orm.foreignKey('test_order_users'),
+    const Post = localOrm.entity('test_order_posts', {
+      title: localOrm.string(),
+      authorId: localOrm.foreignKey('test_order_users'),
     }).build()
 
     const entities = new Map()
@@ -91,19 +92,20 @@ describe('DependencySorter Unit Tests', () => {
 
   test('should detect circular dependencies', () => {
     // Create circular dependency: A → B → C → A
-    const TableA = orm.entity('dep_circ_a', {
-      name: orm.string(),
-      cId: orm.foreignKey('dep_circ_c'),
+    const localOrm = new ORM()
+    const TableA = localOrm.entity('dep_circ_a', {
+      name: localOrm.string(),
+      cId: localOrm.foreignKey('dep_circ_c'),
     }).build()
 
-    const TableB = orm.entity('dep_circ_b', {
-      name: orm.string(),
-      aId: orm.foreignKey('dep_circ_a'),
+    const TableB = localOrm.entity('dep_circ_b', {
+      name: localOrm.string(),
+      aId: localOrm.foreignKey('dep_circ_a'),
     }).build()
 
-    const TableC = orm.entity('dep_circ_c', {
-      name: orm.string(),
-      bId: orm.foreignKey('dep_circ_b'),
+    const TableC = localOrm.entity('dep_circ_c', {
+      name: localOrm.string(),
+      bId: localOrm.foreignKey('dep_circ_b'),
     }).build()
 
     const entities = new Map()
@@ -132,13 +134,14 @@ describe('DependencySorter Unit Tests', () => {
   })
 
   test('should detect type mismatch in foreign keys', () => {
-    const Parent = orm.entity('dep_type_parent', {
-      name: orm.string(),
+    const localOrm = new ORM()
+    const Parent = localOrm.entity('dep_type_parent', {
+      name: localOrm.string(),
     }).build()
 
-    const Child = orm.entity('dep_type_child', {
-      name: orm.string(),
-      parentId: orm.foreignKey('dep_type_parent'), // DOUBLE PRECISION
+    const Child = localOrm.entity('dep_type_child', {
+      name: localOrm.string(),
+      parentId: localOrm.foreignKey('dep_type_parent'), // DOUBLE PRECISION
     }).build()
 
     const entities = new Map()

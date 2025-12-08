@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Lifecycle Hooks', () => {
   const schema = getTestSchema()
@@ -33,7 +32,6 @@ describe('Lifecycle Hooks', () => {
 
       await users.create({ name: 'Test User', email: 'test@example.com' })
       expect(hookCalled).toBe(true)
-
     })
 
     test('should allow modifying data in beforeCreate', async () => {
@@ -57,7 +55,6 @@ describe('Lifecycle Hooks', () => {
 
       expect(user.email).toBe('uppercase@example.com')
       expect(user.name).toBe('Spaced Name')
-
     })
 
     test('should execute multiple beforeCreate hooks in order', async () => {
@@ -78,7 +75,6 @@ describe('Lifecycle Hooks', () => {
 
       await users.create({ name: 'Test', email: 'test@example.com' })
       expect(callOrder).toEqual([1, 2, 3])
-
     })
   })
 
@@ -106,7 +102,6 @@ describe('Lifecycle Hooks', () => {
 
       expect(hookCalled).toBe(true)
       expect(createdId).toBe(user.id)
-
     })
 
     test('should handle async afterCreate hook', async () => {
@@ -128,7 +123,6 @@ describe('Lifecycle Hooks', () => {
 
       await users.create({ name: 'Test', email: 'test@example.com' })
       expect(asyncTaskCompleted).toBe(true)
-
     })
   })
 
@@ -154,7 +148,6 @@ describe('Lifecycle Hooks', () => {
 
       await users.update(user.id, { name: 'Updated Name' })
       expect(hookCalled).toBe(true)
-
     })
 
     test('should allow modifying update data', async () => {
@@ -174,7 +167,6 @@ describe('Lifecycle Hooks', () => {
       const updated = await users.update(user.id, { email: 'UPDATED@EXAMPLE.COM' })
 
       expect(updated.email).toBe('updated@example.com')
-
     })
   })
 
@@ -203,7 +195,6 @@ describe('Lifecycle Hooks', () => {
       expect(hookCalled).toBe(true)
       expect(updatedEntity.name).toBe('Updated')
       expect(updatedEntity.id).toBe(user.id)
-
     })
   })
 
@@ -230,7 +221,6 @@ describe('Lifecycle Hooks', () => {
       await users.delete(user.id)
       expect(hookCalled).toBe(true)
       expect(deletedId).toBe(user.id)
-
     })
 
     test('should handle async beforeDelete hook', async () => {
@@ -253,7 +243,6 @@ describe('Lifecycle Hooks', () => {
 
       await users.delete(user.id)
       expect(cleanupCompleted).toBe(true)
-
     })
   })
 
@@ -286,7 +275,6 @@ describe('Lifecycle Hooks', () => {
       const found = await users.find(userId)
 
       expect(found).toBeNull()
-
     })
   })
 
@@ -315,7 +303,6 @@ describe('Lifecycle Hooks', () => {
         'afterCreate1',
         'afterCreate2',
       ])
-
     })
 
     test('should execute hooks in correct order for update', async () => {
@@ -343,7 +330,6 @@ describe('Lifecycle Hooks', () => {
         'afterUpdate1',
         'afterUpdate2',
       ])
-
     })
 
     test('should execute hooks in correct order for delete', async () => {
@@ -371,7 +357,6 @@ describe('Lifecycle Hooks', () => {
         'afterDelete1',
         'afterDelete2',
       ])
-
     })
   })
 
@@ -408,7 +393,6 @@ describe('Lifecycle Hooks', () => {
         'beforeDelete',
         'afterDelete',
       ])
-
     })
   })
 })

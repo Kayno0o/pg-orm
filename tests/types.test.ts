@@ -1,7 +1,7 @@
 /* eslint-disable unused-imports/no-unused-vars */
 import type { InferCreateData, InferEntity, InferUpdateData } from '../src'
 import { describe, expect, expectTypeOf, test } from 'bun:test'
-import { orm } from '../src'
+import { orm } from './setup'
 
 describe('Type System', () => {
   describe('Field Nullable Literal Types', () => {

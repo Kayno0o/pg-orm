@@ -1,14 +1,14 @@
 import type { InferEntity } from '../src/types'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Relations', () => {
   beforeAll(async () => {
-    await orm.connect(process.env.DATABASE_URL!)
+    await setupTestDatabase({ schema: getTestSchema(), autoMigrate: false })
   })
 
   afterAll(async () => {
-    await orm.disconnect()
+    await teardownTestDatabase({ schema: getTestSchema() })
   })
 
   beforeEach(async () => {
@@ -460,7 +460,7 @@ describe('Relations', () => {
 
       await expect(async () => {
         await users.find(user.id, { with: ['posts'] })
-      }).toThrow('Entity for table "non_existent_table" not found')
+      }).toThrow('Entity "non_existent_table" not registered in this ORM instance')
     })
   })
 

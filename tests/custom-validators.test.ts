@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
 import { ValidationError } from '../src/validation'
-import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Custom Field Validators', () => {
   const schema = getTestSchema()
@@ -35,7 +34,6 @@ describe('Custom Field Validators', () => {
       const user = await users.create({ name: 'Alice', email: 'alice@test.com' })
 
       expect(user.name).toBe('Alice')
-
     })
 
     test('should validate custom number validator', async () => {
@@ -58,7 +56,6 @@ describe('Custom Field Validators', () => {
       const user = await users.create({ name: 'Bob', age: 25 })
 
       expect(user.age).toBe(25)
-
     })
 
     test('should support async validators', async () => {
@@ -84,7 +81,6 @@ describe('Custom Field Validators', () => {
       const user = await users.create({ email: 'valid@test.com' })
 
       expect(user.email).toBe('valid@test.com')
-
     })
 
     test('should support multiple validators per field', async () => {
@@ -115,7 +111,6 @@ describe('Custom Field Validators', () => {
       const user = await users.create({ password: 'ValidPass1' })
 
       expect(user.password).toBe('ValidPass1')
-
     })
 
     test('should support custom error messages from validator', async () => {
@@ -149,7 +144,6 @@ describe('Custom Field Validators', () => {
       const user = await users.create({ code: '123456' })
 
       expect(user.code).toBe('123456')
-
     })
   })
 })

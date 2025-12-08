@@ -1,7 +1,7 @@
 import type { DatabaseColumn, DatabaseIndex, DatabaseSchema, ForeignKeyInfo } from '../src/migration/types'
 import { describe, expect, test } from 'bun:test'
-import { orm } from '../src'
 import { SchemaDiffer } from '../src/migration/schema-differ'
+import { orm } from './setup'
 
 // ============================================================================
 // Unit Tests - SchemaDiffer (No Database Required)

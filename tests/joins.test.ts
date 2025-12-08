@@ -1,12 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { orm } from '../src'
-import {
-  createTxRepo,
-  getTestSchema,
-  runInTransaction,
-  setupTestDatabase,
-  teardownTestDatabase,
-} from './setup'
+import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, teardownTestDatabase } from './setup'
 
 const User = orm.entity('test_join_users', {
   name: orm.string(),
@@ -29,9 +22,11 @@ describe('QueryBuilder JOINs', () => {
   const schema = getTestSchema()
 
   beforeAll(async () => {
+    // Register repos before connecting to enable auto-migration
     orm.repo(User)
     orm.repo(Post)
     orm.repo(Comment)
+
     await setupTestDatabase({ schema })
   })
 

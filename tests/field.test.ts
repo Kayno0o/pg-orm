@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { orm } from './setup'
 
 describe('Field Builders', () => {
   describe('String Field', () => {

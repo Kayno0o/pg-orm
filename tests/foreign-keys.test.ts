@@ -1,6 +1,6 @@
 import type { InferEntity } from '../src'
 import { describe, expect, test } from 'bun:test'
-import { orm } from '../src'
+import { orm } from './setup'
 
 describe('Foreign Keys', () => {
   describe('Field Definition', () => {

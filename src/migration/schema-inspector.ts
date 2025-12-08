@@ -11,7 +11,10 @@ import type {
 // Schema Inspector - Query PostgreSQL Metadata
 
 export class SchemaInspector {
-  constructor(private db: SQL) {}
+  constructor(
+    private db: SQL,
+    private schema = 'public',
+  ) {}
 
   /** Get complete database schema (tables, columns, constraints, indexes, foreign keys) */
   async getSchema(): Promise<DatabaseSchema> {
@@ -39,7 +42,7 @@ export class SchemaInspector {
         table_name as "tableName",
         table_schema as "schemaName"
       FROM information_schema.tables
-      WHERE table_schema = 'public'
+      WHERE table_schema = ${this.schema}
         AND table_type = 'BASE TABLE'
         AND table_name != '_migrations'
       ORDER BY table_name
@@ -66,7 +69,7 @@ export class SchemaInspector {
         datetime_precision as "datetimePrecision",
         udt_name as "udtName"
       FROM information_schema.columns
-      WHERE table_schema = 'public'
+      WHERE table_schema = ${this.schema}
         AND table_name != '_migrations'
       ORDER BY table_name, ordinal_position
     `
@@ -101,7 +104,7 @@ export class SchemaInspector {
         AND tc.table_name = kcu.table_name
       LEFT JOIN pg_catalog.pg_constraint pgc
         ON pgc.conname = tc.constraint_name
-      WHERE tc.table_schema = 'public'
+      WHERE tc.table_schema = ${this.schema}
         AND tc.table_name != '_migrations'
       GROUP BY
         tc.constraint_name,
@@ -176,7 +179,7 @@ export class SchemaInspector {
       JOIN information_schema.referential_constraints AS rc
         ON tc.constraint_name = rc.constraint_name
         AND tc.table_schema = rc.constraint_schema
-      WHERE tc.table_schema = 'public'
+      WHERE tc.table_schema = ${this.schema}
         AND tc.constraint_type = 'FOREIGN KEY'
         AND tc.table_name != '_migrations'
       ORDER BY tc.table_name, tc.constraint_name
@@ -199,7 +202,7 @@ export class SchemaInspector {
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
-        WHERE table_schema = 'public'
+        WHERE table_schema = ${this.schema}
           AND table_name = ${tableName}
       ) as exists
     `
@@ -213,7 +216,7 @@ export class SchemaInspector {
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = ${this.schema}
           AND table_name = ${tableName}
           AND column_name = ${columnName}
       ) as exists

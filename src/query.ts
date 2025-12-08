@@ -40,6 +40,7 @@ export class QueryBuilder<
   private cacheTtl?: number
   private cacheAdapter?: CacheAdapter
   private hasCustomSelect = false
+  private schemaName?: string
 
   // eslint-disable-next-line max-params
   constructor(
@@ -49,12 +50,14 @@ export class QueryBuilder<
     private mapper?: (row: DatabaseRow) => any,
     scopes?: Map<string, ScopeDefinition<T>>,
     cacheAdapter?: CacheAdapter,
+    schemaName?: string,
   ) {
     validateSQLIdentifier(tableName, 'table')
     this.selectFields = [`${tableName}.*`]
     this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
     this.scopes = scopes
     this.cacheAdapter = cacheAdapter
+    this.schemaName = schemaName
   }
 
   private getColumnName(fieldName: string): string {
@@ -513,7 +516,7 @@ export class QueryBuilder<
 
     // Check cache if enabled
     if (this.cacheTtl && this.cacheAdapter) {
-      const cacheKey = hashCacheKey(sql, params)
+      const cacheKey = hashCacheKey(sql, params, this.schemaName)
       const cached = await this.cacheAdapter.get<any[]>(cacheKey)
 
       if (cached) {
