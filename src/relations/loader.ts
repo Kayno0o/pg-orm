@@ -9,13 +9,15 @@ import type {
   RelationSchema,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
-import { Repository } from '../repository'
+
+type RepositoryFactory = (entity: EntityDefinition<any>) => any
 
 export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
   constructor(
     private db: SQL,
     private orm: ORM,
     private entity: EntityDefinition<T, any, any, R>,
+    private createRepository: RepositoryFactory,
   ) {}
 
   private validateEntityRegistration(tableName: string): void {
@@ -82,7 +84,7 @@ export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
     targetEntity: EntityDefinition<any>,
   ): Promise<void> {
     const ids = entities.map(e => e.id as number)
-    const relatedRepo = new Repository(targetEntity, undefined, this.orm)
+    const relatedRepo = this.createRepository(targetEntity)
 
     const related = await relatedRepo.query()
       .whereIn(config.foreignKey as any, ids as any)
@@ -122,7 +124,7 @@ export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
       return
     }
 
-    const relatedRepo = new Repository(targetEntity, undefined, this.orm)
+    const relatedRepo = this.createRepository(targetEntity)
     const ownerKey = config.ownerKey || 'id'
 
     const related = await relatedRepo.query()
@@ -130,7 +132,7 @@ export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
       .execute()
 
     const lookupMap = new Map(
-      related.map(item => [(item as any)[ownerKey], item]),
+      related.map((item: any) => [item[ownerKey], item]),
     )
 
     for (const entity of entities) {
@@ -147,7 +149,7 @@ export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
     targetEntity: EntityDefinition<any>,
   ): Promise<void> {
     const ids = entities.map(e => e.id as number)
-    const relatedRepo = new Repository(targetEntity, undefined, this.orm)
+    const relatedRepo = this.createRepository(targetEntity)
 
     const related = await relatedRepo.query()
       .whereIn(config.foreignKey as any, ids as any)
@@ -197,12 +199,12 @@ export class RelationLoader<T extends EntitySchema, R extends RelationSchema> {
       return
     }
 
-    const relatedRepo = new Repository(targetEntity, undefined, this.orm)
+    const relatedRepo = this.createRepository(targetEntity)
     const related = await relatedRepo.query()
       .whereIn('id', relatedIds as any)
       .execute()
 
-    const relatedMap = new Map(related.map(item => [item.id as number, item]))
+    const relatedMap = new Map(related.map((item: any) => [item.id as number, item]))
 
     const grouped = new Map<number, any[]>()
 

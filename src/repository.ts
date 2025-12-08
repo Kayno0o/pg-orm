@@ -112,7 +112,12 @@ export class Repository<
   }
 
   private get relationLoader(): RelationLoader<T, TRelations> {
-    this._relationLoader ||= new RelationLoader(this.getDB(), this.orm, this.definition)
+    this._relationLoader ||= new RelationLoader(
+      this.getDB(),
+      this.orm,
+      this.definition,
+      entity => new Repository(entity, this.cacheAdapter, this.orm),
+    )
 
     return this._relationLoader
   }
