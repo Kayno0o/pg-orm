@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Lifecycle Hooks', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('beforeCreate Hook', () => {
@@ -32,7 +34,6 @@ describe('Lifecycle Hooks', () => {
       await users.create({ name: 'Test User', email: 'test@example.com' })
       expect(hookCalled).toBe(true)
 
-      await cleanupTables('test_before_create')
     })
 
     test('should allow modifying data in beforeCreate', async () => {
@@ -57,7 +58,6 @@ describe('Lifecycle Hooks', () => {
       expect(user.email).toBe('uppercase@example.com')
       expect(user.name).toBe('Spaced Name')
 
-      await cleanupTables('test_before_create_modify')
     })
 
     test('should execute multiple beforeCreate hooks in order', async () => {
@@ -79,7 +79,6 @@ describe('Lifecycle Hooks', () => {
       await users.create({ name: 'Test', email: 'test@example.com' })
       expect(callOrder).toEqual([1, 2, 3])
 
-      await cleanupTables('test_multiple_before_create')
     })
   })
 
@@ -108,7 +107,6 @@ describe('Lifecycle Hooks', () => {
       expect(hookCalled).toBe(true)
       expect(createdId).toBe(user.id)
 
-      await cleanupTables('test_after_create')
     })
 
     test('should handle async afterCreate hook', async () => {
@@ -131,7 +129,6 @@ describe('Lifecycle Hooks', () => {
       await users.create({ name: 'Test', email: 'test@example.com' })
       expect(asyncTaskCompleted).toBe(true)
 
-      await cleanupTables('test_after_create_async')
     })
   })
 
@@ -158,7 +155,6 @@ describe('Lifecycle Hooks', () => {
       await users.update(user.id, { name: 'Updated Name' })
       expect(hookCalled).toBe(true)
 
-      await cleanupTables('test_before_update')
     })
 
     test('should allow modifying update data', async () => {
@@ -179,7 +175,6 @@ describe('Lifecycle Hooks', () => {
 
       expect(updated.email).toBe('updated@example.com')
 
-      await cleanupTables('test_before_update_modify')
     })
   })
 
@@ -209,7 +204,6 @@ describe('Lifecycle Hooks', () => {
       expect(updatedEntity.name).toBe('Updated')
       expect(updatedEntity.id).toBe(user.id)
 
-      await cleanupTables('test_after_update')
     })
   })
 
@@ -237,7 +231,6 @@ describe('Lifecycle Hooks', () => {
       expect(hookCalled).toBe(true)
       expect(deletedId).toBe(user.id)
 
-      await cleanupTables('test_before_delete')
     })
 
     test('should handle async beforeDelete hook', async () => {
@@ -261,7 +254,6 @@ describe('Lifecycle Hooks', () => {
       await users.delete(user.id)
       expect(cleanupCompleted).toBe(true)
 
-      await cleanupTables('test_before_delete_async')
     })
   })
 
@@ -295,7 +287,6 @@ describe('Lifecycle Hooks', () => {
 
       expect(found).toBeNull()
 
-      await cleanupTables('test_after_delete')
     })
   })
 
@@ -325,7 +316,6 @@ describe('Lifecycle Hooks', () => {
         'afterCreate2',
       ])
 
-      await cleanupTables('test_hook_order_create')
     })
 
     test('should execute hooks in correct order for update', async () => {
@@ -354,7 +344,6 @@ describe('Lifecycle Hooks', () => {
         'afterUpdate2',
       ])
 
-      await cleanupTables('test_hook_order_update')
     })
 
     test('should execute hooks in correct order for delete', async () => {
@@ -383,7 +372,6 @@ describe('Lifecycle Hooks', () => {
         'afterDelete2',
       ])
 
-      await cleanupTables('test_hook_order_delete')
     })
   })
 
@@ -421,7 +409,6 @@ describe('Lifecycle Hooks', () => {
         'afterDelete',
       ])
 
-      await cleanupTables('test_all_hooks')
     })
   })
 })

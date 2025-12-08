@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { defineFactory, orm } from '../src'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Data Factories', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('defineFactory', () => {
@@ -38,7 +40,6 @@ describe('Data Factories', () => {
       expect(data[0]!.email).toBe('user0@test.com')
       expect(data[1]!.age).toBe(21)
 
-      await cleanupTables('factory_test_make')
     })
 
     test('should persist test data with create()', async () => {
@@ -69,7 +70,6 @@ describe('Data Factories', () => {
 
       expect(allUsers.length).toBeGreaterThanOrEqual(3)
 
-      await cleanupTables('factory_test_create')
     })
 
     test('should support makeOne()', async () => {
@@ -95,7 +95,6 @@ describe('Data Factories', () => {
       expect(data.email).toBe('user0@test.com')
       expect(data.age).toBe(20)
 
-      await cleanupTables('factory_test_make_one')
     })
 
     test('should support createOne()', async () => {
@@ -125,7 +124,6 @@ describe('Data Factories', () => {
 
       expect(allUsers).toHaveLength(1)
 
-      await cleanupTables('factory_test_create_one')
     })
 
     test('should support state overrides', async () => {
@@ -151,7 +149,6 @@ describe('Data Factories', () => {
       expect(data[1]!.age).toBe(50)
       expect(data[2]!.age).toBe(50)
 
-      await cleanupTables('factory_test_state')
     })
 
     test('should support async generators', async () => {
@@ -181,7 +178,6 @@ describe('Data Factories', () => {
       expect(data[0]!.name).toBe('User 0')
       expect(data[1]!.name).toBe('User 1')
 
-      await cleanupTables('factory_test_async')
     })
 
     test('should expose raw generator', async () => {
@@ -210,7 +206,6 @@ describe('Data Factories', () => {
       expect(data.name).toBe('User 5')
       expect(data.age).toBe(25)
 
-      await cleanupTables('factory_test_raw')
     })
   })
 })

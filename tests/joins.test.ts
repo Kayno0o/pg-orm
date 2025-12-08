@@ -2,11 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
 import {
   createTxRepo,
+  getTestSchema,
   runInTransaction,
   setupTestDatabase,
-  setupTestSuite,
   teardownTestDatabase,
-  teardownTestSuite,
 } from './setup'
 
 const User = orm.entity('test_join_users', {
@@ -27,17 +26,17 @@ const Comment = orm.entity('test_join_comments', {
 }).build()
 
 describe('QueryBuilder JOINs', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
     orm.repo(User)
     orm.repo(Post)
     orm.repo(Comment)
-    await setupTestDatabase()
-    setupTestSuite('joins')
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    teardownTestSuite('joins')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('INNER JOIN', () => {

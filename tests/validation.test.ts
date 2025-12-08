@@ -1,15 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
 import { ValidationError } from '../src/validation'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Data Validation', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('Required Fields', () => {
@@ -27,7 +29,6 @@ describe('Data Validation', () => {
         await users.create({ name: 'Test' } as any)
       }).toThrow()
 
-      await cleanupTables('test_validation_required')
     })
 
     test('should allow nullable fields to be omitted', async () => {
@@ -47,7 +48,6 @@ describe('Data Validation', () => {
 
       expect(user.age).toBeNull()
 
-      await cleanupTables('test_validation_nullable')
     })
 
     test('should allow fields with defaults to be omitted', async () => {
@@ -67,7 +67,6 @@ describe('Data Validation', () => {
 
       expect(user.isActive).toBe(true)
 
-      await cleanupTables('test_validation_default')
     })
   })
 
@@ -89,7 +88,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_maxlength')
     })
 
     test('should validate minLength constraint', async () => {
@@ -109,7 +107,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_minlength')
     })
 
     test('should accept string within length constraints', async () => {
@@ -128,7 +125,6 @@ describe('Data Validation', () => {
 
       expect(user.name).toBe('John Doe')
 
-      await cleanupTables('test_validation_string_ok')
     })
   })
 
@@ -150,7 +146,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_min')
     })
 
     test('should validate max constraint', async () => {
@@ -170,7 +165,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_max')
     })
 
     test('should validate integer constraint', async () => {
@@ -190,7 +184,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_integer')
     })
 
     test('should accept number within constraints', async () => {
@@ -209,7 +202,6 @@ describe('Data Validation', () => {
 
       expect(product.price).toBe(99.99)
 
-      await cleanupTables('test_validation_number_ok')
     })
   })
 
@@ -233,7 +225,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_enum')
     })
 
     test('should accept valid enum values', async () => {
@@ -254,7 +245,6 @@ describe('Data Validation', () => {
 
       expect(user.role).toBe('admin')
 
-      await cleanupTables('test_validation_enum_ok')
     })
   })
 
@@ -276,7 +266,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_string_type')
     })
 
     test('should validate number type', async () => {
@@ -296,7 +285,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_number_type')
     })
 
     test('should validate boolean type', async () => {
@@ -318,7 +306,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_boolean_type')
     })
 
     test('should validate array type', async () => {
@@ -340,7 +327,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_array_type')
     })
   })
 
@@ -365,7 +351,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_update')
     })
 
     test('should allow partial updates without validation errors', async () => {
@@ -391,7 +376,6 @@ describe('Data Validation', () => {
       expect(updated.age).toBe(25)
       expect(updated.name).toBe('Test')
 
-      await cleanupTables('test_validation_partial_update')
     })
   })
 
@@ -422,7 +406,6 @@ describe('Data Validation', () => {
         expect(validationError.errors.length).toBeGreaterThan(0)
       }
 
-      await cleanupTables('test_validation_error_details')
     })
   })
 
@@ -453,7 +436,6 @@ describe('Data Validation', () => {
 
       expect(user.metadata.theme).toBe('dark')
 
-      await cleanupTables('test_validation_json_ok')
     })
 
     test('should reject deeply nested JSON (DoS protection)', async () => {
@@ -482,7 +464,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_json_depth')
     })
 
     test('should accept moderately nested JSON', async () => {
@@ -527,7 +508,6 @@ describe('Data Validation', () => {
 
       expect(user.metadata.level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.value).toBe('ok')
 
-      await cleanupTables('test_validation_json_moderate')
     })
 
     test('should validate deeply nested arrays in JSON', async () => {
@@ -556,7 +536,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_json_array_depth')
     })
   })
 
@@ -596,7 +575,6 @@ describe('Data Validation', () => {
         })
       }).toThrow(ValidationError)
 
-      await cleanupTables('test_validation_complex')
     })
   })
 })

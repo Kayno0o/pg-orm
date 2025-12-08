@@ -33,6 +33,7 @@ When working on this codebase:
 
 - **Builder Pattern:** Elysia-like object-based configuration with full type inference
 - **Fully Type-Safe:** Complete TypeScript type inference - no type annotations needed
+- **Multi-Instance Support:** Create multiple ORM instances for different databases or schemas (multi-tenant)
 - **Bun-Native:** Leverages Bun's native SQL API with tagged template literals for SQL injection protection
 - **PostgreSQL-First:** Optimized for PostgreSQL-specific features (arrays, JSONB, full-text search, etc.)
 - **Plugin System:** Global and per-entity plugins via `.use()` for composable behaviors
@@ -67,7 +68,7 @@ When working on this codebase:
 
 ```
 src/
-├── orm.ts          # Main ORM class with singleton instance
+├── orm.ts          # Main ORM class (supports multiple instances)
 ├── entity.ts       # EntityBuilder for defining schemas
 ├── field.ts        # Field type builders (string, number, etc.)
 ├── repository.ts   # Auto-generated Repository class
@@ -78,6 +79,69 @@ src/
 ├── errors.ts       # Error classes
 └── index.ts        # Main exports
 ```
+
+### Multi-Instance Architecture
+
+The ORM supports **multiple independent instances**, each with its own:
+- Database connection (separate PostgreSQL databases)
+- Schema configuration (multi-tenant within same database)
+- Entity registry (isolated or shared entities)
+- Transaction scope
+- Seeder/migration context
+
+**Use Cases:**
+1. **Multi-Database Applications:** Separate databases for users, analytics, audit logs
+2. **Multi-Tenant SaaS:** Different PostgreSQL schemas per tenant (schema isolation)
+3. **Microservices:** Each service has its own ORM instance and database
+4. **Testing:** Isolated test instances with different schemas
+
+**Simple Usage (Singleton):**
+```typescript
+import { orm } from '@kaynooo/orm'  // Default singleton instance
+
+await orm.connect(process.env.DATABASE_URL!)
+const User = orm.entity('users', { ... }).build()
+```
+
+**Multi-Instance Usage:**
+```typescript
+import { ORM } from '@kaynooo/orm'
+
+// Different databases
+const userDb = new ORM()
+const analyticsDb = new ORM()
+
+await userDb.connect('postgresql://users_db')
+await analyticsDb.connect('postgresql://analytics_db')
+
+const User = userDb.entity('users', { ... }).build()
+const Event = analyticsDb.entity('events', { ... }).build()
+
+// Different schemas (multi-tenant)
+const tenant1 = new ORM()
+const tenant2 = new ORM()
+
+await tenant1.connect({
+  database: 'myapp',
+  schema: 'tenant_1'  // PostgreSQL schema
+})
+await tenant2.connect({
+  database: 'myapp',
+  schema: 'tenant_2'
+})
+
+// Share entity definition across tenants
+const User = tenant1.entity('users', { ... }).build()
+tenant2.registerEntity(User)  // Reuse schema
+
+const tenant1Users = tenant1.repo(User)
+const tenant2Users = tenant2.repo(User)
+```
+
+**Limitations:**
+- Relations must reference entities from the same ORM instance
+- Cross-instance transactions are not supported
+- Each ORM instance creates its own connection pool
 
 ## API Examples
 
@@ -345,15 +409,19 @@ await orm.transaction(async (tx) => {
 ### 10. Database Connection
 
 ```typescript
-// Connect
+// Simple connection
 await orm.connect(process.env.DATABASE_URL!)
-// or
+
+// Advanced configuration
 await orm.connect({
   hostname: 'localhost',
   port: 5432,
   database: 'mydb',
   username: 'user',
   password: 'pass',
+
+  // Multi-tenant support
+  schema: 'tenant_1',     // PostgreSQL schema (default: 'public')
 
   // Migration config
   autoMigrate: true,      // Auto-detect schema changes
@@ -364,6 +432,9 @@ await orm.connect({
 // Get raw database instance
 const db = orm.getDB()
 await db`SELECT * FROM custom_table`
+
+// Get current schema
+const schema = orm.getSchema()  // Returns 'tenant_1'
 
 // Disconnect
 await orm.disconnect()

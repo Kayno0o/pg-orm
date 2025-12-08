@@ -21,6 +21,7 @@ export interface DatabaseConfig {
   ssl?: boolean | object
   max?: number
   min?: number
+  schema?: string
   migrations?: MigrationConfig
   cache?: CacheAdapter
   limits?: {
@@ -42,6 +43,16 @@ export interface DatabaseConfig {
 
 let dbInstance: SQL | null = null
 let dbConfig: DatabaseConfig | null = null
+
+/**
+ * Sets the global database instance.
+ * Used internally for backward compatibility with singleton pattern.
+ * @param db - The SQL instance to set as global.
+ * @internal
+ */
+export function setGlobalDatabase(db: SQL): void {
+  dbInstance = db
+}
 
 /**
  * Initializes the database connection.
@@ -103,11 +114,14 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
 /**
  * Retrieves the active database connection.
  * @throws Error if the database is not initialized.
+ * @deprecated Use orm.getDB() instead. This function will be removed in v2.0.0.
  */
 export function getDatabase(): SQL {
   if (!dbInstance) {
     throw new Error('Database not initialized. Call orm.connect() first.')
   }
+
+  console.warn('DEPRECATED: getDatabase() will be removed in v2.0.0. Use orm.getDB() instead.')
 
   return dbInstance
 }

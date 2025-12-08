@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
+import type { ORM } from './orm'
 import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { getDatabase } from './db'
 
 export interface SeederContext {
   db: SQL
@@ -16,12 +16,15 @@ export interface Seeder {
 export class SeederRunner {
   private seedsPath: string
 
-  constructor(seedsPath = 'seeds') {
+  constructor(
+    private orm: ORM,
+    seedsPath: string = 'seeds',
+  ) {
     this.seedsPath = resolve(process.cwd(), seedsPath)
   }
 
   async run(options?: { seederNames?: string[], group?: string }): Promise<void> {
-    const db = getDatabase()
+    const db = this.orm.getDB()
 
     if (!existsSync(this.seedsPath)) {
       console.log(`\nSeeds directory not found: ${this.seedsPath}`)

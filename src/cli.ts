@@ -37,7 +37,7 @@ export async function runCLI(orm: ORM): Promise<void> {
       break
 
     case 'db:seed':
-      await runSeeders(args)
+      await runSeeders(orm, args)
 
       break
 
@@ -47,7 +47,7 @@ export async function runCLI(orm: ORM): Promise<void> {
       break
 
     case 'seed:list':
-      await listSeeders()
+      await listSeeders(orm)
 
       break
 
@@ -169,14 +169,14 @@ export default {
   console.log('3. Run: db:seed or db:seed --group development')
 }
 
-async function listSeeders() {
-  const runner = new SeederRunner()
+async function listSeeders(orm: ORM) {
+  const runner = orm.seeder()
 
   await runner.listSeeders()
 }
 
-async function runSeeders(args: string[]) {
-  const runner = new SeederRunner()
+async function runSeeders(orm: ORM, args: string[]) {
+  const runner = orm.seeder()
 
   // Parse arguments
   let group: string | undefined
@@ -211,6 +211,7 @@ async function runSeeders(args: string[]) {
   })
 }
 
+// eslint-disable-next-line max-lines-per-function
 async function drawSchema(orm: ORM) {
   console.log('📊 Generating schema diagram...\n')
 

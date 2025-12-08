@@ -2,15 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
 import {
   createTxRepo,
+  getTestSchema,
   runInTransaction,
   setupTestDatabase,
-  setupTestSuite,
   teardownTestDatabase,
-  teardownTestSuite,
   testData,
 } from './setup'
 
 describe('Projections/Select', () => {
+  const schema = getTestSchema()
   const User = orm
     .entity('projection_users', {
       name: orm.string(),
@@ -22,13 +22,11 @@ describe('Projections/Select', () => {
 
   beforeAll(async () => {
     orm.repo(User)
-    await setupTestDatabase()
-    setupTestSuite('projections')
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    teardownTestSuite('projections')
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   test('should select specific fields via query builder', async () => {

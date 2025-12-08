@@ -83,6 +83,40 @@ await orm.migration.run()
 await orm.migration.status()
 ```
 
+## Advanced: Multiple Databases
+
+Create independent ORM instances for different databases or multi-tenant setups:
+
+```typescript
+import { ORM } from '@kaynooo/pg-orm'
+
+// Separate databases
+const userDb = new ORM()
+const analyticsDb = new ORM()
+
+await userDb.connect('postgresql://users_db')
+await analyticsDb.connect('postgresql://analytics_db')
+
+const User = userDb.entity('users', { ... }).build()
+const Event = analyticsDb.entity('events', { ... }).build()
+
+// Multi-tenant with schemas
+const tenant1 = new ORM()
+const tenant2 = new ORM()
+
+await tenant1.connect({ database: 'app', schema: 'tenant_1' })
+await tenant2.connect({ database: 'app', schema: 'tenant_2' })
+
+// Share entity definition across tenants
+const User = tenant1.entity('users', { ... }).build()
+tenant2.registerEntity(User)
+
+const users1 = tenant1.repo(User)
+const users2 = tenant2.repo(User)
+```
+
+**Note:** Relations must reference entities from the same ORM instance.
+
 ## License
 
 MIT

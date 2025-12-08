@@ -1,15 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
 import { ValidationError } from '../src/validation'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Custom Field Validators', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('.refine() method', () => {
@@ -34,7 +36,6 @@ describe('Custom Field Validators', () => {
 
       expect(user.name).toBe('Alice')
 
-      await cleanupTables('custom_val_string')
     })
 
     test('should validate custom number validator', async () => {
@@ -58,7 +59,6 @@ describe('Custom Field Validators', () => {
 
       expect(user.age).toBe(25)
 
-      await cleanupTables('custom_val_number')
     })
 
     test('should support async validators', async () => {
@@ -85,7 +85,6 @@ describe('Custom Field Validators', () => {
 
       expect(user.email).toBe('valid@test.com')
 
-      await cleanupTables('custom_val_async')
     })
 
     test('should support multiple validators per field', async () => {
@@ -117,7 +116,6 @@ describe('Custom Field Validators', () => {
 
       expect(user.password).toBe('ValidPass1')
 
-      await cleanupTables('custom_val_multiple')
     })
 
     test('should support custom error messages from validator', async () => {
@@ -152,7 +150,6 @@ describe('Custom Field Validators', () => {
 
       expect(user.code).toBe('123456')
 
-      await cleanupTables('custom_val_messages')
     })
   })
 })

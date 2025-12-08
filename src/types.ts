@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import type { QueryBuilder } from './query'
+import type { RelationSchema } from './relations/types'
 
 export type SQLValue
   = | string
@@ -370,6 +371,7 @@ export interface EntityDefinition<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],
   _TScopes extends string = string,
+  TRelations extends RelationSchema = RelationSchema,
 > {
   readonly tableName: string
   readonly schema: T
@@ -377,6 +379,7 @@ export interface EntityDefinition<
   readonly traits: TTraits
   readonly unique?: string[][]
   readonly scopes: Map<string, ScopeDefinition<T>>
+  readonly relations: TRelations
 }
 
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never

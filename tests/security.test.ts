@@ -1,15 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { InvalidIdentifierError, orm } from '../src'
 import { quoteIdentifier, validateSQLIdentifier, validateSQLIdentifiers } from '../src/sql-utils'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
 
 describe('Security - SQL Injection Protection', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('SQL Identifier Validation', () => {
@@ -138,7 +140,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_safe')
     })
 
     test('should safely handle query values with SQL syntax', async () => {
@@ -226,7 +227,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_query')
     })
 
     test('should safely handle parameterized queries', async () => {
@@ -315,7 +315,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_orderby')
     })
 
     test('should reject invalid ORDER BY directions', async () => {
@@ -391,7 +390,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_groupby')
     })
 
     test('should reject invalid column names in GROUP BY', () => {
@@ -434,7 +432,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_limit')
     })
 
     test('should reject non-integer LIMIT values', () => {
@@ -517,7 +514,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_pgops')
     })
 
     test('should safely handle array storage with special characters', async () => {
@@ -624,7 +620,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_second_order')
     })
 
     test('should safely store and retrieve malicious data without execution', async () => {
@@ -690,7 +685,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_mass_assign')
     })
 
     test('should ignore extra fields not in schema during create', async () => {
@@ -767,7 +761,6 @@ describe('Security - SQL Injection Protection', () => {
     })
 
     afterAll(async () => {
-      await cleanupTables('test_security_timing')
     })
 
     test('should have consistent query performance for existing and non-existing records', async () => {

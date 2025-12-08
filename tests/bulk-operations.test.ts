@@ -1,32 +1,77 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
 import {
+  createTestTable,
   createTxRepo,
+  getTestSchema,
   runInTransaction,
   setupTestDatabase,
-  setupTestSuite,
   teardownTestDatabase,
-  teardownTestSuite,
 } from './setup'
 
+// Define entities at module level for auto-migration
+const User = orm.entity('test_bulk_users', {
+  name: orm.string(),
+  email: orm.string().unique(),
+  role: orm.enum(['admin', 'user'] as const).default('user'),
+}).build()
+
+const Product = orm.entity('test_bulk_products', {
+  name: orm.string(),
+  email: orm.string(),
+  slug: orm.string(),
+})
+  .beforeCreate((data) => {
+    data.email = data.email.toLowerCase()
+  })
+  .afterCreate(async () => {
+    // Hook executes for each item
+  })
+  .build()
+
+const Article = orm.entity('test_bulk_articles', {
+  title: orm.string().minLength(5),
+  content: orm.string().minLength(10),
+  views: orm.number().min(0).default(0),
+}).build()
+
+const Tag = orm.entity('test_bulk_tags', {
+  name: orm.string(),
+  category: orm.string(),
+}).build()
+
+const Benchmark = orm.entity('test_bulk_benchmark', {
+  name: orm.string(),
+  value: orm.number(),
+  timestamp: orm.timestamp().default('NOW()'),
+}).build()
+
 describe('Bulk Operations', () => {
+  const schema = getTestSchema()
+
+  beforeAll(async () => {
+    await setupTestDatabase({ schema })
+
+    // Create tables manually for schema-isolated tests
+    await createTestTable(User)
+    await createTestTable(Product)
+    await createTestTable(Article)
+    await createTestTable(Tag)
+    await createTestTable(Benchmark)
+
+    // Register repos
+    orm.repo(User)
+    orm.repo(Product)
+    orm.repo(Article)
+    orm.repo(Tag)
+    orm.repo(Benchmark)
+  })
+
+  afterAll(async () => {
+    await teardownTestDatabase({ schema })
+  })
+
   describe('Bulk Insert with createMany', () => {
-    const User = orm.entity('test_bulk_users', {
-      name: orm.string(),
-      email: orm.string().unique(),
-      role: orm.enum(['admin', 'user'] as const).default('user'),
-    }).build()
-
-    beforeAll(async () => {
-      orm.repo(User)
-      await setupTestDatabase()
-      setupTestSuite('bulk-users')
-    })
-
-    afterAll(async () => {
-      teardownTestSuite('bulk-users')
-      await teardownTestDatabase()
-    })
 
     test('should insert 100+ records efficiently', async () => {
       await runInTransaction(async (tx) => {
@@ -98,30 +143,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Insert with Hooks', () => {
-    const Product = orm.entity('test_bulk_products', {
-      name: orm.string(),
-      email: orm.string(),
-      slug: orm.string(),
-    })
-      .beforeCreate((data) => {
-        // Transform email to lowercase
-        data.email = data.email.toLowerCase()
-      })
-      .afterCreate(async () => {
-        // Hook executes for each item
-      })
-      .build()
-
-    beforeAll(async () => {
-      orm.repo(Product)
-      await setupTestDatabase()
-      setupTestSuite('bulk-products')
-    })
-
-    afterAll(async () => {
-      teardownTestSuite('bulk-products')
-      await teardownTestDatabase()
-    })
 
     test('should execute beforeCreate hooks for each item', async () => {
       await runInTransaction(async (tx) => {
@@ -158,22 +179,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Insert with Validation', () => {
-    const Article = orm.entity('test_bulk_articles', {
-      title: orm.string().minLength(5),
-      content: orm.string().minLength(10),
-      views: orm.number().min(0).default(0),
-    }).build()
-
-    beforeAll(async () => {
-      orm.repo(Article)
-      await setupTestDatabase()
-      setupTestSuite('bulk-articles')
-    })
-
-    afterAll(async () => {
-      teardownTestSuite('bulk-articles')
-      await teardownTestDatabase()
-    })
 
     test('should validate all items before insertion', async () => {
       await runInTransaction(async (tx) => {
@@ -206,21 +211,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Bulk Delete with deleteMany', () => {
-    const Tag = orm.entity('test_bulk_tags', {
-      name: orm.string(),
-      category: orm.string(),
-    }).build()
-
-    beforeAll(async () => {
-      orm.repo(Tag)
-      await setupTestDatabase()
-      setupTestSuite('bulk-tags')
-    })
-
-    afterAll(async () => {
-      teardownTestSuite('bulk-tags')
-      await teardownTestDatabase()
-    })
 
     test('should delete multiple records by IDs', async () => {
       await runInTransaction(async (tx) => {
@@ -267,22 +257,6 @@ describe('Bulk Operations', () => {
   })
 
   describe('Performance Benchmarks', () => {
-    const Benchmark = orm.entity('test_bulk_benchmark', {
-      name: orm.string(),
-      value: orm.number(),
-      timestamp: orm.timestamp().default('NOW()'),
-    }).build()
-
-    beforeAll(async () => {
-      orm.repo(Benchmark)
-      await setupTestDatabase()
-      setupTestSuite('bulk-benchmark')
-    })
-
-    afterAll(async () => {
-      teardownTestSuite('bulk-benchmark')
-      await teardownTestDatabase()
-    })
 
     test('should insert 1000 records in reasonable time', async () => {
       await runInTransaction(async (tx) => {

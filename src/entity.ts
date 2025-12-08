@@ -1,3 +1,4 @@
+import type { RelationConfig, RelationSchema } from './relations/types'
 import type {
   AfterCreateHook,
   AfterDeleteHook,
@@ -22,16 +23,22 @@ export class EntityBuilder<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly [],
   TScopes extends string = never,
+  // eslint-disable-next-line ts/no-empty-object-type
+  TRelations extends RelationSchema = {},
 > {
   private _hooks: EntityHooks<T>
   private _traits: TTraits
   private _unique?: string[][]
   private _scopes: Map<string, ScopeDefinition<T>>
+  private _relations: TRelations
+  private orm: any
 
   constructor(
     private readonly tableName: string,
     private readonly schema: T,
     traits: TTraits = [] as any,
+    relations: TRelations = {} as any,
+    orm?: any,
   ) {
     validateSQLIdentifier(tableName, 'table')
 
@@ -45,13 +52,15 @@ export class EntityBuilder<
     }
     this._traits = traits
     this._scopes = new Map()
+    this._relations = relations
+    this.orm = orm
   }
 
   /**
    * Registers a hook to run before creating an entity instance.
    * @param hook - The hook function.
    */
-  beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  beforeCreate(hook: BeforeCreateHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeCreate.push(hook)
@@ -63,7 +72,7 @@ export class EntityBuilder<
    * Registers a hook to run after creating an entity instance.
    * @param hook - The hook function.
    */
-  afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  afterCreate(hook: AfterCreateHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterCreate.push(hook)
@@ -75,7 +84,7 @@ export class EntityBuilder<
    * Registers a hook to run before updating an entity instance.
    * @param hook - The hook function.
    */
-  beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  beforeUpdate(hook: BeforeUpdateHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeUpdate.push(hook)
@@ -87,7 +96,7 @@ export class EntityBuilder<
    * Registers a hook to run after updating an entity instance.
    * @param hook - The hook function.
    */
-  afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  afterUpdate(hook: AfterUpdateHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterUpdate.push(hook)
@@ -99,7 +108,7 @@ export class EntityBuilder<
    * Registers a hook to run before deleting an entity instance.
    * @param hook - The hook function.
    */
-  beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  beforeDelete(hook: BeforeDeleteHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.beforeDelete.push(hook)
@@ -111,7 +120,7 @@ export class EntityBuilder<
    * Registers a hook to run after deleting an entity instance.
    * @param hook - The hook function.
    */
-  afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T, TTraits, TScopes> {
+  afterDelete(hook: AfterDeleteHook<T>): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._hooks.afterDelete.push(hook)
@@ -125,13 +134,15 @@ export class EntityBuilder<
    */
   use<TraitFields extends EntitySchema, TraitMethods extends Record<string, any>>(
     trait: TraitDefinition<TraitFields, TraitMethods>,
-  ): EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>], TScopes> {
+  ): EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>], TScopes, TRelations> {
     const newSchema = { ...this.schema, ...trait.fields } as T & TraitFields
     const newTraits = [...this._traits, trait] as unknown as readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>]
-    const newBuilder = new EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>], TScopes>(
+    const newBuilder = new EntityBuilder<T & TraitFields, readonly [...TTraits, TraitDefinition<TraitFields, TraitMethods>], TScopes, TRelations>(
       this.tableName,
       newSchema,
       newTraits,
+      this._relations,
+      this.orm,
     )
 
     newBuilder._hooks = {
@@ -152,7 +163,7 @@ export class EntityBuilder<
    * Defines unique constraints on the entity.
    * @param columns - Array of column combinations that must be unique.
    */
-  unique(...columns: (keyof T)[][]): EntityBuilder<T, TTraits, TScopes> {
+  unique(...columns: (keyof T)[][]): EntityBuilder<T, TTraits, TScopes, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._unique = columns.map(cols => cols.map(String))
@@ -165,31 +176,116 @@ export class EntityBuilder<
    * @param name - The name of the scope.
    * @param scopeFn - The function defining the scope logic.
    */
-  scope<Name extends string>(name: Name, scopeFn: ScopeDefinition<T>): EntityBuilder<T, TTraits, TScopes | Name> {
+  scope<Name extends string>(name: Name, scopeFn: ScopeDefinition<T>): EntityBuilder<T, TTraits, TScopes | Name, TRelations> {
     const newBuilder = this.clone()
 
     newBuilder._scopes.set(name, scopeFn)
 
-    return newBuilder as unknown as EntityBuilder<T, TTraits, TScopes | Name>
+    return newBuilder as unknown as EntityBuilder<T, TTraits, TScopes | Name, TRelations>
+  }
+
+  /**
+   * Defines relations for the entity.
+   * @param relationDefs - Object mapping relation names to relation builders.
+   */
+  relations<R extends Record<string, { toConfig: () => RelationConfig<any, any> }>>(
+    relationDefs: R,
+  ): EntityBuilder<
+    T,
+    TTraits,
+    TScopes,
+    TRelations & { [K in keyof R]: ReturnType<R[K]['toConfig']> }
+  > {
+    const relationConfigs: any = {}
+
+    for (const [key, builder] of Object.entries(relationDefs)) {
+      // Check for name conflicts with schema fields
+      if (key in this.schema) {
+        throw new Error(
+          `Relation name "${key}" conflicts with existing field in "${this.tableName}". `
+          + `Please choose a different name for the relation.`,
+        )
+      }
+
+      relationConfigs[key] = builder.toConfig()
+    }
+
+    return new EntityBuilder(
+      this.tableName,
+      this.schema,
+      this._traits,
+      { ...this._relations, ...relationConfigs },
+      this.orm,
+    ) as any
   }
 
   /**
    * Finalizes the entity definition.
    * @returns The immutable entity definition object.
    */
-  build(): EntityDefinition<T, TTraits, TScopes> {
-    return Object.freeze({
+  build(): EntityDefinition<T, TTraits, TScopes, TRelations> {
+    // Only validate relations if there are any defined
+    if (Object.keys(this._relations).length > 0) {
+      // Check ORM context exists BEFORE looping
+      if (!this.orm) {
+        throw new Error(
+          `Cannot define relations without ORM context. Use orm.entity() instead of new EntityBuilder()`,
+        )
+      }
+
+      // Validate all relations at build time
+      for (const config of Object.values(this._relations)) {
+        // 1. Validate SQL identifiers for all relation components
+        validateSQLIdentifier(config.tableName, 'table')
+        validateSQLIdentifier(config.foreignKey, 'column')
+
+        if (config.type === 'manyToMany') {
+          validateSQLIdentifier(config.through, 'table')
+          validateSQLIdentifier(config.throughForeignKey, 'column')
+          validateSQLIdentifier(config.otherKey, 'column')
+        }
+
+        if (config.type === 'belongsTo' && config.ownerKey) {
+          validateSQLIdentifier(config.ownerKey, 'column')
+        }
+
+        // 2. For belongsTo relations, validate that foreign key exists in THIS schema
+        if (config.type === 'belongsTo') {
+          if (!(config.foreignKey in this.schema)) {
+            throw new Error(
+              `Foreign key "${config.foreignKey}" not found in schema for "${this.tableName}". `
+              + `Did you forget to add it as a field?`,
+            )
+          }
+        }
+      }
+    }
+
+    const entityDef = Object.freeze({
       tableName: this.tableName,
       schema: this.schema,
       hooks: this._hooks,
       traits: this._traits,
       unique: this._unique,
       scopes: this._scopes,
+      relations: this._relations,
     })
+
+    if (this.orm) {
+      this.orm.registerEntity(entityDef)
+    }
+
+    return entityDef
   }
 
-  private clone(): EntityBuilder<T, TTraits, TScopes> {
-    const cloned = new EntityBuilder<T, TTraits, TScopes>(this.tableName, { ...this.schema }, this._traits)
+  private clone(): EntityBuilder<T, TTraits, TScopes, TRelations> {
+    const cloned = new EntityBuilder<T, TTraits, TScopes, TRelations>(
+      this.tableName,
+      { ...this.schema },
+      this._traits,
+      this._relations,
+      this.orm,
+    )
 
     cloned._hooks = {
       beforeCreate: [...this._hooks.beforeCreate],

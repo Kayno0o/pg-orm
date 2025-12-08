@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm, publishable, softDelete, timestamps } from '../src'
-import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase } from './setup'
+import { createTestTable, getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Trait System', () => {
+  const schema = getTestSchema()
+
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
   })
 
   describe('Timestamps Trait', () => {
@@ -45,8 +47,6 @@ describe('Trait System', () => {
       // Allow 100ms tolerance for clock skew between app and database
       expect(user.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 100)
       expect(user.createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 100)
-
-      await cleanupTables('test_timestamps')
     })
   })
 
@@ -88,8 +88,6 @@ describe('Trait System', () => {
 
       expect(restored.deletedAt).toBeNull()
       expect(restored.isDeleted()).toBe(false)
-
-      await cleanupTables('test_soft_delete')
     })
   })
 
@@ -136,8 +134,6 @@ describe('Trait System', () => {
 
       expect(unpublished.published).toBe(false)
       expect(unpublished.isDraft()).toBe(true)
-
-      await cleanupTables('test_publishable')
     })
   })
 
@@ -194,8 +190,6 @@ describe('Trait System', () => {
 
       post = await post.like()
       expect(post.likesCount).toBe(2)
-
-      await cleanupTables('test_custom_trait')
     })
   })
 
@@ -234,8 +228,6 @@ describe('Trait System', () => {
       const deleted = await published.softDelete()
 
       expect(deleted.isDeleted()).toBe(true)
-
-      await cleanupTables('test_multi_trait')
     })
   })
 
@@ -265,8 +257,6 @@ describe('Trait System', () => {
 
       item = await item.increment()
       expect(item.count).toBe(1)
-
-      await cleanupTables('test_trait_context')
     })
 
     test('should provide repository access in methods', async () => {
@@ -295,8 +285,6 @@ describe('Trait System', () => {
 
       item = await item.doubleValue()
       expect(item.value).toBe(10)
-
-      await cleanupTables('test_repo_access')
     })
   })
 
@@ -331,8 +319,6 @@ describe('Trait System', () => {
       expect(hookCalls).toEqual(['trait-beforeCreate', 'entity-beforeCreate'])
       // Verify both hooks modified the data
       expect(item.value).toBe(16) // 1 + 10 (trait) + 5 (entity)
-
-      await cleanupTables('test_trait_hooks')
     })
 
     test('should execute trait hooks on update', async () => {
@@ -375,8 +361,6 @@ describe('Trait System', () => {
       expect(hookCalls).toEqual(['trait-beforeUpdate', 'entity-beforeUpdate'])
       // Verify both hooks modified the data: 3 * 2 (trait) + 1 (entity) = 7
       expect(updated.value).toBe(7)
-
-      await cleanupTables('test_trait_update_hooks')
     })
 
     test('should handle multiple traits with hooks', async () => {
@@ -419,8 +403,6 @@ describe('Trait System', () => {
       expect(item.value1).toBe(10)
       expect(item.value2).toBe(20)
       expect(item.name).toBe('TEST')
-
-      await cleanupTables('test_multi_trait_hooks')
     })
 
     test('timestamps trait should use hooks', async () => {
@@ -456,8 +438,6 @@ describe('Trait System', () => {
       expect(updated.updatedAt.getTime()).toBeLessThanOrEqual(updateAfter.getTime() + 100)
       // createdAt should remain unchanged
       expect(updated.createdAt.getTime()).toBe(item.createdAt.getTime())
-
-      await cleanupTables('test_timestamps_hooks')
     })
 
     test('should support all hook types in traits', async () => {
@@ -516,8 +496,6 @@ describe('Trait System', () => {
       await repo.delete(item.id)
       expect(hookCalls).toContain('beforeDelete')
       expect(hookCalls).toContain('afterDelete')
-
-      await cleanupTables('test_all_hooks')
     })
   })
 })

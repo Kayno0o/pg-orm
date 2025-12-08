@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { orm } from '../src'
-import { SeederRunner } from '../src/seeder'
-import { setupTestDatabase, teardownTestDatabase } from './setup'
+import { getTestSchema, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Seeder System', () => {
+  const schema = getTestSchema()
   const TEST_SEEDS_DIR = resolve(process.cwd(), 'test-seeds')
 
   beforeAll(async () => {
-    await setupTestDatabase()
+    await setupTestDatabase({ schema })
 
     if (existsSync(TEST_SEEDS_DIR)) {
       rmSync(TEST_SEEDS_DIR, { recursive: true })
@@ -19,7 +19,7 @@ describe('Seeder System', () => {
   })
 
   afterAll(async () => {
-    await teardownTestDatabase()
+    await teardownTestDatabase({ schema })
 
     if (existsSync(TEST_SEEDS_DIR)) {
       rmSync(TEST_SEEDS_DIR, { recursive: true })
@@ -51,7 +51,7 @@ export default {
 `,
     )
 
-    const runner = new SeederRunner(TEST_SEEDS_DIR)
+    const runner = orm.seeder(TEST_SEEDS_DIR)
 
     await runner.run()
 
@@ -85,7 +85,7 @@ export default {
 `,
     )
 
-    const runner = new SeederRunner(TEST_SEEDS_DIR)
+    const runner = orm.seeder(TEST_SEEDS_DIR)
 
     await runner.run({ seederNames: ['users'] })
 
@@ -133,7 +133,7 @@ export default {
 `,
     )
 
-    const runner = new SeederRunner(TEST_SEEDS_DIR)
+    const runner = orm.seeder(TEST_SEEDS_DIR)
 
     await runner.run({ seederNames: ['create_users'] })
 
@@ -151,7 +151,7 @@ export default {
 
     mkdirSync(emptyDir, { recursive: true })
 
-    const runner = new SeederRunner(emptyDir)
+    const runner = orm.seeder(emptyDir)
 
     await runner.run()
 
@@ -159,7 +159,7 @@ export default {
   })
 
   test('should handle non-existent seeds directory', async () => {
-    const runner = new SeederRunner('non-existent-dir')
+    const runner = orm.seeder('non-existent-dir')
 
     await runner.run()
   })
@@ -192,7 +192,7 @@ export default {
 `,
     )
 
-    const runner = new SeederRunner(TEST_SEEDS_DIR)
+    const runner = orm.seeder(TEST_SEEDS_DIR)
 
     await runner.run({ group: 'development' })
 
@@ -232,7 +232,7 @@ export default {
 `,
     )
 
-    const runner = new SeederRunner(TEST_SEEDS_DIR)
+    const runner = orm.seeder(TEST_SEEDS_DIR)
 
     await runner.listSeeders()
   })

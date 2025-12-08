@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
+import type { RelationSchema, WithRelations } from './relations/types'
 import type {
   DatabaseRow,
   EntityDefinition,
@@ -9,11 +10,12 @@ import type {
   InferUpdateData,
 } from './types'
 import { toSnake } from '@kaynooo/utils'
-import { getDatabase, getDatabaseConfig } from './db'
+import { getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
 import { extractOperation, queryLogger } from './logger'
 import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
+import { RelationLoader } from './relations/loader'
 import { SchemaValidator } from './schema-validator'
 import { hasColumnName, isArrayFieldConfig } from './types'
 import { mapDatabaseError } from './utils/error-mapper'
@@ -27,10 +29,12 @@ export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
   TScopes extends string = string,
+  // eslint-disable-next-line ts/no-empty-object-type
+  TRelations extends RelationSchema = {},
 > {
   private tableName: string
   private schema: T
-  private definition: EntityDefinition<T, TTraits, TScopes>
+  private definition: EntityDefinition<T, TTraits, TScopes, TRelations>
   private txContext?: SQL
   private entityPrototype: any
   private cachedSelectColumns: string
@@ -40,12 +44,19 @@ export class Repository<
   private mapper: EntityMapper<T, TTraits>
   private schemaValidator: SchemaValidator<T>
   private cacheAdapter?: CacheAdapter
+  private _relationLoader?: RelationLoader<T, TRelations>
+  private orm: any
 
-  constructor(entityDef: EntityDefinition<T, TTraits, TScopes>, cacheAdapter?: CacheAdapter) {
+  constructor(
+    entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
+    cacheAdapter: CacheAdapter | undefined,
+    orm: any,
+  ) {
     this.definition = entityDef
     this.tableName = entityDef.tableName
     this.schema = entityDef.schema
     this.cacheAdapter = cacheAdapter
+    this.orm = orm
 
     this.columnNameMap = new Map()
     this.columnNameMap.set('id', 'id')
@@ -98,6 +109,12 @@ export class Repository<
     )
 
     this.schemaValidator = new SchemaValidator(this.schema, this.tableName)
+  }
+
+  private get relationLoader(): RelationLoader<T, TRelations> {
+    this._relationLoader ||= new RelationLoader(this.getDB(), this.orm, this.definition)
+
+    return this._relationLoader
   }
 
   private computeColumnName(fieldName: string): string {
@@ -181,8 +198,35 @@ export class Repository<
   /**
    * Finds a single entity by its ID.
    * @param id - The entity ID.
+   * @param options - Optional configuration object.
+   * @param options.with - Array of relation names to eager load.
    */
-  async find(id: number): Promise<InferEntity<T, TTraits> | null> {
+  async find<With extends (keyof TRelations)[] = []>(
+    id: number,
+    options?: { with?: With },
+  ): Promise<
+    With extends [] | undefined
+      ? InferEntity<T, TTraits> | null
+      : [With[number]] extends [never]
+        ? InferEntity<T, TTraits> | null
+        : WithRelations<T, TRelations, With, TTraits> | null
+  > {
+    const entity = await this.findBasic(id)
+
+    if (!entity)
+      return null as any
+
+    // Explicitly handle empty array and undefined cases
+    if (!options?.with || options.with.length === 0) {
+      return entity as any
+    }
+
+    const loaded = (await this.relationLoader.loadRelations([entity] as any, options.with)) as unknown as any[]
+
+    return loaded[0] as any
+  }
+
+  private async findBasic(id: number): Promise<InferEntity<T, TTraits> | null> {
     const db = this.getDB()
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
@@ -203,8 +247,29 @@ export class Repository<
 
   /**
    * Retrieves all entities.
+   * @param options - Optional configuration object.
+   * @param options.with - Array of relation names to eager load.
    */
-  async findAll(): Promise<InferEntity<T, TTraits>[]> {
+  async findAll<With extends (keyof TRelations)[] = []>(
+    options?: { with?: With },
+  ): Promise<
+    With extends [] | undefined
+      ? InferEntity<T, TTraits>[]
+      : [With[number]] extends [never]
+        ? InferEntity<T, TTraits>[]
+        : WithRelations<T, TRelations, With, TTraits>[]
+  > {
+    const entities = await this.findAllBasic()
+
+    // Explicitly handle empty array and undefined cases
+    if (!options?.with || options.with.length === 0) {
+      return entities as any
+    }
+
+    return (await this.relationLoader.loadRelations(entities as any, options.with)) as any
+  }
+
+  private async findAllBasic(): Promise<InferEntity<T, TTraits>[]> {
     const db = this.getDB()
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
@@ -535,7 +600,7 @@ export class Repository<
    * Executes a callback within a transaction.
    * @param callback - Function to execute with a transaction-bound repository.
    */
-  async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes>) => Promise<R>): Promise<R> {
+  async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes, TRelations>) => Promise<R>): Promise<R> {
     const db = this.getDB()
 
     return await db.begin(async (tx) => {
@@ -549,9 +614,9 @@ export class Repository<
    * Extends the repository with custom methods.
    * @param methods - Object containing custom methods.
    */
-  extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes>, ...args: any[]) => any>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes, TRelations>, ...args: any[]) => any>>(
     methods: Methods,
-  ): Repository<T, TTraits, TScopes> & {
+  ): Repository<T, TTraits, TScopes, TRelations> & {
     [K in keyof Methods]: Methods[K] extends (this: any, ...args: infer Args) => infer Return
       ? (...args: Args) => Return
       : never
@@ -576,7 +641,7 @@ export class Repository<
    * Gets the current database connection (or transaction).
    */
   getDB(): SQL {
-    return this.txContext || getDatabase()
+    return this.txContext || this.orm.getDB()
   }
 
   private getColumnName(fieldName: string): string {

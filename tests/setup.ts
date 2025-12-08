@@ -16,23 +16,138 @@ export const TEST_DB_CONFIG = process.env.DATABASE_URL
 // Test Database Lifecycle
 // ============================================================================
 
-export async function setupTestDatabase(options?: { cache?: any }) {
-  await orm.connect({
-    connectionString: TEST_DB_CONFIG,
-    migrations: {
-      autoMigrate: true,
-      noInteraction: true, // Auto-apply schema changes without prompting
-      killIfUpdate: false, // Don't exit on schema changes
-      safeMigrations: false, // Allow dropping columns in tests
-    },
-    cache: options?.cache,
-  })
-  console.log('✅ Test database connected')
+export interface TestDatabaseOptions {
+  cache?: any
+  schema?: string
+  autoMigrate?: boolean
 }
 
-export async function teardownTestDatabase() {
-  await orm.disconnect()
-  console.log('✅ Test database disconnected')
+/**
+ * Setup test database with optional schema isolation
+ *
+ * @param options - Configuration options
+ * @param options.schema - Optional schema name for isolation (default: 'public')
+ * @param options.cache - Optional cache adapter
+ * @param options.autoMigrate - Whether to run auto-migration (default: true)
+ *
+ * @example
+ * // Use schema isolation
+ * await setupTestDatabase({ schema: 'test_mytest' })
+ *
+ * @example
+ * // Use default (backward compatible)
+ * await setupTestDatabase()
+ */
+export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
+  const schema = options.schema || 'public'
+  const autoMigrate = options.autoMigrate ?? true
+
+  // Create schema and set search_path if using schema isolation
+  if (schema !== 'public') {
+    // Check if DB is already connected
+    let isConnected = false
+    try {
+      orm.getDB()
+      isConnected = true
+    }
+    catch {
+      isConnected = false
+    }
+
+    // Connect first if not already connected
+    if (!isConnected) {
+      await orm.connect({
+        connectionString: TEST_DB_CONFIG,
+        migrations: {
+          autoMigrate: false, // Schema isolation doesn't support auto-migration yet
+          noInteraction: true,
+          killIfUpdate: false,
+          safeMigrations: false,
+        },
+        cache: options.cache,
+      })
+
+      const db = orm.getDB()
+      // Create schema and set search_path
+      await db.unsafe(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      await db.unsafe(`SET search_path TO ${schema}, public`)
+    }
+
+    console.log(`✅ Test database connected (schema: ${schema})`)
+    if (autoMigrate) {
+      console.warn('⚠️  autoMigrate is not supported with schema isolation. Use createTestTable() instead.')
+    }
+  }
+  else {
+    // Standard connection for public schema
+    await orm.connect({
+      connectionString: TEST_DB_CONFIG,
+      migrations: {
+        autoMigrate,
+        noInteraction: true,
+        killIfUpdate: false,
+        safeMigrations: false,
+      },
+      cache: options.cache,
+    })
+    console.log('✅ Test database connected')
+  }
+}
+
+/**
+ * Teardown test database and clean up schema if used
+ *
+ * @param options - Configuration options
+ * @param options.schema - Schema name to drop (must match setupTestDatabase schema)
+ */
+export async function teardownTestDatabase(options: TestDatabaseOptions = {}) {
+  const schema = options.schema || 'public'
+
+  // Drop schema if not public (CASCADE removes all tables)
+  if (schema !== 'public') {
+    try {
+      // Check if DB is initialized before trying to drop schema
+      if (orm.getDB && orm.getDB()) {
+        const db = orm.getDB()
+        await db.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+        console.log(`✅ Test schema dropped: ${schema}`)
+      }
+    }
+    catch (error) {
+      // Ignore errors - DB might already be disconnected
+      console.warn(`Failed to drop schema ${schema}:`, (error as Error).message)
+    }
+  }
+
+  try {
+    await orm.disconnect()
+    console.log('✅ Test database disconnected')
+  }
+  catch (error) {
+    // Ignore if already disconnected
+  }
+}
+
+// ============================================================================
+// Schema Name Helper
+// ============================================================================
+
+/**
+ * Automatically derive schema name from test filename
+ *
+ * Extracts test filename from call stack and generates a schema name.
+ *
+ * @returns Schema name like 'test_traits' or 'test_bulk_operations'
+ *
+ * @example
+ * // In tests/traits.test.ts
+ * const schema = getTestSchema() // Returns 'test_traits'
+ */
+export function getTestSchema(): string {
+  const stack = new Error().stack || ''
+  const match = stack.match(/tests\/([^.]+)\.test\.ts/)
+
+  return match ? `test_${match[1]!.replace(/-/g, '_')}` : 'test_default'
 }
 
 // ============================================================================
@@ -91,10 +206,15 @@ export async function runInTransaction<T>(
  * Create a repository instance scoped to a transaction
  * This ensures all repo operations use the transaction
  */
-export function createTxRepo<T extends EntitySchema>(
-  entityDef: EntityDefinition<T>,
+export function createTxRepo<
+  T extends EntitySchema,
+  TTraits extends readonly any[] = readonly any[],
+  TScopes extends string = string,
+  TRelations extends Record<string, any> = Record<string, any>,
+>(
+  entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
   tx: SQL,
-): Repository<T> {
+): Repository<T, TTraits, TScopes, TRelations> {
   const repo = orm.repo(entityDef)
 
   return repo.withTransaction(tx)
