@@ -28,8 +28,7 @@ import { ValidationError } from './validation'
 export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
-  TScopes extends string = string,
-
+  TScopes extends string = never,
   TRelations extends RelationSchema = {},
 > {
   private tableName: string

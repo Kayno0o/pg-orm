@@ -150,7 +150,7 @@ export class ORM {
   ): EntityBuilder<{
     [K in keyof T]: ReturnType<T[K]['toConfig']>
 
-  }, readonly [], string, {}> {
+  }, readonly [], never, {}> {
     const schema = createEntitySchema(fields)
 
     return new EntityBuilder(tableName, schema, [], {}, this)

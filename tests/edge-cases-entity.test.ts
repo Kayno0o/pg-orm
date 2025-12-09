@@ -163,7 +163,7 @@ describe('Edge Cases - Field Definitions', () => {
       const values = Array.from({ length: 100 }, (_, i) => `value${i}`)
 
       orm.entity('many_enum', {
-        status: orm.enum(values as any),
+        status: orm.enum(values),
       }).build()
     }).not.toThrow()
   })

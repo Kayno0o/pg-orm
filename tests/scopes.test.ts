@@ -51,12 +51,6 @@ describe('Scopes', () => {
     await createTestTable(Product)
     await createTestTable(Post)
     await createTestTable(Article)
-
-    // Register repos
-    orm.repo(User)
-    orm.repo(Product)
-    orm.repo(Post)
-    orm.repo(Article)
   })
 
   afterAll(teardownTestDatabase)
@@ -98,7 +92,8 @@ describe('Scopes', () => {
   test('should throw error for non-existent scope', () => {
     const users = orm.repo(User)
 
-    expect(() => users.scope('nonexistent' as any)).toThrow('Scope "nonexistent" not found')
+    // @ts-expect-error - Testing runtime validation for non-existent scope
+    expect(() => users.scope('nonexistent')).toThrow('Scope "nonexistent" not found')
   })
 
   test('should allow scope to add complex filters', async () => {

@@ -27,7 +27,8 @@ describe('Data Validation', () => {
       const users = orm.repo(User)
 
       expect(async () => {
-        await users.create({ name: 'Test' } as any)
+        // @ts-expect-error - Testing runtime validation for missing required fields
+        await users.create({ name: 'Test' })
       }).toThrow()
     })
 
@@ -212,7 +213,8 @@ describe('Data Validation', () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
-          role: 'invalid' as any,
+          // @ts-expect-error - Testing runtime validation for invalid enum value
+          role: 'invalid',
         })
       }).toThrow(ValidationError)
     })
@@ -250,7 +252,8 @@ describe('Data Validation', () => {
 
       expect(async () => {
         await users.create({
-          name: 123 as any,
+          // @ts-expect-error - Testing runtime validation for invalid string type
+          name: 123,
           email: 'test@example.com',
         })
       }).toThrow(ValidationError)
@@ -269,7 +272,8 @@ describe('Data Validation', () => {
       expect(async () => {
         await products.create({
           name: 'Product',
-          price: 'not a number' as any,
+          // @ts-expect-error - Testing runtime validation for invalid number type
+          price: 'not a number',
         })
       }).toThrow(ValidationError)
     })
@@ -289,7 +293,8 @@ describe('Data Validation', () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
-          isActive: 'yes' as any,
+          // @ts-expect-error - Testing runtime validation for invalid boolean type
+          isActive: 'yes',
         })
       }).toThrow(ValidationError)
     })
@@ -309,7 +314,8 @@ describe('Data Validation', () => {
         await users.create({
           name: 'Test',
           email: 'test@example.com',
-          tags: 'not an array' as any,
+          // @ts-expect-error - Testing runtime validation for invalid array type
+          tags: 'not an array',
         })
       }).toThrow(ValidationError)
     })
@@ -548,7 +554,8 @@ describe('Data Validation', () => {
           name: 'X', // Too short
           price: -10, // Below min
           quantity: 5.5, // Not integer
-          category: 'invalid' as any, // Invalid enum
+          // @ts-expect-error - Testing runtime validation for multiple violations
+          category: 'invalid', // Invalid enum
           tags: ['valid'],
         })
       }).toThrow(ValidationError)

@@ -1,3 +1,4 @@
+import type { InferEntity } from '../src/types'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
@@ -321,8 +322,8 @@ describe('Repository CRUD Operations', () => {
     test('should extend repository with custom methods', async () => {
       await runInTransaction(async (tx) => {
         const extended = orm.repo(User).withTransaction(tx).extend({
-          async findByRole(this, role: 'admin' | 'user' | 'moderator'): Promise<any[]> {
-            return this.query().where('role', '=', role).execute() as unknown as any[]
+          async findByRole(this, role: 'admin' | 'user' | 'moderator'): Promise<InferEntity<typeof User.schema>[]> {
+            return this.query().where('role', '=', role).execute()
           },
           async activate(this, id: number) {
             return this.update(id, { isActive: true })

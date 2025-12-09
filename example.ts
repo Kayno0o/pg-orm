@@ -297,11 +297,11 @@ async function customRepositoryMethods() {
   ])
 
   // Use custom method
-  const authorPosts = await posts.findByAuthor(author.id) as any[]
+  const authorPosts = await posts.findByAuthor(author.id)
 
   console.log('Author posts:', authorPosts)
 
-  const published = await posts.findPublished() as any[]
+  const published = await posts.findPublished()
 
   console.log('Published posts:', published)
 

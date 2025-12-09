@@ -440,7 +440,8 @@ describe('Relations', () => {
       const user = await users.create({ name: 'Alice' })
 
       await expect(async () => {
-        await users.find(user.id, { with: ['nonExistent'] as any })
+        // @ts-expect-error - Testing runtime validation for non-existent relation
+        await users.find(user.id, { with: ['nonExistent'] })
       }).toThrow()
     })
 
@@ -493,7 +494,7 @@ describe('Relations', () => {
 
       expect(loaded).toBeDefined()
       expect(loaded!.name).toBe('Alice')
-      expect((loaded as any).posts).toBeUndefined()
+      expect('posts' in loaded!).toBe(false)
     })
   })
 
@@ -660,7 +661,7 @@ describe('Relations', () => {
       const loaded = await users.find(user.id, { with: [] })
 
       expect(loaded).toBeDefined()
-      expect((loaded as any).posts).toBeUndefined()
+      expect('posts' in loaded!).toBe(false)
     })
 
     test('should handle null foreign keys in belongsTo', async () => {

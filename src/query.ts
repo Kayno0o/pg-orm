@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
 import type { BelongsToConfig, HasOneConfig, RelationConfig, RelationSchema } from './relations/types'
-import type { AggregationResult, DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
+import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
@@ -34,7 +34,7 @@ interface JoinedRelationMetadata {
 export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id' | string)[] = never,
-  TScopes extends string = string,
+  TScopes extends string = never,
   LoadedRelations extends Record<string, any> = {},
   TTraits extends readonly any[] = readonly [],
   TRelations extends RelationSchema = RelationSchema,
@@ -442,7 +442,7 @@ export class QueryBuilder<
   }
 
   /** Counts the number of rows. */
-  countAs<Alias extends string = 'count'>(alias: Alias = 'count' as Alias): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { [K in Alias]: number }, TGroupedFields> {
+  countAs<Alias extends string = 'count'>(alias: Alias = 'count' as Alias): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & Record<Alias, number>, TGroupedFields> {
     this.aggregations.set(alias, { func: 'COUNT', field: '*' })
 
     return this as any
@@ -475,10 +475,10 @@ export class QueryBuilder<
       const [result] = await this.db.unsafe(query, this.whereParams)
 
       if (!result)
-        return {}
+        return {} as TAggregations
 
       // Convert string numbers to actual numbers
-      const converted: AggregationResult = {}
+      const converted: TAggregations = {} as TAggregations
 
       for (const [key, value] of Object.entries(result)) {
         (converted as any)[key] = value !== null ? Number(value) : undefined
@@ -737,9 +737,9 @@ export class QueryBuilder<
         ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
         : InferProjectionClean<T, SelectedFields>[]
       : (TAggregations & ([TGroupedFields] extends [never]
-          ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)
-          : InferProjectionClean<T, TGroupedFields> & ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>))
-        )[]
+        ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)
+        : InferProjectionClean<T, TGroupedFields> & ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>))
+      )[]
   > {
     const { sql, params } = this.build()
 
@@ -954,16 +954,40 @@ export class QueryBuilder<
     if (this.aggregations.size > 0) {
       // Convert string numbers from aggregations to actual numbers
       return results.map((row: DatabaseRow) => {
-        const converted: Record<string, unknown> = { ...row }
+        const converted: any = {}
 
-        for (const alias of this.aggregations.keys()) {
-          if (converted[alias] !== null && converted[alias] !== undefined) {
-            converted[alias] = Number(converted[alias])
+        for (const [alias, { func: _func, field: _field }] of this.aggregations) {
+          if (row[alias] !== null && row[alias] !== undefined) {
+            converted[alias] = Number(row[alias])
           }
         }
 
-        return converted
-      }) as any
+        if (this.groupByFields.length > 0) {
+          // For grouped fields, we need to map column names back to field names if possible
+          // But since we don't have the reverse map here easily, and usually group by
+          // uses the field name alias if provided in select, or just the column name.
+          // However, QueryBuilder methods take field names and convert to column names.
+          // The result row has column names.
+          // We can iterate schema to find the field name for the column.
+
+          for (const field of this.groupByFields) {
+            // 'field' here is the column name (converted in groupBy method)
+            // We try to find a field config that matches this column name
+            let fieldName = field
+
+            for (const [key, _config] of Object.entries(this.schema)) {
+              if (this.getColumnName(key) === field) {
+                fieldName = key
+
+                break
+              }
+            }
+            converted[fieldName] = row[field]
+          }
+        }
+
+        return converted as TAggregations
+      })
     }
 
     // NEW: Transform joined results into nested objects
@@ -1185,9 +1209,14 @@ export class QueryBuilder<
     page: number
     limit: number
   }): Promise<{
-    data: [SelectedFields] extends [never]
-      ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
-      : InferProjectionClean<T, SelectedFields>[]
+    data: [keyof TAggregations] extends [never]
+      ? [SelectedFields] extends [never]
+        ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
+        : InferProjectionClean<T, SelectedFields>[]
+      : (TAggregations & ([TGroupedFields] extends [never]
+        ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)
+        : InferProjectionClean<T, TGroupedFields> & ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>))
+      )[]
     meta: {
       total: number
       page: number

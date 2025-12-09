@@ -6,10 +6,17 @@ import {
 } from '../src/errors'
 import { mapDatabaseError } from '../src/utils/error-mapper'
 
+interface MockPostgresError extends Error {
+  code?: string
+  constraint?: string
+  table?: string
+  column?: string
+}
+
 describe('Error Mapper', () => {
   describe('Unique Constraint Violations (23505)', () => {
     test('should map unique constraint error with constraint name', () => {
-      const postgresError = new Error('duplicate key value violates unique constraint') as any
+      const postgresError = new Error('duplicate key value violates unique constraint') as MockPostgresError
 
       postgresError.code = '23505'
       postgresError.constraint = 'users_email_key'
@@ -24,7 +31,7 @@ describe('Error Mapper', () => {
     })
 
     test('should extract multiple fields from constraint name', () => {
-      const postgresError = new Error('duplicate key') as any
+      const postgresError = new Error('duplicate key') as MockPostgresError
 
       postgresError.code = '23505'
       postgresError.constraint = 'posts_user_id_slug_key'
@@ -36,7 +43,7 @@ describe('Error Mapper', () => {
     })
 
     test('should handle constraint without table prefix', () => {
-      const postgresError = new Error('duplicate key') as any
+      const postgresError = new Error('duplicate key') as MockPostgresError
 
       postgresError.code = '23505'
       postgresError.constraint = 'email_key'
@@ -50,7 +57,7 @@ describe('Error Mapper', () => {
 
   describe('Foreign Key Constraint Violations (23503)', () => {
     test('should map foreign key constraint error', () => {
-      const postgresError = new Error('violates foreign key constraint') as any
+      const postgresError = new Error('violates foreign key constraint') as MockPostgresError
 
       postgresError.code = '23503'
       postgresError.constraint = 'posts_user_id_fkey'
@@ -65,7 +72,7 @@ describe('Error Mapper', () => {
     })
 
     test('should handle constraint without referenced table extraction', () => {
-      const postgresError = new Error('violates foreign key constraint') as any
+      const postgresError = new Error('violates foreign key constraint') as MockPostgresError
 
       postgresError.code = '23503'
       postgresError.constraint = 'custom_fk_constraint'
@@ -79,7 +86,7 @@ describe('Error Mapper', () => {
 
   describe('Not Null Constraint Violations (23502)', () => {
     test('should map not null constraint error with column name', () => {
-      const postgresError = new Error('null value in column violates not-null constraint') as any
+      const postgresError = new Error('null value in column violates not-null constraint') as MockPostgresError
 
       postgresError.code = '23502'
       postgresError.column = 'email'
@@ -93,7 +100,7 @@ describe('Error Mapper', () => {
     })
 
     test('should map not null error when column is missing from constraint', () => {
-      const postgresError = new Error('null value violates not-null constraint') as any
+      const postgresError = new Error('null value violates not-null constraint') as MockPostgresError
 
       postgresError.code = '23502'
       postgresError.column = undefined
@@ -114,7 +121,7 @@ describe('Error Mapper', () => {
     })
 
     test('should return original error for unknown postgres error codes', () => {
-      const postgresError = new Error('Some postgres error') as any
+      const postgresError = new Error('Some postgres error') as MockPostgresError
 
       postgresError.code = '99999'
 
