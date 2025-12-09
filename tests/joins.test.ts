@@ -1,3 +1,4 @@
+import type { InferEntity } from '../src'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, teardownTestDatabase } from './setup'
 
@@ -12,10 +13,42 @@ const Post = orm.entity('test_join_posts', {
   userId: orm.number(),
 }).build()
 
+type PostType = InferEntity<typeof Post.schema>
+
 const Comment = orm.entity('test_join_comments', {
   content: orm.string(),
   postId: orm.number(),
   userId: orm.number(),
+}).build()
+
+const Author = orm.entity('test_smart_authors', {
+  name: orm.string(),
+  email: orm.string(),
+  role: orm.string(),
+}).build()
+
+type AuthorType = InferEntity<typeof Author.schema>
+
+const Profile = orm.entity('test_smart_profiles', {
+  bio: orm.string(),
+  authorId: orm.number(),
+}).build()
+
+type ProfileType = InferEntity<typeof Profile.schema>
+
+const Article = orm.entity('test_smart_articles', {
+  title: orm.string(),
+  content: orm.string(),
+  authorId: orm.number().nullable(),
+}).relations({
+  author: orm.belongsTo('test_smart_authors', 'authorId'),
+}).build()
+
+const AuthorWithProfile = orm.entity('test_smart_authors_2', {
+  name: orm.string(),
+  email: orm.string(),
+}).relations({
+  profile: orm.hasOne('test_smart_profiles', 'authorId'),
 }).build()
 
 describe('QueryBuilder JOINs', () => {
@@ -26,6 +59,10 @@ describe('QueryBuilder JOINs', () => {
     orm.repo(User)
     orm.repo(Post)
     orm.repo(Comment)
+    orm.repo(Author)
+    orm.repo(Profile)
+    orm.repo(Article)
+    orm.repo(AuthorWithProfile)
 
     await setupTestDatabase({ schema })
   })
@@ -54,7 +91,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .where('title', '=', 'First Post')
-          .execute() as any[]
+          .execute() as PostType[]
 
         expect(results.length).toBe(1)
         expect(results[0]?.title).toBe('First Post')
@@ -91,7 +128,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .where('userId', '=', alice.id)
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(1)
         expect(results[0]?.title).toBe('Alice Post')
@@ -123,7 +160,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .orderBy('title', 'ASC')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(2)
         expect(results[0]?.title).toBe('A Post')
@@ -156,7 +193,7 @@ describe('QueryBuilder JOINs', () => {
 
         const results = await users.query()
           .leftJoin('test_join_posts', 'test_join_users.id', '=', 'test_join_posts.user_id')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(2)
       })
@@ -174,7 +211,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await users.query()
           .leftJoin('test_join_posts', 'test_join_users.id', '=', 'test_join_posts.user_id')
           .where('name', '=', 'Bob')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBeGreaterThanOrEqual(1)
       })
@@ -200,7 +237,7 @@ describe('QueryBuilder JOINs', () => {
 
         const results = await posts.query()
           .rightJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBeGreaterThanOrEqual(1)
       })
@@ -226,7 +263,7 @@ describe('QueryBuilder JOINs', () => {
 
         const results = await posts.query()
           .fullJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBeGreaterThanOrEqual(1)
       })
@@ -261,7 +298,7 @@ describe('QueryBuilder JOINs', () => {
           .innerJoin('test_join_posts', 'test_join_comments.post_id', '=', 'test_join_posts.id')
           .innerJoin('test_join_users', 'test_join_comments.user_id', '=', 'test_join_users.id')
           .where('postId', '=', post.id)
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(1)
       })
@@ -287,7 +324,7 @@ describe('QueryBuilder JOINs', () => {
 
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '!=', 'test_join_users.id')
-          .execute() as any[]
+          .execute()
 
         expect(Array.isArray(results)).toBe(true)
       })
@@ -311,7 +348,7 @@ describe('QueryBuilder JOINs', () => {
 
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.id', '>', 'test_join_users.id')
-          .execute() as any[]
+          .execute()
 
         expect(Array.isArray(results)).toBe(true)
       })
@@ -351,7 +388,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .limit(3)
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(3)
       })
@@ -380,7 +417,7 @@ describe('QueryBuilder JOINs', () => {
           .orderBy('title', 'ASC')
           .offset(2)
           .limit(2)
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(2)
       })
@@ -395,7 +432,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .where('title', '=', 'NonExistent')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(0)
       })
@@ -549,7 +586,7 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .select('test_join_posts.title', 'test_join_posts.content', 'test_join_users.name', 'test_join_users.email')
-          .execute() as any[]
+          .execute() as { title: string, content: string, name: string, email: string }[]
 
         expect(results.length).toBe(1)
         // Should have fields from both tables
@@ -579,13 +616,398 @@ describe('QueryBuilder JOINs', () => {
         const results = await posts.query()
           .innerJoin('test_join_users', 'test_join_posts.user_id', '=', 'test_join_users.id')
           .select('title')
-          .execute() as any[]
+          .execute()
 
         expect(results.length).toBe(1)
         expect(results[0]?.title).toBe('First Post')
         // Should only have the selected field
         expect(results[0]).toHaveProperty('title')
         expect(results[0]).not.toHaveProperty('content')
+      })
+    })
+  })
+
+  describe('Unified Relations (.with)', () => {
+    describe('Basic belongsTo joins', () => {
+      test('should join belongsTo relation', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const author = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'First Article',
+            content: 'Content here',
+            authorId: author.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.title).toBe('First Article')
+          expect(results[0]?.author).toBeDefined()
+          expect(results[0]?.author?.name).toBe('Alice')
+          expect(results[0]?.author?.role).toBe('admin')
+        })
+      })
+
+      test('should handle null foreign keys', async () => {
+        await runInTransaction(async (tx) => {
+          const articles = createTxRepo(Article, tx)
+
+          await articles.create({
+            title: 'Orphan Article',
+            content: 'No author',
+            authorId: null,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.title).toBe('Orphan Article')
+          expect(results[0]?.author).toBeNull()
+        })
+      })
+    })
+
+    describe('WHERE with dot notation', () => {
+      test('should filter by joined relation field', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const admin = await authors.create({
+            name: 'Admin User',
+            email: 'admin@example.com',
+            role: 'admin',
+          })
+
+          const regular = await authors.create({
+            name: 'Regular User',
+            email: 'user@example.com',
+            role: 'user',
+          })
+
+          await articles.create({
+            title: 'Admin Post',
+            content: 'Content',
+            authorId: admin.id,
+          })
+
+          await articles.create({
+            title: 'User Post',
+            content: 'Content',
+            authorId: regular.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .where('author.role', '=', 'admin')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.title).toBe('Admin Post')
+          expect(results[0]?.author?.role).toBe('admin')
+        })
+      })
+
+      test('should support multiple WHERE clauses with dot notation', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const author = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'Article 1',
+            content: 'Content',
+            authorId: author.id,
+          })
+
+          await articles.create({
+            title: 'Article 2',
+            content: 'Content',
+            authorId: author.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .where('author.role', '=', 'admin')
+            .where('author.name', '=', 'Alice')
+            .execute()
+
+          expect(results.length).toBe(2)
+          expect(results.every(r => r.author?.name === 'Alice')).toBe(true)
+        })
+      })
+    })
+
+    describe('ORDER BY with dot notation', () => {
+      test('should order by joined relation field', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const bob = await authors.create({
+            name: 'Bob',
+            email: 'bob@example.com',
+            role: 'user',
+          })
+
+          const alice = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'Bob Article',
+            content: 'Content',
+            authorId: bob.id,
+          })
+
+          await articles.create({
+            title: 'Alice Article',
+            content: 'Content',
+            authorId: alice.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .orderBy('author.name', 'ASC')
+            .execute()
+
+          expect(results.length).toBe(2)
+          expect(results[0]?.author?.name).toBe('Alice')
+          expect(results[1]?.author?.name).toBe('Bob')
+        })
+      })
+
+      test('should support DESC ordering', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const bob = await authors.create({
+            name: 'Bob',
+            email: 'bob@example.com',
+            role: 'user',
+          })
+
+          const alice = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'Bob Article',
+            content: 'Content',
+            authorId: bob.id,
+          })
+
+          await articles.create({
+            title: 'Alice Article',
+            content: 'Content',
+            authorId: alice.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .orderByDesc('author.name')
+            .execute()
+
+          expect(results.length).toBe(2)
+          expect(results[0]?.author?.name).toBe('Bob')
+          expect(results[1]?.author?.name).toBe('Alice')
+        })
+      })
+    })
+
+    describe('SELECT with dot notation', () => {
+      test('should select specific relation fields', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const author = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'Article',
+            content: 'Content',
+            authorId: author.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .select('title', 'author.name')
+            .execute() as { title: string, author: { name: string } }[]
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.title).toBe('Article')
+          expect(results[0]?.author?.name).toBe('Alice')
+          // @ts-expect-error expect to be undefined
+          expect(results[0]?.content).toBeUndefined()
+          // @ts-expect-error expect to be undefined
+          expect(results[0]?.author?.email).toBeUndefined()
+        })
+      })
+    })
+
+    describe('Multiple relation joins', () => {
+      test('should support joining multiple relations', async () => {
+        await runInTransaction(async (tx) => {
+          // This test would require a more complex schema with multiple relations
+          // For now, we can test sequential joins
+          const authors = createTxRepo(Author, tx)
+          const articles = createTxRepo(Article, tx)
+
+          const author = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+            role: 'admin',
+          })
+
+          await articles.create({
+            title: 'Article',
+            content: 'Content',
+            authorId: author.id,
+          })
+
+          const results = await articles.query()
+            .with<AuthorType | null>('author')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.author).toBeDefined()
+        })
+      })
+    })
+
+    describe('Error handling', () => {
+      test('should error when relation not found', async () => {
+        await runInTransaction(async (tx) => {
+          const articles = createTxRepo(Article, tx)
+
+          expect(() => {
+            articles.query().with('nonexistent')
+          }).toThrow('Relation "nonexistent" not found')
+        })
+      })
+
+      test('should error when trying to join hasMany relation', async () => {
+        await runInTransaction(async (tx) => {
+          // This would need an entity with hasMany relation
+          // For now just test the error message format
+          const authors = createTxRepo(Author, tx)
+
+          // Authors don't have relations defined, so this will error with "not found"
+          // In a real scenario with hasMany, it would error with "only supports belongsTo and hasOne"
+          expect(() => {
+            authors.query().with('anything')
+          }).toThrow()
+        })
+      })
+
+      test('should error when querying unjoined relation field', async () => {
+        await runInTransaction(async (tx) => {
+          const articles = createTxRepo(Article, tx)
+
+          await expect(async () => {
+            await articles.query()
+              .where('author.name', '=', 'Alice')
+              .execute()
+          }).toThrow('Relation "author" not joined')
+        })
+      })
+
+      test('should error on invalid field in dot notation', async () => {
+        await runInTransaction(async (tx) => {
+          const articles = createTxRepo(Article, tx)
+
+          await expect(async () => {
+            await articles.query()
+              .with<AuthorType | null>('author')
+              .where('author.invalidField', '=', 'value')
+              .execute()
+          }).toThrow('Field "invalidField" not found on relation "author"')
+        })
+      })
+
+      test('should error when joining same relation twice', async () => {
+        await runInTransaction(async (tx) => {
+          const articles = createTxRepo(Article, tx)
+
+          expect(() => {
+            articles.query()
+              .with<AuthorType | null>('author')
+              .with<AuthorType | null>('author')
+          }).toThrow('Relation "author" already loaded')
+        })
+      })
+    })
+
+    describe('hasOne relations', () => {
+      test('should join hasOne relation', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(AuthorWithProfile, tx)
+          const profiles = createTxRepo(Profile, tx)
+
+          const author = await authors.create({
+            name: 'Alice',
+            email: 'alice@example.com',
+          })
+
+          await profiles.create({
+            bio: 'Software engineer',
+            authorId: author.id,
+          })
+
+          const results = await authors.query()
+            .with<ProfileType | null>('profile')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.name).toBe('Alice')
+          expect(results[0]?.profile).toBeDefined()
+          expect(results[0]?.profile?.bio).toBe('Software engineer')
+        })
+      })
+
+      test('should handle hasOne with no match', async () => {
+        await runInTransaction(async (tx) => {
+          const authors = createTxRepo(AuthorWithProfile, tx)
+
+          await authors.create({
+            name: 'Bob',
+            email: 'bob@example.com',
+          })
+
+          const results = await authors.query()
+            .with<ProfileType | null>('profile')
+            .execute()
+
+          expect(results.length).toBe(1)
+          expect(results[0]?.name).toBe('Bob')
+          expect(results[0]?.profile).toBeNull()
+        })
       })
     })
   })

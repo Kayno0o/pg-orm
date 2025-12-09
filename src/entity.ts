@@ -1,3 +1,4 @@
+import type { ORM } from './orm'
 import type { RelationConfig, RelationSchema } from './relations/types'
 import type {
   AfterCreateHook,
@@ -23,7 +24,7 @@ export class EntityBuilder<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly [],
   TScopes extends string = never,
-  // eslint-disable-next-line ts/no-empty-object-type
+
   TRelations extends RelationSchema = {},
 > {
   private _hooks: EntityHooks<T>
@@ -31,14 +32,14 @@ export class EntityBuilder<
   private _unique?: string[][]
   private _scopes: Map<string, ScopeDefinition<T>>
   private _relations: TRelations
-  private orm: any
+  private orm?: ORM
 
   constructor(
     private readonly tableName: string,
     private readonly schema: T,
     traits: TTraits = [] as any,
     relations: TRelations = {} as any,
-    orm?: any,
+    orm?: ORM,
   ) {
     validateSQLIdentifier(tableName, 'table')
 
@@ -154,7 +155,7 @@ export class EntityBuilder<
       afterDelete: [...this._hooks.afterDelete, ...(trait.hooks?.afterDelete || [])],
     } as EntityHooks<T & TraitFields>
     newBuilder._unique = this._unique
-    newBuilder._scopes = this._scopes
+    newBuilder._scopes = this._scopes as any
 
     return newBuilder
   }
@@ -210,13 +211,19 @@ export class EntityBuilder<
       relationConfigs[key] = builder.toConfig()
     }
 
-    return new EntityBuilder(
+    const newBuilder = new EntityBuilder(
       this.tableName,
       this.schema,
       this._traits,
       { ...this._relations, ...relationConfigs },
       this.orm,
-    ) as any
+    )
+
+    newBuilder._hooks = this._hooks
+    newBuilder._unique = this._unique
+    newBuilder._scopes = this._scopes as any
+
+    return newBuilder as EntityBuilder<T, TTraits, TScopes, TRelations & { [K in keyof R]: ReturnType<R[K]['toConfig']> }>
   }
 
   /**

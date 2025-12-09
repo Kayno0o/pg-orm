@@ -173,7 +173,7 @@ type IsOptionalField<C extends FieldConfig>
 
 type IsRequiredField<C extends FieldConfig> = IsOptionalField<C> extends true ? false : true
 
-// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+// eslint-disable-next-line ts/consistent-type-definitions
 type EmptyObject = {}
 
 export type InferEntityBase<T extends EntitySchema> = Prettify<
@@ -193,6 +193,13 @@ export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDe
       : never
   }[number]>
 >
+
+export type QueryResult<
+  T extends EntitySchema,
+  _R extends RelationSchema,
+  LoadedRelations extends Record<string, any>,
+  TTraits extends readonly any[] = readonly [],
+> = InferEntity<T, TTraits> & LoadedRelations
 
 export type InferCreateData<T extends EntitySchema> = Prettify<
   {

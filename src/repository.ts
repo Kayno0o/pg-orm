@@ -29,7 +29,7 @@ export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
   TScopes extends string = string,
-  // eslint-disable-next-line ts/no-empty-object-type
+
   TRelations extends RelationSchema = {},
 > {
   private tableName: string
@@ -562,8 +562,8 @@ export class Repository<
   /**
    * Creates a query builder for the entity.
    */
-  query(): QueryBuilder<T, never, TScopes> {
-    return new QueryBuilder<T, never, TScopes>(
+  query(): QueryBuilder<T, never, TScopes, {}, TTraits, TRelations> {
+    return new QueryBuilder<T, never, TScopes, {}, TTraits, TRelations>(
       this.tableName,
       this.getDB(),
       this.schema,
@@ -571,6 +571,8 @@ export class Repository<
       this.definition.scopes,
       this.cacheAdapter,
       this.orm.getSchema(),
+      this.definition,
+      this.orm,
     )
   }
 

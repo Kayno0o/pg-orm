@@ -149,7 +149,8 @@ export class ORM {
     fields: T,
   ): EntityBuilder<{
     [K in keyof T]: ReturnType<T[K]['toConfig']>
-  }> {
+
+  }, readonly [], string, {}> {
     const schema = createEntitySchema(fields)
 
     return new EntityBuilder(tableName, schema, [], {}, this)
@@ -159,7 +160,7 @@ export class ORM {
    * Retrieves or creates a repository for the given entity.
    * @param entityDef - The entity definition.
    */
-  // eslint-disable-next-line ts/no-empty-object-type
+
   repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string, TRelations extends RelationSchema = {}>(
     entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
   ): Repository<T, TTraits, TScopes, TRelations> {

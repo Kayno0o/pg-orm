@@ -15,10 +15,10 @@ import type {
 } from './types'
 import { field } from './field'
 
-// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+// eslint-disable-next-line ts/consistent-type-definitions
 type EmptySchema = {}
 
-// eslint-disable-next-line ts/consistent-type-definitions, ts/no-empty-object-type
+// eslint-disable-next-line ts/consistent-type-definitions
 type EmptyMethods = {}
 
 /**
