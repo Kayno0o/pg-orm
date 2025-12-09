@@ -33,11 +33,13 @@ interface JoinedRelationMetadata {
  */
 export class QueryBuilder<
   T extends EntitySchema,
-  SelectedFields extends readonly (keyof T | 'id')[] = never,
+  SelectedFields extends readonly (keyof T | 'id' | string)[] = never,
   TScopes extends string = string,
   LoadedRelations extends Record<string, any> = {},
   TTraits extends readonly any[] = readonly [],
   TRelations extends RelationSchema = RelationSchema,
+  TAggregations extends Record<string, any> = {},
+  TGroupedFields extends readonly (keyof T | 'id')[] = never,
 > {
   private selectFields: string[]
   private whereConditions: string[] = []
@@ -172,7 +174,7 @@ export class QueryBuilder<
   select<F extends readonly (keyof T | 'id' | string)[]>(
     ...fields: F
 
-  ): QueryBuilder<T, F, TScopes, {}, TTraits, TRelations> {
+  ): QueryBuilder<T, F, TScopes, {}, TTraits, TRelations, TAggregations, TGroupedFields> {
     this.hasCustomSelect = true
     this.selectFields = fields.map((f) => {
       const fieldStr = String(f)
@@ -397,57 +399,57 @@ export class QueryBuilder<
   }
 
   /** Adds a GROUP BY clause. */
-  groupBy(...fields: (keyof T | 'id')[]): this {
+  groupBy<F extends (keyof T | 'id')[]>(...fields: F): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations, F> {
     this.groupByFields = fields.map(f => this.validateColumnName(String(f)))
 
-    return this
+    return this as any
   }
 
   /** Calculates the sum of a field. */
-  sum(field: keyof T): this {
+  sum(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { sum: number }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('sum', { func: 'SUM', field: columnName })
 
-    return this
+    return this as any
   }
 
   /** Calculates the average of a field. */
-  avg(field: keyof T): this {
+  avg(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { avg: number }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('avg', { func: 'AVG', field: columnName })
 
-    return this
+    return this as any
   }
 
   /** Finds the minimum value of a field. */
-  min(field: keyof T): this {
+  min(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { min: number | null }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('min', { func: 'MIN', field: columnName })
 
-    return this
+    return this as any
   }
 
   /** Finds the maximum value of a field. */
-  max(field: keyof T): this {
+  max(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { max: number | null }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('max', { func: 'MAX', field: columnName })
 
-    return this
+    return this as any
   }
 
   /** Counts the number of rows. */
-  countAs(alias = 'count'): this {
+  countAs<Alias extends string = 'count'>(alias: Alias = 'count' as Alias): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { [K in Alias]: number }, TGroupedFields> {
     this.aggregations.set(alias, { func: 'COUNT', field: '*' })
 
-    return this
+    return this as any
   }
 
   /** Execute aggregation query */
-  async aggregate(): Promise<AggregationResult> {
+  async aggregate(): Promise<TAggregations> {
     // Build aggregation SELECT
     const aggParts: string[] = []
 
@@ -563,7 +565,7 @@ export class QueryBuilder<
   // eslint-disable-next-line max-lines-per-function
   with<RelationType = any, K extends string = string>(
     relationName: K,
-  ): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations & Record<K, RelationType>, TTraits, TRelations> {
+  ): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations & Record<K, RelationType>, TTraits, TRelations, TAggregations, TGroupedFields> {
     if (!this.entity || !this.orm) {
       throw new Error(
         'with() requires entity metadata. '
@@ -669,7 +671,7 @@ export class QueryBuilder<
   }
 
   /** Applies a named scope to the query. */
-  scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations> {
+  scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations, TGroupedFields> {
     if (!this.scopes) {
       throw new Error('Scopes are not available on this QueryBuilder instance')
     }
@@ -730,9 +732,14 @@ export class QueryBuilder<
 
   /** Executes the query and returns the results. */
   async execute(): Promise<
-    [SelectedFields] extends [never]
-      ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
-      : InferProjectionClean<T, SelectedFields>[]
+    [keyof TAggregations] extends [never]
+      ? [SelectedFields] extends [never]
+        ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
+        : InferProjectionClean<T, SelectedFields>[]
+      : (TAggregations & ([TGroupedFields] extends [never]
+          ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)
+          : InferProjectionClean<T, TGroupedFields> & ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>))
+        )[]
   > {
     const { sql, params } = this.build()
 

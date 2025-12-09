@@ -134,12 +134,12 @@ describe('Aggregations', () => {
       const stats = await users.query()
         .groupBy('role')
         .countAs('total')
-        .execute() as any[]
+        .execute()
 
       expect(stats).toHaveLength(2)
 
-      const adminStats = stats.find((s: any) => s.role === 'admin')
-      const userStats = stats.find((s: any) => s.role === 'user')
+      const adminStats = stats.find(s => s.role === 'admin')!
+      const userStats = stats.find(s => s.role === 'user')!
 
       expect(adminStats.total).toBe(2)
       expect(userStats.total).toBe(2)
@@ -157,17 +157,17 @@ describe('Aggregations', () => {
         .countAs('count')
         .avg('age')
         .sum('salary')
-        .execute() as any[]
+        .execute()
 
       expect(stats).toHaveLength(2)
 
-      const adminStats = stats.find((s: any) => s.role === 'admin')
+      const adminStats = stats.find(s => s.role === 'admin')!
 
       expect(adminStats.count).toBe(2)
       expect(adminStats.avg).toBe(27.5)
       expect(adminStats.sum).toBe(170000)
 
-      const userStats = stats.find((s: any) => s.role === 'user')
+      const userStats = stats.find(s => s.role === 'user')!
 
       expect(userStats.count).toBe(2)
       expect(userStats.avg).toBe(25)
@@ -186,11 +186,11 @@ describe('Aggregations', () => {
         .groupBy('role')
         .countAs('count')
         .avg('age')
-        .execute() as any[]
+        .execute()
 
       expect(stats.length).toBeGreaterThan(0)
 
-      const adminStats = stats.find((s: any) => s.role === 'admin')
+      const adminStats = stats.find(s => s.role === 'admin')!
 
       expect(adminStats.count).toBe(2)
     })
@@ -209,8 +209,8 @@ describe('Aggregations', () => {
         .execute()
 
       expect(stats).toHaveLength(2)
-      expect((stats[0] as any).role).toBe('admin')
-      expect((stats[1] as any).role).toBe('user')
+      expect(stats[0]!.role).toBe('admin')
+      expect(stats[1]!.role).toBe('user')
     })
   })
 
