@@ -335,18 +335,34 @@ export class Repository<
    * @param id - The ID of the entity to update.
    * @param data - The data to update.
    */
-  async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
+  async update(id: number, data: InferUpdateData<T, TRelations>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
     const limits = this.getLimits()
 
-    await this.schemaValidator.validateUpdate(data as Record<string, unknown>, limits.jsonDepth)
+    // Map relation updates to FK updates
+    const mappedData = { ...data } as Record<string, unknown>
 
-    for (const hook of this.definition.hooks.beforeUpdate) {
-      await hook(id, data)
+    if (this.definition.relations) {
+      for (const [key, value] of Object.entries(data)) {
+        if (key in this.definition.relations) {
+          const relation = this.definition.relations[key]!
+
+          if (relation.type === 'belongsTo') {
+            delete mappedData[key]
+            mappedData[relation.foreignKey] = value
+          }
+        }
+      }
     }
 
-    const preparedData = this.prepareData(data as Record<string, unknown>)
+    await this.schemaValidator.validateUpdate(mappedData, limits.jsonDepth)
+
+    for (const hook of this.definition.hooks.beforeUpdate) {
+      await hook(id, mappedData as any)
+    }
+
+    const preparedData = this.prepareData(mappedData)
 
     // SECURITY: cachedSelectColumns is pre-validated schema-derived column list (see constructor)
     return this.loggedQuery(

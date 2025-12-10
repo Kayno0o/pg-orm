@@ -174,7 +174,7 @@ export class ORM {
 
     const repository = new Repository(entityDef, this.cacheAdapter, this)
 
-    this.repositories.set(entityDef, repository)
+    this.repositories.set(entityDef, repository as any)
 
     return repository
   }

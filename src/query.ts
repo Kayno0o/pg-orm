@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
 import type { BelongsToConfig, HasOneConfig, RelationConfig, RelationSchema } from './relations/types'
-import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
+import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, InferUpdateData, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
@@ -1119,7 +1119,7 @@ export class QueryBuilder<
   }
 
   /** Updates records matching the query. */
-  async update(data: Partial<Record<keyof T, SQLValue>>): Promise<number> {
+  async update(data: InferUpdateData<T, TRelations>): Promise<number> {
     if (Object.keys(data).length === 0) {
       throw new Error('Update data cannot be empty')
     }
@@ -1127,8 +1127,19 @@ export class QueryBuilder<
     const setParts: string[] = []
     const updateParams: SQLValue[] = [...this.whereParams]
 
-    for (const [field, value] of Object.entries(data)) {
-      const columnName = this.validateColumnName(field)
+    for (const [key, value] of Object.entries(data)) {
+      let fieldName = key
+
+      // Check if this is a relation update
+      if (this.entity?.relations && key in this.entity.relations) {
+        const relation = this.entity.relations[key]
+
+        if (relation.type === 'belongsTo') {
+          fieldName = relation.foreignKey // Map relation name to FK field name
+        }
+      }
+
+      const columnName = this.validateColumnName(fieldName)
 
       updateParams.push(value as SQLValue)
       setParts.push(`${columnName} = $${updateParams.length}`)
