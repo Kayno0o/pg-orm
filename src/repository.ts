@@ -335,7 +335,7 @@ export class Repository<
    * @param id - The ID of the entity to update.
    * @param data - The data to update.
    */
-  async update(id: number, data: InferUpdateData<T, TRelations>): Promise<InferEntity<T, TTraits>> {
+  async update(id: number, data: InferUpdateData<T>): Promise<InferEntity<T, TTraits>> {
     const db = this.getDB()
 
     const limits = this.getLimits()

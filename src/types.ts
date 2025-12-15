@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import type { QueryBuilder } from './query'
-import type { BelongsToConfig, RelationSchema } from './relations/types'
+import type { RelationSchema } from './relations/types'
 
 export type SQLValue
   = | string
@@ -211,10 +211,8 @@ export type InferCreateData<T extends EntitySchema> = Prettify<
 
 export type InferUpdateData<
   T extends EntitySchema,
-  TRelations extends RelationSchema = {},
 > = Prettify<Partial<
   { [K in keyof T]: InferField<T[K]> }
-  & { [K in keyof TRelations as TRelations[K] extends BelongsToConfig ? K : never]: number | string | null }
 >>
 
 type TupleToUnion<T extends readonly (keyof any)[]> = T[number]

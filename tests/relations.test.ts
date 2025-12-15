@@ -53,7 +53,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)
@@ -102,7 +102,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)
@@ -136,7 +136,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)
@@ -174,7 +174,7 @@ describe('Relations', () => {
         title: orm.string(),
         authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
       }).relations({
-        author: orm.relation(User).belongsTo('authorId'),
+        author: orm.belongsTo<typeof User>('test_users', 'authorId'),
       }).build()
 
       const users = orm.repo(User)
@@ -213,7 +213,7 @@ describe('Relations', () => {
         title: orm.string(),
         authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
       }).relations({
-        author: orm.relation(User).belongsTo('authorId'),
+        author: orm.belongsTo<typeof User>('test_users', 'authorId'),
       }).build()
 
       const users = orm.repo(User)
@@ -250,7 +250,7 @@ describe('Relations', () => {
       const UserWithProfile = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        profile: orm.relation(Profile).hasOne('userId'),
+        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
       }).build()
 
       const users = orm.repo(UserWithProfile)
@@ -289,7 +289,7 @@ describe('Relations', () => {
       const UserWithProfile = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        profile: orm.relation(Profile).hasOne('userId'),
+        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
       }).build()
 
       const users = orm.repo(UserWithProfile)
@@ -319,7 +319,7 @@ describe('Relations', () => {
       const PostWithTags = orm.entity('test_posts', {
         title: orm.string(),
       }).relations({
-        tags: orm.relation(Tag).manyToMany('test_post_tags', 'postId', 'tagId'),
+        tags: orm.manyToMany<typeof Tag>('test_tags', 'test_post_tags', 'postId', 'tagId'),
       }).build()
 
       const posts = orm.repo(PostWithTags)
@@ -365,7 +365,7 @@ describe('Relations', () => {
       const PostWithTags = orm.entity('test_posts', {
         title: orm.string(),
       }).relations({
-        tags: orm.relation(Tag).manyToMany('test_post_tags', 'postId', 'tagId'),
+        tags: orm.manyToMany<typeof Tag>('test_tags', 'test_post_tags', 'postId', 'tagId'),
       }).build()
 
       const posts = orm.repo(PostWithTags)
@@ -403,8 +403,8 @@ describe('Relations', () => {
       const UserWithRelations = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
-        profile: orm.relation(Profile).hasOne('userId'),
+        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
+        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
       }).build()
 
       const users = orm.repo(UserWithRelations)
@@ -480,7 +480,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)
@@ -595,7 +595,7 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_validation_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const User = orm.entity('test_validation_users', {
+      const _User = orm.entity('test_validation_users', {
         name: orm.string(),
       }).build()
 
@@ -603,7 +603,7 @@ describe('Relations', () => {
         orm.entity('test_validation_posts', {
           title: orm.string(),
         }).relations({
-          author: orm.relation(User).belongsTo('authorId'),
+          author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
         }).build()
       }).toThrow('Foreign key "authorId" not found in schema')
     })
@@ -613,7 +613,7 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_validation_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const User = orm.entity('test_validation_users', {
+      const _User = orm.entity('test_validation_users', {
         name: orm.string(),
       }).build()
 
@@ -622,7 +622,7 @@ describe('Relations', () => {
           title: orm.string(),
           authorId: orm.foreignKey('test_validation_users'),
         }).relations({
-          author: orm.relation(User).belongsTo('authorId'),
+          author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
         }).build()
       }).not.toThrow()
     })
@@ -643,7 +643,7 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_edge_users(id) ON DELETE CASCADE)`
 
-      const Post = orm.entity('test_edge_posts', {
+      const _Post = orm.entity('test_edge_posts', {
         title: orm.string(),
         authorId: orm.foreignKey('test_edge_users').onDelete('CASCADE'),
       }).build()
@@ -651,7 +651,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_edge_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof _Post>('test_edge_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)
@@ -670,7 +670,7 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER)`
 
-      const User = orm.entity('test_edge_users', {
+      const _User = orm.entity('test_edge_users', {
         name: orm.string(),
       }).build()
 
@@ -678,7 +678,7 @@ describe('Relations', () => {
         title: orm.string(),
         authorId: orm.number().nullable(),
       }).relations({
-        author: orm.relation(User).belongsTo('authorId'),
+        author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
       }).build()
 
       const posts = orm.repo(Post)
@@ -703,7 +703,7 @@ describe('Relations', () => {
       const UserWithProfile = orm.entity('test_edge_users', {
         name: orm.string(),
       }).relations({
-        profile: orm.relation(Profile).hasOne('userId'),
+        profile: orm.hasOne<typeof Profile>('test_edge_profiles', 'userId'),
       }).build()
 
       const users = orm.repo(UserWithProfile)
@@ -733,7 +733,7 @@ describe('Relations', () => {
       const UserWithPosts = orm.entity('test_edge_users', {
         name: orm.string(),
       }).relations({
-        posts: orm.relation(Post).hasMany('authorId'),
+        posts: orm.hasMany<typeof Post>('test_edge_posts', 'authorId'),
       }).build()
 
       const users = orm.repo(UserWithPosts)

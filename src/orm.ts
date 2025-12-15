@@ -180,82 +180,101 @@ export class ORM {
   }
 
   /**
-   * Defines a hasOne relation.
+   * Defines a hasOne relation with type inference.
    * @param tableName - The name of the related table.
    * @param foreignKey - The foreign key field in the related table.
-   */
-  hasOne(tableName: string, foreignKey: string): HasOneBuilder {
-    return new HasOneBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a hasMany relation.
-   * @param tableName - The name of the related table.
-   * @param foreignKey - The foreign key field in the related table.
-   */
-  hasMany(tableName: string, foreignKey: string): HasManyBuilder {
-    return new HasManyBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a belongsTo relation.
-   * @param tableName - The name of the related table.
-   * @param foreignKey - The foreign key field in this table.
-   */
-  belongsTo(tableName: string, foreignKey: string): BelongsToBuilder {
-    return new BelongsToBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a manyToMany relation.
-   * @param tableName - The name of the related table.
-   * @param through - The junction table name.
-   * @param throughForeignKey - The foreign key in the junction table for this entity.
-   * @param otherKey - The foreign key in the junction table for the related entity.
-   */
-  manyToMany(
-    tableName: string,
-    through: string,
-    throughForeignKey: string,
-    otherKey: string,
-  ): ManyToManyBuilder {
-    return new ManyToManyBuilder(tableName, through, throughForeignKey, otherKey)
-  }
-
-  /**
-   * Creates a type-safe relation builder for an entity.
-   * Enables full type inference for relations.
-   *
    * @example
    * const User = orm.entity('users', { name: orm.string() }).build()
    * const Post = orm.entity('posts', {
    *   title: orm.string(),
-   *   authorId: orm.foreignKey('users')
+   *   userId: orm.number()
    * }).relations({
-   *   author: orm.relation(User).belongsTo('authorId')
+   *   profile: orm.hasOne<typeof User>('users', 'userId')
    * }).build()
-   *
-   * // Now loaded.author is fully typed as User | null
-   * const loaded = await posts.find(1, { with: ['author'] })
-   *
-   * @param entity - The related entity definition
    */
-  relation<T extends EntitySchema, TTraits extends readonly any[]>(
-    entity: EntityDefinition<T, TTraits, any, any>,
-  ) {
-    return {
-      hasOne: (foreignKey: string) =>
-        new HasOneBuilder<T, TTraits>(entity.tableName, foreignKey),
+  hasOne<TEntity extends EntityDefinition<any, any, any, any> = any>(
+    tableName: string,
+    foreignKey: string,
+  ): HasOneBuilder<
+    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
+    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
+  > {
+    return new HasOneBuilder(tableName, foreignKey)
+  }
 
-      hasMany: (foreignKey: string) =>
-        new HasManyBuilder<T, TTraits>(entity.tableName, foreignKey),
+  /**
+   * Defines a hasMany relation with type inference.
+   * @param tableName - The name of the related table.
+   * @param foreignKey - The foreign key field in the related table.
+   * @example
+   * const User = orm.entity('users', { name: orm.string() }).build()
+   * const Post = orm.entity('posts', {
+   *   title: orm.string(),
+   *   authorId: orm.number()
+   * }).build()
+   * const UserWithPosts = orm.entity('users', {
+   *   name: orm.string()
+   * }).relations({
+   *   posts: orm.hasMany<typeof Post>('posts', 'authorId')
+   * }).build()
+   */
+  hasMany<TEntity extends EntityDefinition<any, any, any, any> = any>(
+    tableName: string,
+    foreignKey: string,
+  ): HasManyBuilder<
+    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
+    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
+  > {
+    return new HasManyBuilder(tableName, foreignKey)
+  }
 
-      belongsTo: (foreignKey: string) =>
-        new BelongsToBuilder<T, TTraits>(entity.tableName, foreignKey),
+  /**
+   * Defines a belongsTo relation with type inference.
+   * @param tableName - The name of the related table.
+   * @param foreignKey - The foreign key field in this table.
+   * @example
+   * const User = orm.entity('users', { name: orm.string() }).build()
+   * const Post = orm.entity('posts', {
+   *   title: orm.string(),
+   *   authorId: orm.number()
+   * }).relations({
+   *   author: orm.belongsTo<typeof User>('users', 'authorId')
+   * }).build()
+   */
+  belongsTo<TEntity extends EntityDefinition<any, any, any, any> = any>(
+    tableName: string,
+    foreignKey: string,
+  ): BelongsToBuilder<
+    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
+    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
+  > {
+    return new BelongsToBuilder(tableName, foreignKey)
+  }
 
-      manyToMany: (through: string, throughForeignKey: string, otherKey: string) =>
-        new ManyToManyBuilder<T, TTraits>(entity.tableName, through, throughForeignKey, otherKey),
-    }
+  /**
+   * Defines a manyToMany relation with type inference.
+   * @param tableName - The name of the related table.
+   * @param through - The junction table name.
+   * @param throughForeignKey - The foreign key in the junction table for this entity.
+   * @param otherKey - The foreign key in the junction table for the related entity.
+   * @example
+   * const Tag = orm.entity('tags', { name: orm.string() }).build()
+   * const Post = orm.entity('posts', {
+   *   title: orm.string()
+   * }).relations({
+   *   tags: orm.manyToMany<typeof Tag>('tags', 'post_tags', 'postId', 'tagId')
+   * }).build()
+   */
+  manyToMany<TEntity extends EntityDefinition<any, any, any, any> = any>(
+    tableName: string,
+    through: string,
+    throughForeignKey: string,
+    otherKey: string,
+  ): ManyToManyBuilder<
+    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
+    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
+  > {
+    return new ManyToManyBuilder(tableName, through, throughForeignKey, otherKey)
   }
 
   /**

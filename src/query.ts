@@ -1119,7 +1119,7 @@ export class QueryBuilder<
   }
 
   /** Updates records matching the query. */
-  async update(data: InferUpdateData<T, TRelations>): Promise<number> {
+  async update(data: InferUpdateData<T>): Promise<number> {
     if (Object.keys(data).length === 0) {
       throw new Error('Update data cannot be empty')
     }
@@ -1128,18 +1128,7 @@ export class QueryBuilder<
     const updateParams: SQLValue[] = [...this.whereParams]
 
     for (const [key, value] of Object.entries(data)) {
-      let fieldName = key
-
-      // Check if this is a relation update
-      if (this.entity?.relations && key in this.entity.relations) {
-        const relation = this.entity.relations[key]
-
-        if (relation.type === 'belongsTo') {
-          fieldName = relation.foreignKey // Map relation name to FK field name
-        }
-      }
-
-      const columnName = this.validateColumnName(fieldName)
+      const columnName = this.validateColumnName(key)
 
       updateParams.push(value as SQLValue)
       setParts.push(`${columnName} = $${updateParams.length}`)
