@@ -39,10 +39,10 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('CREATE_TABLE detection', () => {
     test('should detect new table', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string().unique(),
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -72,18 +72,18 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should create table with all field types', async () => {
-      const Product = orm.entity('products', {
-        name: orm.string(),
-        price: orm.number(),
-        stock: orm.number().integer(),
-        active: orm.boolean().default(true),
-        metadata: orm.jsonb(),
-        tags: orm.array('string'),
-        status: orm.enum(['draft', 'published', 'archived']),
-        uuid: orm.uuid(),
-        createdAt: orm.timestamp().default('NOW()'),
-        publishedDate: orm.date().nullable(),
-      }).build()
+      const Product = orm.entity('products', f => ({
+        name: f.string(),
+        price: f.number(),
+        stock: f.number().integer(),
+        active: f.boolean().default(true),
+        metadata: f.jsonb(),
+        tags: f.array('string'),
+        status: f.enum(['draft', 'published', 'archived']),
+        uuid: f.uuid(),
+        createdAt: f.timestamp().default('NOW()'),
+        publishedDate: f.date().nullable(),
+      })).build()
 
       const entities = new Map([[Product.tableName, Product]])
       const differ = new SchemaDiffer(entities, {
@@ -115,11 +115,11 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('ADD_COLUMN detection', () => {
     test('should detect new column in existing table', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string(),
-        bio: orm.string().nullable(), // New column
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string(),
+        bio: f.string().nullable(), // New column
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -155,10 +155,10 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('MODIFY_COLUMN detection', () => {
     test('should detect column type change', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        age: orm.number().integer(), // Changed from DOUBLE PRECISION
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        age: f.number().integer(), // Changed from DOUBLE PRECISION
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -190,10 +190,10 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should detect nullable change', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        bio: orm.string(), // Now required (was nullable)
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        bio: f.string(), // Now required (was nullable)
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -227,10 +227,10 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should detect default value change', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        active: orm.boolean().default(true), // Added default
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        active: f.boolean().default(true), // Added default
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -266,10 +266,10 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('UNIQUE constraint detection', () => {
     test('should detect missing unique constraint', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string().unique(), // Should be unique
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string().unique(), // Should be unique
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {
@@ -303,10 +303,10 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should detect extra unique constraint in safe mode', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string(), // Not unique in entity
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string(), // Not unique in entity
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
 
@@ -349,10 +349,10 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should detect extra unique constraint in unsafe mode', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string(), // Not unique in entity
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string(), // Not unique in entity
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
 
@@ -399,14 +399,14 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('FOREIGN KEY detection', () => {
     test('should detect new foreign key', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users'),
-      }).build()
+      const Post = orm.entity('posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users'),
+      })).build()
 
       const entities = new Map<string, any>([
         [User.tableName, User],
@@ -448,14 +448,14 @@ describe('SchemaDiffer Unit Tests', () => {
     })
 
     test('should detect modified foreign key', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users').onDelete('CASCADE'), // Changed to CASCADE
-      }).build()
+      const Post = orm.entity('posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users').onDelete('CASCADE'), // Changed to CASCADE
+      })).build()
 
       const entities = new Map<string, any>([
         [User.tableName, User],
@@ -560,10 +560,10 @@ describe('SchemaDiffer Unit Tests', () => {
 
   describe('No changes scenario', () => {
     test('should detect no changes when schema matches', async () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string(),
+      })).build()
 
       const entities = new Map([[User.tableName, User]])
       const differ = new SchemaDiffer(entities, {

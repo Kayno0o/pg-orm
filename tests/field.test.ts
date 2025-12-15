@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { field as f } from '../src'
 import { orm } from './setup'
 
 describe('Field Builders', () => {
   describe('String Field', () => {
     test('should create basic string field', () => {
-      const field = orm.string()
+      const field = f.string()
       const config = field.toConfig()
 
       expect(config.type).toBe('string')
@@ -13,49 +14,49 @@ describe('Field Builders', () => {
     })
 
     test('should set maxLength', () => {
-      const field = orm.string().maxLength(255)
+      const field = f.string().maxLength(255)
       const config = field.toConfig()
 
       expect(config.maxLength).toBe(255)
     })
 
     test('should set minLength', () => {
-      const field = orm.string().minLength(3)
+      const field = f.string().minLength(3)
       const config = field.toConfig()
 
       expect(config.minLength).toBe(3)
     })
 
     test('should set nullable', () => {
-      const field = orm.string().nullable()
+      const field = f.string().nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
     })
 
     test('should set unique', () => {
-      const field = orm.string().unique()
+      const field = f.string().unique()
       const config = field.toConfig()
 
       expect(config.unique).toBe(true)
     })
 
     test('should set default value', () => {
-      const field = orm.string().default('hello')
+      const field = f.string().default('hello')
       const config = field.toConfig()
 
       expect(config.default).toBe('hello')
     })
 
     test('should set custom column name', () => {
-      const field = orm.string().column('custom_name')
+      const field = f.string().column('custom_name')
       const config = field.toConfig()
 
       expect(config.columnName).toBe('custom_name')
     })
 
     test('should chain multiple modifiers', () => {
-      const field = orm.string().maxLength(100).minLength(5).unique().nullable()
+      const field = f.string().maxLength(100).minLength(5).unique().nullable()
       const config = field.toConfig()
 
       expect(config.maxLength).toBe(100)
@@ -67,7 +68,7 @@ describe('Field Builders', () => {
 
   describe('Number Field', () => {
     test('should create basic number field', () => {
-      const field = orm.number()
+      const field = f.number()
       const config = field.toConfig()
 
       expect(config.type).toBe('number')
@@ -75,35 +76,35 @@ describe('Field Builders', () => {
     })
 
     test('should set min value', () => {
-      const field = orm.number().min(0)
+      const field = f.number().min(0)
       const config = field.toConfig()
 
       expect(config.min).toBe(0)
     })
 
     test('should set max value', () => {
-      const field = orm.number().max(100)
+      const field = f.number().max(100)
       const config = field.toConfig()
 
       expect(config.max).toBe(100)
     })
 
     test('should set integer flag', () => {
-      const field = orm.number().integer()
+      const field = f.number().integer()
       const config = field.toConfig()
 
       expect(config.integer).toBe(true)
     })
 
     test('should set default value', () => {
-      const field = orm.number().default(42)
+      const field = f.number().default(42)
       const config = field.toConfig()
 
       expect(config.default).toBe(42)
     })
 
     test('should chain multiple modifiers', () => {
-      const field = orm.number().integer().min(0).max(100).default(0)
+      const field = f.number().integer().min(0).max(100).default(0)
       const config = field.toConfig()
 
       expect(config.integer).toBe(true)
@@ -115,7 +116,7 @@ describe('Field Builders', () => {
 
   describe('Boolean Field', () => {
     test('should create basic boolean field', () => {
-      const field = orm.boolean()
+      const field = f.boolean()
       const config = field.toConfig()
 
       expect(config.type).toBe('boolean')
@@ -123,14 +124,14 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable', () => {
-      const field = orm.boolean().nullable()
+      const field = f.boolean().nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
     })
 
     test('should set default value', () => {
-      const field = orm.boolean().default(true)
+      const field = f.boolean().default(true)
       const config = field.toConfig()
 
       expect(config.default).toBe(true)
@@ -139,7 +140,7 @@ describe('Field Builders', () => {
 
   describe('UUID Field', () => {
     test('should create basic uuid field', () => {
-      const field = orm.uuid()
+      const field = f.uuid()
       const config = field.toConfig()
 
       expect(config.type).toBe('uuid')
@@ -147,14 +148,14 @@ describe('Field Builders', () => {
     })
 
     test('should set autoGenerate', () => {
-      const field = orm.uuid().autoGenerate()
+      const field = f.uuid().autoGenerate()
       const config = field.toConfig()
 
       expect(config.autoGenerate).toBe(true)
     })
 
     test('should set unique', () => {
-      const field = orm.uuid().unique()
+      const field = f.uuid().unique()
       const config = field.toConfig()
 
       expect(config.unique).toBe(true)
@@ -163,7 +164,7 @@ describe('Field Builders', () => {
 
   describe('Timestamp Field', () => {
     test('should create basic timestamp field', () => {
-      const field = orm.timestamp()
+      const field = f.timestamp()
       const config = field.toConfig()
 
       expect(config.type).toBe('timestamp')
@@ -171,7 +172,7 @@ describe('Field Builders', () => {
     })
 
     test('should set default value', () => {
-      const field = orm.timestamp().default('NOW()')
+      const field = f.timestamp().default('NOW()')
       const config = field.toConfig()
 
       expect(config.default).toBe('NOW()')
@@ -180,7 +181,7 @@ describe('Field Builders', () => {
 
   describe('Date Field', () => {
     test('should create basic date field', () => {
-      const field = orm.date()
+      const field = f.date()
       const config = field.toConfig()
 
       expect(config.type).toBe('date')
@@ -188,7 +189,7 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable', () => {
-      const field = orm.date().nullable()
+      const field = f.date().nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
@@ -197,7 +198,7 @@ describe('Field Builders', () => {
 
   describe('JSON/JSONB Fields', () => {
     test('should create json field', () => {
-      const field = orm.json()
+      const field = f.json()
       const config = field.toConfig()
 
       expect(config.type).toBe('json')
@@ -205,7 +206,7 @@ describe('Field Builders', () => {
     })
 
     test('should create jsonb field', () => {
-      const field = orm.jsonb()
+      const field = f.jsonb()
       const config = field.toConfig()
 
       expect(config.type).toBe('jsonb')
@@ -213,7 +214,7 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable on jsonb', () => {
-      const field = orm.jsonb().nullable()
+      const field = f.jsonb().nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
@@ -222,7 +223,7 @@ describe('Field Builders', () => {
 
   describe('Array Fields', () => {
     test('should create string array field', () => {
-      const field = orm.array('string')
+      const field = f.array('string')
       const config = field.toConfig()
 
       expect(config.type).toBe('array')
@@ -231,7 +232,7 @@ describe('Field Builders', () => {
     })
 
     test('should create number array field', () => {
-      const field = orm.array('number')
+      const field = f.array('number')
       const config = field.toConfig()
 
       expect(config.type).toBe('array')
@@ -239,7 +240,7 @@ describe('Field Builders', () => {
     })
 
     test('should create boolean array field', () => {
-      const field = orm.array('boolean')
+      const field = f.array('boolean')
       const config = field.toConfig()
 
       expect(config.type).toBe('array')
@@ -247,14 +248,14 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable on array', () => {
-      const field = orm.array('string').nullable()
+      const field = f.array('string').nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
     })
 
     test('should set default value on array', () => {
-      const field = orm.array('string').default([])
+      const field = f.array('string').default([])
       const config = field.toConfig()
 
       expect(config.default).toEqual([])
@@ -263,7 +264,7 @@ describe('Field Builders', () => {
 
   describe('Enum Fields', () => {
     test('should create enum field', () => {
-      const field = orm.enum(['admin', 'user', 'moderator'] as const)
+      const field = f.enum(['admin', 'user', 'moderator'] as const)
       const config = field.toConfig()
 
       expect(config.type).toBe('enum')
@@ -271,14 +272,14 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable on enum', () => {
-      const field = orm.enum(['active', 'inactive'] as const).nullable()
+      const field = f.enum(['active', 'inactive'] as const).nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
     })
 
     test('should set default value on enum', () => {
-      const field = orm.enum(['pending', 'approved', 'rejected'] as const).default('pending')
+      const field = f.enum(['pending', 'approved', 'rejected'] as const).default('pending')
       const config = field.toConfig()
 
       expect(config.default).toBe('pending')
@@ -287,7 +288,7 @@ describe('Field Builders', () => {
 
   describe('Blob Field', () => {
     test('should create basic blob field', () => {
-      const field = orm.blob()
+      const field = f.blob()
       const config = field.toConfig()
 
       expect(config.type).toBe('blob')
@@ -295,7 +296,7 @@ describe('Field Builders', () => {
     })
 
     test('should set nullable on blob', () => {
-      const field = orm.blob().nullable()
+      const field = f.blob().nullable()
       const config = field.toConfig()
 
       expect(config.nullable).toBe(true)
@@ -304,7 +305,7 @@ describe('Field Builders', () => {
 
   describe('Field Builder Behavior', () => {
     test('field builders mutate and return same instance for performance', () => {
-      const builder = orm.string()
+      const builder = f.string()
       const modified = builder.maxLength(100).nullable()
 
       // Builder pattern mutates for performance - same instance returned
@@ -317,9 +318,9 @@ describe('Field Builders', () => {
     })
 
     test('entity definitions are immutable after build()', () => {
-      const User = orm.entity('users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('users', f => ({
+        name: f.string(),
+      })).build()
 
       // Entity definition is frozen
       expect(Object.isFrozen(User)).toBe(true)

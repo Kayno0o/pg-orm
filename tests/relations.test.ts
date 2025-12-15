@@ -1,5 +1,6 @@
 import type { InferEntity } from '../src/types'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { relation } from '../src'
 import { getTestSchema, orm, setupTestDatabase, teardownTestDatabase } from './setup'
 
 describe('Relations', () => {
@@ -41,20 +42,20 @@ describe('Relations', () => {
         )
       `
 
-      orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
       const posts = orm.repo(Post)
@@ -90,20 +91,20 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
 
@@ -124,20 +125,20 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
       const posts = orm.repo(Post)
@@ -166,16 +167,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const User = orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const PostWithAuthor = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).relations({
-        author: orm.belongsTo<typeof User>('test_users', 'authorId'),
-      }).build()
+      const PostWithAuthor = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).relations(r => ({
+        author: r.belongsTo<typeof User.schema>('test_users', 'authorId'),
+      })).build()
 
       const users = orm.repo(User)
       const posts = orm.repo(PostWithAuthor)
@@ -205,16 +206,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const User = orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const PostWithAuthor = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).relations({
-        author: orm.belongsTo<typeof User>('test_users', 'authorId'),
-      }).build()
+      const PostWithAuthor = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).relations(r => ({
+        author: r.belongsTo<typeof User.schema>('test_users', 'authorId'),
+      })).build()
 
       const users = orm.repo(User)
       const posts = orm.repo(PostWithAuthor)
@@ -242,16 +243,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_profiles (id SERIAL PRIMARY KEY, bio TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const Profile = orm.entity('test_profiles', {
-        bio: orm.string(),
-        userId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Profile = orm.entity('test_profiles', f => ({
+        bio: f.string(),
+        userId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithProfile = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
-      }).build()
+      const UserWithProfile = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        profile: r.hasOne<typeof Profile.schema>('test_profiles', 'userId'),
+      })).build()
 
       const users = orm.repo(UserWithProfile)
       const profiles = orm.repo(Profile)
@@ -281,16 +282,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_profiles (id SERIAL PRIMARY KEY, bio TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const Profile = orm.entity('test_profiles', {
-        bio: orm.string(),
-        userId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Profile = orm.entity('test_profiles', f => ({
+        bio: f.string(),
+        userId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithProfile = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
-      }).build()
+      const UserWithProfile = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        profile: r.hasOne<typeof Profile.schema>('test_profiles', 'userId'),
+      })).build()
 
       const users = orm.repo(UserWithProfile)
 
@@ -312,15 +313,15 @@ describe('Relations', () => {
       await db`CREATE TABLE test_tags (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_post_tags (post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (post_id, tag_id))`
 
-      const Tag = orm.entity('test_tags', {
-        name: orm.string(),
-      }).build()
+      const Tag = orm.entity('test_tags', f => ({
+        name: f.string(),
+      })).build()
 
-      const PostWithTags = orm.entity('test_posts', {
-        title: orm.string(),
-      }).relations({
-        tags: orm.manyToMany<typeof Tag>('test_tags', 'test_post_tags', 'postId', 'tagId'),
-      }).build()
+      const PostWithTags = orm.entity('test_posts', f => ({
+        title: f.string(),
+      })).relations(r => ({
+        tags: r.manyToMany<typeof Tag.schema>('test_tags', 'test_post_tags', 'postId', 'tagId'),
+      })).build()
 
       const posts = orm.repo(PostWithTags)
       const tags = orm.repo(Tag)
@@ -358,15 +359,15 @@ describe('Relations', () => {
       await db`CREATE TABLE test_tags (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_post_tags (post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (post_id, tag_id))`
 
-      const Tag = orm.entity('test_tags', {
-        name: orm.string(),
-      }).build()
+      const Tag = orm.entity('test_tags', f => ({
+        name: f.string(),
+      })).build()
 
-      const PostWithTags = orm.entity('test_posts', {
-        title: orm.string(),
-      }).relations({
-        tags: orm.manyToMany<typeof Tag>('test_tags', 'test_post_tags', 'postId', 'tagId'),
-      }).build()
+      const PostWithTags = orm.entity('test_posts', f => ({
+        title: f.string(),
+      })).relations(r => ({
+        tags: r.manyToMany<typeof Tag.schema>('test_tags', 'test_post_tags', 'postId', 'tagId'),
+      })).build()
 
       const posts = orm.repo(PostWithTags)
 
@@ -390,22 +391,22 @@ describe('Relations', () => {
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
       await db`CREATE TABLE test_profiles (id SERIAL PRIMARY KEY, bio TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const Post = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const Profile = orm.entity('test_profiles', {
-        bio: orm.string(),
-        userId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Profile = orm.entity('test_profiles', f => ({
+        bio: f.string(),
+        userId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithRelations = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
-        profile: orm.hasOne<typeof Profile>('test_profiles', 'userId'),
-      }).build()
+      const UserWithRelations = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_posts', 'authorId'),
+        profile: r.hasOne<typeof Profile.schema>('test_profiles', 'userId'),
+      })).build()
 
       const users = orm.repo(UserWithRelations)
       const posts = orm.repo(Post)
@@ -432,9 +433,9 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const User = orm.entity('test_users', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).build()
 
       const users = orm.repo(User)
       const user = await users.create({ name: 'Alice' })
@@ -450,11 +451,11 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const User = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany('non_existent_table', 'authorId'),
-      }).build()
+      const User = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany('non_existent_table', 'authorId'),
+      })).build()
 
       const users = orm.repo(User)
       const user = await users.create({ name: 'Alice' })
@@ -472,16 +473,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_users(id) ON DELETE CASCADE)`
 
-      const Post = orm.entity('test_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
       const posts = orm.repo(Post)
@@ -501,73 +502,73 @@ describe('Relations', () => {
   describe('Security', () => {
     test('should reject SQL injection in hasMany table name', () => {
       expect(() => {
-        orm.hasMany('posts; DROP TABLE users; --', 'userId')
+        relation.hasMany('posts; DROP TABLE users; --', 'userId')
       }).toThrow()
     })
 
     test('should reject SQL injection in hasMany foreign key', () => {
       expect(() => {
-        orm.hasMany('posts', 'userId; DELETE FROM posts; --')
+        relation.hasMany('posts', 'userId; DELETE FROM posts; --')
       }).toThrow()
     })
 
     test('should reject SQL injection in belongsTo table name', () => {
       expect(() => {
-        orm.belongsTo('users; DROP TABLE posts; --', 'authorId')
+        relation.belongsTo('users; DROP TABLE posts; --', 'authorId')
       }).toThrow()
     })
 
     test('should reject SQL injection in belongsTo foreign key', () => {
       expect(() => {
-        orm.belongsTo('users', 'authorId; DELETE FROM users; --')
+        relation.belongsTo('users', 'authorId; DELETE FROM users; --')
       }).toThrow()
     })
 
     test('should reject SQL injection in belongsTo owner key', () => {
       expect(() => {
-        orm.belongsTo('users', 'authorId').owner('id; DROP TABLE users; --')
+        relation.belongsTo('users', 'authorId').owner('id; DROP TABLE users; --')
       }).toThrow()
     })
 
     test('should reject SQL injection in manyToMany table name', () => {
       expect(() => {
-        orm.manyToMany('tags; DROP TABLE posts; --', 'post_tags', 'postId', 'tagId')
+        relation.manyToMany('tags; DROP TABLE posts; --', 'post_tags', 'postId', 'tagId')
       }).toThrow()
     })
 
     test('should reject SQL injection in manyToMany junction table', () => {
       expect(() => {
-        orm.manyToMany('tags', 'post_tags; DROP TABLE users; --', 'postId', 'tagId')
+        relation.manyToMany('tags', 'post_tags; DROP TABLE users; --', 'postId', 'tagId')
       }).toThrow()
     })
 
     test('should reject SQL injection in manyToMany throughForeignKey', () => {
       expect(() => {
-        orm.manyToMany('tags', 'post_tags', 'postId; DELETE FROM posts; --', 'tagId')
+        relation.manyToMany('tags', 'post_tags', 'postId; DELETE FROM posts; --', 'tagId')
       }).toThrow()
     })
 
     test('should reject SQL injection in manyToMany otherKey', () => {
       expect(() => {
-        orm.manyToMany('tags', 'post_tags', 'postId', 'tagId; DELETE FROM tags; --')
+        relation.manyToMany('tags', 'post_tags', 'postId', 'tagId; DELETE FROM tags; --')
       }).toThrow()
     })
 
     test('should reject SQL comment sequences in table names', () => {
       expect(() => {
-        orm.hasMany('posts /* comment */', 'userId')
+        relation.hasMany('posts /* comment */', 'userId')
       }).toThrow()
     })
 
     test('should reject table names with spaces', () => {
       expect(() => {
-        orm.hasMany('my table', 'userId')
+        relation.hasMany('my table', 'userId')
       }).toThrow()
     })
 
     test('should reject table names with hyphens', () => {
       expect(() => {
-        orm.hasMany('my-table', 'userId')
+        relation.hasMany('my-table', 'userId')
       }).toThrow()
     })
   })
@@ -582,11 +583,11 @@ describe('Relations', () => {
 
     test('should reject relation name that conflicts with field', () => {
       expect(() => {
-        orm.entity('test_validation_users', {
-          posts: orm.string(),
-        }).relations({
-          posts: orm.hasMany('test_validation_posts', 'userId'),
-        }).build()
+        orm.entity('test_validation_users', f => ({
+          posts: f.string(),
+        })).relations(r => ({
+          posts: r.hasMany('test_validation_posts', 'userId'),
+        })).build()
       }).toThrow('Relation name "posts" conflicts with existing field')
     })
 
@@ -595,16 +596,16 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_validation_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const _User = orm.entity('test_validation_users', {
-        name: orm.string(),
-      }).build()
+      const _User = orm.entity('test_validation_users', f => ({
+        name: f.string(),
+      })).build()
 
       expect(() => {
-        orm.entity('test_validation_posts', {
-          title: orm.string(),
-        }).relations({
-          author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
-        }).build()
+        orm.entity('test_validation_posts', f => ({
+          title: f.string(),
+        })).relations(r => ({
+          author: r.belongsTo<typeof _User.schema>('test_users', 'authorId'),
+        })).build()
       }).toThrow('Foreign key "authorId" not found in schema')
     })
 
@@ -613,17 +614,20 @@ describe('Relations', () => {
 
       await db`CREATE TABLE test_validation_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
 
-      const _User = orm.entity('test_validation_users', {
-        name: orm.string(),
-      }).build()
+      const _User = orm.entity('test_validation_users', f => ({
+        name: f.string(),
+      })).build()
 
       expect(() => {
-        orm.entity('test_validation_posts', {
-          title: orm.string(),
-          authorId: orm.foreignKey('test_validation_users'),
-        }).relations({
-          author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
-        }).build()
+        orm
+          .entity('test_validation_posts', f => ({
+            title: f.string(),
+            authorId: f.foreignKey('test_validation_users'),
+          }))
+          .relations(r => ({
+            author: r.belongsTo<typeof _User.schema>('test_users', 'authorId'),
+          }))
+          .build()
       }).not.toThrow()
     })
   })
@@ -643,16 +647,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_edge_users(id) ON DELETE CASCADE)`
 
-      const _Post = orm.entity('test_edge_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_edge_users').onDelete('CASCADE'),
-      }).build()
+      const _Post = orm.entity('test_edge_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_edge_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_edge_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof _Post>('test_edge_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_edge_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof _Post.schema>('test_edge_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
 
@@ -670,16 +674,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER)`
 
-      const _User = orm.entity('test_edge_users', {
-        name: orm.string(),
-      }).build()
+      const _User = orm.entity('test_edge_users', f => ({
+        name: f.string(),
+      })).build()
 
-      const Post = orm.entity('test_edge_posts', {
-        title: orm.string(),
-        authorId: orm.number().nullable(),
-      }).relations({
-        author: orm.belongsTo<typeof _User>('test_users', 'authorId'),
-      }).build()
+      const Post = orm.entity('test_edge_posts', f => ({
+        title: f.string(),
+        authorId: f.number().nullable(),
+      })).relations(r => ({
+        author: r.belongsTo<typeof _User.schema>('test_users', 'authorId'),
+      })).build()
 
       const posts = orm.repo(Post)
 
@@ -695,16 +699,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_profiles (id SERIAL PRIMARY KEY, bio TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES test_edge_users(id) ON DELETE CASCADE)`
 
-      const Profile = orm.entity('test_edge_profiles', {
-        bio: orm.string(),
-        userId: orm.foreignKey('test_edge_users').onDelete('CASCADE'),
-      }).build()
+      const Profile = orm.entity('test_edge_profiles', f => ({
+        bio: f.string(),
+        userId: f.foreignKey('test_edge_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithProfile = orm.entity('test_edge_users', {
-        name: orm.string(),
-      }).relations({
-        profile: orm.hasOne<typeof Profile>('test_edge_profiles', 'userId'),
-      }).build()
+      const UserWithProfile = orm.entity('test_edge_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        profile: r.hasOne<typeof Profile.schema>('test_edge_profiles', 'userId'),
+      })).build()
 
       const users = orm.repo(UserWithProfile)
       const profiles = orm.repo(Profile)
@@ -725,16 +729,16 @@ describe('Relations', () => {
       await db`CREATE TABLE test_edge_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`
       await db`CREATE TABLE test_edge_posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES test_edge_users(id) ON DELETE CASCADE)`
 
-      const Post = orm.entity('test_edge_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('test_edge_users').onDelete('CASCADE'),
-      }).build()
+      const Post = orm.entity('test_edge_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('test_edge_users').onDelete('CASCADE'),
+      })).build()
 
-      const UserWithPosts = orm.entity('test_edge_users', {
-        name: orm.string(),
-      }).relations({
-        posts: orm.hasMany<typeof Post>('test_edge_posts', 'authorId'),
-      }).build()
+      const UserWithPosts = orm.entity('test_edge_users', f => ({
+        name: f.string(),
+      })).relations(r => ({
+        posts: r.hasMany<typeof Post.schema>('test_edge_posts', 'authorId'),
+      })).build()
 
       const users = orm.repo(UserWithPosts)
       const posts = orm.repo(Post)

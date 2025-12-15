@@ -5,10 +5,10 @@ import { orm } from './setup'
 describe('Entity Builder', () => {
   describe('Entity Creation', () => {
     test('should create basic entity definition', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-        email: orm.string(),
-      }).build()
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+        email: f.string(),
+      })).build()
 
       expect(entity.tableName).toBe('users')
       expect(entity.schema.name).toBeDefined()
@@ -18,14 +18,14 @@ describe('Entity Builder', () => {
     })
 
     test('should handle multiple field types', () => {
-      const entity = orm.entity('posts', {
-        title: orm.string(),
-        content: orm.string(),
-        views: orm.number(),
-        published: orm.boolean(),
-        tags: orm.array('string'),
-        metadata: orm.jsonb(),
-      }).build()
+      const entity = orm.entity('posts', f => ({
+        title: f.string(),
+        content: f.string(),
+        views: f.number(),
+        published: f.boolean(),
+        tags: f.array('string'),
+        metadata: f.jsonb(),
+      })).build()
 
       expect(entity.schema.title.type).toBe('string')
       expect(entity.schema.views.type).toBe('number')
@@ -35,11 +35,11 @@ describe('Entity Builder', () => {
     })
 
     test('should preserve field constraints', () => {
-      const entity = orm.entity('users', {
-        name: orm.string().maxLength(100),
-        email: orm.string().unique(),
-        age: orm.number().nullable(),
-      }).build()
+      const entity = orm.entity('users', f => ({
+        name: f.string().maxLength(100),
+        email: f.string().unique(),
+        age: f.number().nullable(),
+      })).build()
 
       expect(entity.schema.name.maxLength).toBe(100)
       expect(entity.schema.email.unique).toBe(true)
@@ -49,9 +49,9 @@ describe('Entity Builder', () => {
 
   describe('Lifecycle Hooks', () => {
     test('should register beforeCreate hook', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .beforeCreate((data) => {
           data.name = data.name!.toUpperCase()
         })
@@ -61,9 +61,9 @@ describe('Entity Builder', () => {
     })
 
     test('should register multiple hooks of same type', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .beforeCreate((data) => {
           data.name = data.name!.trim()
         })
@@ -76,9 +76,9 @@ describe('Entity Builder', () => {
     })
 
     test('should register all hook types', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .beforeCreate(() => { /* empty */ })
         .afterCreate(() => { /* empty */ })
         .beforeUpdate(() => { /* empty */ })
@@ -98,9 +98,9 @@ describe('Entity Builder', () => {
 
   describe('Traits', () => {
     test('should apply timestamps trait', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .use(timestamps())
         .build()
 
@@ -113,16 +113,16 @@ describe('Entity Builder', () => {
 
     test('should apply multiple traits', () => {
       const trait1 = orm.trait()
-        .field('field1', orm.string())
+        .fields(f => ({ field1: f.string() }))
         .build()
 
       const trait2 = orm.trait()
-        .field('field2', orm.number())
+        .fields(f => ({ field2: f.number() }))
         .build()
 
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .use(trait1)
         .use(trait2)
         .build()
@@ -135,13 +135,15 @@ describe('Entity Builder', () => {
 
     test('should merge trait fields into schema', () => {
       const customTrait = orm.trait()
-        .field('customField', orm.string())
-        .field('customNumber', orm.number().default(0))
+        .fields(f => ({
+          customField: f.string(),
+          customNumber: f.number().default(0),
+        }))
         .build()
 
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      }))
         .use(customTrait)
         .build()
 
@@ -153,9 +155,9 @@ describe('Entity Builder', () => {
 
   describe('Unique Constraints', () => {
     test('should set single column unique constraint', () => {
-      const entity = orm.entity('users', {
-        email: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        email: f.string(),
+      }))
         .unique(['email'])
         .build()
 
@@ -163,10 +165,10 @@ describe('Entity Builder', () => {
     })
 
     test('should set multi-column unique constraint', () => {
-      const entity = orm.entity('users', {
-        firstName: orm.string(),
-        lastName: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        firstName: f.string(),
+        lastName: f.string(),
+      }))
         .unique(['firstName', 'lastName'])
         .build()
 
@@ -174,10 +176,10 @@ describe('Entity Builder', () => {
     })
 
     test('should set multiple unique constraints', () => {
-      const entity = orm.entity('users', {
-        email: orm.string(),
-        username: orm.string(),
-      })
+      const entity = orm.entity('users', f => ({
+        email: f.string(),
+        username: f.string(),
+      }))
         .unique(['email'])
         .unique(['username'])
         .build()
@@ -189,9 +191,9 @@ describe('Entity Builder', () => {
 
   describe('Builder Immutability', () => {
     test('should not mutate original builder when adding hooks', () => {
-      const builder1 = orm.entity('users', {
-        name: orm.string(),
-      })
+      const builder1 = orm.entity('users', f => ({
+        name: f.string(),
+      }))
 
       const builder2 = builder1.beforeCreate(() => { /* empty */ })
 
@@ -203,9 +205,9 @@ describe('Entity Builder', () => {
     })
 
     test('should not mutate original builder when adding traits', () => {
-      const builder1 = orm.entity('users', {
-        name: orm.string(),
-      })
+      const builder1 = orm.entity('users', f => ({
+        name: f.string(),
+      }))
 
       const builder2 = builder1.use(timestamps())
 
@@ -219,9 +221,9 @@ describe('Entity Builder', () => {
 
   describe('Build and Freeze', () => {
     test('should freeze entity definition after build', () => {
-      const entity = orm.entity('users', {
-        name: orm.string(),
-      }).build()
+      const entity = orm.entity('users', f => ({
+        name: f.string(),
+      })).build()
 
       // TypeScript should prevent this, but test at runtime too
       expect(() => {
@@ -230,9 +232,9 @@ describe('Entity Builder', () => {
     })
 
     test('should allow building multiple times from same builder', () => {
-      const builder = orm.entity('users', {
-        name: orm.string(),
-      })
+      const builder = orm.entity('users', f => ({
+        name: f.string(),
+      }))
 
       const entity1 = builder.build()
       const entity2 = builder.build()
@@ -246,15 +248,15 @@ describe('Entity Builder', () => {
 
   describe('Complex Entity Example', () => {
     test('should handle complex entity with all features', () => {
-      const entity = orm.entity('users', {
-        name: orm.string().maxLength(100),
-        email: orm.string().unique(),
-        age: orm.number().nullable(),
-        role: orm.enum(['admin', 'user', 'moderator'] as const),
-        isActive: orm.boolean().default(true),
-        metadata: orm.jsonb().nullable(),
-        tags: orm.array('string'),
-      })
+      const entity = orm.entity('users', f => ({
+        name: f.string().maxLength(100),
+        email: f.string().unique(),
+        age: f.number().nullable(),
+        role: f.enum(['admin', 'user', 'moderator'] as const),
+        isActive: f.boolean().default(true),
+        metadata: f.jsonb().nullable(),
+        tags: f.array('string'),
+      }))
         .use(timestamps())
         .unique(['email'])
         .beforeCreate((data) => {

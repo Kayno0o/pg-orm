@@ -16,10 +16,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute before entity creation', async () => {
       let hookCalled = false
 
-      const User = orm.entity('test_before_create', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_create', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeCreate((data) => {
           hookCalled = true
           expect(data.name).toBe('Test User')
@@ -35,10 +35,10 @@ describe('Lifecycle Hooks', () => {
     })
 
     test('should allow modifying data in beforeCreate', async () => {
-      const User = orm.entity('test_before_create_modify', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_create_modify', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeCreate((data) => {
           data.email = data.email!.toLowerCase()
           data.name = data.name!.trim()
@@ -60,10 +60,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute multiple beforeCreate hooks in order', async () => {
       const callOrder: number[] = []
 
-      const User = orm.entity('test_multiple_before_create', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_multiple_before_create', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeCreate(() => { callOrder.push(1) })
         .beforeCreate(() => { callOrder.push(2) })
         .beforeCreate(() => { callOrder.push(3) })
@@ -83,10 +83,10 @@ describe('Lifecycle Hooks', () => {
       let hookCalled = false
       let createdId: number | undefined
 
-      const User = orm.entity('test_after_create', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_after_create', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .afterCreate((entity) => {
           hookCalled = true
           createdId = entity.id
@@ -107,10 +107,10 @@ describe('Lifecycle Hooks', () => {
     test('should handle async afterCreate hook', async () => {
       let asyncTaskCompleted = false
 
-      const User = orm.entity('test_after_create_async', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_after_create_async', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .afterCreate(async () => {
           await new Promise(resolve => setTimeout(resolve, 10))
           asyncTaskCompleted = true
@@ -130,10 +130,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute before entity update', async () => {
       let hookCalled = false
 
-      const User = orm.entity('test_before_update', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_update', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeUpdate((id, data) => {
           hookCalled = true
           expect(id).toBeGreaterThan(0)
@@ -151,10 +151,10 @@ describe('Lifecycle Hooks', () => {
     })
 
     test('should allow modifying update data', async () => {
-      const User = orm.entity('test_before_update_modify', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_update_modify', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeUpdate((_id, data) => {
           data.email &&= data.email.toLowerCase()
         })
@@ -175,10 +175,10 @@ describe('Lifecycle Hooks', () => {
       let hookCalled = false
       let updatedEntity: any = null
 
-      const User = orm.entity('test_after_update', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_after_update', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .afterUpdate((entity) => {
           hookCalled = true
           updatedEntity = entity
@@ -203,10 +203,10 @@ describe('Lifecycle Hooks', () => {
       let hookCalled = false
       let deletedId: number | undefined
 
-      const User = orm.entity('test_before_delete', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_delete', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeDelete((id) => {
           hookCalled = true
           deletedId = id
@@ -226,10 +226,10 @@ describe('Lifecycle Hooks', () => {
     test('should handle async beforeDelete hook', async () => {
       let cleanupCompleted = false
 
-      const User = orm.entity('test_before_delete_async', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_before_delete_async', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeDelete(async () => {
           await new Promise(resolve => setTimeout(resolve, 10))
           cleanupCompleted = true
@@ -251,10 +251,10 @@ describe('Lifecycle Hooks', () => {
       let hookCalled = false
       let deletedId: number | undefined
 
-      const User = orm.entity('test_after_delete', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_after_delete', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .afterDelete((id) => {
           hookCalled = true
           deletedId = id
@@ -282,10 +282,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute hooks in correct order for create', async () => {
       const executionOrder: string[] = []
 
-      const User = orm.entity('test_hook_order_create', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_hook_order_create', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeCreate(() => { executionOrder.push('beforeCreate1') })
         .beforeCreate(() => { executionOrder.push('beforeCreate2') })
         .afterCreate(() => { executionOrder.push('afterCreate1') })
@@ -308,10 +308,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute hooks in correct order for update', async () => {
       const executionOrder: string[] = []
 
-      const User = orm.entity('test_hook_order_update', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_hook_order_update', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeUpdate(() => { executionOrder.push('beforeUpdate1') })
         .beforeUpdate(() => { executionOrder.push('beforeUpdate2') })
         .afterUpdate(() => { executionOrder.push('afterUpdate1') })
@@ -335,10 +335,10 @@ describe('Lifecycle Hooks', () => {
     test('should execute hooks in correct order for delete', async () => {
       const executionOrder: string[] = []
 
-      const User = orm.entity('test_hook_order_delete', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_hook_order_delete', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeDelete(() => { executionOrder.push('beforeDelete1') })
         .beforeDelete(() => { executionOrder.push('beforeDelete2') })
         .afterDelete(() => { executionOrder.push('afterDelete1') })
@@ -364,10 +364,10 @@ describe('Lifecycle Hooks', () => {
     test('should handle all hooks together', async () => {
       const events: string[] = []
 
-      const User = orm.entity('test_all_hooks', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_all_hooks', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .beforeCreate(() => { events.push('beforeCreate') })
         .afterCreate(() => { events.push('afterCreate') })
         .beforeUpdate(() => { events.push('beforeUpdate') })

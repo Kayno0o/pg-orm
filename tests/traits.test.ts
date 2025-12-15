@@ -15,9 +15,9 @@ describe('Trait System', () => {
 
   describe('Timestamps Trait', () => {
     test('should add createdAt and updatedAt fields', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+      }))
         .use(timestamps())
         .build()
 
@@ -28,10 +28,10 @@ describe('Trait System', () => {
     })
 
     test('should set timestamps on entity creation', async () => {
-      const User = orm.entity('test_timestamps', {
-        name: orm.string(),
-        email: orm.string(),
-      })
+      const User = orm.entity('test_timestamps', f => ({
+        name: f.string(),
+        email: f.string(),
+      }))
         .use(timestamps())
         .build()
 
@@ -52,9 +52,9 @@ describe('Trait System', () => {
 
   describe('Soft Delete Trait', () => {
     test('should add deletedAt field and methods', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-      })
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+      }))
         .use(softDelete())
         .build()
 
@@ -64,10 +64,10 @@ describe('Trait System', () => {
     })
 
     test('should provide soft delete methods', async () => {
-      const Post = orm.entity('test_soft_delete', {
-        title: orm.string(),
-        content: orm.string(),
-      })
+      const Post = orm.entity('test_soft_delete', f => ({
+        title: f.string(),
+        content: f.string(),
+      }))
         .use(softDelete())
         .build()
 
@@ -93,9 +93,9 @@ describe('Trait System', () => {
 
   describe('Publishable Trait', () => {
     test('should add published fields and methods', () => {
-      const entity = orm.entity('test', {
-        title: orm.string(),
-      })
+      const entity = orm.entity('test', f => ({
+        title: f.string(),
+      }))
         .use(publishable())
         .build()
 
@@ -106,10 +106,10 @@ describe('Trait System', () => {
     })
 
     test('should provide publish/unpublish methods', async () => {
-      const Article = orm.entity('test_publishable', {
-        title: orm.string(),
-        content: orm.string(),
-      })
+      const Article = orm.entity('test_publishable', f => ({
+        title: f.string(),
+        content: f.string(),
+      }))
         .use(publishable())
         .build()
 
@@ -140,8 +140,10 @@ describe('Trait System', () => {
   describe('Custom Traits', () => {
     test('should create custom trait with fields', () => {
       const customTrait = orm.trait()
-        .field('customField', orm.string())
-        .field('customNumber', orm.number().default(0))
+        .fields(f => ({
+          customField: f.string(),
+          customNumber: f.number().default(0),
+        }))
         .build()
 
       expect(customTrait.fields.customField).toBeDefined()
@@ -150,7 +152,7 @@ describe('Trait System', () => {
 
     test('should create custom trait with methods', () => {
       const customTrait = orm.trait()
-        .field('likesCount', orm.number().default(0))
+        .fields(f => ({ likesCount: f.number().default(0) }))
         .method('like', async function (repo) {
           return repo.update(this.id, { likesCount: this.likesCount + 1 })
         })
@@ -165,16 +167,16 @@ describe('Trait System', () => {
 
     test('should use custom trait in entity', async () => {
       const likeable = orm.trait()
-        .field('likesCount', orm.number().integer().default(0))
+        .fields(f => ({ likesCount: f.number().integer().default(0) }))
         .method('like', async function (repo) {
           return repo.update(this.id, { likesCount: this.likesCount + 1 })
         })
         .build()
 
-      const Post = orm.entity('test_custom_trait', {
-        title: orm.string(),
-        content: orm.string(),
-      })
+      const Post = orm.entity('test_custom_trait', f => ({
+        title: f.string(),
+        content: f.string(),
+      }))
         .use(likeable)
         .build()
 
@@ -195,10 +197,10 @@ describe('Trait System', () => {
 
   describe('Multiple Traits', () => {
     test('should combine multiple traits', async () => {
-      const Post = orm.entity('test_multi_trait', {
-        title: orm.string(),
-        content: orm.string(),
-      })
+      const Post = orm.entity('test_multi_trait', f => ({
+        title: f.string(),
+        content: f.string(),
+      }))
         .use(timestamps())
         .use(publishable())
         .use(softDelete())
@@ -234,7 +236,7 @@ describe('Trait System', () => {
   describe('Trait Method Context', () => {
     test('should bind this to entity instance', async () => {
       const counterTrait = orm.trait()
-        .field('count', orm.number().default(0))
+        .fields(f => ({ count: f.number().default(0) }))
         .method('increment', async function (repo) {
           // 'this' should be the entity instance
           expect(this.id).toBeGreaterThan(0)
@@ -244,9 +246,9 @@ describe('Trait System', () => {
         })
         .build()
 
-      const Item = orm.entity('test_trait_context', {
-        name: orm.string(),
-      })
+      const Item = orm.entity('test_trait_context', f => ({
+        name: f.string(),
+      }))
         .use(counterTrait)
         .build()
 
@@ -261,7 +263,7 @@ describe('Trait System', () => {
 
     test('should provide repository access in methods', async () => {
       const testTrait = orm.trait()
-        .field('value', orm.number().default(0))
+        .fields(f => ({ value: f.number().default(0) }))
         .method('doubleValue', async function (repo) {
           // repo should have all repository methods
           const current = await repo.find(this.id)
@@ -272,9 +274,9 @@ describe('Trait System', () => {
         })
         .build()
 
-      const Item = orm.entity('test_repo_access', {
-        name: orm.string(),
-      })
+      const Item = orm.entity('test_repo_access', f => ({
+        name: f.string(),
+      }))
         .use(testTrait)
         .build()
 
@@ -293,16 +295,16 @@ describe('Trait System', () => {
       const hookCalls: string[] = []
 
       const customTrait = orm.trait()
-        .field('value', orm.number().default(0))
+        .fields(f => ({ value: f.number().default(0) }))
         .beforeCreate((data: any) => {
           hookCalls.push('trait-beforeCreate')
           data.value = (data.value || 0) + 10
         })
         .build()
 
-      const Entity = orm.entity('test_trait_hooks', {
-        name: orm.string(),
-      })
+      const Entity = orm.entity('test_trait_hooks', f => ({
+        name: f.string(),
+      }))
         .use(customTrait)
         .beforeCreate((data: any) => {
           hookCalls.push('entity-beforeCreate')
@@ -325,7 +327,7 @@ describe('Trait System', () => {
       const hookCalls: string[] = []
 
       const customTrait = orm.trait()
-        .field('value', orm.number().default(0))
+        .fields(f => ({ value: f.number().default(0) }))
         .beforeUpdate((_id: number, data: any) => {
           hookCalls.push('trait-beforeUpdate')
 
@@ -335,9 +337,9 @@ describe('Trait System', () => {
         })
         .build()
 
-      const Entity = orm.entity('test_trait_update_hooks', {
-        name: orm.string(),
-      })
+      const Entity = orm.entity('test_trait_update_hooks', f => ({
+        name: f.string(),
+      }))
         .use(customTrait)
         .beforeUpdate((_id: number, data: any) => {
           hookCalls.push('entity-beforeUpdate')
@@ -367,7 +369,7 @@ describe('Trait System', () => {
       const hookCalls: string[] = []
 
       const trait1 = orm.trait()
-        .field('value1', orm.number().default(0))
+        .fields(f => ({ value1: f.number().default(0) }))
         .beforeCreate((data: any) => {
           hookCalls.push('trait1-beforeCreate')
           data.value1 = 10
@@ -375,16 +377,16 @@ describe('Trait System', () => {
         .build()
 
       const trait2 = orm.trait()
-        .field('value2', orm.number().default(0))
+        .fields(f => ({ value2: f.number().default(0) }))
         .beforeCreate((data: any) => {
           hookCalls.push('trait2-beforeCreate')
           data.value2 = 20
         })
         .build()
 
-      const Entity = orm.entity('test_multi_trait_hooks', {
-        name: orm.string(),
-      })
+      const Entity = orm.entity('test_multi_trait_hooks', f => ({
+        name: f.string(),
+      }))
         .use(trait1)
         .use(trait2)
         .beforeCreate((data: any) => {
@@ -406,9 +408,9 @@ describe('Trait System', () => {
     })
 
     test('timestamps trait should use hooks', async () => {
-      const Entity = orm.entity('test_timestamps_hooks', {
-        name: orm.string(),
-      })
+      const Entity = orm.entity('test_timestamps_hooks', f => ({
+        name: f.string(),
+      }))
         .use(timestamps())
         .build()
 
@@ -444,7 +446,7 @@ describe('Trait System', () => {
       const hookCalls: string[] = []
 
       const trackedTrait = orm.trait()
-        .field('trackingData', orm.string().nullable())
+        .fields(f => ({ trackingData: f.string().nullable() }))
         .beforeCreate(() => {
           hookCalls.push('beforeCreate')
         })
@@ -465,9 +467,9 @@ describe('Trait System', () => {
         })
         .build()
 
-      const Entity = orm.entity('test_all_hooks', {
-        name: orm.string(),
-      })
+      const Entity = orm.entity('test_all_hooks', f => ({
+        name: f.string(),
+      }))
         .use(trackedTrait)
         .build()
 

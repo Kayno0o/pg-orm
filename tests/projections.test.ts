@@ -7,12 +7,12 @@ describe('Projections/Select', () => {
   const orm = new ORM()
 
   const User = orm
-    .entity('projection_users', {
-      name: orm.string(),
-      email: orm.string(),
-      age: orm.number(),
-      role: orm.enum(['admin', 'user'] as const),
-    })
+    .entity('projection_users', f => ({
+      name: f.string(),
+      email: f.string(),
+      age: f.number(),
+      role: f.enum(['admin', 'user'] as const),
+    }))
     .build()
 
   beforeAll(async () => {

@@ -5,20 +5,20 @@ import { ORM } from '../src'
 
 // Shared entity definition (reused across tenants)
 function createUserEntity(orm: ORM) {
-  return orm.entity('users', {
-    name: orm.string(),
-    email: orm.string().unique(),
-    plan: orm.enum(['free', 'pro', 'enterprise']).default('free'),
-  }).build()
+  return orm.entity('users', f => ({
+    name: f.string(),
+    email: f.string().unique(),
+    plan: f.enum(['free', 'pro', 'enterprise']).default('free'),
+  })).build()
 }
 
 function createPostEntity(orm: ORM) {
-  return orm.entity('posts', {
-    title: orm.string(),
-    content: orm.string(),
-    authorId: orm.foreignKey('users').onDelete('CASCADE'),
-    published: orm.boolean().default(false),
-  }).build()
+  return orm.entity('posts', f => ({
+    title: f.string(),
+    content: f.string(),
+    authorId: f.foreignKey('users').onDelete('CASCADE'),
+    published: f.boolean().default(false),
+  })).build()
 }
 
 // eslint-disable-next-line max-lines-per-function

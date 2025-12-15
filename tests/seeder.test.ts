@@ -106,10 +106,10 @@ export default {
   })
 
   test('should handle seeders with db access', async () => {
-    const User = orm.entity('seeder_test_users', {
-      name: orm.string(),
-      email: orm.string(),
-    }).build()
+    const User = orm.entity('seeder_test_users', f => ({
+      name: f.string(),
+      email: f.string(),
+    })).build()
 
     const users = orm.repo(User)
 

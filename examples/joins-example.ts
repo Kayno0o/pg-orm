@@ -3,22 +3,22 @@ import { ORM } from '../src'
 const orm = new ORM()
 
 // Define entities with unique table names to avoid conflicts
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+})).build()
 
-const Post = orm.entity('posts', {
-  title: orm.string(),
-  content: orm.string(),
-  userId: orm.foreignKey('users').onDelete('CASCADE'),
-}).build()
+const Post = orm.entity('posts', f => ({
+  title: f.string(),
+  content: f.string(),
+  userId: f.foreignKey('users').onDelete('CASCADE'),
+})).build()
 
-const Comment = orm.entity('comments', {
-  content: orm.string(),
-  postId: orm.foreignKey('posts').onDelete('CASCADE'),
-  userId: orm.foreignKey('users').onDelete('CASCADE'),
-}).build()
+const Comment = orm.entity('comments', f => ({
+  content: f.string(),
+  postId: f.foreignKey('posts').onDelete('CASCADE'),
+  userId: f.foreignKey('users').onDelete('CASCADE'),
+})).build()
 
 // eslint-disable-next-line max-lines-per-function
 async function demonstrateJoins() {

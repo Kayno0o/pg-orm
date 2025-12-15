@@ -3,12 +3,12 @@ import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, 
 
 describe('Aggregations', () => {
   const User = orm
-    .entity('aggregation_users', {
-      name: orm.string(),
-      age: orm.number(),
-      role: orm.enum(['admin', 'user'] as const),
-      salary: orm.number(),
-    })
+    .entity('aggregation_users', f => ({
+      name: f.string(),
+      age: f.number(),
+      role: f.enum(['admin', 'user'] as const),
+      salary: f.number(),
+    }))
     .build()
 
   beforeAll(async () => {

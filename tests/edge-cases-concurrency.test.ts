@@ -5,10 +5,10 @@ setupGlobalTestHooks()
 
 describe('Edge Cases - Concurrency', () => {
   test('should handle concurrent reads', async () => {
-    const User = orm.entity('concurrency_users', {
-      name: orm.string(),
-      email: orm.string(),
-    }).build()
+    const User = orm.entity('concurrency_users', f => ({
+      name: f.string(),
+      email: f.string(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -36,10 +36,10 @@ describe('Edge Cases - Concurrency', () => {
   })
 
   test('should handle concurrent writes to different rows', async () => {
-    const User = orm.entity('concurrent_writes', {
-      name: orm.string(),
-      counter: orm.number(),
-    }).build()
+    const User = orm.entity('concurrent_writes', f => ({
+      name: f.string(),
+      counter: f.number(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -66,10 +66,10 @@ describe('Edge Cases - Concurrency', () => {
   })
 
   test('should handle concurrent transaction commits', async () => {
-    const User = orm.entity('transaction_concurrency', {
-      name: orm.string(),
-      balance: orm.number(),
-    }).build()
+    const User = orm.entity('transaction_concurrency', f => ({
+      name: f.string(),
+      balance: f.number(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -105,10 +105,10 @@ describe('Edge Cases - Concurrency', () => {
   })
 
   test('should handle concurrent query builder operations', async () => {
-    const User = orm.entity('query_concurrency', {
-      name: orm.string(),
-      age: orm.number(),
-    }).build()
+    const User = orm.entity('query_concurrency', f => ({
+      name: f.string(),
+      age: f.number(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -146,10 +146,10 @@ describe('Edge Cases - Concurrency', () => {
   })
 
   test('should handle concurrent bulk operations', async () => {
-    const User = orm.entity('bulk_concurrency', {
-      name: orm.string(),
-      active: orm.boolean(),
-    }).build()
+    const User = orm.entity('bulk_concurrency', f => ({
+      name: f.string(),
+      active: f.boolean(),
+    })).build()
 
     const users = orm.repo(User)
 

@@ -3,9 +3,9 @@ import { orm } from './setup'
 
 describe('Edge Cases - Validation Limits', () => {
   test('should enforce string length limits', async () => {
-    const User = orm.entity('users', {
-      name: orm.string().maxLength(10),
-    }).build()
+    const User = orm.entity('users', f => ({
+      name: f.string().maxLength(10),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -24,9 +24,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should enforce array size limits', async () => {
-    const User = orm.entity('users', {
-      tags: orm.array('string'),
-    }).build()
+    const User = orm.entity('users', f => ({
+      tags: f.array('string'),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -42,9 +42,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should enforce JSON depth limits', async () => {
-    const User = orm.entity('users', {
-      metadata: orm.jsonb<any>(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      metadata: f.jsonb<any>(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -63,9 +63,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should enforce JSON size limits', async () => {
-    const User = orm.entity('users', {
-      metadata: orm.jsonb<any>(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      metadata: f.jsonb<any>(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -81,9 +81,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should validate enum values', async () => {
-    const User = orm.entity('users', {
-      role: orm.enum(['admin', 'user', 'moderator']),
-    }).build()
+    const User = orm.entity('users', f => ({
+      role: f.enum(['admin', 'user', 'moderator']),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -102,9 +102,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should validate min/max for numbers', async () => {
-    const User = orm.entity('users', {
-      age: orm.number().min(0).max(120),
-    }).build()
+    const User = orm.entity('users', f => ({
+      age: f.number().min(0).max(120),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -129,9 +129,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should validate string min/max length', async () => {
-    const User = orm.entity('users', {
-      username: orm.string().minLength(3).maxLength(20),
-    }).build()
+    const User = orm.entity('users', f => ({
+      username: f.string().minLength(3).maxLength(20),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -156,10 +156,10 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should handle nullable fields correctly', async () => {
-    const User = orm.entity('users', {
-      name: orm.string(),
-      bio: orm.string().nullable(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      name: f.string(),
+      bio: f.string().nullable(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -184,9 +184,9 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should handle empty arrays', async () => {
-    const User = orm.entity('users', {
-      tags: orm.array('string'),
-    }).build()
+    const User = orm.entity('users', f => ({
+      tags: f.array('string'),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -199,10 +199,10 @@ describe('Edge Cases - Validation Limits', () => {
   })
 
   test('should handle empty strings when allowed', async () => {
-    const User = orm.entity('users', {
-      name: orm.string(),
-      bio: orm.string().minLength(0),
-    }).build()
+    const User = orm.entity('users', f => ({
+      name: f.string(),
+      bio: f.string().minLength(0),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -217,10 +217,10 @@ describe('Edge Cases - Validation Limits', () => {
 
 describe('Edge Cases - Special Characters', () => {
   test('should handle SQL-like strings safely', async () => {
-    const User = orm.entity('users', {
-      name: orm.string(),
-      bio: orm.string().nullable(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      name: f.string(),
+      bio: f.string().nullable(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -245,9 +245,9 @@ describe('Edge Cases - Special Characters', () => {
   })
 
   test('should handle unicode characters', async () => {
-    const User = orm.entity('users', {
-      name: orm.string(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      name: f.string(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -273,9 +273,9 @@ describe('Edge Cases - Special Characters', () => {
   })
 
   test('should handle special JSON characters', async () => {
-    const User = orm.entity('users', {
-      metadata: orm.jsonb<any>(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      metadata: f.jsonb<any>(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -303,9 +303,9 @@ describe('Edge Cases - Special Characters', () => {
 
 describe('Edge Cases - Boundary Values', () => {
   test('should handle integer boundaries', async () => {
-    const User = orm.entity('users', {
-      count: orm.number().integer(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      count: f.number().integer(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -331,9 +331,9 @@ describe('Edge Cases - Boundary Values', () => {
   })
 
   test('should handle floating point precision', async () => {
-    const User = orm.entity('users', {
-      price: orm.number(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      price: f.number(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -360,11 +360,11 @@ describe('Edge Cases - Boundary Values', () => {
   })
 
   test('should handle zero values', async () => {
-    const User = orm.entity('users', {
-      count: orm.number(),
-      price: orm.number(),
-      age: orm.number().min(0),
-    }).build()
+    const User = orm.entity('users', f => ({
+      count: f.number(),
+      price: f.number(),
+      age: f.number().min(0),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -377,9 +377,9 @@ describe('Edge Cases - Boundary Values', () => {
   })
 
   test('should handle negative numbers when allowed', async () => {
-    const User = orm.entity('users', {
-      balance: orm.number(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      balance: f.number(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -394,9 +394,9 @@ describe('Edge Cases - Boundary Values', () => {
 
 describe('Edge Cases - Array Edge Cases', () => {
   test('should handle arrays with null/undefined elements', async () => {
-    const User = orm.entity('users', {
-      tags: orm.array('string'),
-    }).build()
+    const User = orm.entity('users', f => ({
+      tags: f.array('string'),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -409,9 +409,9 @@ describe('Edge Cases - Array Edge Cases', () => {
   })
 
   test('should handle large arrays within limit', async () => {
-    const User = orm.entity('users', {
-      numbers: orm.array('number'),
-    }).build()
+    const User = orm.entity('users', f => ({
+      numbers: f.array('number'),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -426,9 +426,9 @@ describe('Edge Cases - Array Edge Cases', () => {
   })
 
   test('should handle arrays with special characters', async () => {
-    const User = orm.entity('users', {
-      tags: orm.array('string'),
-    }).build()
+    const User = orm.entity('users', f => ({
+      tags: f.array('string'),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator
@@ -443,10 +443,10 @@ describe('Edge Cases - Array Edge Cases', () => {
 
 describe('Edge Cases - Type Coercion', () => {
   test('should not coerce types automatically', async () => {
-    const User = orm.entity('users', {
-      age: orm.number(),
-      active: orm.boolean(),
-    }).build()
+    const User = orm.entity('users', f => ({
+      age: f.number(),
+      active: f.boolean(),
+    })).build()
 
     const repo = orm.repo(User)
     const schemaValidator = (repo as any).schemaValidator

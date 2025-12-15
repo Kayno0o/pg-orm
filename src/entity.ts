@@ -14,6 +14,7 @@ import type {
   ScopeDefinition,
   TraitDefinition,
 } from './types'
+import { relation } from './relations/builders'
 import { validateSQLIdentifier } from './sql-utils'
 
 /**
@@ -187,16 +188,18 @@ export class EntityBuilder<
 
   /**
    * Defines relations for the entity.
-   * @param relationDefs - Object mapping relation names to relation builders.
+   * @param relationsCallback - A callback that receives relation builders and returns relation definitions.
    */
   relations<R extends Record<string, { toConfig: () => RelationConfig<any, any> }>>(
-    relationDefs: R,
+    relationsCallback: (relationBuilder: typeof import('./relations/builders').relation) => R,
   ): EntityBuilder<
     T,
     TTraits,
     TScopes,
     TRelations & { [K in keyof R]: ReturnType<R[K]['toConfig']> }
   > {
+    // Import relation factory dynamically to avoid circular dependency
+    const relationDefs = relationsCallback(relation)
     const relationConfigs: any = {}
 
     for (const [key, builder] of Object.entries(relationDefs)) {

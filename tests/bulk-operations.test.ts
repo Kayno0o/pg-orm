@@ -2,17 +2,17 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTestTable, createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, teardownTestDatabase } from './setup'
 
 // Define entities at module level for auto-migration
-const User = orm.entity('test_bulk_users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  role: orm.enum(['admin', 'user'] as const).default('user'),
-}).build()
+const User = orm.entity('test_bulk_users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  role: f.enum(['admin', 'user'] as const).default('user'),
+})).build()
 
-const Product = orm.entity('test_bulk_products', {
-  name: orm.string(),
-  email: orm.string(),
-  slug: orm.string(),
-})
+const Product = orm.entity('test_bulk_products', f => ({
+  name: f.string(),
+  email: f.string(),
+  slug: f.string(),
+}))
   .beforeCreate((data) => {
     data.email = data.email.toLowerCase()
   })
@@ -21,22 +21,22 @@ const Product = orm.entity('test_bulk_products', {
   })
   .build()
 
-const Article = orm.entity('test_bulk_articles', {
-  title: orm.string().minLength(5),
-  content: orm.string().minLength(10),
-  views: orm.number().min(0).default(0),
-}).build()
+const Article = orm.entity('test_bulk_articles', f => ({
+  title: f.string().minLength(5),
+  content: f.string().minLength(10),
+  views: f.number().min(0).default(0),
+})).build()
 
-const Tag = orm.entity('test_bulk_tags', {
-  name: orm.string(),
-  category: orm.string(),
-}).build()
+const Tag = orm.entity('test_bulk_tags', f => ({
+  name: f.string(),
+  category: f.string(),
+})).build()
 
-const Benchmark = orm.entity('test_bulk_benchmark', {
-  name: orm.string(),
-  value: orm.number(),
-  timestamp: orm.timestamp().default('NOW()'),
-}).build()
+const Benchmark = orm.entity('test_bulk_benchmark', f => ({
+  name: f.string(),
+  value: f.number(),
+  timestamp: f.timestamp().default('NOW()'),
+})).build()
 
 describe('Bulk Operations', () => {
   const schema = getTestSchema()

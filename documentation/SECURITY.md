@@ -44,8 +44,8 @@ All table and column names go through strict validation to prevent SQL injection
 
 ```typescript
 // ✅ Valid identifiers
-orm.entity('users', { ... })
-orm.entity('user_profiles', { ... })
+orm.entity('users', f => ( ... })
+orm.entity('user_profiles', f => ( ... })
 field.column('email_address')
 
 // ❌ Invalid identifiers (throws InvalidIdentifierError)
@@ -97,9 +97,9 @@ await orm.connect({
   }
 })
 
-const User = orm.entity('users', {
-  tags: orm.array('string')
-}).build()
+const User = orm.entity('users', f => ({
+  tags: f.array('string')
+})).build()
 
 // ❌ Validation fails if array exceeds limit
 await users.create({
@@ -121,9 +121,9 @@ await orm.connect({
   }
 })
 
-const User = orm.entity('users', {
-  bio: orm.string() // No maxLength specified
-}).build()
+const User = orm.entity('users', f => ({
+  bio: f.string() // No maxLength specified
+})).build()
 
 // ❌ Validation fails
 await users.create({
@@ -137,11 +137,11 @@ await users.create({
 **Best Practice:** Always set explicit `maxLength()` on string fields:
 
 ```typescript
-const User = orm.entity('users', {
-  email: orm.string().maxLength(255),
-  bio: orm.string().maxLength(5000),
-  name: orm.string().maxLength(100)
-}).build()
+const User = orm.entity('users', f => ({
+  email: f.string().maxLength(255),
+  bio: f.string().maxLength(5000),
+  name: f.string().maxLength(100)
+})).build()
 ```
 
 ### JSON Size and Depth Limits
@@ -156,9 +156,9 @@ await orm.connect({
   }
 })
 
-const User = orm.entity('users', {
-  metadata: orm.jsonb<any>()
-}).build()
+const User = orm.entity('users', f => ({
+  metadata: f.jsonb<any>()
+})).build()
 
 // ❌ Validation fails - too deeply nested
 let deepObject: any = { value: 'data' }
@@ -217,7 +217,7 @@ validateSQLIdentifier('columnName', 'column')
 
 ```typescript
 // Table names validated
-orm.entity('users', { ... }) // ✅
+orm.entity('users', f => ( ... }) // ✅
 orm.entity('users; DROP TABLE', { ... }) // ❌ InvalidIdentifierError
 
 // Column names validated
@@ -248,11 +248,11 @@ The ORM uses explicit schemas to prevent mass assignment vulnerabilities.
 Only fields defined in the schema can be set:
 
 ```typescript
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string(),
-  role: orm.enum(['admin', 'user'])
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string(),
+  role: f.enum(['admin', 'user'])
+})).build()
 
 // ✅ Only defined fields accepted
 await users.create({
@@ -291,8 +291,8 @@ app.post('/register', async (req) => {
 })
 
 // ✅ GOOD - Use hooks for access control
-const User = orm.entity('users', {
-  role: orm.enum(['admin', 'user'])
+const User = orm.entity('users', f => ({
+  role: f.enum(['admin', 'user'])
 })
 .beforeCreate((data) => {
   // Override any role assignment from client
@@ -323,18 +323,18 @@ await users.createMany(data, { skipValidation: true })
 ### 2. Always Validate Field Constraints
 
 ```typescript
-const User = orm.entity('users', {
-  email: orm.string()
+const User = orm.entity('users', f => ({
+  email: f.string()
     .maxLength(255) // Prevent DoS
     .unique(),      // Business logic
 
-  age: orm.number()
+  age: f.number()
     .min(0)         // Data integrity
     .max(150),      // Sanity check
 
-  role: orm.enum(['admin', 'user']), // Restrict values
+  role: f.enum(['admin', 'user']), // Restrict values
 
-  bio: orm.string()
+  bio: f.string()
     .maxLength(5000) // Reasonable limit
 })
 ```
@@ -376,7 +376,7 @@ app.use('/api/', limiter)
 ### 5. Log Security Events
 
 ```typescript
-const User = orm.entity('users', { ... })
+const User = orm.entity('users', f => ( ... })
   .afterCreate(async (user) => {
     await securityLog.create({
       event: 'USER_CREATED',

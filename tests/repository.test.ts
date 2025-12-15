@@ -3,14 +3,14 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
 // Test entity definition
-const User = orm.entity('test_users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  age: orm.number().nullable(),
-  role: orm.enum(['admin', 'user', 'moderator'] as const),
-  isActive: orm.boolean().default(true),
-  tags: orm.array('string'),
-}).build()
+const User = orm.entity('test_users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  age: f.number().nullable(),
+  role: f.enum(['admin', 'user', 'moderator'] as const),
+  isActive: f.boolean().default(true),
+  tags: f.array('string'),
+})).build()
 
 describe('Repository CRUD Operations', () => {
   beforeAll(async () => {

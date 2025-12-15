@@ -66,11 +66,11 @@ Auto-migration detects:
 
 ```typescript
 // 1. Define your entity
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  age: orm.number().nullable(),
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  age: f.number().nullable(),
+})).build()
 
 // 2. Connect to database
 await orm.connect(DATABASE_URL)
@@ -558,11 +558,11 @@ Generate a migration from schema diff to get correct SQL:
 
 ```typescript
 // 1. Update your entity definition
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  bio: orm.string().nullable(), // Added
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  bio: f.string().nullable(), // Added
+})).build()
 
 // 2. Generate migration
 await migrator.generate('add_user_bio')

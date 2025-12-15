@@ -43,14 +43,14 @@ describe('DependencySorter Unit Tests', () => {
   test('should order CREATE_TABLE changes by dependencies', () => {
     // Define entities with dependency: Post → User
     const localOrm = new ORM()
-    const User = localOrm.entity('test_order_users', {
-      name: localOrm.string(),
-    }).build()
+    const User = localOrm.entity('test_order_users', f => ({
+      name: f.string(),
+    })).build()
 
-    const Post = localOrm.entity('test_order_posts', {
-      title: localOrm.string(),
-      authorId: localOrm.foreignKey('test_order_users'),
-    }).build()
+    const Post = localOrm.entity('test_order_posts', f => ({
+      title: f.string(),
+      authorId: f.foreignKey('test_order_users'),
+    })).build()
 
     const entities = new Map()
 
@@ -93,20 +93,20 @@ describe('DependencySorter Unit Tests', () => {
   test('should detect circular dependencies', () => {
     // Create circular dependency: A → B → C → A
     const localOrm = new ORM()
-    const TableA = localOrm.entity('dep_circ_a', {
-      name: localOrm.string(),
-      cId: localOrm.foreignKey('dep_circ_c'),
-    }).build()
+    const TableA = localOrm.entity('dep_circ_a', f => ({
+      name: f.string(),
+      cId: f.foreignKey('dep_circ_c'),
+    })).build()
 
-    const TableB = localOrm.entity('dep_circ_b', {
-      name: localOrm.string(),
-      aId: localOrm.foreignKey('dep_circ_a'),
-    }).build()
+    const TableB = localOrm.entity('dep_circ_b', f => ({
+      name: f.string(),
+      aId: f.foreignKey('dep_circ_a'),
+    })).build()
 
-    const TableC = localOrm.entity('dep_circ_c', {
-      name: localOrm.string(),
-      bId: localOrm.foreignKey('dep_circ_b'),
-    }).build()
+    const TableC = localOrm.entity('dep_circ_c', f => ({
+      name: f.string(),
+      bId: f.foreignKey('dep_circ_b'),
+    })).build()
 
     const entities = new Map()
 
@@ -135,14 +135,14 @@ describe('DependencySorter Unit Tests', () => {
 
   test('should detect type mismatch in foreign keys', () => {
     const localOrm = new ORM()
-    const Parent = localOrm.entity('dep_type_parent', {
-      name: localOrm.string(),
-    }).build()
+    const Parent = localOrm.entity('dep_type_parent', f => ({
+      name: f.string(),
+    })).build()
 
-    const Child = localOrm.entity('dep_type_child', {
-      name: localOrm.string(),
-      parentId: localOrm.foreignKey('dep_type_parent'), // DOUBLE PRECISION
-    }).build()
+    const Child = localOrm.entity('dep_type_child', f => ({
+      name: f.string(),
+      parentId: f.foreignKey('dep_type_parent'), // DOUBLE PRECISION
+    })).build()
 
     const entities = new Map()
 

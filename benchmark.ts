@@ -10,14 +10,14 @@ const maxTime = 2
 
 const BenchUser = orm
   .entity('bench_users', {
-    name: orm.string(),
-    email: orm.string().unique(),
-    age: orm.number().nullable(),
-    role: orm.enum(['admin', 'user', 'moderator'] as const),
-    isActive: orm.boolean().default(true),
-    metadata: orm.jsonb<{ score: number, tags: string[] }>().nullable(),
-    tags: orm.array('string'),
-    scores: orm.array('number'),
+    name: f.string(),
+    email: f.string().unique(),
+    age: f.number().nullable(),
+    role: f.enum(['admin', 'user', 'moderator'] as const),
+    isActive: f.boolean().default(true),
+    metadata: f.jsonb<{ score: number, tags: string[] }>().nullable(),
+    tags: f.array('string'),
+    scores: f.array('number'),
   })
   .use(timestamps())
   .build()

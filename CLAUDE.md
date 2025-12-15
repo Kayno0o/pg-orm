@@ -103,7 +103,7 @@ import { ORM } from '@kaynooo/orm'
 const orm = new ORM()
 await orm.connect(process.env.DATABASE_URL!)
 
-const User = orm.entity('users', { ... }).build()
+const User = orm.entity('users', f => ({ ... })).build()
 ```
 
 **Multi-Database Usage:**
@@ -117,8 +117,8 @@ const analyticsDb = new ORM()
 await userDb.connect('postgresql://users_db')
 await analyticsDb.connect('postgresql://analytics_db')
 
-const User = userDb.entity('users', { ... }).build()
-const Event = analyticsDb.entity('events', { ... }).build()
+const User = userDb.entity('users', f => ({ ... })).build()
+const Event = analyticsDb.entity('events', f => ({ ... })).build()
 
 // Different schemas (multi-tenant)
 const tenant1 = new ORM()
@@ -134,7 +134,7 @@ await tenant2.connect({
 })
 
 // Share entity definition across tenants
-const User = tenant1.entity('users', { ... }).build()
+const User = tenant1.entity('users', f => ({ ... })).build()
 tenant2.registerEntity(User)  // Reuse schema
 
 const tenant1Users = tenant1.repo(User)
@@ -156,14 +156,14 @@ import { ORM, timestamps } from '@kaynooo/orm'
 const orm = new ORM()
 
 const User = orm
-  .entity('users', {
-    name: orm.string(),
-    email: orm.string().unique(),
-    age: orm.number().nullable(),
-    role: orm.enum(['admin', 'user', 'moderator']),
-    metadata: orm.jsonb<UserMeta>(),
-    tags: orm.array('string'),
-  })
+  .entity('users', f => ({
+    name: f.string(),
+    email: f.string().unique(),
+    age: f.number().nullable(),
+    role: f.enum(['admin', 'user', 'moderator']),
+    metadata: f.jsonb<UserMeta>(),
+    tags: f.array('string'),
+  }))
   .use(timestamps()) // Adds createdAt, updatedAt
   .beforeCreate((data) => {
     data.email = data.email.toLowerCase()
@@ -186,41 +186,44 @@ const User = orm
 ### 2. Field Builders
 
 ```typescript
-// String fields
-orm.string().maxLength(255).minLength(3).unique()
+// Field builders are provided via callback in entity definitions
+orm.entity('tableName', f => ({
+  // String fields
+  name: f.string().maxLength(255).minLength(3).unique(),
 
-// Number fields
-orm.number().integer().min(0).max(100).default(0)
+  // Number fields
+  age: f.number().integer().min(0).max(100).default(0),
 
-// Boolean fields
-orm.boolean().default(false)
+  // Boolean fields
+  isActive: f.boolean().default(false),
 
-// JSON/JSONB fields
-orm.jsonb<CustomType>().nullable()
-orm.json<any>()
+  // JSON/JSONB fields
+  metadata: f.jsonb<CustomType>().nullable(),
+  data: f.json<any>(),
 
-// UUID fields
-orm.uuid().unique().autoGenerate()
+  // UUID fields
+  uuid: f.uuid().unique().autoGenerate(),
 
-// Timestamp fields
-orm.timestamp().default('NOW()').autoUpdate()
+  // Timestamp fields
+  createdAt: f.timestamp().default('NOW()').autoUpdate(),
 
-// Date fields
-orm.date().nullable()
+  // Date fields
+  birthDate: f.date().nullable(),
 
-// Array fields
-orm.array('string') // TEXT[]
-orm.array('number') // INTEGER[]
-orm.array('boolean') // BOOLEAN[]
+  // Array fields
+  tags: f.array('string'), // TEXT[]
+  scores: f.array('number'), // INTEGER[]
+  flags: f.array('boolean'), // BOOLEAN[]
 
-// Enum fields
-orm.enum(['value1', 'value2', 'value3'])
+  // Enum fields
+  status: f.enum(['value1', 'value2', 'value3']),
 
-// Blob fields
-orm.blob().nullable()
+  // Blob fields
+  file: f.blob().nullable(),
 
-// Column name override
-orm.string().column('custom_column_name')
+  // Column name override
+  displayName: f.string().column('custom_column_name'),
+}))
 ```
 
 ### 3. Global & Per-Entity Plugins
@@ -232,7 +235,7 @@ orm.use(softDeletePlugin())
 
 // Per-entity plugins
 const Post = orm
-  .entity('posts', { ... })
+  .entity('posts', f => ({ ... }))
   .use(timestamps())
   .use(sluggable())
   .build()
@@ -242,7 +245,7 @@ const Post = orm
 
 ```typescript
 const User = orm
-  .entity('users', { ... })
+  .entity('users', f => ({ ... }))
   .beforeCreate((data) => {
     data.email = data.email.toLowerCase()
   })
@@ -267,31 +270,31 @@ const User = orm
 ### 5. Traits/Mixins
 
 ```typescript
-import { createTrait, timestamps, softDelete, paranoid } from '@kaynooo/orm'
+import { createTrait, field, timestamps, softDelete, paranoid } from '@kaynooo/orm'
 
 // Built-in traits
-orm.entity('users', { ... }).use(timestamps())
-orm.entity('posts', { ... }).use(softDelete())
-orm.entity('comments', { ... }).use(paranoid()) // timestamps + softDelete
+orm.entity('users', f => ({ ... })).use(timestamps())
+orm.entity('posts', f => ({ ... })).use(softDelete())
+orm.entity('comments', f => ({ ... })).use(paranoid()) // timestamps + softDelete
 
-// Custom traits
-const publishable = createTrait({
-  name: 'publishable',
-  fields: {
-    published: orm.boolean().default(false),
-    publishedAt: orm.timestamp().nullable(),
-  },
-  methods: {
-    async publish(this: Entity) {
-      // Implementation injected by repository
-    },
-    isPublished(this: Entity): boolean {
-      return this.published
-    }
-  }
-})
+// Custom traits with .fields() callback
+const customTrait = createTrait()
+  .fields(f => ({
+    published: f.boolean().default(false),
+    publishedAt: f.timestamp().nullable(),
+  }))
+  .method('publish', async function(repo) {
+    return repo.update(this.id, {
+      published: true,
+      publishedAt: new Date()
+    })
+  })
+  .method('isPublished', function(_repo) {
+    return this.published
+  })
+  .build()
 
-const Post = orm.entity('posts', { ... }).use(publishable)
+const Post = orm.entity('posts', f => ({ ... })).use(customTrait)
 ```
 
 ### 6. Auto-Generated Repositories
@@ -517,10 +520,10 @@ await initDB(connectionString, [userRepo])
 
 ### New API (Builder)
 ```typescript
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-}).use(timestamps()).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+})).use(timestamps()).build()
 
 await orm.connect(connectionString)
 const users = orm.repo(User)
@@ -532,6 +535,77 @@ const users = orm.repo(User)
 - **No explicit repository classes** - Use `.extend()` for custom methods
 - **Different imports** - Import from single `orm` instance
 - **Schema-first** - Define schema, get types automatically
+
+## Breaking Changes in v3.0
+
+### Field Builder Callback API
+
+**This is a breaking API change from v2.x to v3.0.**
+
+**Before (v2.x):**
+```typescript
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique()
+})
+```
+
+**After (v3.0):**
+```typescript
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique()
+}))
+```
+
+**Key Changes:**
+- Entity definitions now use a callback pattern instead of object literal
+- Field builders accessed via callback parameter (`f`) instead of `orm` instance
+- Cleaner separation of concerns between ORM and field building
+- Full type inference preserved - no TypeScript changes needed
+
+**For Traits:**
+Traits now use the `.fields()` callback pattern:
+
+```typescript
+// Before (v2.x)
+const trait = createTrait()
+  .field('count', field.number())
+  .field('tags', field.array('string'))
+
+// After (v3.0)
+const trait = createTrait()
+  .fields(f => ({
+    count: f.number(),
+    tags: f.array('string')
+  }))
+```
+
+**For Relations:**
+Relations now use the `.relations()` callback pattern:
+
+```typescript
+// Before (v2.x)
+const UserWithPosts = orm
+  .entity('users', f => ({ name: f.string() }))
+  .relations({
+    posts: orm.hasMany<typeof Post>('posts', 'authorId')
+  })
+
+// After (v3.0)
+const UserWithPosts = orm
+  .entity('users', f => ({ name: f.string() }))
+  .relations(r => ({
+    posts: r.hasMany<typeof Post>('posts', 'authorId')
+  }))
+```
+
+**Migration Steps:**
+1. **Entity fields:** Find `orm.entity('tableName', {` → Replace with `orm.entity('tableName', f => ({`
+2. **Field builders:** Find `orm.(string|number|...)` → Replace with `f.$1`
+3. **Trait fields:** Find `.field('name', field.x())` → Replace with `.fields(f => ({ name: f.x() }))`
+4. **Relations:** Find `.relations({` → Replace with `.relations(r => ({` and `orm.hasMany` → `r.hasMany`
+5. Combine multiple `.field()` calls into a single `.fields(f => ({ ... }))` call
 
 ## File Structure
 

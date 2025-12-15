@@ -16,10 +16,10 @@ import { ORM } from '@kaynooo/pg-orm'
 const orm = new ORM()
 await orm.connect(process.env.DATABASE_URL!)
 
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  age: orm.number().nullable()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  age: f.number().nullable()
 }).build()
 
 const users = orm.repo(User)
@@ -33,15 +33,15 @@ const user = await users.create({
 ## Field Types
 
 ```typescript
-orm.string().maxLength(255).unique()
-orm.number().integer().min(0).max(100)
-orm.boolean().default(false)
+f.string().maxLength(255).unique()
+f.number().integer().min(0).max(100)
+f.boolean().default(false)
 orm.uuid().autoGenerate()
-orm.timestamp().default('NOW()')
+f.timestamp().default('NOW()')
 orm.date().nullable()
-orm.array('string') // TEXT[]
-orm.enum(['admin', 'user'])
-orm.jsonb<Type>()
+f.array('string') // TEXT[]
+f.enum(['admin', 'user'])
+f.jsonb<Type>()
 orm.blob()
 ```
 
@@ -52,7 +52,7 @@ import { ORM, timestamps, softDelete } from '@kaynooo/pg-orm'
 
 const orm = new ORM()
 
-const Post = orm.entity('posts', { title: orm.string() })
+const Post = orm.entity('posts', f => ( title: f.string() })
   .use(timestamps())
   .use(softDelete())
   .build()

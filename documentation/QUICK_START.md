@@ -31,9 +31,9 @@ import { orm, timestamps } from '@kaynooo/pg-orm'
 
 const User = orm
   .entity('users', {
-    name: orm.string(),
-    email: orm.string().unique(),
-    age: orm.number().nullable(),
+    name: f.string(),
+    email: f.string().unique(),
+    age: f.number().nullable(),
   })
   .use(timestamps()) // Adds createdAt, updatedAt
   .build()
@@ -102,9 +102,9 @@ Type `y` and press Enter. Your database is now ready!
 ```typescript
 const Post = orm
   .entity('posts', {
-    title: orm.string(),
-    content: orm.string(),
-    authorId: orm.foreignKey('users'),
+    title: f.string(),
+    content: f.string(),
+    authorId: f.foreignKey('users'),
   })
   .build()
 
@@ -199,8 +199,8 @@ await orm.transaction(async (tx) => {
 ```typescript
 const User = orm
   .entity('users', {
-    email: orm.string().unique(),
-    name: orm.string(),
+    email: f.string().unique(),
+    name: f.string(),
   })
   .beforeCreate((data) => {
     data.email = data.email.toLowerCase()
@@ -218,19 +218,19 @@ import { orm, timestamps, softDelete, paranoid } from '@kaynooo/pg-orm'
 
 // Timestamps: adds createdAt, updatedAt with auto-update
 const User = orm
-  .entity('users', { name: orm.string() })
+  .entity('users', { name: f.string() })
   .use(timestamps())
   .build()
 
 // Soft Delete: adds deletedAt field
 const Post = orm
-  .entity('posts', { title: orm.string() })
+  .entity('posts', { title: f.string() })
   .use(softDelete())
   .build()
 
 // Paranoid: timestamps + soft delete
 const Comment = orm
-  .entity('comments', { content: orm.string() })
+  .entity('comments', { content: f.string() })
   .use(paranoid())
   .build()
 ```

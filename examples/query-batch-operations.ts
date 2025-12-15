@@ -2,12 +2,12 @@ import { ORM } from '../src'
 
 const orm = new ORM()
 
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  status: orm.enum(['active', 'inactive', 'suspended'] as const),
-  age: orm.number().nullable(),
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  status: f.enum(['active', 'inactive', 'suspended'] as const),
+  age: f.number().nullable(),
+})).build()
 
 async function main() {
   await orm.connect(process.env.DATABASE_URL!)

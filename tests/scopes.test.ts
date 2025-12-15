@@ -2,40 +2,40 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import { createTestTable, getTestSchema, orm, setupTestDatabase, teardownTestDatabase, truncateTables } from './setup'
 
 // Define entities at module level so migrations can run
-const User = orm.entity('scope_users', {
-  name: orm.string(),
-  email: orm.string(),
-  is_active: orm.boolean(),
-  role: orm.enum(['admin', 'user', 'moderator']),
-})
+const User = orm.entity('scope_users', f => ({
+  name: f.string(),
+  email: f.string(),
+  is_active: f.boolean(),
+  role: f.enum(['admin', 'user', 'moderator']),
+}))
   .scope('active', q => q.where('is_active', '=', true))
   .scope('admins', q => q.where('role', '=', 'admin'))
   .build()
 
-const Product = orm.entity('scope_products', {
-  name: orm.string(),
-  price: orm.number(),
-  in_stock: orm.boolean(),
-  category: orm.string(),
-})
+const Product = orm.entity('scope_products', f => ({
+  name: f.string(),
+  price: f.number(),
+  in_stock: f.boolean(),
+  category: f.string(),
+}))
   .scope('affordable', q => q.where('price', '<=', 100))
   .scope('available', q => q.where('in_stock', '=', true))
   .scope('electronics', q => q.where('category', '=', 'electronics'))
   .build()
 
-const Post = orm.entity('scope_posts', {
-  title: orm.string(),
-  views: orm.number(),
-  published: orm.boolean(),
-})
+const Post = orm.entity('scope_posts', f => ({
+  title: f.string(),
+  views: f.number(),
+  published: f.boolean(),
+}))
   .scope('popular', q => q.where('views', '>', 100).orderBy('views', 'DESC'))
   .scope('published', q => q.where('published', '=', true))
   .build()
 
-const Article = orm.entity('scope_articles', {
-  title: orm.string(),
-  status: orm.enum(['draft', 'published', 'archived']),
-})
+const Article = orm.entity('scope_articles', f => ({
+  title: f.string(),
+  status: f.enum(['draft', 'published', 'archived']),
+}))
   .scope('published', q => q.where('status', '=', 'published'))
   .scope('draft', q => q.where('status', '=', 'draft'))
   .build()

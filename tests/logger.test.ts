@@ -3,11 +3,11 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { queryLogger } from '../src'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
-const User = orm.entity('test_logger_users', {
-  name: orm.string(),
-  email: orm.string(),
-  age: orm.number().nullable(),
-}).build()
+const User = orm.entity('test_logger_users', f => ({
+  name: f.string(),
+  email: f.string(),
+  age: f.number().nullable(),
+})).build()
 
 describe('Query Logger', () => {
   beforeAll(async () => {

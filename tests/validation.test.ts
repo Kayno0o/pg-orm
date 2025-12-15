@@ -17,10 +17,10 @@ describe('Data Validation', () => {
 
   describe('Required Fields', () => {
     test('should validate required string field', async () => {
-      const User = orm.entity('test_validation_required', {
-        name: orm.string(),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_required', f => ({
+        name: f.string(),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -33,11 +33,11 @@ describe('Data Validation', () => {
     })
 
     test('should allow nullable fields to be omitted', async () => {
-      const User = orm.entity('test_validation_nullable', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number().nullable(),
-      }).build()
+      const User = orm.entity('test_validation_nullable', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number().nullable(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -51,11 +51,11 @@ describe('Data Validation', () => {
     })
 
     test('should allow fields with defaults to be omitted', async () => {
-      const User = orm.entity('test_validation_default', {
-        name: orm.string(),
-        email: orm.string(),
-        isActive: orm.boolean().default(true),
-      }).build()
+      const User = orm.entity('test_validation_default', f => ({
+        name: f.string(),
+        email: f.string(),
+        isActive: f.boolean().default(true),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -71,10 +71,10 @@ describe('Data Validation', () => {
 
   describe('String Field Validation', () => {
     test('should validate maxLength constraint', async () => {
-      const User = orm.entity('test_validation_maxlength', {
-        name: orm.string().maxLength(10),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_maxlength', f => ({
+        name: f.string().maxLength(10),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -89,10 +89,10 @@ describe('Data Validation', () => {
     })
 
     test('should validate minLength constraint', async () => {
-      const User = orm.entity('test_validation_minlength', {
-        name: orm.string().minLength(5),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_minlength', f => ({
+        name: f.string().minLength(5),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -107,10 +107,10 @@ describe('Data Validation', () => {
     })
 
     test('should accept string within length constraints', async () => {
-      const User = orm.entity('test_validation_string_ok', {
-        name: orm.string().minLength(3).maxLength(20),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_string_ok', f => ({
+        name: f.string().minLength(3).maxLength(20),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -126,10 +126,10 @@ describe('Data Validation', () => {
 
   describe('Number Field Validation', () => {
     test('should validate min constraint', async () => {
-      const Product = orm.entity('test_validation_min', {
-        name: orm.string(),
-        price: orm.number().min(0),
-      }).build()
+      const Product = orm.entity('test_validation_min', f => ({
+        name: f.string(),
+        price: f.number().min(0),
+      })).build()
 
       await createTestTable(Product, orm)
 
@@ -144,10 +144,10 @@ describe('Data Validation', () => {
     })
 
     test('should validate max constraint', async () => {
-      const Product = orm.entity('test_validation_max', {
-        name: orm.string(),
-        rating: orm.number().max(5),
-      }).build()
+      const Product = orm.entity('test_validation_max', f => ({
+        name: f.string(),
+        rating: f.number().max(5),
+      })).build()
 
       await createTestTable(Product, orm)
 
@@ -162,10 +162,10 @@ describe('Data Validation', () => {
     })
 
     test('should validate integer constraint', async () => {
-      const Product = orm.entity('test_validation_integer', {
-        name: orm.string(),
-        quantity: orm.number().integer(),
-      }).build()
+      const Product = orm.entity('test_validation_integer', f => ({
+        name: f.string(),
+        quantity: f.number().integer(),
+      })).build()
 
       await createTestTable(Product, orm)
 
@@ -180,10 +180,10 @@ describe('Data Validation', () => {
     })
 
     test('should accept number within constraints', async () => {
-      const Product = orm.entity('test_validation_number_ok', {
-        name: orm.string(),
-        price: orm.number().min(0).max(1000),
-      }).build()
+      const Product = orm.entity('test_validation_number_ok', f => ({
+        name: f.string(),
+        price: f.number().min(0).max(1000),
+      })).build()
 
       await createTestTable(Product, orm)
 
@@ -199,11 +199,11 @@ describe('Data Validation', () => {
 
   describe('Enum Field Validation', () => {
     test('should validate enum values', async () => {
-      const User = orm.entity('test_validation_enum', {
-        name: orm.string(),
-        email: orm.string(),
-        role: orm.enum(['admin', 'user', 'moderator'] as const),
-      }).build()
+      const User = orm.entity('test_validation_enum', f => ({
+        name: f.string(),
+        email: f.string(),
+        role: f.enum(['admin', 'user', 'moderator'] as const),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -220,11 +220,11 @@ describe('Data Validation', () => {
     })
 
     test('should accept valid enum values', async () => {
-      const User = orm.entity('test_validation_enum_ok', {
-        name: orm.string(),
-        email: orm.string(),
-        role: orm.enum(['admin', 'user', 'moderator'] as const),
-      }).build()
+      const User = orm.entity('test_validation_enum_ok', f => ({
+        name: f.string(),
+        email: f.string(),
+        role: f.enum(['admin', 'user', 'moderator'] as const),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -241,10 +241,10 @@ describe('Data Validation', () => {
 
   describe('Type Validation', () => {
     test('should validate string type', async () => {
-      const User = orm.entity('test_validation_string_type', {
-        name: orm.string(),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_string_type', f => ({
+        name: f.string(),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -260,10 +260,10 @@ describe('Data Validation', () => {
     })
 
     test('should validate number type', async () => {
-      const Product = orm.entity('test_validation_number_type', {
-        name: orm.string(),
-        price: orm.number(),
-      }).build()
+      const Product = orm.entity('test_validation_number_type', f => ({
+        name: f.string(),
+        price: f.number(),
+      })).build()
 
       await createTestTable(Product, orm)
 
@@ -279,11 +279,11 @@ describe('Data Validation', () => {
     })
 
     test('should validate boolean type', async () => {
-      const User = orm.entity('test_validation_boolean_type', {
-        name: orm.string(),
-        email: orm.string(),
-        isActive: orm.boolean(),
-      }).build()
+      const User = orm.entity('test_validation_boolean_type', f => ({
+        name: f.string(),
+        email: f.string(),
+        isActive: f.boolean(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -300,11 +300,11 @@ describe('Data Validation', () => {
     })
 
     test('should validate array type', async () => {
-      const User = orm.entity('test_validation_array_type', {
-        name: orm.string(),
-        email: orm.string(),
-        tags: orm.array('string'),
-      }).build()
+      const User = orm.entity('test_validation_array_type', f => ({
+        name: f.string(),
+        email: f.string(),
+        tags: f.array('string'),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -323,10 +323,10 @@ describe('Data Validation', () => {
 
   describe('Update Validation', () => {
     test('should validate update data', async () => {
-      const User = orm.entity('test_validation_update', {
-        name: orm.string().maxLength(10),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_update', f => ({
+        name: f.string().maxLength(10),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -344,11 +344,11 @@ describe('Data Validation', () => {
     })
 
     test('should allow partial updates without validation errors', async () => {
-      const User = orm.entity('test_validation_partial_update', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number().min(0).nullable(),
-      }).build()
+      const User = orm.entity('test_validation_partial_update', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number().min(0).nullable(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -370,10 +370,10 @@ describe('Data Validation', () => {
 
   describe('Validation Error Details', () => {
     test('should provide detailed error information', async () => {
-      const User = orm.entity('test_validation_error_details', {
-        name: orm.string().minLength(5),
-        email: orm.string(),
-      }).build()
+      const User = orm.entity('test_validation_error_details', f => ({
+        name: f.string().minLength(5),
+        email: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -404,11 +404,11 @@ describe('Data Validation', () => {
         notifications: boolean
       }
 
-      const User = orm.entity('test_validation_json_ok', {
-        name: orm.string(),
-        email: orm.string(),
-        metadata: orm.jsonb<UserMeta>(),
-      }).build()
+      const User = orm.entity('test_validation_json_ok', f => ({
+        name: f.string(),
+        email: f.string(),
+        metadata: f.jsonb<UserMeta>(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -426,11 +426,11 @@ describe('Data Validation', () => {
     })
 
     test('should reject deeply nested JSON (DoS protection)', async () => {
-      const User = orm.entity('test_validation_json_depth', {
-        name: orm.string(),
-        email: orm.string(),
-        metadata: orm.jsonb<any>(),
-      }).build()
+      const User = orm.entity('test_validation_json_depth', f => ({
+        name: f.string(),
+        email: f.string(),
+        metadata: f.jsonb<any>(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -453,11 +453,11 @@ describe('Data Validation', () => {
     })
 
     test('should accept moderately nested JSON', async () => {
-      const User = orm.entity('test_validation_json_moderate', {
-        name: orm.string(),
-        email: orm.string(),
-        metadata: orm.jsonb<any>(),
-      }).build()
+      const User = orm.entity('test_validation_json_moderate', f => ({
+        name: f.string(),
+        email: f.string(),
+        metadata: f.jsonb<any>(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -496,11 +496,11 @@ describe('Data Validation', () => {
     })
 
     test('should validate deeply nested arrays in JSON', async () => {
-      const User = orm.entity('test_validation_json_array_depth', {
-        name: orm.string(),
-        email: orm.string(),
-        metadata: orm.jsonb<any>(),
-      }).build()
+      const User = orm.entity('test_validation_json_array_depth', f => ({
+        name: f.string(),
+        email: f.string(),
+        metadata: f.jsonb<any>(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -525,13 +525,13 @@ describe('Data Validation', () => {
 
   describe('Complex Validation Scenarios', () => {
     test('should validate multiple constraints together', async () => {
-      const Product = orm.entity('test_validation_complex', {
-        name: orm.string().minLength(3).maxLength(50),
-        price: orm.number().min(0).max(10000),
-        quantity: orm.number().integer().min(0),
-        category: orm.enum(['electronics', 'clothing', 'food'] as const),
-        tags: orm.array('string'),
-      }).build()
+      const Product = orm.entity('test_validation_complex', f => ({
+        name: f.string().minLength(3).maxLength(50),
+        price: f.number().min(0).max(10000),
+        quantity: f.number().integer().min(0),
+        category: f.enum(['electronics', 'clothing', 'food'] as const),
+        tags: f.array('string'),
+      })).build()
 
       await createTestTable(Product, orm)
 

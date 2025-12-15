@@ -2,54 +2,54 @@ import type { InferEntity } from '../src'
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, teardownTestDatabase } from './setup'
 
-const User = orm.entity('test_join_users', {
-  name: orm.string(),
-  email: orm.string(),
-}).build()
+const User = orm.entity('test_join_users', f => ({
+  name: f.string(),
+  email: f.string(),
+})).build()
 
-const Post = orm.entity('test_join_posts', {
-  title: orm.string(),
-  content: orm.string(),
-  userId: orm.number(),
-}).build()
+const Post = orm.entity('test_join_posts', f => ({
+  title: f.string(),
+  content: f.string(),
+  userId: f.number(),
+})).build()
 
 type PostType = InferEntity<typeof Post.schema>
 
-const Comment = orm.entity('test_join_comments', {
-  content: orm.string(),
-  postId: orm.number(),
-  userId: orm.number(),
-}).build()
+const Comment = orm.entity('test_join_comments', f => ({
+  content: f.string(),
+  postId: f.number(),
+  userId: f.number(),
+})).build()
 
-const Author = orm.entity('test_smart_authors', {
-  name: orm.string(),
-  email: orm.string(),
-  role: orm.string(),
-}).build()
+const Author = orm.entity('test_smart_authors', f => ({
+  name: f.string(),
+  email: f.string(),
+  role: f.string(),
+})).build()
 
 type AuthorType = InferEntity<typeof Author.schema>
 
-const Profile = orm.entity('test_smart_profiles', {
-  bio: orm.string(),
-  authorId: orm.number(),
-}).build()
+const Profile = orm.entity('test_smart_profiles', f => ({
+  bio: f.string(),
+  authorId: f.number(),
+})).build()
 
 type ProfileType = InferEntity<typeof Profile.schema>
 
-const Article = orm.entity('test_smart_articles', {
-  title: orm.string(),
-  content: orm.string(),
-  authorId: orm.number().nullable(),
-}).relations({
-  author: orm.belongsTo('test_smart_authors', 'authorId'),
-}).build()
+const Article = orm.entity('test_smart_articles', f => ({
+  title: f.string(),
+  content: f.string(),
+  authorId: f.number().nullable(),
+})).relations(r => ({
+  author: r.belongsTo('test_smart_authors', 'authorId'),
+})).build()
 
-const AuthorWithProfile = orm.entity('test_smart_authors_2', {
-  name: orm.string(),
-  email: orm.string(),
-}).relations({
-  profile: orm.hasOne('test_smart_profiles', 'authorId'),
-}).build()
+const AuthorWithProfile = orm.entity('test_smart_authors_2', f => ({
+  name: f.string(),
+  email: f.string(),
+})).relations(r => ({
+  profile: r.hasOne('test_smart_profiles', 'authorId'),
+})).build()
 
 describe('QueryBuilder JOINs', () => {
   const schema = getTestSchema()

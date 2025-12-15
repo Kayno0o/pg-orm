@@ -1,16 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { getTestSchema, orm, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
-const User = orm.entity('test_tx_users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-}).build()
+const User = orm.entity('test_tx_users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+})).build()
 
-const Post = orm.entity('test_tx_posts', {
-  title: orm.string(),
-  content: orm.string(),
-  authorId: orm.number(),
-}).build()
+const Post = orm.entity('test_tx_posts', f => ({
+  title: f.string(),
+  content: f.string(),
+  authorId: f.number(),
+})).build()
 
 describe('Transactions', () => {
   let users: ReturnType<typeof orm.repo<typeof User.schema>>

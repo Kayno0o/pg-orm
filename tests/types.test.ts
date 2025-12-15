@@ -6,38 +6,38 @@ import { orm } from './setup'
 describe('Type System', () => {
   describe('Field Nullable Literal Types', () => {
     test('non-nullable field should have nullable: false as literal type', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+      })).build()
 
       // The nullable property should be literal false, not boolean
       expectTypeOf<typeof entity.schema.name.nullable>().toEqualTypeOf<false>()
     })
 
     test('nullable field should have nullable: true as literal type', () => {
-      const entity = orm.entity('test', {
-        name: orm.string().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string().nullable(),
+      })).build()
 
       // The nullable property should be literal true, not boolean
       expectTypeOf<typeof entity.schema.name.nullable>().toEqualTypeOf<true>()
     })
 
     test('number field nullable literal type', () => {
-      const entity = orm.entity('test', {
-        required: orm.number(),
-        optional: orm.number().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        required: f.number(),
+        optional: f.number().nullable(),
+      })).build()
 
       expectTypeOf<typeof entity.schema.required.nullable>().toEqualTypeOf<false>()
       expectTypeOf<typeof entity.schema.optional.nullable>().toEqualTypeOf<true>()
     })
 
     test('boolean field nullable literal type', () => {
-      const entity = orm.entity('test', {
-        required: orm.boolean(),
-        optional: orm.boolean().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        required: f.boolean(),
+        optional: f.boolean().nullable(),
+      })).build()
 
       expectTypeOf<typeof entity.schema.required.nullable>().toEqualTypeOf<false>()
       expectTypeOf<typeof entity.schema.optional.nullable>().toEqualTypeOf<true>()
@@ -46,26 +46,26 @@ describe('Type System', () => {
 
   describe('Enum Literal Types', () => {
     test('enum should preserve literal tuple type', () => {
-      const entity = orm.entity('test', {
-        role: orm.enum(['admin', 'user', 'moderator'] as const),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        role: f.enum(['admin', 'user', 'moderator'] as const),
+      })).build()
 
       // Should be the exact literal tuple, not string[]
       expectTypeOf<typeof entity.schema.role.values>().toEqualTypeOf<readonly ['admin', 'user', 'moderator']>()
     })
 
     test('enum with different values should preserve literal types', () => {
-      const entity = orm.entity('test', {
-        status: orm.enum(['pending', 'approved', 'rejected'] as const),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        status: f.enum(['pending', 'approved', 'rejected'] as const),
+      })).build()
 
       expectTypeOf<typeof entity.schema.status.values>().toEqualTypeOf<readonly ['pending', 'approved', 'rejected']>()
     })
 
     test('nullable enum should preserve both nullable and values as literals', () => {
-      const entity = orm.entity('test', {
-        optionalRole: orm.enum(['admin', 'user'] as const).nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        optionalRole: f.enum(['admin', 'user'] as const).nullable(),
+      })).build()
 
       expectTypeOf<typeof entity.schema.optionalRole.nullable>().toEqualTypeOf<true>()
       expectTypeOf<typeof entity.schema.optionalRole.values>().toEqualTypeOf<readonly ['admin', 'user']>()
@@ -74,10 +74,10 @@ describe('Type System', () => {
 
   describe('InferEntity Types', () => {
     test('non-nullable fields should be non-nullable in entity', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        age: orm.number(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        age: f.number(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -87,10 +87,10 @@ describe('Type System', () => {
     })
 
     test('nullable fields should include null (database-aligned)', () => {
-      const entity = orm.entity('test', {
-        bio: orm.string().nullable(),
-        score: orm.number().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        bio: f.string().nullable(),
+        score: f.number().nullable(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -100,9 +100,9 @@ describe('Type System', () => {
     })
 
     test('enum fields should use literal union type', () => {
-      const entity = orm.entity('test', {
-        role: orm.enum(['admin', 'user', 'moderator'] as const),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        role: f.enum(['admin', 'user', 'moderator'] as const),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -111,9 +111,9 @@ describe('Type System', () => {
     })
 
     test('nullable enum should be literal union | null', () => {
-      const entity = orm.entity('test', {
-        role: orm.enum(['admin', 'user'] as const).nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        role: f.enum(['admin', 'user'] as const).nullable(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -121,12 +121,12 @@ describe('Type System', () => {
     })
 
     test('mixed nullable and non-nullable fields', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number().nullable(),
-        bio: orm.string().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number().nullable(),
+        bio: f.string().nullable(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -139,10 +139,10 @@ describe('Type System', () => {
 
   describe('InferCreateData Types', () => {
     test('non-nullable fields should be required', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        email: orm.string(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        email: f.string(),
+      })).build()
 
       type CreateData = InferCreateData<typeof entity.schema>
 
@@ -152,11 +152,11 @@ describe('Type System', () => {
     })
 
     test('nullable fields should be optional', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        bio: orm.string().nullable(),
-        age: orm.number().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        bio: f.string().nullable(),
+        age: f.number().nullable(),
+      })).build()
 
       type CreateData = InferCreateData<typeof entity.schema>
 
@@ -170,11 +170,11 @@ describe('Type System', () => {
     })
 
     test('fields with defaults should be optional', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        score: orm.number().default(0),
-        isActive: orm.boolean().default(true),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        score: f.number().default(0),
+        isActive: f.boolean().default(true),
+      })).build()
 
       type CreateData = InferCreateData<typeof entity.schema>
 
@@ -188,9 +188,9 @@ describe('Type System', () => {
     })
 
     test('enum fields should use literal union type', () => {
-      const entity = orm.entity('test', {
-        role: orm.enum(['admin', 'user'] as const),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        role: f.enum(['admin', 'user'] as const),
+      })).build()
 
       type CreateData = InferCreateData<typeof entity.schema>
 
@@ -199,16 +199,16 @@ describe('Type System', () => {
     })
 
     test('complex schema with mixed field types', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(), // required
-        email: orm.string().unique(), // required
-        age: orm.number().nullable(), // optional (nullable)
-        role: orm.enum(['admin', 'user'] as const), // required
-        bio: orm.string().nullable(), // optional (nullable)
-        score: orm.number().default(0), // optional (has default)
-        isActive: orm.boolean().default(true), // optional (has default)
-        tags: orm.array('string'), // required
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(), // required
+        email: f.string().unique(), // required
+        age: f.number().nullable(), // optional (nullable)
+        role: f.enum(['admin', 'user'] as const), // required
+        bio: f.string().nullable(), // optional (nullable)
+        score: f.number().default(0), // optional (has default)
+        isActive: f.boolean().default(true), // optional (has default)
+        tags: f.array('string'), // required
+      })).build()
 
       type CreateData = InferCreateData<typeof entity.schema>
 
@@ -232,11 +232,11 @@ describe('Type System', () => {
 
   describe('InferUpdateData Types', () => {
     test('all fields should be optional in update', () => {
-      const entity = orm.entity('test', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number(),
+      })).build()
 
       type UpdateData = InferUpdateData<typeof entity.schema>
 
@@ -251,9 +251,9 @@ describe('Type System', () => {
     })
 
     test('nullable fields should allow null and undefined', () => {
-      const entity = orm.entity('test', {
-        bio: orm.string().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        bio: f.string().nullable(),
+      })).build()
 
       type UpdateData = InferUpdateData<typeof entity.schema>
 
@@ -268,9 +268,9 @@ describe('Type System', () => {
     })
 
     test('enum fields should preserve literal types', () => {
-      const entity = orm.entity('test', {
-        role: orm.enum(['admin', 'user'] as const),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        role: f.enum(['admin', 'user'] as const),
+      })).build()
 
       type UpdateData = InferUpdateData<typeof entity.schema>
 
@@ -281,9 +281,9 @@ describe('Type System', () => {
 
   describe('Array Field Types', () => {
     test('string array should be string[]', () => {
-      const entity = orm.entity('test', {
-        tags: orm.array('string'),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        tags: f.array('string'),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -291,9 +291,9 @@ describe('Type System', () => {
     })
 
     test('number array should be number[]', () => {
-      const entity = orm.entity('test', {
-        scores: orm.array('number'),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        scores: f.array('number'),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -301,9 +301,9 @@ describe('Type System', () => {
     })
 
     test('boolean array should be boolean[]', () => {
-      const entity = orm.entity('test', {
-        flags: orm.array('boolean'),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        flags: f.array('boolean'),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -311,9 +311,9 @@ describe('Type System', () => {
     })
 
     test('nullable array should include null', () => {
-      const entity = orm.entity('test', {
-        tags: orm.array('string').nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        tags: f.array('string').nullable(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -328,9 +328,9 @@ describe('Type System', () => {
         notifications: boolean
       }
 
-      const entity = orm.entity('test', {
-        metadata: orm.jsonb<UserMeta>(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        metadata: f.jsonb<UserMeta>(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -342,9 +342,9 @@ describe('Type System', () => {
         foo: string
       }
 
-      const entity = orm.entity('test', {
-        metadata: orm.jsonb<UserMeta>().nullable(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        metadata: f.jsonb<UserMeta>().nullable(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -354,9 +354,9 @@ describe('Type System', () => {
 
   describe('Other Field Types', () => {
     test('uuid field should be string', () => {
-      const entity = orm.entity('test', {
-        id: orm.uuid(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        id: f.uuid(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -364,9 +364,9 @@ describe('Type System', () => {
     })
 
     test('timestamp field should be Date', () => {
-      const entity = orm.entity('test', {
-        createdAt: orm.timestamp(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        createdAt: f.timestamp(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -374,9 +374,9 @@ describe('Type System', () => {
     })
 
     test('date field should be Date', () => {
-      const entity = orm.entity('test', {
-        birthDate: orm.date(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        birthDate: f.date(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 
@@ -384,9 +384,9 @@ describe('Type System', () => {
     })
 
     test('blob field should be Uint8Array', () => {
-      const entity = orm.entity('test', {
-        data: orm.blob(),
-      }).build()
+      const entity = orm.entity('test', f => ({
+        data: f.blob(),
+      })).build()
 
       type Entity = InferEntity<typeof entity.schema>
 

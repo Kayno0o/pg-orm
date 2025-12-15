@@ -61,6 +61,7 @@ export {
   HasManyBuilder,
   HasOneBuilder,
   ManyToManyBuilder,
+  relation,
 } from './relations/builders'
 export { RelationLoader } from './relations/loader'
 export type {

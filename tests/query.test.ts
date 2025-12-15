@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createTxRepo, getTestSchema, orm, runInTransaction, setupTestDatabase, setupTestSuite, teardownTestDatabase, teardownTestSuite, testData } from './setup'
 
-const User = orm.entity('test_query_users', {
-  name: orm.string(),
-  email: orm.string(),
-  age: orm.number().nullable(),
-  role: orm.enum(['admin', 'user', 'moderator'] as const),
-  tags: orm.array('string'),
-  metadata: orm.jsonb().nullable(),
-}).build()
+const User = orm.entity('test_query_users', f => ({
+  name: f.string(),
+  email: f.string(),
+  age: f.number().nullable(),
+  role: f.enum(['admin', 'user', 'moderator'] as const),
+  tags: f.array('string'),
+  metadata: f.jsonb().nullable(),
+})).build()
 
 describe('Query Builder', () => {
   beforeAll(async () => {

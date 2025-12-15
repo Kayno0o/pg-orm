@@ -7,12 +7,6 @@ import { closeDatabase, initializeDatabase } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
 import { Migrator } from './migration/migrator'
-import {
-  BelongsToBuilder,
-  HasManyBuilder,
-  HasOneBuilder,
-  ManyToManyBuilder,
-} from './relations/builders'
 import { Repository } from './repository'
 import { SeederRunner } from './seeder'
 import { createTrait } from './traits'
@@ -142,15 +136,16 @@ export class ORM {
   /**
    * Defines a new entity.
    * @param tableName - The name of the database table.
-   * @param fields - The schema definition for the entity.
+   * @param fieldsCallback - A callback that receives field builders and returns the schema definition.
    */
   entity<T extends Record<string, { toConfig: () => FieldConfig }>>(
     tableName: string,
-    fields: T,
+    fieldsCallback: (fieldBuilder: typeof field) => T,
   ): EntityBuilder<{
     [K in keyof T]: ReturnType<T[K]['toConfig']>
 
   }, readonly [], never, {}> {
+    const fields = fieldsCallback(field)
     const schema = createEntitySchema(fields)
 
     return new EntityBuilder(tableName, schema, [], {}, this)
@@ -180,168 +175,10 @@ export class ORM {
   }
 
   /**
-   * Defines a hasOne relation with type inference.
-   * @param tableName - The name of the related table.
-   * @param foreignKey - The foreign key field in the related table.
-   * @example
-   * const User = orm.entity('users', { name: orm.string() }).build()
-   * const Post = orm.entity('posts', {
-   *   title: orm.string(),
-   *   userId: orm.number()
-   * }).relations({
-   *   profile: orm.hasOne<typeof User>('users', 'userId')
-   * }).build()
-   */
-  hasOne<TEntity extends EntityDefinition<any, any, any, any> = any>(
-    tableName: string,
-    foreignKey: string,
-  ): HasOneBuilder<
-    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
-    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
-  > {
-    return new HasOneBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a hasMany relation with type inference.
-   * @param tableName - The name of the related table.
-   * @param foreignKey - The foreign key field in the related table.
-   * @example
-   * const User = orm.entity('users', { name: orm.string() }).build()
-   * const Post = orm.entity('posts', {
-   *   title: orm.string(),
-   *   authorId: orm.number()
-   * }).build()
-   * const UserWithPosts = orm.entity('users', {
-   *   name: orm.string()
-   * }).relations({
-   *   posts: orm.hasMany<typeof Post>('posts', 'authorId')
-   * }).build()
-   */
-  hasMany<TEntity extends EntityDefinition<any, any, any, any> = any>(
-    tableName: string,
-    foreignKey: string,
-  ): HasManyBuilder<
-    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
-    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
-  > {
-    return new HasManyBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a belongsTo relation with type inference.
-   * @param tableName - The name of the related table.
-   * @param foreignKey - The foreign key field in this table.
-   * @example
-   * const User = orm.entity('users', { name: orm.string() }).build()
-   * const Post = orm.entity('posts', {
-   *   title: orm.string(),
-   *   authorId: orm.number()
-   * }).relations({
-   *   author: orm.belongsTo<typeof User>('users', 'authorId')
-   * }).build()
-   */
-  belongsTo<TEntity extends EntityDefinition<any, any, any, any> = any>(
-    tableName: string,
-    foreignKey: string,
-  ): BelongsToBuilder<
-    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
-    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
-  > {
-    return new BelongsToBuilder(tableName, foreignKey)
-  }
-
-  /**
-   * Defines a manyToMany relation with type inference.
-   * @param tableName - The name of the related table.
-   * @param through - The junction table name.
-   * @param throughForeignKey - The foreign key in the junction table for this entity.
-   * @param otherKey - The foreign key in the junction table for the related entity.
-   * @example
-   * const Tag = orm.entity('tags', { name: orm.string() }).build()
-   * const Post = orm.entity('posts', {
-   *   title: orm.string()
-   * }).relations({
-   *   tags: orm.manyToMany<typeof Tag>('tags', 'post_tags', 'postId', 'tagId')
-   * }).build()
-   */
-  manyToMany<TEntity extends EntityDefinition<any, any, any, any> = any>(
-    tableName: string,
-    through: string,
-    throughForeignKey: string,
-    otherKey: string,
-  ): ManyToManyBuilder<
-    TEntity extends EntityDefinition<infer S, any, any, any> ? S : any,
-    TEntity extends EntityDefinition<any, infer T, any, any> ? T : readonly []
-  > {
-    return new ManyToManyBuilder(tableName, through, throughForeignKey, otherKey)
-  }
-
-  /**
    * Creates a new trait definition.
    */
   trait() {
     return createTrait()
-  }
-
-  /** Field builder for string types. */
-  get string() {
-    return field.string
-  }
-
-  /** Field builder for number types. */
-  get number() {
-    return field.number
-  }
-
-  /** Field builder for boolean types. */
-  get boolean() {
-    return field.boolean
-  }
-
-  /** Field builder for JSON types. */
-  get json() {
-    return field.json
-  }
-
-  /** Field builder for JSONB types. */
-  get jsonb() {
-    return field.jsonb
-  }
-
-  /** Field builder for UUID types. */
-  get uuid() {
-    return field.uuid
-  }
-
-  /** Field builder for timestamp types. */
-  get timestamp() {
-    return field.timestamp
-  }
-
-  /** Field builder for date types. */
-  get date() {
-    return field.date
-  }
-
-  /** Field builder for array types. */
-  get array() {
-    return field.array
-  }
-
-  /** Field builder for enum types. */
-  get enum() {
-    return field.enum
-  }
-
-  /** Field builder for blob types. */
-  get blob() {
-    return field.blob
-  }
-
-  /** Field builder for foreign key references. */
-  get foreignKey() {
-    return field.foreignKey
   }
 
   /** Migration management utilities. */

@@ -107,3 +107,27 @@ export class ManyToManyBuilder<
     }
   }
 }
+
+export const relation = {
+  hasOne: <TSchema extends EntitySchema = any, TTraits extends readonly any[] = readonly []>(
+    tableName: string,
+    foreignKey: string,
+  ) => new HasOneBuilder<TSchema, TTraits>(tableName, foreignKey),
+
+  hasMany: <TSchema extends EntitySchema = any, TTraits extends readonly any[] = readonly []>(
+    tableName: string,
+    foreignKey: string,
+  ) => new HasManyBuilder<TSchema, TTraits>(tableName, foreignKey),
+
+  belongsTo: <TSchema extends EntitySchema = any, TTraits extends readonly any[] = readonly []>(
+    tableName: string,
+    foreignKey: string,
+  ) => new BelongsToBuilder<TSchema, TTraits>(tableName, foreignKey),
+
+  manyToMany: <TSchema extends EntitySchema = any, TTraits extends readonly any[] = readonly []>(
+    tableName: string,
+    through: string,
+    throughForeignKey: string,
+    otherKey: string,
+  ) => new ManyToManyBuilder<TSchema, TTraits>(tableName, through, throughForeignKey, otherKey),
+}

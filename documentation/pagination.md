@@ -54,10 +54,10 @@ const page2 = await users.paginateCursor({
 ```typescript
 import { orm } from '@kaynooo/pg-orm'
 
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-}).build()
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+})).build()
 
 const users = orm.repo(User)
 

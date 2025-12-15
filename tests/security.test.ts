@@ -93,43 +93,43 @@ describe('Security - SQL Injection Protection', () => {
   describe('Entity Definition - SQL Injection Attempts', () => {
     test('should reject malicious table names', () => {
       expect(() => {
-        orm.entity('users; DROP TABLE users; --', {
-          name: orm.string(),
-        }).build()
+        orm.entity('users; DROP TABLE users; --', f => ({
+          name: f.string(),
+        })).build()
       }).toThrow(InvalidIdentifierError)
     })
 
     test('should reject malicious column names', () => {
       expect(() => {
         // Try to create field with malicious column name override
-        orm.entity('test_malicious2', {
-          field: orm.string().column('name\'; DROP TABLE users; --'),
-        }).build()
+        orm.entity('test_malicious2', f => ({
+          field: f.string().column('name\'; DROP TABLE users; --'),
+        })).build()
       }).toThrow(InvalidIdentifierError)
     })
 
     test('should reject reserved keywords as table names', () => {
       expect(() => {
-        orm.entity('SELECT', {
-          name: orm.string(),
-        }).build()
+        orm.entity('SELECT', f => ({
+          name: f.string(),
+        })).build()
       }).toThrow(InvalidIdentifierError)
     })
 
     test('should reject reserved keywords as column names', () => {
       expect(() => {
-        orm.entity('test_keywords', {
-          normalField: orm.string().column('WHERE'),
-        }).build()
+        orm.entity('test_keywords', f => ({
+          normalField: f.string().column('WHERE'),
+        })).build()
       }).toThrow(InvalidIdentifierError)
     })
   })
 
   describe('Repository Operations - SQL Injection Protection', () => {
-    const SafeEntity = orm.entity('test_security_safe', {
-      name: orm.string(),
-      email: orm.string(),
-    }).build()
+    const SafeEntity = orm.entity('test_security_safe', f => ({
+      name: f.string(),
+      email: f.string(),
+    })).build()
 
     let safeRepo: ReturnType<typeof orm.repo<typeof SafeEntity.schema>>
 
@@ -205,10 +205,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('Query Builder - SQL Injection Protection', () => {
-    const TestEntity = orm.entity('test_security_query', {
-      name: orm.string(),
-      status: orm.string(),
-    }).build()
+    const TestEntity = orm.entity('test_security_query', f => ({
+      name: f.string(),
+      status: f.string(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -293,10 +293,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('ORDER BY - SQL Injection Protection', () => {
-    const TestEntity = orm.entity('test_security_orderby', {
-      name: orm.string(),
-      score: orm.number(),
-    }).build()
+    const TestEntity = orm.entity('test_security_orderby', f => ({
+      name: f.string(),
+      score: f.number(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -365,10 +365,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('GROUP BY - SQL Injection Protection', () => {
-    const TestEntity = orm.entity('test_security_groupby', {
-      category: orm.string(),
-      value: orm.number(),
-    }).build()
+    const TestEntity = orm.entity('test_security_groupby', f => ({
+      category: f.string(),
+      value: f.number(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -405,9 +405,9 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('LIMIT/OFFSET - SQL Injection Protection', () => {
-    const TestEntity = orm.entity('test_security_limit', {
-      name: orm.string(),
-    }).build()
+    const TestEntity = orm.entity('test_security_limit', f => ({
+      name: f.string(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -483,10 +483,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('PostgreSQL-Specific Operators - Security', () => {
-    const TestEntity = orm.entity('test_security_pgops', {
-      tags: orm.array('string'),
-      metadata: orm.jsonb<any>(),
-    }).build()
+    const TestEntity = orm.entity('test_security_pgops', f => ({
+      tags: f.array('string'),
+      metadata: f.jsonb<any>(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -586,10 +586,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('Second-Order SQL Injection Protection', () => {
-    const TestEntity = orm.entity('test_security_second_order', {
-      username: orm.string(),
-      bio: orm.string(),
-    }).build()
+    const TestEntity = orm.entity('test_security_second_order', f => ({
+      username: f.string(),
+      bio: f.string(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -647,11 +647,11 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('Mass Assignment Vulnerability Protection', () => {
-    const TestEntity = orm.entity('test_security_mass_assign', {
-      username: orm.string(),
-      role: orm.string(),
-      isAdmin: orm.boolean().default(false),
-    }).build()
+    const TestEntity = orm.entity('test_security_mass_assign', f => ({
+      username: f.string(),
+      role: f.string(),
+      isAdmin: f.boolean().default(false),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 
@@ -721,10 +721,10 @@ describe('Security - SQL Injection Protection', () => {
   })
 
   describe('Timing Attack Resistance', () => {
-    const TestEntity = orm.entity('test_security_timing', {
-      email: orm.string().unique(),
-      password: orm.string(),
-    }).build()
+    const TestEntity = orm.entity('test_security_timing', f => ({
+      email: f.string().unique(),
+      password: f.string(),
+    })).build()
 
     let testRepo: ReturnType<typeof orm.repo<typeof TestEntity.schema>>
 

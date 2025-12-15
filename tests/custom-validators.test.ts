@@ -15,13 +15,13 @@ describe('Custom Field Validators', () => {
 
   describe('.refine() method', () => {
     test('should validate custom string validator', async () => {
-      const User = orm.entity('custom_val_string', {
-        name: orm.string().refine(
+      const User = orm.entity('custom_val_string', f => ({
+        name: f.string().refine(
           val => val.length >= 3,
           'Name must be at least 3 characters',
         ),
-        email: orm.string(),
-      }).build()
+        email: f.string(),
+      })).build()
 
       await createTestTable(User)
 
@@ -37,13 +37,13 @@ describe('Custom Field Validators', () => {
     })
 
     test('should validate custom number validator', async () => {
-      const User = orm.entity('custom_val_number', {
-        name: orm.string(),
-        age: orm.number().refine(
+      const User = orm.entity('custom_val_number', f => ({
+        name: f.string(),
+        age: f.number().refine(
           val => val >= 18,
           'Age must be at least 18',
         ),
-      }).build()
+      })).build()
 
       await createTestTable(User)
 
@@ -59,8 +59,8 @@ describe('Custom Field Validators', () => {
     })
 
     test('should support async validators', async () => {
-      const User = orm.entity('custom_val_async', {
-        email: orm.string().refine(
+      const User = orm.entity('custom_val_async', f => ({
+        email: f.string().refine(
           async (val) => {
             await new Promise(resolve => setTimeout(resolve, 10))
 
@@ -68,7 +68,7 @@ describe('Custom Field Validators', () => {
           },
           'Email must contain @',
         ),
-      }).build()
+      })).build()
 
       await createTestTable(User)
 
@@ -84,13 +84,13 @@ describe('Custom Field Validators', () => {
     })
 
     test('should support multiple validators per field', async () => {
-      const User = orm.entity('custom_val_multiple', {
-        password: orm
+      const User = orm.entity('custom_val_multiple', f => ({
+        password: f
           .string()
           .refine(val => val.length >= 8, 'Password must be at least 8 characters')
           .refine(val => (/[A-Z]/).test(val), 'Password must contain uppercase letter')
           .refine(val => (/\d/).test(val), 'Password must contain number'),
-      }).build()
+      })).build()
 
       await createTestTable(User)
 
@@ -114,8 +114,8 @@ describe('Custom Field Validators', () => {
     })
 
     test('should support custom error messages from validator', async () => {
-      const User = orm.entity('custom_val_messages', {
-        code: orm.string().refine(
+      const User = orm.entity('custom_val_messages', f => ({
+        code: f.string().refine(
           (val) => {
             if (val.length !== 6)
               return 'Code must be exactly 6 characters'
@@ -127,7 +127,7 @@ describe('Custom Field Validators', () => {
           },
           'Code validation failed',
         ),
-      }).build()
+      })).build()
 
       await createTestTable(User)
 

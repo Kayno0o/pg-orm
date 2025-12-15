@@ -18,11 +18,11 @@ describe('Query Caching', () => {
 
   describe('InMemoryCache', () => {
     test('should cache query results', async () => {
-      const User = orm.entity('cache_test_users', {
-        name: orm.string(),
-        email: orm.string().unique(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('cache_test_users', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -50,9 +50,9 @@ describe('Query Caching', () => {
       await orm.disconnect()
       await setupTestDatabase({ autoMigrate: false, orm })
 
-      const User = orm.entity('cache_test_no_adapter', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('cache_test_no_adapter', f => ({
+        name: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -68,9 +68,9 @@ describe('Query Caching', () => {
     })
 
     test('should validate cache TTL', async () => {
-      const User = orm.entity('cache_test_ttl', {
-        name: orm.string(),
-      }).build()
+      const User = orm.entity('cache_test_ttl', f => ({
+        name: f.string(),
+      })).build()
 
       await createTestTable(User, orm)
 
@@ -88,10 +88,10 @@ describe('Query Caching', () => {
     })
 
     test('should handle different cache keys', async () => {
-      const User = orm.entity('cache_test_keys', {
-        name: orm.string(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('cache_test_keys', f => ({
+        name: f.string(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User, orm)
 

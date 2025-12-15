@@ -44,32 +44,16 @@ export class TraitBuilder<
   }
 
   /**
-   * Adds a field to the trait.
-   * @param name - The name of the field.
-   * @param fieldBuilder - The field builder instance.
-   */
-  field<K extends string, F extends { toConfig: () => FieldConfig }>(
-    name: K,
-    fieldBuilder: F,
-  ): TraitBuilder<TFields & Record<K, ReturnType<F['toConfig']>>, TMethods> {
-    const newFields = {
-      ...this._fields,
-      [name]: fieldBuilder.toConfig(),
-    } as TFields & Record<K, ReturnType<F['toConfig']>>
-
-    return new TraitBuilder(newFields, this._methods, this._hooks as any)
-  }
-
-  /**
    * Adds multiple fields to the trait.
-   * @param fieldsObj - Object mapping field names to field builders.
+   * @param fieldsCallback - A callback that receives field builders and returns field definitions.
    */
   fields<T extends Record<string, { toConfig: () => FieldConfig }>>(
-    fieldsObj: T,
+    fieldsCallback: (fieldBuilder: typeof field) => T,
   ): TraitBuilder<
     TFields & { [K in keyof T]: ReturnType<T[K]['toConfig']> },
     TMethods
   > {
+    const fieldsObj = fieldsCallback(field)
     const newFields = { ...this._fields } as any
 
     for (const [key, builder] of Object.entries(fieldsObj)) {
@@ -214,10 +198,10 @@ export function createTrait(): TraitBuilder<EmptySchema, EmptyMethods> {
  */
 export function timestamps() {
   return createTrait()
-    .fields({
-      createdAt: field.timestamp().default('NOW()'),
-      updatedAt: field.timestamp().default('NOW()'),
-    })
+    .fields(f => ({
+      createdAt: f.timestamp().default('NOW()'),
+      updatedAt: f.timestamp().default('NOW()'),
+    }))
     .beforeCreate((data: any) => {
       const now = new Date()
 
@@ -236,7 +220,9 @@ export function timestamps() {
  */
 export function softDelete() {
   return createTrait()
-    .field('deletedAt', field.timestamp().nullable())
+    .fields(f => ({
+      deletedAt: f.timestamp().nullable(),
+    }))
     .method('softDelete', async function (repo: AnyRepository) {
       return repo.update(this.id, { deletedAt: new Date() })
     })
@@ -265,7 +251,9 @@ export function paranoid() {
  */
 export function uuidPrimary() {
   return createTrait()
-    .field('uuid', field.uuid().unique())
+    .fields(f => ({
+      uuid: f.uuid().unique(),
+    }))
     .build()
 }
 
@@ -274,7 +262,9 @@ export function uuidPrimary() {
  */
 export function sluggable() {
   return createTrait()
-    .field('slug', field.string().unique())
+    .fields(f => ({
+      slug: f.string().unique(),
+    }))
     .method('generateSlug', (_repo: AnyRepository, source: string): string => {
       return source
         .toLowerCase()
@@ -295,10 +285,10 @@ export function sluggable() {
  */
 export function publishable() {
   return createTrait()
-    .fields({
-      published: field.boolean().default(false),
-      publishedAt: field.timestamp().nullable(),
-    })
+    .fields(f => ({
+      published: f.boolean().default(false),
+      publishedAt: f.timestamp().nullable(),
+    }))
     .methods({
       async publish(repo: AnyRepository) {
         return repo.update(this.id, {
@@ -328,7 +318,9 @@ export function publishable() {
  */
 export function sortable() {
   return createTrait()
-    .field('position', field.number().integer().default(0))
+    .fields(f => ({
+      position: f.number().integer().default(0),
+    }))
     .method('moveUp', async function (repo: AnyRepository) {
       return repo.update(this.id, { position: this.position - 1 })
     })
@@ -347,7 +339,9 @@ export function sortable() {
  */
 export function versionable() {
   return createTrait()
-    .field('version', field.number().integer().default(1))
+    .fields(f => ({
+      version: f.number().integer().default(1),
+    }))
     .method('incrementVersion', function (_repo: AnyRepository): number {
       return (this.version || 1) + 1
     })

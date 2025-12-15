@@ -5,11 +5,11 @@ setupGlobalTestHooks()
 
 describe('Edge Cases - Performance', () => {
   test('should handle large batch inserts efficiently', async () => {
-    const User = orm.entity('perf_batch_insert', {
-      name: orm.string(),
-      email: orm.string(),
-      age: orm.number(),
-    }).build()
+    const User = orm.entity('perf_batch_insert', f => ({
+      name: f.string(),
+      email: f.string(),
+      age: f.number(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -44,10 +44,10 @@ describe('Edge Cases - Performance', () => {
   })
 
   test('should handle offset/limit queries efficiently on large datasets', async () => {
-    const User = orm.entity('perf_pagination', {
-      name: orm.string(),
-      score: orm.number(),
-    }).build()
+    const User = orm.entity('perf_pagination', f => ({
+      name: f.string(),
+      score: f.number(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -80,12 +80,12 @@ describe('Edge Cases - Performance', () => {
   })
 
   test('should handle complex queries efficiently', async () => {
-    const User = orm.entity('perf_complex_query', {
-      name: orm.string(),
-      age: orm.number(),
-      status: orm.enum(['active', 'inactive', 'pending']),
-      metadata: orm.jsonb<any>(),
-    }).build()
+    const User = orm.entity('perf_complex_query', f => ({
+      name: f.string(),
+      age: f.number(),
+      status: f.enum(['active', 'inactive', 'pending']),
+      metadata: f.jsonb<any>(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -128,10 +128,10 @@ describe('Edge Cases - Performance', () => {
   })
 
   test('should handle rapid sequential updates', async () => {
-    const Counter = orm.entity('perf_updates', {
-      name: orm.string(),
-      count: orm.number(),
-    }).build()
+    const Counter = orm.entity('perf_updates', f => ({
+      name: f.string(),
+      count: f.number(),
+    })).build()
 
     const counters = orm.repo(Counter)
 
@@ -162,10 +162,10 @@ describe('Edge Cases - Performance', () => {
   })
 
   test('should handle bulk deletes efficiently', async () => {
-    const User = orm.entity('perf_deletes', {
-      name: orm.string(),
-      active: orm.boolean(),
-    }).build()
+    const User = orm.entity('perf_deletes', f => ({
+      name: f.string(),
+      active: f.boolean(),
+    })).build()
 
     const users = orm.repo(User)
 
@@ -200,11 +200,11 @@ describe('Edge Cases - Performance', () => {
   })
 
   test('should handle query builder chain reuse', async () => {
-    const User = orm.entity('perf_query_reuse', {
-      name: orm.string(),
-      age: orm.number(),
-      role: orm.enum(['admin', 'user', 'moderator']),
-    }).build()
+    const User = orm.entity('perf_query_reuse', f => ({
+      name: f.string(),
+      age: f.number(),
+      role: f.enum(['admin', 'user', 'moderator']),
+    })).build()
 
     const users = orm.repo(User)
 

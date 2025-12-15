@@ -86,10 +86,10 @@ The project uses **Bun** for all lifecycle scripts.
 import { orm } from '@kaynooo/pg-orm'
 
 // 1. Define Entity
-const User = orm.entity('users', {
-  name: orm.string(),
-  email: orm.string().unique(),
-  role: orm.enum(['admin', 'user'])
+const User = orm.entity('users', f => ({
+  name: f.string(),
+  email: f.string().unique(),
+  role: f.enum(['admin', 'user'])
 }).build()
 
 // 2. Connect

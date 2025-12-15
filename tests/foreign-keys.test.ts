@@ -5,10 +5,10 @@ import { orm } from './setup'
 describe('Foreign Keys', () => {
   describe('Field Definition', () => {
     test('should define a foreign key field with default options', () => {
-      const Post = orm.entity('test_fk_posts', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users'),
-      }).build()
+      const Post = orm.entity('test_fk_posts', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users'),
+      })).build()
 
       const authorIdConfig = Post.schema.authorId
 
@@ -21,10 +21,10 @@ describe('Foreign Keys', () => {
     })
 
     test('should define a foreign key field with custom column', () => {
-      const Comment = orm.entity('test_fk_comments', {
-        content: orm.string(),
-        postId: orm.foreignKey('posts', 'post_id'),
-      }).build()
+      const Comment = orm.entity('test_fk_comments', f => ({
+        content: f.string(),
+        postId: f.foreignKey('posts', 'post_id'),
+      })).build()
 
       const postIdConfig = Comment.schema.postId
 
@@ -33,10 +33,10 @@ describe('Foreign Keys', () => {
     })
 
     test('should define a foreign key field with CASCADE delete', () => {
-      const OrderItem = orm.entity('test_fk_order_items', {
-        quantity: orm.number(),
-        orderId: orm.foreignKey('orders').onDelete('CASCADE'),
-      }).build()
+      const OrderItem = orm.entity('test_fk_order_items', f => ({
+        quantity: f.number(),
+        orderId: f.foreignKey('orders').onDelete('CASCADE'),
+      })).build()
 
       const orderIdConfig = OrderItem.schema.orderId
 
@@ -45,10 +45,10 @@ describe('Foreign Keys', () => {
     })
 
     test('should define a foreign key field with SET NULL delete', () => {
-      const Task = orm.entity('test_fk_tasks', {
-        name: orm.string(),
-        assigneeId: orm.foreignKey('users').nullable().onDelete('SET NULL'),
-      }).build()
+      const Task = orm.entity('test_fk_tasks', f => ({
+        name: f.string(),
+        assigneeId: f.foreignKey('users').nullable().onDelete('SET NULL'),
+      })).build()
 
       const assigneeIdConfig = Task.schema.assigneeId
 
@@ -57,10 +57,10 @@ describe('Foreign Keys', () => {
     })
 
     test('should define a foreign key field with RESTRICT', () => {
-      const Invoice = orm.entity('test_fk_invoices', {
-        amount: orm.number(),
-        customerId: orm.foreignKey('customers').onDelete('RESTRICT').onUpdate('RESTRICT'),
-      }).build()
+      const Invoice = orm.entity('test_fk_invoices', f => ({
+        amount: f.number(),
+        customerId: f.foreignKey('customers').onDelete('RESTRICT').onUpdate('RESTRICT'),
+      })).build()
 
       const customerIdConfig = Invoice.schema.customerId
 
@@ -69,10 +69,10 @@ describe('Foreign Keys', () => {
     })
 
     test('should define a foreign key field with CASCADE update', () => {
-      const Log = orm.entity('test_fk_logs', {
-        message: orm.string(),
-        userId: orm.foreignKey('users').onUpdate('CASCADE'),
-      }).build()
+      const Log = orm.entity('test_fk_logs', f => ({
+        message: f.string(),
+        userId: f.foreignKey('users').onUpdate('CASCADE'),
+      })).build()
 
       const userIdConfig = Log.schema.userId
 
@@ -82,12 +82,12 @@ describe('Foreign Keys', () => {
 
   describe('Multiple Foreign Keys', () => {
     test('should support multiple foreign keys in one entity', () => {
-      const Post = orm.entity('test_fk_multi', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users'),
-        categoryId: orm.foreignKey('categories'),
-        reviewerId: orm.foreignKey('users').nullable().onDelete('SET NULL'),
-      }).build()
+      const Post = orm.entity('test_fk_multi', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users'),
+        categoryId: f.foreignKey('categories'),
+        reviewerId: f.foreignKey('users').nullable().onDelete('SET NULL'),
+      })).build()
 
       expect(Post.schema.authorId.foreignKey?.table).toBe('users')
       expect(Post.schema.categoryId.foreignKey?.table).toBe('categories')
@@ -99,24 +99,24 @@ describe('Foreign Keys', () => {
   describe('Foreign Key Validation', () => {
     test('should allow foreign key on number fields', () => {
       expect(() => {
-        orm.entity('test_fk_valid', {
-          userId: orm.foreignKey('users'),
-        }).build()
+        orm.entity('test_fk_valid', f => ({
+          userId: f.foreignKey('users'),
+        })).build()
       }).not.toThrow()
     })
 
     test('should allow foreign key on nullable fields', () => {
       expect(() => {
-        orm.entity('test_fk_nullable', {
-          userId: orm.foreignKey('users').nullable(),
-        }).build()
+        orm.entity('test_fk_nullable', f => ({
+          userId: f.foreignKey('users').nullable(),
+        })).build()
       }).not.toThrow()
     })
 
     test('should store foreign key metadata correctly', () => {
-      const Entity = orm.entity('test_fk_metadata', {
-        parentId: orm.foreignKey('parents').onDelete('CASCADE').onUpdate('NO ACTION'),
-      }).build()
+      const Entity = orm.entity('test_fk_metadata', f => ({
+        parentId: f.foreignKey('parents').onDelete('CASCADE').onUpdate('NO ACTION'),
+      })).build()
 
       const fk = Entity.schema.parentId.foreignKey
 
@@ -139,9 +139,9 @@ describe('Foreign Keys', () => {
       ]
 
       for (const { option, expected } of testCases) {
-        const Entity = orm.entity(`test_fk_delete_${option.toLowerCase().replace(' ', '_')}`, {
-          refId: orm.foreignKey('ref').onDelete(option),
-        }).build()
+        const Entity = orm.entity(`test_fk_delete_${option.toLowerCase().replace(' ', '_')}`, f => ({
+          refId: f.foreignKey('ref').onDelete(option),
+        })).build()
 
         expect(Entity.schema.refId.foreignKey?.onDelete).toBe(expected as any)
       }
@@ -156,9 +156,9 @@ describe('Foreign Keys', () => {
       ]
 
       for (const { option, expected } of testCases) {
-        const Entity = orm.entity(`test_fk_update_${option.toLowerCase().replace(' ', '_')}`, {
-          refId: orm.foreignKey('ref').onUpdate(option),
-        }).build()
+        const Entity = orm.entity(`test_fk_update_${option.toLowerCase().replace(' ', '_')}`, f => ({
+          refId: f.foreignKey('ref').onUpdate(option),
+        })).build()
 
         expect(Entity.schema.refId.foreignKey?.onUpdate).toBe(expected as any)
       }
@@ -167,20 +167,20 @@ describe('Foreign Keys', () => {
 
   describe('Foreign Key Integration', () => {
     test('should work with unique constraint', () => {
-      const Profile = orm.entity('test_fk_unique', {
-        bio: orm.string(),
-        userId: orm.foreignKey('users').unique(),
-      }).build()
+      const Profile = orm.entity('test_fk_unique', f => ({
+        bio: f.string(),
+        userId: f.foreignKey('users').unique(),
+      })).build()
 
       expect(Profile.schema.userId.unique).toBe(true)
       expect(Profile.schema.userId.foreignKey).toBeDefined()
     })
 
     test('should work with column name override', () => {
-      const Task = orm.entity('test_fk_column', {
-        name: orm.string(),
-        assignee: orm.foreignKey('users').column('assignee_id'),
-      }).build()
+      const Task = orm.entity('test_fk_column', f => ({
+        name: f.string(),
+        assignee: f.foreignKey('users').column('assignee_id'),
+      })).build()
 
       expect(Task.schema.assignee.columnName).toBe('assignee_id')
       expect(Task.schema.assignee.foreignKey?.table).toBe('users')
@@ -189,11 +189,11 @@ describe('Foreign Keys', () => {
 
   describe('Type Safety', () => {
     test('should maintain type safety with foreign keys', () => {
-      const _Post = orm.entity('test_fk_types', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users'),
-        reviewerId: orm.foreignKey('users').nullable(),
-      }).build()
+      const _Post = orm.entity('test_fk_types', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users'),
+        reviewerId: f.foreignKey('users').nullable(),
+      })).build()
 
       // Type inference should work
       type PostEntity = InferEntity<typeof _Post.schema>
@@ -213,11 +213,11 @@ describe('Foreign Keys', () => {
 
   describe('Schema Introspection', () => {
     test('should expose foreign key information in entity definition', () => {
-      const Post = orm.entity('test_fk_introspection', {
-        title: orm.string(),
-        authorId: orm.foreignKey('users').onDelete('CASCADE').onUpdate('NO ACTION'),
-        categoryId: orm.foreignKey('categories'),
-      }).build()
+      const Post = orm.entity('test_fk_introspection', f => ({
+        title: f.string(),
+        authorId: f.foreignKey('users').onDelete('CASCADE').onUpdate('NO ACTION'),
+        categoryId: f.foreignKey('categories'),
+      })).build()
 
       // Should be able to iterate over fields and find foreign keys
       const foreignKeys: {
@@ -251,9 +251,9 @@ describe('Foreign Keys', () => {
 
   describe('Chaining Methods', () => {
     test('should allow method chaining with foreignKey', () => {
-      const Entity = orm.entity('test_fk_chaining', {
-        refId: orm.foreignKey('ref').unique().column('reference_id'),
-      }).build()
+      const Entity = orm.entity('test_fk_chaining', f => ({
+        refId: f.foreignKey('ref').unique().column('reference_id'),
+      })).build()
 
       const config = Entity.schema.refId
 
@@ -263,13 +263,13 @@ describe('Foreign Keys', () => {
     })
 
     test('should allow foreignKey constraints in any order', () => {
-      const Entity1 = orm.entity('test_fk_order1', {
-        refId: orm.foreignKey('ref').unique().nullable(),
-      }).build()
+      const Entity1 = orm.entity('test_fk_order1', f => ({
+        refId: f.foreignKey('ref').unique().nullable(),
+      })).build()
 
-      const Entity2 = orm.entity('test_fk_order2', {
-        refId: orm.foreignKey('ref').unique().nullable(),
-      }).build()
+      const Entity2 = orm.entity('test_fk_order2', f => ({
+        refId: f.foreignKey('ref').unique().nullable(),
+      })).build()
 
       expect(Entity1.schema.refId.unique).toBe(true)
       expect(Entity1.schema.refId.nullable).toBe(true)

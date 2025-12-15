@@ -15,11 +15,11 @@ describe('Data Factories', () => {
 
   describe('defineFactory', () => {
     test('should generate test data with make()', async () => {
-      const User = orm.entity('factory_test_make', {
-        name: orm.string(),
-        email: orm.string().unique(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_make', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -42,11 +42,11 @@ describe('Data Factories', () => {
     })
 
     test('should persist test data with create()', async () => {
-      const User = orm.entity('factory_test_create', {
-        name: orm.string(),
-        email: orm.string().unique(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_create', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -71,11 +71,11 @@ describe('Data Factories', () => {
     })
 
     test('should support makeOne()', async () => {
-      const User = orm.entity('factory_test_make_one', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_make_one', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -95,11 +95,11 @@ describe('Data Factories', () => {
     })
 
     test('should support createOne()', async () => {
-      const User = orm.entity('factory_test_create_one', {
-        name: orm.string(),
-        email: orm.string().unique(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_create_one', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -123,11 +123,11 @@ describe('Data Factories', () => {
     })
 
     test('should support state overrides', async () => {
-      const User = orm.entity('factory_test_state', {
-        name: orm.string(),
-        email: orm.string().unique(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_state', f => ({
+        name: f.string(),
+        email: f.string().unique(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -147,11 +147,11 @@ describe('Data Factories', () => {
     })
 
     test('should support async generators', async () => {
-      const User = orm.entity('factory_test_async', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_async', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 
@@ -175,11 +175,11 @@ describe('Data Factories', () => {
     })
 
     test('should expose raw generator', async () => {
-      const User = orm.entity('factory_test_raw', {
-        name: orm.string(),
-        email: orm.string(),
-        age: orm.number(),
-      }).build()
+      const User = orm.entity('factory_test_raw', f => ({
+        name: f.string(),
+        email: f.string(),
+        age: f.number(),
+      })).build()
 
       await createTestTable(User)
 

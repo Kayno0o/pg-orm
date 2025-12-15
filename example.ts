@@ -22,8 +22,10 @@ interface UserMetadata {
 
 // Custom trait with builder pattern and repository access
 const likeable = orm.trait()
-  .field('likesCount', orm.number().integer().default(0))
-  .field('likedBy', orm.array('number').default([]))
+  .fields(f => ({
+    likesCount: f.number().integer().default(0),
+    likedBy: f.array('number').default([]),
+  }))
   .method('like', async function (repo, userId: number) {
     // 'this' is the entity, 'repo' has full database access
     if (!this.likedBy.includes(userId)) {
@@ -52,15 +54,15 @@ const likeable = orm.trait()
 
 // Simple entity definition with improved type safety
 const User = orm
-  .entity('users', {
-    name: orm.string(), // Required by default (no undefined in type)
-    email: orm.string().unique(), // Required, unique constraint
-    age: orm.number().nullable(), // Optional (can be null or undefined in create)
-    role: orm.enum(['admin', 'user', 'moderator'] as const), // Required enum
-    isActive: orm.boolean().default(true), // Optional (has default)
-    metadata: orm.jsonb<UserMetadata>().nullable(), // Typed JSON, optional
-    tags: orm.array('string'), // Typed string array, required
-  })
+  .entity('users', f => ({
+    name: f.string(), // Required by default (no undefined in type)
+    email: f.string().unique(), // Required, unique constraint
+    age: f.number().nullable(), // Optional (can be null or undefined in create)
+    role: f.enum(['admin', 'user', 'moderator'] as const), // Required enum
+    isActive: f.boolean().default(true), // Optional (has default)
+    metadata: f.jsonb<UserMetadata>().nullable(), // Typed JSON, optional
+    tags: f.array('string'), // Typed string array, required
+  }))
   .use(timestamps()) // Add createdAt and updatedAt
   .beforeCreate((data) => {
     // Normalize email before creation
@@ -73,12 +75,12 @@ const User = orm
 
 // Another entity with different traits including custom trait
 const Post = orm
-  .entity('posts', {
-    title: orm.string().maxLength(255),
-    content: orm.string(),
-    authorId: orm.number(),
-    views: orm.number().integer().default(0),
-  })
+  .entity('posts', f => ({
+    title: f.string().maxLength(255),
+    content: f.string(),
+    authorId: f.number(),
+    views: f.number().integer().default(0),
+  }))
   .use(timestamps())
   .use(publishable())
   .use(likeable) // Custom trait with repository access!
