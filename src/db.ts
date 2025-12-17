@@ -1,8 +1,5 @@
-import type { CacheAdapter } from './cache'
-import type { QueryLoggingConfig } from './logger'
 import type { MigrationConfig } from './migration/types'
 import { sql as bunSql, SQL } from 'bun'
-import { queryLogger } from './logger'
 
 /**
  * Configuration options for the database connection.
@@ -23,7 +20,6 @@ export interface DatabaseConfig {
   min?: number
   schema?: string
   migrations?: MigrationConfig
-  cache?: CacheAdapter
   limits?: {
     bulkOperations?: number
     arraySize?: number
@@ -34,7 +30,6 @@ export interface DatabaseConfig {
   validation?: {
     strict?: boolean
   }
-  logging?: QueryLoggingConfig
   errorHandling?: {
     exposeInternalErrors?: boolean
     includeStackTraces?: boolean
@@ -51,10 +46,6 @@ let dbConfig: DatabaseConfig | null = null
 export async function initializeDatabase(connectionString: string | DatabaseConfig): Promise<SQL> {
   if (typeof connectionString === 'object') {
     dbConfig = connectionString
-
-    if (connectionString.logging) {
-      queryLogger.configure(connectionString.logging)
-    }
   }
   else {
     dbConfig = { connectionString }
@@ -74,7 +65,6 @@ export async function initializeDatabase(connectionString: string | DatabaseConf
       idleTimeout: _idleTimeout,
       connectionTimeout: _connectionTimeout,
       migrations: _migrations,
-      logging: _logging,
       schema,
       ...rest
     } = connectionString
