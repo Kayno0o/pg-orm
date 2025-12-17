@@ -97,10 +97,17 @@ The ORM supports **multiple independent instances**, each with its own:
 
 **Basic Usage:**
 ```typescript
-import { ORM } from '@kaynooo/orm'
+import { ORM, InMemoryCache } from '@kaynooo/orm'
 
-// Create ORM instance
-const orm = new ORM()
+// Create ORM instance with optional cache and logging
+const orm = new ORM({
+  cache: new InMemoryCache(60_000), // Optional: 60s default TTL
+  logging: {
+    enabled: true,
+    logger: (entry) => console.log(`[${entry.operation}] ${entry.query}`)
+  }
+})
+
 await orm.connect(process.env.DATABASE_URL!)
 
 const User = orm.entity('users', f => ({ ... })).build()
@@ -108,11 +115,13 @@ const User = orm.entity('users', f => ({ ... })).build()
 
 **Multi-Database Usage:**
 ```typescript
-import { ORM } from '@kaynooo/orm'
+import { ORM, InMemoryCache } from '@kaynooo/orm'
 
-// Different databases
-const userDb = new ORM()
-const analyticsDb = new ORM()
+// Different databases with shared cache config
+const cache = new InMemoryCache(60_000)
+
+const userDb = new ORM({ cache })
+const analyticsDb = new ORM({ cache })
 
 await userDb.connect('postgresql://users_db')
 await analyticsDb.connect('postgresql://analytics_db')
@@ -417,6 +426,17 @@ await orm.transaction(async (tx) => {
 ### 10. Database Connection
 
 ```typescript
+// ORM instance configuration (cache, logging)
+const orm = new ORM({
+  cache: new InMemoryCache(60_000),
+  logging: {
+    enabled: true,
+    logger: (entry) => {
+      console.log(`[${entry.operation}:${entry.duration}ms] ${entry.query}`)
+    }
+  }
+})
+
 // Simple connection
 await orm.connect(process.env.DATABASE_URL!)
 
@@ -432,9 +452,11 @@ await orm.connect({
   schema: 'tenant_1',     // PostgreSQL schema (default: 'public')
 
   // Migration config
-  autoMigrate: true,      // Auto-detect schema changes
-  noInteraction: false,   // Prompt before applying
-  safeMigrations: true,   // Prevent DROP TABLE/COLUMN
+  migrations: {
+    autoMigrate: true,      // Auto-detect schema changes
+    noInteraction: false,   // Prompt before applying
+    safeMigrations: true,   // Prevent DROP TABLE/COLUMN
+  }
 })
 
 // Get raw database instance

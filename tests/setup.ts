@@ -20,7 +20,6 @@ export const TEST_DB_CONFIG = process.env.DATABASE_URL
 // ============================================================================
 
 export interface TestDatabaseOptions {
-  cache?: any
   schema?: string
   autoMigrate?: boolean
   orm?: ORM
@@ -31,7 +30,6 @@ export interface TestDatabaseOptions {
  *
  * @param options - Configuration options
  * @param options.schema - Optional schema name for isolation (default: 'public')
- * @param options.cache - Optional cache adapter
  * @param options.autoMigrate - Whether to run auto-migration (default: true)
  * @param options.orm - Optional ORM instance to use (defaults to global orm)
  *
@@ -42,6 +40,11 @@ export interface TestDatabaseOptions {
  * @example
  * // Use default (backward compatible)
  * await setupTestDatabase()
+ *
+ * @example
+ * // Use custom ORM with cache
+ * const orm = new ORM({ cache: new InMemoryCache(60000) })
+ * await setupTestDatabase({ orm })
  */
 export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
   const schema = options.schema || 'public'
@@ -72,7 +75,6 @@ export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
           killIfUpdate: false,
           safeMigrations: false,
         },
-        cache: options.cache,
       })
 
       const db = targetOrm.getDB()
@@ -92,7 +94,6 @@ export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
           killIfUpdate: false,
           safeMigrations: false,
         },
-        cache: options.cache,
       })
     }
 
@@ -120,7 +121,6 @@ export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
           killIfUpdate: false,
           safeMigrations: false,
         },
-        cache: options.cache,
       })
 
       const db = targetOrm.getDB()
@@ -141,7 +141,6 @@ export async function setupTestDatabase(options: TestDatabaseOptions = {}) {
         killIfUpdate: false,
         safeMigrations: false,
       },
-      cache: options.cache,
     })
     console.log('✅ Test database connected')
   }

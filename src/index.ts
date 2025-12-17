@@ -55,6 +55,7 @@ export type {
   SchemaDiff,
 } from './migration/types'
 export { ORM } from './orm'
+export type { ORMConfig } from './orm'
 export { QueryBuilder } from './query'
 export {
   BelongsToBuilder,

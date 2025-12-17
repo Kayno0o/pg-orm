@@ -4,11 +4,12 @@ import { cleanupTables, createTestTable, setupTestDatabase, teardownTestDatabase
 
 describe('Query Caching', () => {
   let cache: InMemoryCache
-  const orm = new ORM()
+  let orm: ORM
 
   beforeAll(async () => {
     cache = new InMemoryCache(60000)
-    await setupTestDatabase({ cache, autoMigrate: false, orm })
+    orm = new ORM({ cache })
+    await setupTestDatabase({ autoMigrate: false, orm })
   })
 
   afterAll(async () => {
@@ -47,24 +48,24 @@ describe('Query Caching', () => {
     })
 
     test('should throw error if cache not configured', async () => {
-      await orm.disconnect()
-      await setupTestDatabase({ autoMigrate: false, orm })
+      const ormWithoutCache = new ORM()
 
-      const User = orm.entity('cache_test_no_adapter', f => ({
+      await setupTestDatabase({ autoMigrate: false, orm: ormWithoutCache })
+
+      const User = ormWithoutCache.entity('cache_test_no_adapter', f => ({
         name: f.string(),
       })).build()
 
-      await createTestTable(User, orm)
+      await createTestTable(User, ormWithoutCache)
 
-      const users = orm.repo(User)
+      const users = ormWithoutCache.repo(User)
 
       expect(async () => {
         await users.query().cache(60).execute()
       }).toThrow('Cache adapter not configured')
 
-      await cleanupTables(orm, 'cache_test_no_adapter')
-      await orm.disconnect()
-      await setupTestDatabase({ cache, autoMigrate: false, orm })
+      await cleanupTables(ormWithoutCache, 'cache_test_no_adapter')
+      await ormWithoutCache.disconnect()
     })
 
     test('should validate cache TTL', async () => {

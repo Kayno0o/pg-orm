@@ -1,15 +1,22 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
 import type { DatabaseConfig } from './db'
+import type { QueryLoggingConfig } from './logger'
 import type { RelationSchema } from './relations/types'
 import type { EntityDefinition, EntitySchema, FieldConfig } from './types'
 import { closeDatabase, initializeDatabase } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
 import { field } from './field'
+import { queryLogger } from './logger'
 import { Migrator } from './migration/migrator'
 import { Repository } from './repository'
 import { SeederRunner } from './seeder'
 import { createTrait } from './traits'
+
+export interface ORMConfig {
+  cache?: CacheAdapter
+  logging?: QueryLoggingConfig
+}
 
 /**
  * Main entry point for the ORM.
@@ -23,6 +30,16 @@ export class ORM {
   private cacheAdapter?: CacheAdapter
   private db: SQL | null = null
   private schema = 'public'
+
+  constructor(config?: ORMConfig) {
+    if (config?.cache) {
+      this.cacheAdapter = config.cache
+    }
+
+    if (config?.logging) {
+      queryLogger.configure(config.logging)
+    }
+  }
 
   /**
    * Clears all registered entities and repositories.
@@ -43,7 +60,6 @@ export class ORM {
 
     if (typeof connectionString === 'object') {
       this.migrationConfig = connectionString.migrations
-      this.cacheAdapter = connectionString.cache
 
       // Extract schema configuration
       if (connectionString.schema) {

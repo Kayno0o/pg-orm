@@ -710,7 +710,7 @@ export class QueryBuilder<
   /** Sets the cache TTL for the query results. */
   cache(ttlSeconds: number): this {
     if (!this.cacheAdapter) {
-      throw new Error('Cache adapter not configured. Configure a cache adapter in orm.connect({ cache: ... }).')
+      throw new Error('Cache adapter not configured. Configure a cache adapter when creating ORM instance: new ORM({ cache: ... }).')
     }
 
     if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) {
