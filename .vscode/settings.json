@@ -87,7 +87,7 @@
       "ssh": "Disabled",
       "previewLimit": 50,
       "server": "localhost",
-      "port": 5432,
+      "port": 8532,
       "driver": "PostgreSQL",
       "name": "test db",
       "group": "test",

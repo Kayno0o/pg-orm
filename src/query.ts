@@ -1,6 +1,5 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
-import type { BelongsToConfig, HasOneConfig, RelationConfig, RelationSchema } from './relations/types'
 import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, InferUpdateData, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
 import { toSnake } from '@kaynooo/utils'
 import { hashCacheKey } from './cache'
@@ -19,15 +18,6 @@ interface JoinClause {
   rightColumn: string
 }
 
-interface JoinedRelationMetadata {
-  relationName: string
-  config: BelongsToConfig | HasOneConfig
-  tableName: string
-  alias: string
-  schema: EntitySchema
-  columnNameMap: Map<string, string>
-}
-
 /**
  * Builder for constructing and executing type-safe SQL queries.
  */
@@ -35,9 +25,7 @@ export class QueryBuilder<
   T extends EntitySchema,
   SelectedFields extends readonly (keyof T | 'id' | string)[] = never,
   TScopes extends string = never,
-  LoadedRelations extends Record<string, any> = {},
   TTraits extends readonly any[] = readonly [],
-  TRelations extends RelationSchema = RelationSchema,
   TAggregations extends Record<string, any> = {},
   TGroupedFields extends readonly (keyof T | 'id')[] = never,
 > {
@@ -56,8 +44,6 @@ export class QueryBuilder<
   private cacheAdapter?: CacheAdapter
   private hasCustomSelect = false
   private schemaName?: string
-  private joinedRelations = new Map<string, JoinedRelationMetadata>()
-  private pendingEagerLoads = new Map<string, RelationConfig>()
 
   // eslint-disable-next-line max-params
   constructor(
@@ -68,7 +54,7 @@ export class QueryBuilder<
     scopes?: Map<string, ScopeDefinition<T>>,
     cacheAdapter?: CacheAdapter,
     schemaName?: string,
-    private entity?: EntityDefinition<T, any, any, any>,
+    private entity?: EntityDefinition<T, any, any>,
     private orm?: any,
   ) {
     validateSQLIdentifier(tableName, 'table')
@@ -106,59 +92,6 @@ export class QueryBuilder<
     return columnName
   }
 
-  private resolveDotNotation(fieldPath: string): string {
-    if (!fieldPath.includes('.')) {
-      return this.validateColumnName(fieldPath)
-    }
-
-    const parts = fieldPath.split('.')
-
-    if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new Error(
-        `Invalid field path "${fieldPath}". `
-        + 'Use format "relationName.fieldName" or just "fieldName"',
-      )
-    }
-
-    const relationName = parts[0]
-    const fieldName = parts[1]
-
-    // Check if this relation is being eagerly loaded (hasMany/manyToMany)
-    if (this.pendingEagerLoads.has(relationName)) {
-      const relationConfig = this.pendingEagerLoads.get(relationName)!
-
-      throw new Error(
-        `Cannot filter or sort by "${fieldPath}". `
-        + `Relation "${relationName}" is type "${relationConfig.type}" which doesn't support WHERE/ORDER BY clauses. `
-        + `Only belongsTo and hasOne relations (using SQL JOINs) support filtering/sorting. `
-        + `Use a subquery or filter in application code instead.`,
-      )
-    }
-
-    const joinedRelation = this.joinedRelations.get(relationName)
-
-    if (!joinedRelation) {
-      throw new Error(
-        `Cannot query field "${fieldPath}". `
-        + `Relation "${relationName}" not joined. `
-        + `Call .with('${relationName}') first.`,
-      )
-    }
-
-    const columnName = joinedRelation.columnNameMap.get(fieldName)
-
-    if (!columnName) {
-      const available = Array.from(joinedRelation.columnNameMap.keys())
-
-      throw new Error(
-        `Field "${fieldName}" not found on relation "${relationName}". `
-        + `Available fields: ${available.join(', ')}`,
-      )
-    }
-
-    return `${joinedRelation.alias}.${columnName}`
-  }
-
   private addParam(value: SQLValue): string {
     this.whereParams.push(value)
 
@@ -169,34 +102,16 @@ export class QueryBuilder<
    * Selects specific fields to return.
    * Supports dot notation for joined relations (e.g., 'author.name').
    * @param fields - The fields to select.
-   * Note: Custom select disables relation type inference.
    */
   select<F extends readonly (keyof T | 'id' | string)[]>(
     ...fields: F
 
-  ): QueryBuilder<T, F, TScopes, {}, TTraits, TRelations, TAggregations, TGroupedFields> {
+  ): QueryBuilder<T, F, TScopes, TTraits, TAggregations, TGroupedFields> {
     this.hasCustomSelect = true
     this.selectFields = fields.map((f) => {
       const fieldStr = String(f)
 
       if (fieldStr.includes('.')) {
-        const parts = fieldStr.split('.')
-
-        if (parts.length === 2 && parts[0] && parts[1]) {
-          const relation = parts[0]
-          const joinedRel = this.joinedRelations.get(relation)
-
-          if (joinedRel) {
-            const columnRef = this.resolveDotNotation(fieldStr)
-            const field = parts[1]
-            const columnName = joinedRel.columnNameMap.get(field)
-
-            if (columnName) {
-              return `${columnRef} AS ${relation}__${columnName}`
-            }
-          }
-        }
-
         return fieldStr
       }
 
@@ -216,7 +131,7 @@ export class QueryBuilder<
   where(field: keyof T | 'id' | string, operator: string, value: SQLValue): this {
     const fieldStr = String(field)
     const columnName = fieldStr.includes('.')
-      ? this.resolveDotNotation(fieldStr)
+      ? fieldStr
       : this.validateColumnName(fieldStr)
     const placeholder = this.addParam(value)
 
@@ -380,7 +295,7 @@ export class QueryBuilder<
   orderBy(field: keyof T | 'id' | string, direction: OrderDirection = 'ASC'): this {
     const fieldStr = String(field)
     const columnName = fieldStr.includes('.')
-      ? this.resolveDotNotation(fieldStr)
+      ? fieldStr
       : this.validateColumnName(fieldStr)
 
     // Validate direction to prevent SQL injection
@@ -399,14 +314,14 @@ export class QueryBuilder<
   }
 
   /** Adds a GROUP BY clause. */
-  groupBy<F extends (keyof T | 'id')[]>(...fields: F): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations, F> {
+  groupBy<F extends (keyof T | 'id')[]>(...fields: F): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations, F> {
     this.groupByFields = fields.map(f => this.validateColumnName(String(f)))
 
     return this as any
   }
 
   /** Calculates the sum of a field. */
-  sum(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { sum: number }, TGroupedFields> {
+  sum(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations & { sum: number }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('sum', { func: 'SUM', field: columnName })
@@ -415,7 +330,7 @@ export class QueryBuilder<
   }
 
   /** Calculates the average of a field. */
-  avg(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { avg: number }, TGroupedFields> {
+  avg(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations & { avg: number }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('avg', { func: 'AVG', field: columnName })
@@ -424,7 +339,7 @@ export class QueryBuilder<
   }
 
   /** Finds the minimum value of a field. */
-  min(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { min: number | null }, TGroupedFields> {
+  min(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations & { min: number | null }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('min', { func: 'MIN', field: columnName })
@@ -433,7 +348,7 @@ export class QueryBuilder<
   }
 
   /** Finds the maximum value of a field. */
-  max(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & { max: number | null }, TGroupedFields> {
+  max(field: keyof T): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations & { max: number | null }, TGroupedFields> {
     const columnName = this.validateColumnName(String(field))
 
     this.aggregations.set('max', { func: 'MAX', field: columnName })
@@ -442,7 +357,7 @@ export class QueryBuilder<
   }
 
   /** Counts the number of rows. */
-  countAs<Alias extends string = 'count'>(alias: Alias = 'count' as Alias): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations & Record<Alias, number>, TGroupedFields> {
+  countAs<Alias extends string = 'count'>(alias: Alias = 'count' as Alias): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations & Record<Alias, number>, TGroupedFields> {
     this.aggregations.set(alias, { func: 'COUNT', field: '*' })
 
     return this as any
@@ -550,128 +465,8 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Loads a relation using intelligent strategy:
-   * - belongsTo/hasOne: SQL JOIN (allows filtering/sorting)
-   * - hasMany/manyToMany: Separate batched query
-   * @param relationName - The name of the relation to load.
-   * @example
-   * // With explicit type
-   * .with<Author>('author')
-   *
-   * // Without explicit type (defaults to any)
-   * .with('author')
-   */
-  // eslint-disable-next-line max-lines-per-function
-  with<RelationType = any, K extends string = string>(
-    relationName: K,
-  ): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations & Record<K, RelationType>, TTraits, TRelations, TAggregations, TGroupedFields> {
-    if (!this.entity || !this.orm) {
-      throw new Error(
-        'with() requires entity metadata. '
-        + 'Ensure QueryBuilder was created via repository.query()',
-      )
-    }
-
-    if (this.joinedRelations.has(relationName) || this.pendingEagerLoads.has(relationName)) {
-      throw new Error(
-        `Relation "${relationName}" already loaded. `
-        + 'Cannot load the same relation multiple times.',
-      )
-    }
-
-    const relationConfig = this.entity.relations?.[relationName]
-
-    if (!relationConfig) {
-      const available = Object.keys(this.entity.relations || {})
-
-      throw new Error(
-        `Relation "${relationName}" not found on ${this.tableName}. ${
-          available.length > 0
-            ? `Available relations: ${available.join(', ')}`
-            : 'No relations defined on this entity.'}`,
-      )
-    }
-
-    if (relationConfig.type === 'hasMany' || relationConfig.type === 'manyToMany') {
-      this.pendingEagerLoads.set(relationName, relationConfig)
-
-      return this as any
-    }
-
-    const relatedEntity = this.orm.getEntityByTable(relationConfig.tableName)
-
-    if (!relatedEntity) {
-      throw new Error(
-        `Related entity "${relationConfig.tableName}" not registered. `
-        + 'Did you call .build() on it?',
-      )
-    }
-
-    const columnNameMap = new Map<string, string>()
-
-    columnNameMap.set('id', 'id')
-    for (const fieldName of Object.keys(relatedEntity.schema)) {
-      const fieldConfig = relatedEntity.schema[fieldName]
-      const columnName = fieldConfig?.columnName || toSnake(fieldName)
-
-      columnNameMap.set(fieldName, columnName)
-    }
-
-    const alias = relationName
-
-    this.joinedRelations.set(relationName, {
-      relationName,
-      config: relationConfig,
-      tableName: relationConfig.tableName,
-      alias,
-      schema: relatedEntity.schema,
-      columnNameMap,
-    })
-
-    validateSQLIdentifier(relationConfig.tableName, 'table')
-    validateSQLIdentifier(alias, 'table')
-
-    if (relationConfig.type === 'belongsTo') {
-      const foreignKeyColumn = this.getColumnName(relationConfig.foreignKey)
-      const ownerKey = relationConfig.ownerKey || 'id'
-
-      this.joinClauses.push({
-        type: 'LEFT',
-        table: `${relationConfig.tableName} AS ${alias}`,
-        leftColumn: `${this.tableName}.${foreignKeyColumn}`,
-        operator: '=',
-        rightColumn: `${alias}.${ownerKey}`,
-      })
-    }
-    else if (relationConfig.type === 'hasOne') {
-      const foreignKeyColumn = toSnake(relationConfig.foreignKey)
-
-      this.joinClauses.push({
-        type: 'LEFT',
-        table: `${relationConfig.tableName} AS ${alias}`,
-        leftColumn: `${this.tableName}.id`,
-        operator: '=',
-        rightColumn: `${alias}.${foreignKeyColumn}`,
-      })
-    }
-
-    if (!this.hasCustomSelect) {
-      const relatedColumns = ['id', ...Object.keys(relatedEntity.schema)]
-        .map((field) => {
-          const columnName = columnNameMap.get(field)!
-
-          return `${alias}.${columnName} AS ${alias}__${columnName}`
-        })
-
-      this.selectFields.push(...relatedColumns)
-    }
-
-    return this as any
-  }
-
   /** Applies a named scope to the query. */
-  scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes, LoadedRelations, TTraits, TRelations, TAggregations, TGroupedFields> {
+  scope(name: TScopes): QueryBuilder<T, SelectedFields, TScopes, TTraits, TAggregations, TGroupedFields> {
     if (!this.scopes) {
       throw new Error('Scopes are not available on this QueryBuilder instance')
     }
@@ -734,7 +529,7 @@ export class QueryBuilder<
   async execute(): Promise<
     [keyof TAggregations] extends [never]
       ? [SelectedFields] extends [never]
-        ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
+        ? (QueryResult<T, TTraits>)[]
         : InferProjectionClean<T, SelectedFields>[]
       : (TAggregations & ([TGroupedFields] extends [never]
         ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)
@@ -758,11 +553,6 @@ export class QueryBuilder<
       try {
         const results = await this.db.unsafe(sql, params)
         const processedResults = this.processResults(results)
-
-        // Load hasMany/manyToMany relations if any
-        if (this.pendingEagerLoads.size > 0 && processedResults.length > 0) {
-          await this.loadEagerRelations(processedResults)
-        }
 
         await this.cacheAdapter.set(cacheKey, processedResults, this.cacheTtl)
 
@@ -799,11 +589,6 @@ export class QueryBuilder<
       const results = await this.db.unsafe(sql, params)
       const entities = this.processResults(results)
 
-      // Load hasMany/manyToMany relations if any
-      if (this.pendingEagerLoads.size > 0 && entities.length > 0) {
-        await this.loadEagerRelations(entities)
-      }
-
       return entities
     }
     catch (err) {
@@ -823,130 +608,6 @@ export class QueryBuilder<
         error,
       })
     }
-  }
-
-  private async loadEagerRelations(entities: any[]): Promise<void> {
-    if (!this.entity || !this.orm)
-      return
-
-    const { RelationLoader } = await import('./relations/loader')
-    const loader = new RelationLoader(
-      this.db,
-      this.orm,
-      this.entity,
-      (entityDef: any) => this.orm!.repo(entityDef),
-    )
-
-    const relationNames = Array.from(this.pendingEagerLoads.keys())
-
-    await loader.loadRelations(entities, relationNames)
-  }
-
-  private transformJoinedRow(row: DatabaseRow): any {
-    const baseFields: Record<string, unknown> = {}
-    const relationFields = new Map<string, Record<string, unknown>>()
-
-    for (const [key, value] of Object.entries(row)) {
-      const [part1, part2] = key.split('__')
-
-      if (part1 && part2) {
-        const relationName = part1
-        const columnName = part2
-
-        if (!relationFields.has(relationName)) {
-          relationFields.set(relationName, {})
-        }
-
-        relationFields.get(relationName)![columnName] = value
-      }
-      else {
-        baseFields[key] = value
-      }
-    }
-
-    const baseEntity = this.mapper ? this.mapper(baseFields) : baseFields
-
-    for (const [relationName, fields] of relationFields) {
-      const joinedRelation = this.joinedRelations.get(relationName)!
-
-      const isNull = Object.values(fields).every(v => v === null)
-
-      if (isNull) {
-        baseEntity[relationName] = null
-
-        continue
-      }
-
-      const relationEntity: Record<string, unknown> = {}
-
-      for (const [columnName, value] of Object.entries(fields)) {
-        let fieldName = columnName
-
-        for (const [field, col] of joinedRelation.columnNameMap) {
-          if (col !== columnName)
-            continue
-
-          fieldName = field
-
-          break
-        }
-
-        relationEntity[fieldName] = value
-      }
-
-      baseEntity[relationName] = this.mapRelatedEntity(
-        relationEntity,
-        joinedRelation.schema,
-      )
-    }
-
-    return baseEntity
-  }
-
-  private mapRelatedEntity(
-    data: Record<string, unknown>,
-    schema: EntitySchema,
-  ): any {
-    const mapped: Record<string, unknown> = { ...data }
-
-    for (const [fieldName, value] of Object.entries(data)) {
-      const fieldConfig = schema[fieldName]
-
-      if (!fieldConfig)
-        continue
-
-      if (fieldConfig.type === 'array' && typeof value === 'string') {
-        mapped[fieldName] = this.parsePostgresArray(value)
-      }
-      else if ((fieldConfig.type === 'timestamp' || fieldConfig.type === 'date') && value) {
-        mapped[fieldName] = new Date(value as string)
-      }
-      else if ((fieldConfig.type === 'json' || fieldConfig.type === 'jsonb') && typeof value === 'string') {
-        mapped[fieldName] = JSON.parse(value)
-      }
-    }
-
-    return mapped
-  }
-
-  private parsePostgresArray(pgArray: string): any[] {
-    if (!pgArray || pgArray === '{}')
-      return []
-
-    const inner = pgArray.slice(1, -1)
-
-    if (!inner)
-      return []
-
-    return inner.split(',').map((s) => {
-      const trimmed = s.trim()
-
-      if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-        return trimmed.slice(1, -1).replace(/\\"/g, '"')
-      }
-
-      return trimmed
-    })
   }
 
   private processResults(results: DatabaseRow[]): any[] {
@@ -990,11 +651,6 @@ export class QueryBuilder<
       })
     }
 
-    // NEW: Transform joined results into nested objects
-    if (this.joinedRelations.size > 0) {
-      return results.map(row => this.transformJoinedRow(row))
-    }
-
     // If JOINs are present AND user has explicitly selected cross-table fields, return raw results
     // Otherwise, if JOINs are present but user hasn't selected anything, we still use mapper
     // because we defaulted to selecting tableName.*, which matches the Entity schema
@@ -1015,7 +671,7 @@ export class QueryBuilder<
   /** Executes the query and returns the first result or null. */
   async findOne(): Promise<
     [SelectedFields] extends [never]
-      ? QueryResult<T, TRelations, LoadedRelations, TTraits> | null
+      ? QueryResult<T, TTraits> | null
       : InferProjectionClean<T, SelectedFields> | null
   > {
     this.limit(1)
@@ -1062,7 +718,7 @@ export class QueryBuilder<
   /** Finds the latest record based on a field. */
   async latest(field: keyof T | 'id' = 'id'): Promise<
     [SelectedFields] extends [never]
-      ? QueryResult<T, TRelations, LoadedRelations, TTraits> | null
+      ? QueryResult<T, TTraits> | null
       : InferProjectionClean<T, SelectedFields> | null
   > {
     return this.orderByDesc(field).findOne() as any
@@ -1071,7 +727,7 @@ export class QueryBuilder<
   /** Finds the oldest record based on a field. */
   async oldest(field: keyof T | 'id' = 'id'): Promise<
     [SelectedFields] extends [never]
-      ? QueryResult<T, TRelations, LoadedRelations, TTraits> | null
+      ? QueryResult<T, TTraits> | null
       : InferProjectionClean<T, SelectedFields> | null
   > {
     return this.orderBy(field, 'ASC').findOne() as any
@@ -1211,7 +867,7 @@ export class QueryBuilder<
   }): Promise<{
     data: [keyof TAggregations] extends [never]
       ? [SelectedFields] extends [never]
-        ? (QueryResult<T, TRelations, LoadedRelations, TTraits>)[]
+        ? (QueryResult<T, TTraits>)[]
         : InferProjectionClean<T, SelectedFields>[]
       : (TAggregations & ([TGroupedFields] extends [never]
         ? ([SelectedFields] extends [never] ? {} : InferProjectionClean<T, SelectedFields>)

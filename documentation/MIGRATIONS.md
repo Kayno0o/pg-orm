@@ -290,7 +290,7 @@ This creates a migration with auto-generated `up()` and `down()` statements base
 await orm.connect({
   // Connection settings
   hostname: 'localhost',
-  port: 5432,
+  port: 8532,
   database: 'mydb',
   username: 'postgres',
   password: 'secret',

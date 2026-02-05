@@ -101,7 +101,7 @@ const Post = orm
 async function setup() {
   // Connect to database with migration configuration
   await orm.connect({
-    connectionString: process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/orm_test',
+    connectionString: process.env.DATABASE_URL || 'postgres://test:test@localhost:8532/orm_test',
     migrations: {
       autoMigrate: true, // Prompt for schema changes (default: true)
       noInteraction: true, // Auto-approve in this example (default: false)

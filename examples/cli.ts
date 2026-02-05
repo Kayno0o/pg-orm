@@ -52,7 +52,7 @@ function parseConnectionString(url: string) {
 
   return {
     hostname: parsed.hostname,
-    port: parsed.port ? Number.parseInt(parsed.port) : 5432,
+    port: parsed.port ? Number.parseInt(parsed.port) : 8532,
     database: parsed.pathname.slice(1),
     username: parsed.username,
     password: parsed.password,

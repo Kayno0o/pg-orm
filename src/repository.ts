@@ -1,6 +1,5 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
-import type { RelationSchema, WithRelations } from './relations/types'
 import type {
   DatabaseRow,
   EntityDefinition,
@@ -15,7 +14,6 @@ import { BulkOperationError, EntityNotFoundError } from './errors'
 import { extractOperation, queryLogger } from './logger'
 import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
-import { RelationLoader } from './relations/loader'
 import { SchemaValidator } from './schema-validator'
 import { hasColumnName, isArrayFieldConfig } from './types'
 import { mapDatabaseError } from './utils/error-mapper'
@@ -29,11 +27,10 @@ export class Repository<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
   TScopes extends string = never,
-  TRelations extends RelationSchema = {},
 > {
   private tableName: string
   private schema: T
-  private definition: EntityDefinition<T, TTraits, TScopes, TRelations>
+  private definition: EntityDefinition<T, TTraits, TScopes>
   private txContext?: SQL
   private entityPrototype: any
   private cachedSelectColumns: string
@@ -43,11 +40,10 @@ export class Repository<
   private mapper: EntityMapper<T, TTraits>
   private schemaValidator: SchemaValidator<T>
   private cacheAdapter?: CacheAdapter
-  private _relationLoader?: RelationLoader<T, TRelations>
   private orm: any
 
   constructor(
-    entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
+    entityDef: EntityDefinition<T, TTraits, TScopes>,
     cacheAdapter: CacheAdapter | undefined,
     orm: any,
   ) {
@@ -108,17 +104,6 @@ export class Repository<
     )
 
     this.schemaValidator = new SchemaValidator(this.schema, this.tableName)
-  }
-
-  private get relationLoader(): RelationLoader<T, TRelations> {
-    this._relationLoader ||= new RelationLoader(
-      this.getDB(),
-      this.orm,
-      this.definition,
-      entity => new Repository(entity, this.cacheAdapter, this.orm),
-    )
-
-    return this._relationLoader
   }
 
   private computeColumnName(fieldName: string): string {
@@ -202,32 +187,16 @@ export class Repository<
   /**
    * Finds a single entity by its ID.
    * @param id - The entity ID.
-   * @param options - Optional configuration object.
-   * @param options.with - Array of relation names to eager load.
    */
-  async find<With extends (keyof TRelations)[] = []>(
+  async find(
     id: number,
-    options?: { with?: With },
-  ): Promise<
-    With extends [] | undefined
-      ? InferEntity<T, TTraits> | null
-      : [With[number]] extends [never]
-        ? InferEntity<T, TTraits> | null
-        : WithRelations<T, TRelations, With, TTraits> | null
-  > {
+  ): Promise<InferEntity<T, TTraits> | null> {
     const entity = await this.findBasic(id)
 
     if (!entity)
       return null as any
 
-    // Explicitly handle empty array and undefined cases
-    if (!options?.with || options.with.length === 0) {
-      return entity as any
-    }
-
-    const loaded = (await this.relationLoader.loadRelations([entity] as any, options.with)) as unknown as any[]
-
-    return loaded[0] as any
+    return entity as any
   }
 
   private async findBasic(id: number): Promise<InferEntity<T, TTraits> | null> {
@@ -251,26 +220,9 @@ export class Repository<
 
   /**
    * Retrieves all entities.
-   * @param options - Optional configuration object.
-   * @param options.with - Array of relation names to eager load.
    */
-  async findAll<With extends (keyof TRelations)[] = []>(
-    options?: { with?: With },
-  ): Promise<
-    With extends [] | undefined
-      ? InferEntity<T, TTraits>[]
-      : [With[number]] extends [never]
-        ? InferEntity<T, TTraits>[]
-        : WithRelations<T, TRelations, With, TTraits>[]
-  > {
-    const entities = await this.findAllBasic()
-
-    // Explicitly handle empty array and undefined cases
-    if (!options?.with || options.with.length === 0) {
-      return entities as any
-    }
-
-    return (await this.relationLoader.loadRelations(entities as any, options.with)) as any
+  async findAll(): Promise<InferEntity<T, TTraits>[]> {
+    return await this.findAllBasic()
   }
 
   private async findAllBasic(): Promise<InferEntity<T, TTraits>[]> {
@@ -340,21 +292,7 @@ export class Repository<
 
     const limits = this.getLimits()
 
-    // Map relation updates to FK updates
     const mappedData = { ...data } as Record<string, unknown>
-
-    if (this.definition.relations) {
-      for (const [key, value] of Object.entries(data)) {
-        if (key in this.definition.relations) {
-          const relation = this.definition.relations[key]!
-
-          if (relation.type === 'belongsTo') {
-            delete mappedData[key]
-            mappedData[relation.foreignKey] = value
-          }
-        }
-      }
-    }
 
     await this.schemaValidator.validateUpdate(mappedData, limits.jsonDepth)
 
@@ -577,8 +515,8 @@ export class Repository<
   /**
    * Creates a query builder for the entity.
    */
-  query(): QueryBuilder<T, never, TScopes, {}, TTraits, TRelations> {
-    return new QueryBuilder<T, never, TScopes, {}, TTraits, TRelations>(
+  query(): QueryBuilder<T, never, TScopes, TTraits> {
+    return new QueryBuilder<T, never, TScopes, TTraits>(
       this.tableName,
       this.getDB(),
       this.schema,
@@ -623,7 +561,7 @@ export class Repository<
    * Executes a callback within a transaction.
    * @param callback - Function to execute with a transaction-bound repository.
    */
-  async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes, TRelations>) => Promise<R>): Promise<R> {
+  async transaction<R>(callback: (repo: Repository<T, TTraits, TScopes>) => Promise<R>): Promise<R> {
     const db = this.getDB()
 
     return await db.begin(async (tx) => {
@@ -637,9 +575,9 @@ export class Repository<
    * Extends the repository with custom methods.
    * @param methods - Object containing custom methods.
    */
-  extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes, TRelations>, ...args: any[]) => any>>(
+  extend<Methods extends Record<string, (this: Repository<T, TTraits, TScopes>, ...args: any[]) => any>>(
     methods: Methods,
-  ): Repository<T, TTraits, TScopes, TRelations> & {
+  ): Repository<T, TTraits, TScopes> & {
     [K in keyof Methods]: Methods[K] extends (this: any, ...args: infer Args) => infer Return
       ? (...args: Args) => Return
       : never

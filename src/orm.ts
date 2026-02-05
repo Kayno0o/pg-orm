@@ -2,7 +2,6 @@ import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
 import type { DatabaseConfig } from './db'
 import type { QueryLoggingConfig } from './logger'
-import type { RelationSchema } from './relations/types'
 import type { EntityDefinition, EntitySchema, FieldConfig } from './types'
 import { closeDatabase, initializeDatabase } from './db'
 import { createEntitySchema, EntityBuilder } from './entity'
@@ -160,11 +159,11 @@ export class ORM {
   ): EntityBuilder<{
     [K in keyof T]: ReturnType<T[K]['toConfig']>
 
-  }, readonly [], never, {}> {
+  }, readonly [], never> {
     const fields = fieldsCallback(field)
     const schema = createEntitySchema(fields)
 
-    return new EntityBuilder(tableName, schema, [], {}, this)
+    return new EntityBuilder(tableName, schema, [], this)
   }
 
   /**
@@ -172,15 +171,15 @@ export class ORM {
    * @param entityDef - The entity definition.
    */
 
-  repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string, TRelations extends RelationSchema = {}>(
-    entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
-  ): Repository<T, TTraits, TScopes, TRelations> {
+  repo<T extends EntitySchema, TTraits extends readonly any[] = readonly any[], TScopes extends string = string>(
+    entityDef: EntityDefinition<T, TTraits, TScopes>,
+  ): Repository<T, TTraits, TScopes> {
     if (!this.entities.has(entityDef.tableName)) {
       this.entities.set(entityDef.tableName, entityDef)
     }
 
     if (this.repositories.has(entityDef)) {
-      return this.repositories.get(entityDef)! as Repository<T, TTraits, TScopes, TRelations>
+      return this.repositories.get(entityDef)! as Repository<T, TTraits, TScopes>
     }
 
     const repository = new Repository(entityDef, this.cacheAdapter, this)

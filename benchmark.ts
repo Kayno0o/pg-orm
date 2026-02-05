@@ -32,7 +32,7 @@ async function main() {
 
   // Connect
   await orm.connect({
-    connectionString: process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/orm_test',
+    connectionString: process.env.DATABASE_URL || 'postgres://test:test@localhost:8532/orm_test',
     migrations: { autoMigrate: true, noInteraction: true },
   })
 

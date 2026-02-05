@@ -13,7 +13,7 @@ export const orm = new ORM()
 // ============================================================================
 
 export const TEST_DB_CONFIG = process.env.DATABASE_URL
-  || 'postgres://test:test@localhost:5432/orm_test'
+  || 'postgres://test:test@localhost:8532/orm_test'
 
 // ============================================================================
 // Test Database Lifecycle
@@ -275,12 +275,11 @@ export function createTxRepo<
   T extends EntitySchema,
   TTraits extends readonly any[] = readonly any[],
   TScopes extends string = string,
-  TRelations extends Record<string, any> = Record<string, any>,
 >(
-  entityDef: EntityDefinition<T, TTraits, TScopes, TRelations>,
+  entityDef: EntityDefinition<T, TTraits, TScopes>,
   tx: SQL,
   ormInstance?: ORM,
-): Repository<T, TTraits, TScopes, TRelations> {
+): Repository<T, TTraits, TScopes> {
   const repo = (ormInstance || orm).repo(entityDef)
 
   return repo.withTransaction(tx)

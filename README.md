@@ -20,7 +20,7 @@ const User = orm.entity('users', f => ({
   name: f.string(),
   email: f.string().unique(),
   age: f.number().nullable()
-}).build()
+})).build()
 
 const users = orm.repo(User)
 
@@ -36,13 +36,13 @@ const user = await users.create({
 f.string().maxLength(255).unique()
 f.number().integer().min(0).max(100)
 f.boolean().default(false)
-orm.uuid().autoGenerate()
+f.uuid().autoGenerate()
 f.timestamp().default('NOW()')
-orm.date().nullable()
+f.date().nullable()
 f.array('string') // TEXT[]
 f.enum(['admin', 'user'])
 f.jsonb<Type>()
-orm.blob()
+f.blob()
 ```
 
 ## Traits
@@ -52,7 +52,7 @@ import { ORM, timestamps, softDelete } from '@kaynooo/pg-orm'
 
 const orm = new ORM()
 
-const Post = orm.entity('posts', f => ( title: f.string() })
+const Post = orm.entity('posts', f => ({ title: f.string() }))
   .use(timestamps())
   .use(softDelete())
   .build()
@@ -100,8 +100,8 @@ const analyticsDb = new ORM()
 await userDb.connect('postgresql://users_db')
 await analyticsDb.connect('postgresql://analytics_db')
 
-const User = userDb.entity('users', { ... }).build()
-const Event = analyticsDb.entity('events', { ... }).build()
+const User = userDb.entity('users', f => ({ ... })).build()
+const Event = analyticsDb.entity('events', f => ({ ... })).build()
 
 // Multi-tenant with schemas
 const tenant1 = new ORM()
@@ -111,14 +111,12 @@ await tenant1.connect({ database: 'app', schema: 'tenant_1' })
 await tenant2.connect({ database: 'app', schema: 'tenant_2' })
 
 // Share entity definition across tenants
-const User = tenant1.entity('users', { ... }).build()
-tenant2.registerEntity(User)
+const UserShared = tenant1.entity('users', f => ({ ... })).build()
+tenant2.registerEntity(UserShared)
 
-const users1 = tenant1.repo(User)
-const users2 = tenant2.repo(User)
+const users1 = tenant1.repo(UserShared)
+const users2 = tenant2.repo(UserShared)
 ```
-
-**Note:** Relations must reference entities from the same ORM instance.
 
 ## License
 

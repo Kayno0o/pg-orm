@@ -1,6 +1,5 @@
 import type { SQL } from 'bun'
 import type { QueryBuilder } from './query'
-import type { RelationSchema } from './relations/types'
 
 export type SQLValue
   = | string
@@ -196,10 +195,8 @@ export type InferEntity<T extends EntitySchema, TTraits extends readonly TraitDe
 
 export type QueryResult<
   T extends EntitySchema,
-  _R extends RelationSchema,
-  LoadedRelations extends Record<string, any>,
   TTraits extends readonly any[] = readonly [],
-> = InferEntity<T, TTraits> & LoadedRelations
+> = InferEntity<T, TTraits>
 
 export type InferCreateData<T extends EntitySchema> = Prettify<
   {
@@ -380,7 +377,6 @@ export interface EntityDefinition<
   T extends EntitySchema,
   TTraits extends readonly TraitDefinition<any, any>[] = readonly TraitDefinition<any, any>[],
   _TScopes extends string = string,
-  TRelations extends RelationSchema = RelationSchema,
 > {
   readonly tableName: string
   readonly schema: T
@@ -388,7 +384,6 @@ export interface EntityDefinition<
   readonly traits: TTraits
   readonly unique?: string[][]
   readonly scopes: Map<string, ScopeDefinition<T>>
-  readonly relations: TRelations
 }
 
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never

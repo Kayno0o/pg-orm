@@ -45,7 +45,7 @@ import { sql } from "bun";
 await sql`SELECT ...`;
 
 import { SQL } from "bun";
-const pg = new SQL("postgres://user:pass@localhost:5432/mydb");
+const pg = new SQL("postgres://user:pass@localhost:8532/mydb");
 await pg`SELECT ...`;
 ```
 
@@ -278,7 +278,7 @@ If no connection URL is provided, the system checks for the following individual
 | Environment Variable | Fallback Variables           | Default Value | Description       |
 | -------------------- | ---------------------------- | ------------- | ----------------- |
 | `PGHOST`             | -                            | `localhost`   | Database host     |
-| `PGPORT`             | -                            | `5432`        | Database port     |
+| `PGPORT`             | -                            | `8532`        | Database port     |
 | `PGUSERNAME`         | `PGUSER`, `USER`, `USERNAME` | `postgres`    | Database user     |
 | `PGPASSWORD`         | -                            | (empty)       | Database password |
 | `PGDATABASE`         | -                            | username      | Database name     |
@@ -294,7 +294,7 @@ Bun can preconnect to PostgreSQL at startup to improve performance by establishi
 bun --sql-preconnect index.js
 
 # Works with DATABASE_URL environment variable
-DATABASE_URL=postgres://user:pass@localhost:5432/db bun --sql-preconnect index.js
+DATABASE_URL=postgres://user:pass@localhost:8532/db bun --sql-preconnect index.js
 
 # Can be combined with other runtime flags
 bun --sql-preconnect --hot index.js
@@ -315,11 +315,11 @@ import { SQL } from "bun";
 
 const db = new SQL({
   // Connection details (adapter is auto-detected as PostgreSQL)
-  url: "postgres://user:pass@localhost:5432/dbname",
+  url: "postgres://user:pass@localhost:8532/dbname",
 
   // Alternative connection parameters
   hostname: "localhost",
-  port: 5432,
+  port: 8532,
   database: "myapp",
   username: "dbuser",
   password: "secretpass",

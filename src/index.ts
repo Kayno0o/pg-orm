@@ -57,25 +57,6 @@ export type {
 export { ORM } from './orm'
 export type { ORMConfig } from './orm'
 export { QueryBuilder } from './query'
-export {
-  BelongsToBuilder,
-  HasManyBuilder,
-  HasOneBuilder,
-  ManyToManyBuilder,
-  relation,
-} from './relations/builders'
-export { RelationLoader } from './relations/loader'
-export type {
-  BelongsToConfig,
-  HasManyConfig,
-  HasOneConfig,
-  InferRelation,
-  ManyToManyConfig,
-  RelationConfig,
-  RelationSchema,
-  RelationType,
-  WithRelations,
-} from './relations/types'
 export { Repository } from './repository'
 export type { Seeder, SeederContext } from './seeder'
 export { SeederRunner } from './seeder'

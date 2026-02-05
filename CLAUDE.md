@@ -151,7 +151,6 @@ const tenant2Users = tenant2.repo(User)
 ```
 
 **Limitations:**
-- Relations must reference entities from the same ORM instance
 - Cross-instance transactions are not supported
 - Each ORM instance creates its own connection pool
 
@@ -443,7 +442,7 @@ await orm.connect(process.env.DATABASE_URL!)
 // Advanced configuration
 await orm.connect({
   hostname: 'localhost',
-  port: 5432,
+  port: 8532,
   database: 'mydb',
   username: 'user',
   password: 'pass',
@@ -603,31 +602,11 @@ const trait = createTrait()
   }))
 ```
 
-**For Relations:**
-Relations now use the `.relations()` callback pattern:
-
-```typescript
-// Before (v2.x)
-const UserWithPosts = orm
-  .entity('users', f => ({ name: f.string() }))
-  .relations({
-    posts: orm.hasMany<typeof Post>('posts', 'authorId')
-  })
-
-// After (v3.0)
-const UserWithPosts = orm
-  .entity('users', f => ({ name: f.string() }))
-  .relations(r => ({
-    posts: r.hasMany<typeof Post>('posts', 'authorId')
-  }))
-```
-
 **Migration Steps:**
 1. **Entity fields:** Find `orm.entity('tableName', {` → Replace with `orm.entity('tableName', f => ({`
 2. **Field builders:** Find `orm.(string|number|...)` → Replace with `f.$1`
 3. **Trait fields:** Find `.field('name', field.x())` → Replace with `.fields(f => ({ name: f.x() }))`
-4. **Relations:** Find `.relations({` → Replace with `.relations(r => ({` and `orm.hasMany` → `r.hasMany`
-5. Combine multiple `.field()` calls into a single `.fields(f => ({ ... }))` call
+4. Combine multiple `.field()` calls into a single `.fields(f => ({ ... }))` call
 
 ## File Structure
 
