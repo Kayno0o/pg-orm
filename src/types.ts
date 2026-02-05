@@ -1,6 +1,8 @@
 import type { SQL } from 'bun'
 import type { QueryBuilder } from './query'
 
+import type { SchemaMetadata } from './schema-metadata'
+
 export type SQLValue
   = | string
     | number
@@ -384,6 +386,7 @@ export interface EntityDefinition<
   readonly traits: TTraits
   readonly unique?: string[][]
   readonly scopes: Map<string, ScopeDefinition<T>>
+  readonly metadata: SchemaMetadata<T>
 }
 
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never

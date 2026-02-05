@@ -390,7 +390,7 @@ class ForeignKeyValidator {
       // Find field by column name
       for (const [fieldName, fieldConfig] of Object.entries(entity.schema)) {
         const config = fieldConfig as FieldConfig
-        const fieldColumnName = this.getColumnName(fieldName, config)
+        const fieldColumnName = this.getColumnName(tableName, fieldName, config)
 
         if (fieldColumnName === columnName) {
           return this.fieldConfigToPostgresType(config)
@@ -474,7 +474,13 @@ class ForeignKeyValidator {
   }
 
   /** Get column name from field name (same logic as Repository) */
-  private getColumnName(fieldName: string, fieldConfig: FieldConfig): string {
+  private getColumnName(tableName: string, fieldName: string, fieldConfig: FieldConfig): string {
+    const entity = this.entities.get(tableName)
+
+    if (entity) {
+      return entity.metadata.getColumnName(fieldName)
+    }
+
     if (fieldConfig.columnName) {
       return fieldConfig.columnName
     }

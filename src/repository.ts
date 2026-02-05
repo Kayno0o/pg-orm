@@ -8,14 +8,13 @@ import type {
   InferEntity,
   InferUpdateData,
 } from './types'
-import { toSnake } from '@kaynooo/utils'
 import { getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
 import { extractOperation, queryLogger } from './logger'
 import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
 import { SchemaValidator } from './schema-validator'
-import { hasColumnName, isArrayFieldConfig } from './types'
+import { isArrayFieldConfig } from './types'
 import { mapDatabaseError } from './utils/error-mapper'
 import { ValidationError } from './validation'
 
@@ -34,9 +33,6 @@ export class Repository<
   private txContext?: SQL
   private entityPrototype: any
   private cachedSelectColumns: string
-  private columnNameMap: Map<string, string>
-  private reverseColumnMap: Map<string, string>
-  private fieldConfigs: { fieldName: string, columnName: string, config: any }[]
   private mapper: EntityMapper<T, TTraits>
   private schemaValidator: SchemaValidator<T>
   private cacheAdapter?: CacheAdapter
@@ -53,33 +49,15 @@ export class Repository<
     this.cacheAdapter = cacheAdapter
     this.orm = orm
 
-    this.columnNameMap = new Map()
-    this.columnNameMap.set('id', 'id')
-    for (const fieldName of Object.keys(this.schema)) {
-      this.columnNameMap.set(fieldName, this.computeColumnName(fieldName))
-    }
-
-    this.reverseColumnMap = new Map()
-    this.reverseColumnMap.set('id', 'id')
-    for (const [fieldName, columnName] of this.columnNameMap) {
-      this.reverseColumnMap.set(columnName, fieldName)
-    }
-
-    this.fieldConfigs = Object.entries(this.schema).map(([fieldName, config]) => ({
-      fieldName,
-      columnName: this.columnNameMap.get(fieldName)!,
-      config,
-    }))
-
-    const columns = ['id', ...Object.keys(this.schema).map(k => this.columnNameMap.get(k)!)]
+    const columns = entityDef.metadata.getColumns()
 
     // SECURITY AUDIT: cachedSelectColumns is constructed from schema field names only,
     // which are validated at entity definition time. All column names are derived from
-    // schema keys via computeColumnName() which applies toSnake() transformation.
+    // schema keys via SchemaMetadata which handles column mapping.
     // This string is safe for use with db.unsafe() since it contains no user input.
     this.cachedSelectColumns = columns
       .map((col) => {
-        const fieldName = this.reverseColumnMap.get(col)
+        const fieldName = entityDef.metadata.getFieldName(col)
 
         if (fieldName) {
           const config = this.schema[fieldName]
@@ -96,28 +74,11 @@ export class Repository<
     this.entityPrototype = this.buildEntityPrototype()
 
     this.mapper = new EntityMapper(
-      this.schema,
       this.definition,
-      this.fieldConfigs,
-      this.reverseColumnMap,
       this.entityPrototype,
     )
 
     this.schemaValidator = new SchemaValidator(this.schema, this.tableName)
-  }
-
-  private computeColumnName(fieldName: string): string {
-    const fieldConfig = this.schema[fieldName]
-
-    if (!fieldConfig) {
-      return toSnake(fieldName)
-    }
-
-    if (hasColumnName(fieldConfig)) {
-      return fieldConfig.columnName
-    }
-
-    return toSnake(fieldName)
   }
 
   private getLimits() {
@@ -606,7 +567,7 @@ export class Repository<
   }
 
   private getColumnName(fieldName: string): string {
-    return this.columnNameMap.get(fieldName) || toSnake(fieldName)
+    return this.definition.metadata.getColumnName(fieldName)
   }
 
   private buildEntityPrototype(): Record<string, (...args: unknown[]) => unknown> {

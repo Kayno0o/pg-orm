@@ -1,10 +1,10 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
 import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, InferUpdateData, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
-import { toSnake } from '@kaynooo/utils'
 import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
 import { extractOperation, queryLogger } from './logger'
+import { SchemaMetadata } from './schema-metadata'
 import { validateSQLIdentifier } from './sql-utils'
 import { mapDatabaseError } from './utils/error-mapper'
 
@@ -44,6 +44,7 @@ export class QueryBuilder<
   private cacheAdapter?: CacheAdapter
   private hasCustomSelect = false
   private schemaName?: string
+  private metadata: SchemaMetadata<T>
 
   // eslint-disable-next-line max-params
   constructor(
@@ -59,23 +60,17 @@ export class QueryBuilder<
   ) {
     validateSQLIdentifier(tableName, 'table')
     this.selectFields = [`${tableName}.*`]
-    this.validColumns = new Set(['id', ...Object.keys(schema).map(k => this.getColumnName(k))])
+
+    this.metadata = this.entity?.metadata || new SchemaMetadata(tableName, schema)
+    this.validColumns = new Set(this.metadata.getColumns())
+
     this.scopes = scopes
     this.cacheAdapter = cacheAdapter
     this.schemaName = schemaName
   }
 
   private getColumnName(fieldName: string): string {
-    if (fieldName === 'id')
-      return 'id'
-
-    const fieldConfig = this.schema[fieldName]
-
-    if (fieldConfig && 'columnName' in fieldConfig && typeof fieldConfig.columnName === 'string') {
-      return fieldConfig.columnName
-    }
-
-    return toSnake(fieldName)
+    return this.metadata.getColumnName(fieldName)
   }
 
   private validateColumnName(field: string): string {

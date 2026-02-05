@@ -13,6 +13,7 @@ import type {
   ScopeDefinition,
   TraitDefinition,
 } from './types'
+import { SchemaMetadata } from './schema-metadata'
 import { validateSQLIdentifier } from './sql-utils'
 
 /**
@@ -190,6 +191,7 @@ export class EntityBuilder<
       traits: this._traits,
       unique: this._unique,
       scopes: this._scopes,
+      metadata: new SchemaMetadata(this.tableName, this.schema),
     })
 
     if (this.orm) {

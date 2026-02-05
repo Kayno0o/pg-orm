@@ -15,13 +15,10 @@ export class EntityMapper<
   private mapperFunction: (row: DatabaseRow, prototype: any, parsePostgresArray: any) => InferEntity<T, TTraits>
 
   constructor(
-    _schema: T,
-    _definition: EntityDefinition<T, TTraits>,
-    fieldConfigs: { fieldName: string, columnName: string, config: any }[],
-    _reverseColumnMap: Map<string, string>,
+    definition: EntityDefinition<T, TTraits>,
     entityPrototype: any,
   ) {
-    this.fieldConfigs = fieldConfigs
+    this.fieldConfigs = definition.metadata.getFieldToColumnMappings() as any
     this.entityPrototype = entityPrototype
     this.mapperFunction = this.compileMapper()
   }

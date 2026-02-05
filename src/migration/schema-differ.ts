@@ -101,7 +101,7 @@ export class SchemaDiffer {
 
     // Add entity fields
     for (const [fieldName, fieldConfig] of Object.entries(schema)) {
-      const columnDef = this.fieldToColumnDefinition(fieldName, fieldConfig as FieldConfig)
+      const columnDef = this.fieldToColumnDefinition(tableName, fieldName, fieldConfig as FieldConfig)
 
       columnDefs.push(columnDef)
     }
@@ -109,7 +109,7 @@ export class SchemaDiffer {
     // Add unique constraints
     if (entityDef.unique && entityDef.unique.length > 0) {
       for (const uniqueColumns of entityDef.unique) {
-        const columns = uniqueColumns.map(col => this.getColumnName(String(col))).join(', ')
+        const columns = uniqueColumns.map(col => this.getColumnName(tableName, String(col))).join(', ')
 
         columnDefs.push(`UNIQUE (${columns})`)
       }
@@ -136,7 +136,7 @@ export class SchemaDiffer {
 
     // Check for new columns and modified columns
     for (const [fieldName, fieldConfig] of Object.entries(entitySchema)) {
-      const columnName = this.getColumnName(fieldName)
+      const columnName = this.getColumnName(tableName, fieldName)
       const dbColumn = dbColumnMap.get(columnName)
 
       if (!dbColumn) {
@@ -159,7 +159,7 @@ export class SchemaDiffer {
     // Check for dropped columns
     if (!this.config.safeMigrations) {
       const entityColumnNames = new Set(
-        Object.keys(entitySchema).map(field => this.getColumnName(field)),
+        Object.keys(entitySchema).map(field => this.getColumnName(tableName, field)),
       )
 
       for (const dbColumn of dbColumns) {
@@ -189,8 +189,8 @@ export class SchemaDiffer {
     fieldName: string,
     fieldConfig: FieldConfig,
   ): SchemaChange {
-    const columnDef = this.fieldToColumnDefinition(fieldName, fieldConfig)
-    const columnName = this.getColumnName(fieldName)
+    const columnDef = this.fieldToColumnDefinition(tableName, fieldName, fieldConfig)
+    const columnName = this.getColumnName(tableName, fieldName)
 
     return {
       type: 'ADD_COLUMN',
@@ -350,7 +350,7 @@ export class SchemaDiffer {
     dbColumn: DatabaseColumn,
   ): SchemaChange[] {
     const changes: SchemaChange[] = []
-    const columnName = this.getColumnName(fieldName)
+    const columnName = this.getColumnName(tableName, fieldName)
     const expectedType = this.fieldToPostgresType(fieldConfig, columnName)
 
     const typeChange = this.compareColumnType(tableName, columnName, expectedType, dbColumn)
@@ -413,8 +413,8 @@ export class SchemaDiffer {
   }
 
   /** Converts a field configuration to a PostgreSQL column definition. */
-  private fieldToColumnDefinition(fieldName: string, fieldConfig: FieldConfig): string {
-    const columnName = this.getColumnName(fieldName)
+  private fieldToColumnDefinition(tableName: string, fieldName: string, fieldConfig: FieldConfig): string {
+    const columnName = this.getColumnName(tableName, fieldName)
     const pgType = this.fieldToPostgresType(fieldConfig, columnName)
 
     let definition = `${columnName} ${pgType.type}`
@@ -645,7 +645,7 @@ export class SchemaDiffer {
     fieldName: string,
     fk: NonNullable<NumberFieldConfig['foreignKey']>,
   ): { sql: string, constraintName: string, columnName: string } {
-    const columnName = this.getColumnName(fieldName)
+    const columnName = this.getColumnName(tableName, fieldName)
     const constraintName = `fk_${tableName}_${columnName}`
     const sql = `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${columnName}) REFERENCES ${fk.table}(${fk.column}) ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
 
@@ -694,7 +694,7 @@ export class SchemaDiffer {
         : (fieldConfig.type === 'foreignKey' ? fieldConfig.foreignKey : null)
 
       if (fk) {
-        const columnName = this.getColumnName(fieldName)
+        const columnName = this.getColumnName(tableName, fieldName)
         const dbFk = dbFkMap.get(columnName)
 
         if (!dbFk) {
@@ -766,7 +766,7 @@ export class SchemaDiffer {
       const hasFk = (fieldConfig.type === 'number' && fieldConfig.foreignKey) || fieldConfig.type === 'foreignKey'
 
       if (hasFk) {
-        entityFkColumns.add(this.getColumnName(fieldName))
+        entityFkColumns.add(this.getColumnName(tableName, fieldName))
       }
     }
 
@@ -805,8 +805,13 @@ export class SchemaDiffer {
   }
 
   /** Converts a field name to a column name. */
-  private getColumnName(fieldName: string): string {
-    // Convert camelCase to snake_case (same logic as Repository)
+  private getColumnName(tableName: string, fieldName: string): string {
+    const entity = this.entities.get(tableName)
+
+    if (entity) {
+      return entity.metadata.getColumnName(fieldName)
+    }
+
     return toSnake(fieldName)
   }
 }
