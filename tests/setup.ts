@@ -13,7 +13,7 @@ export const orm = new ORM()
 // ============================================================================
 
 export const TEST_DB_CONFIG = process.env.DATABASE_URL
-  || 'postgres://test:test@localhost:8532/orm_test'
+  || 'postgres://test:test@127.0.0.1:8532/orm_test'
 
 // ============================================================================
 // Test Database Lifecycle

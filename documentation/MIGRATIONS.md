@@ -33,7 +33,7 @@ import { orm } from '@kaynooo/orm'
 
 // Connect with auto-migration enabled (default)
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   database: 'mydb',
 
   // Auto-migration is ENABLED by default
@@ -159,7 +159,7 @@ await orm.connect({
 
 // Development: Prompt for all changes
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   database: 'mydb_dev',
 
   autoMigrate: true,
@@ -182,7 +182,7 @@ If you prefer explicit control via manual migrations only:
 
 ```typescript
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   database: 'mydb',
 
   autoMigrate: false,  // Disable auto-migration
@@ -289,7 +289,7 @@ This creates a migration with auto-generated `up()` and `down()` statements base
 ```typescript
 await orm.connect({
   // Connection settings
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   port: 8532,
   database: 'mydb',
   username: 'postgres',

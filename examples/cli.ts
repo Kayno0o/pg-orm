@@ -25,7 +25,7 @@ async function main() {
 
   if (!dbUrl) {
     console.error('❌ DATABASE_URL environment variable is required')
-    console.error('   Example: DATABASE_URL=postgres://user:pass@localhost/mydb')
+    console.error('   Example: DATABASE_URL=postgres://user:pass@127.0.0.1/mydb')
     process.exit(1)
   }
 

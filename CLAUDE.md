@@ -441,7 +441,7 @@ await orm.connect(process.env.DATABASE_URL!)
 
 // Advanced configuration
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   port: 8532,
   database: 'mydb',
   username: 'user',

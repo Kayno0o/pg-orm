@@ -16,7 +16,7 @@ bun add @kaynooo/pg-orm
 import { orm } from '@kaynooo/pg-orm'
 
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   port: 8532,
   database: 'mydb',
   username: 'postgres',
@@ -264,7 +264,7 @@ const admins = await users.findAdmins()
 ```typescript
 await orm.connect({
   // Connection
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   port: 8532,
   database: 'mydb',
   username: 'postgres',
@@ -304,7 +304,7 @@ await orm.connect({
 
 ```typescript
 const config = {
-  hostname: process.env.DB_HOST || 'localhost',
+  hostname: process.env.DB_HOST || '127.0.0.1',
   port: parseInt(process.env.DB_PORT || '8532'),
   database: process.env.DB_NAME!,
   username: process.env.DB_USER!,
@@ -331,7 +331,7 @@ import { beforeAll, afterAll } from 'bun:test'
 
 beforeAll(async () => {
   await orm.connect({
-    hostname: 'localhost',
+    hostname: '127.0.0.1',
     database: 'test_db',
     autoMigrate: true,
     noInteraction: true, // Don't prompt in tests

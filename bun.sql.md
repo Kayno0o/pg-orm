@@ -45,7 +45,7 @@ import { sql } from "bun";
 await sql`SELECT ...`;
 
 import { SQL } from "bun";
-const pg = new SQL("postgres://user:pass@localhost:8532/mydb");
+const pg = new SQL("postgres://user:pass@127.0.0.1:8532/mydb");
 await pg`SELECT ...`;
 ```
 
@@ -277,7 +277,7 @@ If no connection URL is provided, the system checks for the following individual
 
 | Environment Variable | Fallback Variables           | Default Value | Description       |
 | -------------------- | ---------------------------- | ------------- | ----------------- |
-| `PGHOST`             | -                            | `localhost`   | Database host     |
+| `PGHOST`             | -                            | `127.0.0.1`   | Database host     |
 | `PGPORT`             | -                            | `8532`        | Database port     |
 | `PGUSERNAME`         | `PGUSER`, `USER`, `USERNAME` | `postgres`    | Database user     |
 | `PGPASSWORD`         | -                            | (empty)       | Database password |
@@ -294,7 +294,7 @@ Bun can preconnect to PostgreSQL at startup to improve performance by establishi
 bun --sql-preconnect index.js
 
 # Works with DATABASE_URL environment variable
-DATABASE_URL=postgres://user:pass@localhost:8532/db bun --sql-preconnect index.js
+DATABASE_URL=postgres://user:pass@127.0.0.1:8532/db bun --sql-preconnect index.js
 
 # Can be combined with other runtime flags
 bun --sql-preconnect --hot index.js
@@ -315,10 +315,10 @@ import { SQL } from "bun";
 
 const db = new SQL({
   // Connection details (adapter is auto-detected as PostgreSQL)
-  url: "postgres://user:pass@localhost:8532/dbname",
+  url: "postgres://user:pass@127.0.0.1:8532/dbname",
 
   // Alternative connection parameters
-  hostname: "localhost",
+  hostname: "127.0.0.1",
   port: 8532,
   database: "myapp",
   username: "dbuser",
@@ -457,7 +457,7 @@ PostgreSQL supports different SSL/TLS modes to control how secure connections ar
 
 ```ts  theme={"theme":{"light":"github-light","dark":"dracula"}}
 const sql = new SQL({
-  hostname: "localhost",
+  hostname: "127.0.0.1",
   username: "user",
   password: "password",
   ssl: "disable", // | "prefer" | "require" | "verify-ca" | "verify-full"
@@ -478,10 +478,10 @@ The SSL mode can also be specified in connection strings:
 
 ```ts  theme={"theme":{"light":"github-light","dark":"dracula"}}
 // Using prefer mode
-const sql = new SQL("postgres://user:password@localhost/mydb?sslmode=prefer");
+const sql = new SQL("postgres://user:password@127.0.0.1/mydb?sslmode=prefer");
 
 // Using verify-full mode
-const sql = new SQL("postgres://user:password@localhost/mydb?sslmode=verify-full");
+const sql = new SQL("postgres://user:password@127.0.0.1/mydb?sslmode=verify-full");
 ```
 
 ***

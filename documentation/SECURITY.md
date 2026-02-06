@@ -70,7 +70,7 @@ Prevent memory exhaustion from extremely large batch operations.
 
 ```typescript
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   database: 'mydb',
   limits: {
     bulkOperations: 1000 // Max items in createMany/deleteMany
@@ -393,7 +393,7 @@ const User = orm.entity('users', f => ( ... })
 ```typescript
 // ❌ BAD - Hardcoded credentials
 await orm.connect({
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   password: 'mypassword123'
 })
 
