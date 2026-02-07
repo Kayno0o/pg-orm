@@ -31,6 +31,7 @@ export class QueryBuilder<
 > {
   private selectFields: string[]
   private whereConditions: string[] = []
+  private whereConnectors: ('AND' | 'OR')[] = []
   private whereParams: SQLValue[] = []
   private orderByFields: { field: string, direction: OrderDirection }[] = []
   private limitValue?: number
@@ -93,6 +94,24 @@ export class QueryBuilder<
     return `$${this.whereParams.length}`
   }
 
+  private pushCondition(sql: string, connector: 'AND' | 'OR' = 'AND'): void {
+    this.whereConditions.push(sql)
+    this.whereConnectors.push(connector)
+  }
+
+  private buildWhereClause(): string {
+    if (this.whereConditions.length === 0)
+      return ''
+
+    let clause = this.whereConditions[0]
+
+    for (let i = 1; i < this.whereConditions.length; i++) {
+      clause += ` ${this.whereConnectors[i]} ${this.whereConditions[i]}`
+    }
+
+    return `WHERE ${clause}`
+  }
+
   /**
    * Selects specific fields to return.
    * Supports dot notation for joined relations (e.g., 'author.name').
@@ -116,13 +135,13 @@ export class QueryBuilder<
     return this as any
   }
 
-  private _where(field: string, operator: string, value: SQLValue): this {
+  private _where(field: string, operator: string, value: SQLValue, connector: 'AND' | 'OR' = 'AND'): this {
     const columnName = field.includes('.')
       ? field
       : this.validateColumnName(field)
     const placeholder = this.addParam(value)
 
-    this.whereConditions.push(`${columnName} ${operator} ${placeholder}`)
+    this.pushCondition(`${columnName} ${operator} ${placeholder}`, connector)
 
     return this
   }
@@ -133,14 +152,48 @@ export class QueryBuilder<
     return this._where(String(field), operator, value)
   }
 
+  orWhere<K extends keyof T | 'id'>(field: K, operator: OperatorsForKey<T, K>, value: WhereValueForKey<T, K>): this
+  orWhere(field: `${string}.${string}`, operator: AllWhereOperator, value: SQLValue): this
+  orWhere(field: any, operator: any, value: any): this {
+    return this._where(String(field), operator, value, 'OR')
+  }
+
+  private _whereGroup(callback: (q: this) => void, connector: 'AND' | 'OR'): this {
+    const startIdx = this.whereConditions.length
+
+    callback(this)
+
+    const groupConditions = this.whereConditions.splice(startIdx)
+    const groupConnectors = this.whereConnectors.splice(startIdx)
+
+    if (groupConditions.length > 0) {
+      let groupSql = groupConditions[0]
+
+      for (let i = 1; i < groupConditions.length; i++) {
+        groupSql += ` ${groupConnectors[i]} ${groupConditions[i]}`
+      }
+
+      this.pushCondition(`(${groupSql})`, connector)
+    }
+
+    return this
+  }
+
+  whereGroup(callback: (q: this) => void): this {
+    return this._whereGroup(callback, 'AND')
+  }
+
+  orWhereGroup(callback: (q: this) => void): this {
+    return this._whereGroup(callback, 'OR')
+  }
+
   whereEquals<K extends keyof T | 'id'>(field: K, value: WhereValueForKey<T, K>): this {
     return this._where(String(field), '=', value as SQLValue)
   }
 
   whereIn<K extends keyof T | 'id'>(field: K, values: WhereValueForKey<T, K>[]): this {
     if (values.length === 0) {
-      // Empty IN clause always returns false
-      this.whereConditions.push('FALSE')
+      this.pushCondition('FALSE')
 
       return this
     }
@@ -148,21 +201,20 @@ export class QueryBuilder<
     const columnName = this.validateColumnName(String(field))
     const placeholders = values.map(v => this.addParam(v as SQLValue)).join(', ')
 
-    this.whereConditions.push(`${columnName} IN (${placeholders})`)
+    this.pushCondition(`${columnName} IN (${placeholders})`)
 
     return this
   }
 
   whereNotIn<K extends keyof T | 'id'>(field: K, values: WhereValueForKey<T, K>[]): this {
     if (values.length === 0) {
-      // Empty NOT IN clause always returns true
       return this
     }
 
     const columnName = this.validateColumnName(String(field))
     const placeholders = values.map(v => this.addParam(v as SQLValue)).join(', ')
 
-    this.whereConditions.push(`${columnName} NOT IN (${placeholders})`)
+    this.pushCondition(`${columnName} NOT IN (${placeholders})`)
 
     return this
   }
@@ -178,7 +230,7 @@ export class QueryBuilder<
   whereNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
-    this.whereConditions.push(`${columnName} IS NULL`)
+    this.pushCondition(`${columnName} IS NULL`)
 
     return this
   }
@@ -186,7 +238,7 @@ export class QueryBuilder<
   whereNotNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
-    this.whereConditions.push(`${columnName} IS NOT NULL`)
+    this.pushCondition(`${columnName} IS NOT NULL`)
 
     return this
   }
@@ -196,7 +248,7 @@ export class QueryBuilder<
     const minPlaceholder = this.addParam(min as SQLValue)
     const maxPlaceholder = this.addParam(max as SQLValue)
 
-    this.whereConditions.push(`${columnName} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`)
+    this.pushCondition(`${columnName} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`)
 
     return this
   }
@@ -205,7 +257,7 @@ export class QueryBuilder<
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(JSON.stringify(value))
 
-    this.whereConditions.push(`${columnName} @> ${placeholder}::jsonb`)
+    this.pushCondition(`${columnName} @> ${placeholder}::jsonb`)
 
     return this
   }
@@ -214,7 +266,7 @@ export class QueryBuilder<
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(key)
 
-    this.whereConditions.push(`${columnName} ? ${placeholder}`)
+    this.pushCondition(`${columnName} ? ${placeholder}`)
 
     return this
   }
@@ -223,8 +275,7 @@ export class QueryBuilder<
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam([value] as SQLValue)
 
-    // Use ANY for checking if array contains value (more secure than string formatting)
-    this.whereConditions.push(`${placeholder} = ANY(${columnName})`)
+    this.pushCondition(`${placeholder} = ANY(${columnName})`)
 
     return this
   }
@@ -233,7 +284,7 @@ export class QueryBuilder<
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(values as SQLValue)
 
-    this.whereConditions.push(`${columnName} && ${placeholder}`)
+    this.pushCondition(`${columnName} && ${placeholder}`)
 
     return this
   }
@@ -316,7 +367,6 @@ export class QueryBuilder<
 
   /** Execute aggregation query */
   async aggregate(): Promise<TAggregations> {
-    // Build aggregation SELECT
     const aggParts: string[] = []
 
     for (const [alias, { func, field }] of this.aggregations) {
@@ -324,16 +374,7 @@ export class QueryBuilder<
     }
 
     const selectClause = aggParts.join(', ')
-    const whereClause = this.whereConditions.length > 0
-      ? `WHERE ${this.whereConditions.join(' AND ')}`
-      : ''
-
-    // SECURITY AUDIT: Query is constructed from validated components:
-    // - selectClause: aggParts built from validated aggregations (func/field validated in aggregate() method)
-    // - tableName: validated in constructor via validateSQLIdentifier()
-    // - whereConditions: built with parameterized placeholders ($N) in where() methods
-    // - whereParams: actual values passed separately to prevent SQL injection
-    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause}`
+    const query = `SELECT ${selectClause} FROM ${this.tableName} ${this.buildWhereClause()}`
     const start = performance.now()
     let error: Error | undefined
 
@@ -343,7 +384,6 @@ export class QueryBuilder<
       if (!result)
         return {} as TAggregations
 
-      // Convert string numbers to actual numbers
       const converted: TAggregations = {} as TAggregations
 
       for (const [key, value] of Object.entries(result)) {
@@ -546,9 +586,7 @@ export class QueryBuilder<
   }
 
   private processResults(results: DatabaseRow[]): any[] {
-    // If aggregations are present, don't use mapper (aggregation results are plain objects)
     if (this.aggregations.size > 0) {
-      // Convert string numbers from aggregations to actual numbers
       return results.map((row: DatabaseRow) => {
         const converted: any = {}
 
@@ -600,11 +638,7 @@ export class QueryBuilder<
   }
 
   async count(): Promise<number> {
-    const whereClause = this.whereConditions.length > 0
-      ? `WHERE ${this.whereConditions.join(' AND ')}`
-      : ''
-
-    const query = `SELECT COUNT(id) as count FROM ${this.tableName} ${whereClause}`
+    const query = `SELECT COUNT(id) as count FROM ${this.tableName} ${this.buildWhereClause()}`
     const start = performance.now()
     let error: Error | undefined
 
@@ -654,12 +688,8 @@ export class QueryBuilder<
     }
 
     const selectClause = this.selectFields.join(', ')
-    const whereClause = this.whereConditions.length > 0
-      ? `WHERE ${this.whereConditions.join(' AND ')}`
-      : ''
-
     const limitPlaceholder = this.addParam(limitValue)
-    const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
+    const query = `SELECT ${selectClause} FROM ${this.tableName} ${this.buildWhereClause()} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
     const start = performance.now()
     let error: Error | undefined
 
@@ -702,11 +732,7 @@ export class QueryBuilder<
       setParts.push(`${columnName} = $${updateParams.length}`)
     }
 
-    const whereClause = this.whereConditions.length > 0
-      ? `WHERE ${this.whereConditions.join(' AND ')}`
-      : ''
-
-    const query = `UPDATE ${this.tableName} SET ${setParts.join(', ')} ${whereClause} RETURNING id`
+    const query = `UPDATE ${this.tableName} SET ${setParts.join(', ')} ${this.buildWhereClause()} RETURNING id`
     const start = performance.now()
     let error: Error | undefined
 
@@ -735,9 +761,7 @@ export class QueryBuilder<
   }
 
   async deleteMany(): Promise<number> {
-    const whereClause = this.whereConditions.length > 0
-      ? `WHERE ${this.whereConditions.join(' AND ')}`
-      : ''
+    const whereClause = this.buildWhereClause()
 
     if (!whereClause) {
       throw new Error('DELETE without WHERE clause is not allowed. Use deleteMany([ids]) on repository for bulk deletes.')
@@ -848,8 +872,10 @@ export class QueryBuilder<
       }
     }
 
-    if (this.whereConditions.length > 0) {
-      query += ` WHERE ${this.whereConditions.join(' AND ')}`
+    const whereClause = this.buildWhereClause()
+
+    if (whereClause) {
+      query += ` ${whereClause}`
     }
 
     if (this.groupByFields.length > 0) {
