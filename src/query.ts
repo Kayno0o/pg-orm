@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import type { CacheAdapter } from './cache'
-import type { DatabaseRow, EntityDefinition, EntitySchema, InferEntity, InferProjectionClean, InferUpdateData, OrderDirection, QueryResult, ScopeDefinition, SQLValue } from './types'
+import type { AllWhereOperator, ArrayFieldKeys, DatabaseRow, EntityDefinition, EntitySchema, InferArrayElement, InferEntity, InferProjectionClean, InferUpdateData, JsonFieldKeys, OperatorsForKey, OrderDirection, QueryResult, ScopeDefinition, SQLValue, StringLikeFieldKeys, WhereValueForKey } from './types'
 import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
 import { extractOperation, queryLogger } from './logger'
@@ -98,7 +98,7 @@ export class QueryBuilder<
    * Supports dot notation for joined relations (e.g., 'author.name').
    * @param fields - The fields to select.
    */
-  select<F extends readonly (keyof T | 'id' | string)[]>(
+  select<F extends readonly (keyof T | 'id' | `${string}.${string}`)[]>(
     ...fields: F
 
   ): QueryBuilder<T, F, TScopes, TTraits, TAggregations, TGroupedFields> {
@@ -116,18 +116,10 @@ export class QueryBuilder<
     return this as any
   }
 
-  /**
-   * Adds a WHERE clause.
-   * Supports dot notation for joined relations (e.g., 'author.role').
-   * @param field - The field to check.
-   * @param operator - The comparison operator.
-   * @param value - The value to compare against.
-   */
-  where(field: keyof T | 'id' | string, operator: string, value: SQLValue): this {
-    const fieldStr = String(field)
-    const columnName = fieldStr.includes('.')
-      ? fieldStr
-      : this.validateColumnName(fieldStr)
+  private _where(field: string, operator: string, value: SQLValue): this {
+    const columnName = field.includes('.')
+      ? field
+      : this.validateColumnName(field)
     const placeholder = this.addParam(value)
 
     this.whereConditions.push(`${columnName} ${operator} ${placeholder}`)
@@ -135,17 +127,17 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds a WHERE clause checking for equality.
-   */
-  whereEquals(field: keyof T | 'id', value: SQLValue): this {
-    return this.where(field, '=', value)
+  where<K extends keyof T | 'id'>(field: K, operator: OperatorsForKey<T, K>, value: WhereValueForKey<T, K>): this
+  where(field: `${string}.${string}`, operator: AllWhereOperator, value: SQLValue): this
+  where(field: any, operator: any, value: any): this {
+    return this._where(String(field), operator, value)
   }
 
-  /**
-   * Adds a WHERE IN clause.
-   */
-  whereIn(field: keyof T | 'id', values: SQLValue[]): this {
+  whereEquals<K extends keyof T | 'id'>(field: K, value: WhereValueForKey<T, K>): this {
+    return this._where(String(field), '=', value as SQLValue)
+  }
+
+  whereIn<K extends keyof T | 'id'>(field: K, values: WhereValueForKey<T, K>[]): this {
     if (values.length === 0) {
       // Empty IN clause always returns false
       this.whereConditions.push('FALSE')
@@ -154,47 +146,35 @@ export class QueryBuilder<
     }
 
     const columnName = this.validateColumnName(String(field))
-    const placeholders = values.map(v => this.addParam(v)).join(', ')
+    const placeholders = values.map(v => this.addParam(v as SQLValue)).join(', ')
 
     this.whereConditions.push(`${columnName} IN (${placeholders})`)
 
     return this
   }
 
-  /**
-   * Adds a WHERE NOT IN clause.
-   */
-  whereNotIn(field: keyof T | 'id', values: SQLValue[]): this {
+  whereNotIn<K extends keyof T | 'id'>(field: K, values: WhereValueForKey<T, K>[]): this {
     if (values.length === 0) {
       // Empty NOT IN clause always returns true
       return this
     }
 
     const columnName = this.validateColumnName(String(field))
-    const placeholders = values.map(v => this.addParam(v)).join(', ')
+    const placeholders = values.map(v => this.addParam(v as SQLValue)).join(', ')
 
     this.whereConditions.push(`${columnName} NOT IN (${placeholders})`)
 
     return this
   }
 
-  /**
-   * Adds a WHERE LIKE clause.
-   */
-  whereLike(field: keyof T | 'id', pattern: string): this {
-    return this.where(field, 'LIKE', pattern)
+  whereLike(field: StringLikeFieldKeys<T> | 'id', pattern: string): this {
+    return this._where(String(field), 'LIKE', pattern)
   }
 
-  /**
-   * Adds a WHERE ILIKE (case-insensitive) clause.
-   */
-  whereILike(field: keyof T | 'id', pattern: string): this {
-    return this.where(field, 'ILIKE', pattern)
+  whereILike(field: StringLikeFieldKeys<T> | 'id', pattern: string): this {
+    return this._where(String(field), 'ILIKE', pattern)
   }
 
-  /**
-   * Adds a WHERE IS NULL clause.
-   */
   whereNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -203,9 +183,6 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds a WHERE IS NOT NULL clause.
-   */
   whereNotNull(field: keyof T | 'id'): this {
     const columnName = this.validateColumnName(String(field))
 
@@ -214,25 +191,17 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds a WHERE BETWEEN clause.
-   */
-  whereBetween(field: keyof T | 'id', min: SQLValue, max: SQLValue): this {
+  whereBetween<K extends keyof T | 'id'>(field: K, min: WhereValueForKey<T, K>, max: WhereValueForKey<T, K>): this {
     const columnName = this.validateColumnName(String(field))
-    const minPlaceholder = this.addParam(min)
-    const maxPlaceholder = this.addParam(max)
+    const minPlaceholder = this.addParam(min as SQLValue)
+    const maxPlaceholder = this.addParam(max as SQLValue)
 
     this.whereConditions.push(`${columnName} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`)
 
     return this
   }
 
-  // PostgreSQL-specific operators
-
-  /**
-   * Adds a JSON containment check (@>).
-   */
-  whereJsonContains(field: keyof T, value: unknown): this {
+  whereJsonContains(field: JsonFieldKeys<T>, value: unknown): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(JSON.stringify(value))
 
@@ -241,10 +210,7 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds a JSON key existence check (?).
-   */
-  whereJsonHasKey(field: keyof T, key: string): this {
+  whereJsonHasKey(field: JsonFieldKeys<T>, key: string): this {
     const columnName = this.validateColumnName(String(field))
     const placeholder = this.addParam(key)
 
@@ -253,15 +219,9 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds an array containment check (= ANY).
-   */
-  whereArrayContains(field: keyof T, value: SQLValue): this {
+  whereArrayContains<K extends ArrayFieldKeys<T>>(field: K, value: InferArrayElement<T[K]>): this {
     const columnName = this.validateColumnName(String(field))
-
-    // For array operations, we need to pass the array value directly and let PostgreSQL handle it
-    // This is secure because the value goes through parameterization
-    const placeholder = this.addParam([value])
+    const placeholder = this.addParam([value] as SQLValue)
 
     // Use ANY for checking if array contains value (more secure than string formatting)
     this.whereConditions.push(`${placeholder} = ANY(${columnName})`)
@@ -269,31 +229,20 @@ export class QueryBuilder<
     return this
   }
 
-  /**
-   * Adds an array overlap check (&&).
-   */
-  whereArrayOverlaps(field: keyof T, values: SQLValue[]): this {
+  whereArrayOverlaps<K extends ArrayFieldKeys<T>>(field: K, values: InferArrayElement<T[K]>[]): this {
     const columnName = this.validateColumnName(String(field))
-
-    // For array overlap, pass array directly through parameterization
-    const placeholder = this.addParam(values)
+    const placeholder = this.addParam(values as SQLValue)
 
     this.whereConditions.push(`${columnName} && ${placeholder}`)
 
     return this
   }
 
-  /**
-   * Adds an ORDER BY clause.
-   * Supports dot notation for joined relations (e.g., 'author.name').
-   */
-  orderBy(field: keyof T | 'id' | string, direction: OrderDirection = 'ASC'): this {
-    const fieldStr = String(field)
-    const columnName = fieldStr.includes('.')
-      ? fieldStr
-      : this.validateColumnName(fieldStr)
+  private _orderBy(field: string, direction: OrderDirection): this {
+    const columnName = field.includes('.')
+      ? field
+      : this.validateColumnName(field)
 
-    // Validate direction to prevent SQL injection
     if (direction !== 'ASC' && direction !== 'DESC') {
       throw new Error(`Invalid ORDER BY direction: ${direction}. Must be ASC or DESC.`)
     }
@@ -303,9 +252,16 @@ export class QueryBuilder<
     return this
   }
 
-  /** Adds an ORDER BY DESC clause. */
-  orderByDesc(field: keyof T | 'id' | string): this {
-    return this.orderBy(field, 'DESC')
+  orderBy(field: keyof T | 'id', direction?: OrderDirection): this
+  orderBy(field: `${string}.${string}`, direction?: OrderDirection): this
+  orderBy(field: string, direction: OrderDirection = 'ASC'): this {
+    return this._orderBy(String(field), direction)
+  }
+
+  orderByDesc(field: keyof T | 'id'): this
+  orderByDesc(field: `${string}.${string}`): this
+  orderByDesc(field: string): this {
+    return this._orderBy(String(field), 'DESC')
   }
 
   /** Adds a GROUP BY clause. */
@@ -415,27 +371,22 @@ export class QueryBuilder<
     }
   }
 
-  /** Adds a JOIN clause. */
   join(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
   }
 
-  /** Adds an INNER JOIN clause. */
   innerJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('INNER', table, leftColumn, operator, rightColumn)
   }
 
-  /** Adds a LEFT JOIN clause. */
   leftJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('LEFT', table, leftColumn, operator, rightColumn)
   }
 
-  /** Adds a RIGHT JOIN clause. */
   rightJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('RIGHT', table, leftColumn, operator, rightColumn)
   }
 
-  /** Adds a FULL JOIN clause. */
   fullJoin(table: string, leftColumn: string, operator: string, rightColumn: string): this {
     return this.addJoin('FULL', table, leftColumn, operator, rightColumn)
   }
@@ -475,7 +426,6 @@ export class QueryBuilder<
     return scopeFn(this as any) as any
   }
 
-  /** Sets the limit for the query. */
   limit(value: number): this {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid LIMIT value: ${value}. Must be a non-negative integer.`)
@@ -486,7 +436,6 @@ export class QueryBuilder<
     return this
   }
 
-  /** Sets the offset for the query. */
   offset(value: number): this {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`Invalid OFFSET value: ${value}. Must be a non-negative integer.`)
@@ -497,7 +446,6 @@ export class QueryBuilder<
     return this
   }
 
-  /** Sets the cache TTL for the query results. */
   cache(ttlSeconds: number): this {
     if (!this.cacheAdapter) {
       throw new Error('Cache adapter not configured. Configure a cache adapter when creating ORM instance: new ORM({ cache: ... }).')
@@ -512,7 +460,6 @@ export class QueryBuilder<
     return this
   }
 
-  /** Builds the SQL query and parameters. */
   build(): { sql: string, params: SQLValue[] } {
     return {
       sql: this.buildQuery(),
@@ -520,7 +467,6 @@ export class QueryBuilder<
     }
   }
 
-  /** Executes the query and returns the results. */
   async execute(): Promise<
     [keyof TAggregations] extends [never]
       ? [SelectedFields] extends [never]
@@ -533,7 +479,6 @@ export class QueryBuilder<
   > {
     const { sql, params } = this.build()
 
-    // Check cache if enabled
     if (this.cacheTtl && this.cacheAdapter) {
       const cacheKey = hashCacheKey(sql, params, this.schemaName)
       const cached = await this.cacheAdapter.get<any[]>(cacheKey)
@@ -576,11 +521,6 @@ export class QueryBuilder<
     let error: Error | undefined
 
     try {
-      // SECURITY AUDIT: SQL is built by build() method with:
-      // - Validated column names (via validateColumnName())
-      // - Parameterized WHERE values (params array passed separately)
-      // - Validated ORDER BY fields (via validateColumnName())
-      // - Parameterized LIMIT/OFFSET values
       const results = await this.db.unsafe(sql, params)
       const entities = this.processResults(results)
 
@@ -619,16 +559,7 @@ export class QueryBuilder<
         }
 
         if (this.groupByFields.length > 0) {
-          // For grouped fields, we need to map column names back to field names if possible
-          // But since we don't have the reverse map here easily, and usually group by
-          // uses the field name alias if provided in select, or just the column name.
-          // However, QueryBuilder methods take field names and convert to column names.
-          // The result row has column names.
-          // We can iterate schema to find the field name for the column.
-
           for (const field of this.groupByFields) {
-            // 'field' here is the column name (converted in groupBy method)
-            // We try to find a field config that matches this column name
             let fieldName = field
 
             for (const [key, _config] of Object.entries(this.schema)) {
@@ -646,24 +577,17 @@ export class QueryBuilder<
       })
     }
 
-    // If JOINs are present AND user has explicitly selected cross-table fields, return raw results
-    // Otherwise, if JOINs are present but user hasn't selected anything, we still use mapper
-    // because we defaulted to selecting tableName.*, which matches the Entity schema
     if (this.joinClauses.length > 0 && this.hasCustomSelect) {
       return results as any
     }
 
-    // Use mapper if provided to properly convert database rows to entities
-    // This ensures arrays are parsed, dates are converted, and trait methods work
     if (this.mapper) {
       return results.map((row: DatabaseRow) => this.mapper!(row))
     }
 
-    // Fallback to raw results (won't have trait methods or proper array/date handling)
     return results as any
   }
 
-  /** Executes the query and returns the first result or null. */
   async findOne(): Promise<
     [SelectedFields] extends [never]
       ? QueryResult<T, TTraits> | null
@@ -675,13 +599,11 @@ export class QueryBuilder<
     return (results[0] || null) as any
   }
 
-  /** Counts the number of rows matching the query. */
   async count(): Promise<number> {
     const whereClause = this.whereConditions.length > 0
       ? `WHERE ${this.whereConditions.join(' AND ')}`
       : ''
 
-    // SECURITY AUDIT: Query uses validated table name and parameterized WHERE clause (see aggregate() audit)
     const query = `SELECT COUNT(id) as count FROM ${this.tableName} ${whereClause}`
     const start = performance.now()
     let error: Error | undefined
@@ -710,7 +632,6 @@ export class QueryBuilder<
     }
   }
 
-  /** Finds the latest record based on a field. */
   async latest(field: keyof T | 'id' = 'id'): Promise<
     [SelectedFields] extends [never]
       ? QueryResult<T, TTraits> | null
@@ -719,7 +640,6 @@ export class QueryBuilder<
     return this.orderByDesc(field).findOne() as any
   }
 
-  /** Finds the oldest record based on a field. */
   async oldest(field: keyof T | 'id' = 'id'): Promise<
     [SelectedFields] extends [never]
       ? QueryResult<T, TTraits> | null
@@ -728,7 +648,6 @@ export class QueryBuilder<
     return this.orderBy(field, 'ASC').findOne() as any
   }
 
-  /** Finds random records. */
   async random(limitValue = 1): Promise<[SelectedFields] extends [never] ? InferEntity<T>[] : InferProjectionClean<T, SelectedFields>[]> {
     if (!Number.isInteger(limitValue) || limitValue < 1) {
       throw new Error(`Invalid random limit: ${limitValue}. Must be a positive integer.`)
@@ -740,7 +659,6 @@ export class QueryBuilder<
       : ''
 
     const limitPlaceholder = this.addParam(limitValue)
-    // SECURITY AUDIT: Query uses validated components with parameterized LIMIT (see aggregate() audit)
     const query = `SELECT ${selectClause} FROM ${this.tableName} ${whereClause} ORDER BY RANDOM() LIMIT ${limitPlaceholder}`
     const start = performance.now()
     let error: Error | undefined
@@ -769,7 +687,6 @@ export class QueryBuilder<
     }
   }
 
-  /** Updates records matching the query. */
   async update(data: InferUpdateData<T>): Promise<number> {
     if (Object.keys(data).length === 0) {
       throw new Error('Update data cannot be empty')
@@ -817,7 +734,6 @@ export class QueryBuilder<
     }
   }
 
-  /** Deletes records matching the query. */
   async deleteMany(): Promise<number> {
     const whereClause = this.whereConditions.length > 0
       ? `WHERE ${this.whereConditions.join(' AND ')}`
@@ -855,7 +771,6 @@ export class QueryBuilder<
     }
   }
 
-  /** Paginates the query results. */
   async paginate(options: {
     page: number
     limit: number
@@ -905,20 +820,16 @@ export class QueryBuilder<
     }
   }
 
-  /** Builds the SQL query string internally. */
   private buildQuery(): string {
-    // Handle aggregation SELECT
     let selectClause: string
 
     if (this.aggregations.size > 0) {
       const aggParts: string[] = []
 
-      // Add GROUP BY fields first
       if (this.groupByFields.length > 0) {
         aggParts.push(...this.groupByFields)
       }
 
-      // Add aggregations
       for (const [alias, { func, field }] of this.aggregations) {
         aggParts.push(`${func}(${field}) as ${alias}`)
       }
@@ -931,7 +842,6 @@ export class QueryBuilder<
 
     let query = `SELECT ${selectClause} FROM ${this.tableName}`
 
-    // Add JOIN clauses
     if (this.joinClauses.length > 0) {
       for (const join of this.joinClauses) {
         query += ` ${join.type} JOIN ${join.table} ON ${join.leftColumn} ${join.operator} ${join.rightColumn}`
@@ -952,7 +862,6 @@ export class QueryBuilder<
       query += ` ORDER BY ${orderClauses}`
     }
 
-    // LIMIT and OFFSET are now parameterized for security
     if (this.limitValue !== undefined) {
       const limitParam = this.addParam(this.limitValue)
 

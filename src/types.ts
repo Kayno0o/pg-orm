@@ -245,6 +245,53 @@ export type GroupByResult<
 
 export type WhereOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'ILIKE' | 'IN' | 'NOT IN'
 
+// Query builder typed operators
+export type EqualityOperator = '=' | '!='
+export type OrderingOperator = '>' | '>=' | '<' | '<='
+export type PatternOperator = 'LIKE' | 'ILIKE'
+export type AllWhereOperator = EqualityOperator | OrderingOperator | PatternOperator
+
+type OperatorsForFieldConfig<F extends FieldConfig>
+  = F extends StringFieldConfig<any, any> ? AllWhereOperator
+    : F extends NumberFieldConfig<any, any> ? EqualityOperator | OrderingOperator
+      : F extends ForeignKeyFieldConfig<any, any> ? EqualityOperator | OrderingOperator
+        : F extends TimestampFieldConfig<any, any> ? EqualityOperator | OrderingOperator
+          : F extends DateFieldConfig<any, any> ? EqualityOperator | OrderingOperator
+            : F extends UuidFieldConfig<any, any> ? EqualityOperator | PatternOperator
+              : F extends EnumFieldConfig<any, any, any> ? EqualityOperator | PatternOperator
+                : F extends BooleanFieldConfig<any, any> ? EqualityOperator
+                  : F extends ArrayFieldConfig<any, any, any> ? EqualityOperator
+                    : F extends JsonFieldConfig<any, any, any> ? EqualityOperator
+                      : F extends BlobFieldConfig<any, any> ? EqualityOperator
+                        : AllWhereOperator
+
+export type OperatorsForKey<T extends EntitySchema, K>
+  = K extends 'id' ? EqualityOperator | OrderingOperator
+    : K extends keyof T ? OperatorsForFieldConfig<T[K]>
+      : AllWhereOperator
+
+export type WhereValueForKey<T extends EntitySchema, K>
+  = K extends 'id' ? number
+    : K extends keyof T ? InferFieldType<T[K]>
+      : SQLValue
+
+export type JsonFieldKeys<T extends EntitySchema> = {
+  [K in keyof T]: T[K] extends JsonFieldConfig<any, any, any> ? K : never
+}[keyof T]
+
+export type ArrayFieldKeys<T extends EntitySchema> = {
+  [K in keyof T]: T[K] extends ArrayFieldConfig<any, any, any> ? K : never
+}[keyof T]
+
+export type StringLikeFieldKeys<T extends EntitySchema> = {
+  [K in keyof T]: T[K] extends StringFieldConfig<any, any> | UuidFieldConfig<any, any> | EnumFieldConfig<any, any, any> ? K : never
+}[keyof T]
+
+export type InferArrayElement<F extends FieldConfig>
+  = F extends ArrayFieldConfig<infer AT, any, any>
+    ? AT extends 'string' ? string : AT extends 'number' ? number : AT extends 'boolean' ? boolean : never
+    : never
+
 export type WhereValue<T> = T | T[] | null
 
 export type WhereCondition<T extends EntitySchema> = {
