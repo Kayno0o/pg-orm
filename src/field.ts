@@ -16,11 +16,16 @@ import type {
 } from './types'
 import { validateSQLIdentifier } from './sql-utils'
 
+/** Base interface for all field builders */
+export interface FieldBuilder {
+  toConfig: () => BaseFieldConfig<boolean, boolean>
+}
+
 abstract class BaseFieldBuilder<
   Config extends BaseFieldConfig<Nullable, HasDefault>,
   Nullable extends boolean,
   HasDefault extends boolean,
-> {
+> implements FieldBuilder {
   constructor(protected config: Config) {}
 
   protected setNullable(): void {
@@ -46,8 +51,8 @@ abstract class BaseFieldBuilder<
 }
 
 /** Builder for string fields. */
-export class StringFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<StringFieldConfig<Nullable, HasDefault>, Nullable, HasDefault> {
-  constructor(config: StringFieldConfig<Nullable, HasDefault>) {
+export class StringFieldBuilder<CustomType = string, Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<StringFieldConfig<CustomType, Nullable, HasDefault>, Nullable, HasDefault> {
+  constructor(config: StringFieldConfig<CustomType, Nullable, HasDefault>) {
     super(config)
   }
 
@@ -66,17 +71,17 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Marks the field as nullable. */
-  nullable(): StringFieldBuilder<true, HasDefault> {
+  nullable(): StringFieldBuilder<CustomType, true, HasDefault> {
     this.setNullable()
 
-    return this as StringFieldBuilder<true, HasDefault>
+    return this as StringFieldBuilder<CustomType, true, HasDefault>
   }
 
   /** Marks the field as required (not null). */
-  required(): StringFieldBuilder<false, HasDefault> {
-    (this.config as StringFieldConfig<false, HasDefault>).nullable = false
+  required(): StringFieldBuilder<CustomType, false, HasDefault> {
+    (this.config as StringFieldConfig<CustomType, false, HasDefault>).nullable = false
 
-    return this as StringFieldBuilder<false, HasDefault>
+    return this as StringFieldBuilder<CustomType, false, HasDefault>
   }
 
   /** Marks the field as unique. */
@@ -87,10 +92,10 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Sets the default value. */
-  default(value: string): StringFieldBuilder<Nullable, true> {
-    this.setDefault(value)
+  default(value: CustomType extends string ? string : CustomType): StringFieldBuilder<CustomType, Nullable, true> {
+    this.setDefault(value as string)
 
-    return this as StringFieldBuilder<Nullable, true>
+    return this as StringFieldBuilder<CustomType, Nullable, true>
   }
 
   /** Sets the database column name. */
@@ -101,20 +106,20 @@ export class StringFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Adds a custom validator. */
-  refine(validator: CustomValidator<Nullable extends true ? string | null : string>, message: string): this {
+  refine(validator: CustomValidator<Nullable extends true ? CustomType | null : CustomType>, message: string): this {
     this.addValidator(validator, message)
 
     return this
   }
 
-  toConfig(): StringFieldConfig<Nullable, HasDefault> {
+  toConfig(): StringFieldConfig<CustomType, Nullable, HasDefault> {
     return this.config
   }
 }
 
 /** Builder for number fields. */
-export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<NumberFieldConfig<Nullable, HasDefault>, Nullable, HasDefault> {
-  constructor(config: NumberFieldConfig<Nullable, HasDefault>) {
+export class NumberFieldBuilder<CustomType = number, Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<NumberFieldConfig<CustomType, Nullable, HasDefault>, Nullable, HasDefault> {
+  constructor(config: NumberFieldConfig<CustomType, Nullable, HasDefault>) {
     super(config)
   }
 
@@ -140,17 +145,17 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Marks the field as nullable. */
-  nullable(): NumberFieldBuilder<true, HasDefault> {
+  nullable(): NumberFieldBuilder<CustomType, true, HasDefault> {
     this.setNullable()
 
-    return this as NumberFieldBuilder<true, HasDefault>
+    return this as NumberFieldBuilder<CustomType, true, HasDefault>
   }
 
   /** Marks the field as required. */
-  required(): NumberFieldBuilder<false, HasDefault> {
-    (this.config as NumberFieldConfig<false, HasDefault>).nullable = false
+  required(): NumberFieldBuilder<CustomType, false, HasDefault> {
+    (this.config as NumberFieldConfig<CustomType, false, HasDefault>).nullable = false
 
-    return this as NumberFieldBuilder<false, HasDefault>
+    return this as NumberFieldBuilder<CustomType, false, HasDefault>
   }
 
   /** Marks the field as unique. */
@@ -161,10 +166,10 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Sets the default value. */
-  default(value: number): NumberFieldBuilder<Nullable, true> {
-    this.setDefault(value)
+  default(value: CustomType extends number ? number : CustomType): NumberFieldBuilder<CustomType, Nullable, true> {
+    this.setDefault(value as number)
 
-    return this as NumberFieldBuilder<Nullable, true>
+    return this as NumberFieldBuilder<CustomType, Nullable, true>
   }
 
   /** Sets the database column name. */
@@ -175,35 +180,35 @@ export class NumberFieldBuilder<Nullable extends boolean = false, HasDefault ext
   }
 
   /** Adds a custom validator. */
-  refine(validator: CustomValidator<Nullable extends true ? number | null : number>, message: string): this {
+  refine(validator: CustomValidator<Nullable extends true ? CustomType | null : CustomType>, message: string): this {
     this.addValidator(validator, message)
 
     return this
   }
 
-  toConfig(): NumberFieldConfig<Nullable, HasDefault> {
+  toConfig(): NumberFieldConfig<CustomType, Nullable, HasDefault> {
     return this.config
   }
 }
 
 /** Builder for boolean fields. */
-export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<BooleanFieldConfig<Nullable, HasDefault>, Nullable, HasDefault> {
-  constructor(config: BooleanFieldConfig<Nullable, HasDefault>) {
+export class BooleanFieldBuilder<CustomType = boolean, Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<BooleanFieldConfig<CustomType, Nullable, HasDefault>, Nullable, HasDefault> {
+  constructor(config: BooleanFieldConfig<CustomType, Nullable, HasDefault>) {
     super(config)
   }
 
   /** Marks the field as nullable. */
-  nullable(): BooleanFieldBuilder<true, HasDefault> {
+  nullable(): BooleanFieldBuilder<CustomType, true, HasDefault> {
     this.setNullable()
 
-    return this as BooleanFieldBuilder<true, HasDefault>
+    return this as BooleanFieldBuilder<CustomType, true, HasDefault>
   }
 
   /** Sets the default value. */
-  default(value: boolean): BooleanFieldBuilder<Nullable, true> {
-    this.setDefault(value)
+  default(value: CustomType extends boolean ? boolean : CustomType): BooleanFieldBuilder<CustomType, Nullable, true> {
+    this.setDefault(value as boolean)
 
-    return this as BooleanFieldBuilder<Nullable, true>
+    return this as BooleanFieldBuilder<CustomType, Nullable, true>
   }
 
   /** Sets the database column name. */
@@ -214,13 +219,13 @@ export class BooleanFieldBuilder<Nullable extends boolean = false, HasDefault ex
   }
 
   /** Adds a custom validator. */
-  refine(validator: CustomValidator<Nullable extends true ? boolean | null : boolean>, message: string): this {
+  refine(validator: CustomValidator<Nullable extends true ? CustomType | null : CustomType>, message: string): this {
     this.addValidator(validator, message)
 
     return this
   }
 
-  toConfig(): BooleanFieldConfig<Nullable, HasDefault> {
+  toConfig(): BooleanFieldConfig<CustomType, Nullable, HasDefault> {
     return this.config
   }
 }
@@ -272,23 +277,16 @@ export class JsonFieldBuilder<T = unknown, Nullable extends boolean = false, Has
 }
 
 /** Builder for UUID fields. */
-export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<UuidFieldConfig<Nullable, HasDefault>, Nullable, HasDefault> {
-  constructor(config: UuidFieldConfig<Nullable, HasDefault>) {
+export class UuidFieldBuilder<CustomType = string, Nullable extends boolean = false, HasDefault extends boolean = false> extends BaseFieldBuilder<UuidFieldConfig<CustomType, Nullable, HasDefault>, Nullable, HasDefault> {
+  constructor(config: UuidFieldConfig<CustomType, Nullable, HasDefault>) {
     super(config)
   }
 
-  /** Enables auto-generation for the UUID. */
-  autoGenerate(): this {
-    this.config.autoGenerate = true
-
-    return this
-  }
-
   /** Marks the field as nullable. */
-  nullable(): UuidFieldBuilder<true, HasDefault> {
+  nullable(): UuidFieldBuilder<CustomType, true, HasDefault> {
     this.setNullable()
 
-    return this as UuidFieldBuilder<true, HasDefault>
+    return this as UuidFieldBuilder<CustomType, true, HasDefault>
   }
 
   /** Marks the field as unique. */
@@ -299,10 +297,10 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 
   /** Sets the default value. */
-  default(value: string): UuidFieldBuilder<Nullable, true> {
-    this.setDefault(value)
+  default(value: CustomType extends string ? string : CustomType): UuidFieldBuilder<CustomType, Nullable, true> {
+    this.setDefault(value as string)
 
-    return this as UuidFieldBuilder<Nullable, true>
+    return this as UuidFieldBuilder<CustomType, Nullable, true>
   }
 
   /** Sets the database column name. */
@@ -313,13 +311,13 @@ export class UuidFieldBuilder<Nullable extends boolean = false, HasDefault exten
   }
 
   /** Adds a custom validator. */
-  refine(validator: CustomValidator<Nullable extends true ? string | null : string>, message: string): this {
+  refine(validator: CustomValidator<Nullable extends true ? CustomType | null : CustomType>, message: string): this {
     this.addValidator(validator, message)
 
     return this
   }
 
-  toConfig(): UuidFieldConfig<Nullable, HasDefault> {
+  toConfig(): UuidFieldConfig<CustomType, Nullable, HasDefault> {
     return this.config
   }
 }
@@ -574,8 +572,8 @@ export class ForeignKeyFieldBuilder<Nullable extends boolean = false, HasDefault
 /** Factory object for creating field builders. */
 export const field = {
   /** Creates a string field builder. */
-  string: () =>
-    new StringFieldBuilder<false, false>({
+  string: <CustomType = string>() =>
+    new StringFieldBuilder<CustomType, false, false>({
       type: 'string',
       nullable: false,
       unique: false,
@@ -583,8 +581,8 @@ export const field = {
     }),
 
   /** Creates a number field builder. */
-  number: () =>
-    new NumberFieldBuilder<false, false>({
+  number: <CustomType = number>() =>
+    new NumberFieldBuilder<CustomType, false, false>({
       type: 'number',
       nullable: false,
       unique: false,
@@ -592,8 +590,8 @@ export const field = {
     }),
 
   /** Creates a boolean field builder. */
-  boolean: () =>
-    new BooleanFieldBuilder<false, false>({
+  boolean: <CustomType = boolean>() =>
+    new BooleanFieldBuilder<CustomType, false, false>({
       type: 'boolean',
       nullable: false,
       unique: false,
@@ -621,8 +619,8 @@ export const field = {
     }),
 
   /** Creates a UUID field builder. */
-  uuid: () =>
-    new UuidFieldBuilder<false, false>({
+  uuid: <CustomType = string>() =>
+    new UuidFieldBuilder<CustomType, false, false>({
       type: 'uuid',
       nullable: false,
       unique: false,

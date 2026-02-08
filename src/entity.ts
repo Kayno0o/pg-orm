@@ -227,8 +227,13 @@ export class EntityBuilder<
 /**
  * Converts a field definition object into an entity schema.
  * @param fields - Object map of field builders.
+ *
+ * Note: We use `any` in the constraint instead of `FieldConfig` to preserve exact type information.
+ * With `{ toConfig(): FieldConfig }`, TypeScript widens specific types like `StringFieldConfig<'a' | 'b', false, false>`
+ * to the union type `FieldConfig`, losing generic parameters. Using `any` allows TypeScript to infer
+ * the exact return type while `ReturnType` preserves type safety.
  */
-export function createEntitySchema<T extends Record<string, { toConfig: () => FieldConfig }>>(
+export function createEntitySchema<T extends Record<string, { toConfig: () => any }>>(
   fields: T,
 ): {
   [K in keyof T]: ReturnType<T[K]['toConfig']>

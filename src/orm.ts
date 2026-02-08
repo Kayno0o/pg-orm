@@ -152,13 +152,15 @@ export class ORM {
    * Defines a new entity.
    * @param tableName - The name of the database table.
    * @param fieldsCallback - A callback that receives field builders and returns the schema definition.
+   *
+   * Note: We use `any` in the constraint instead of `FieldConfig` to preserve exact type information.
+   * See createEntitySchema for detailed explanation.
    */
-  entity<T extends Record<string, { toConfig: () => FieldConfig }>>(
+  entity<T extends Record<string, { toConfig: () => any }>>(
     tableName: string,
     fieldsCallback: (fieldBuilder: typeof field) => T,
   ): EntityBuilder<{
     [K in keyof T]: ReturnType<T[K]['toConfig']>
-
   }, readonly [], never> {
     const fields = fieldsCallback(field)
     const schema = createEntitySchema(fields)

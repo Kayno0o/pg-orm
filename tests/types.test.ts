@@ -393,4 +393,420 @@ describe('Type System', () => {
       expectTypeOf<Entity['data']>().toEqualTypeOf<Uint8Array>()
     })
   })
+
+  describe('Custom String Types', () => {
+    test('string field with custom literal type should preserve type', () => {
+      const entity = orm.entity('test', f => ({
+        type: f.string<'app' | 'service' | 'library'>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      // Should be literal union, not string
+      expectTypeOf<Entity['type']>().toEqualTypeOf<'app' | 'service' | 'library'>()
+    })
+
+    test('regular string field should remain string', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      // Regular string field should still be string
+      expectTypeOf<Entity['name']>().toEqualTypeOf<string>()
+    })
+
+    test('custom string type with nullable should include null', () => {
+      const entity = orm.entity('test', f => ({
+        environment: f.string<'dev' | 'staging' | 'prod'>().nullable(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['environment']>().toEqualTypeOf<'dev' | 'staging' | 'prod' | null>()
+    })
+
+    test('custom string type with default should preserve type', () => {
+      const entity = orm.entity('test', f => ({
+        status: f.string<'active' | 'inactive'>().default('active'),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['status']>().toEqualTypeOf<'active' | 'inactive'>()
+    })
+
+    test('custom string type with unique should preserve type', () => {
+      const entity = orm.entity('test', f => ({
+        role: f.string<'admin' | 'user' | 'guest'>().unique(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['role']>().toEqualTypeOf<'admin' | 'user' | 'guest'>()
+    })
+
+    test('custom string type in InferCreateData should be required', () => {
+      const entity = orm.entity('test', f => ({
+        type: f.string<'app' | 'service'>(),
+      })).build()
+
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      // Should be required and preserve literal type
+      expectTypeOf<CreateData['type']>().toEqualTypeOf<'app' | 'service'>()
+    })
+
+    test('nullable custom string type in InferCreateData should be optional', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        environment: f.string<'dev' | 'staging' | 'prod'>().nullable(),
+      })).build()
+
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      // environment should be optional
+      const validCreate: CreateData = { name: 'Test' }
+
+      expect(validCreate).toBeDefined()
+
+      // When provided, should be the literal type or null
+      expectTypeOf<CreateData['environment']>().toEqualTypeOf<'dev' | 'staging' | 'prod' | null | undefined>()
+    })
+
+    test('custom string type with default in InferCreateData should be optional', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        status: f.string<'active' | 'inactive'>().default('active'),
+      })).build()
+
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      // status should be optional (has default)
+      const validCreate: CreateData = { name: 'Test' }
+
+      expect(validCreate).toBeDefined()
+    })
+
+    test('custom string type in InferUpdateData should be optional', () => {
+      const entity = orm.entity('test', f => ({
+        type: f.string<'app' | 'service'>(),
+        status: f.string<'active' | 'inactive'>(),
+      })).build()
+
+      type UpdateData = InferUpdateData<typeof entity.schema>
+
+      // All fields should be optional in update
+      const validUpdate1: UpdateData = {}
+      const validUpdate2: UpdateData = { type: 'app' }
+      const validUpdate3: UpdateData = { status: 'active' }
+
+      expect(validUpdate1).toBeDefined()
+      expect(validUpdate2).toBeDefined()
+      expect(validUpdate3).toBeDefined()
+
+      // Should preserve literal types
+      expectTypeOf<UpdateData['type']>().toEqualTypeOf<'app' | 'service' | undefined>()
+      expectTypeOf<UpdateData['status']>().toEqualTypeOf<'active' | 'inactive' | undefined>()
+    })
+
+    test('mixed regular and custom string fields', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(), // regular string
+        email: f.string(), // regular string
+        role: f.string<'admin' | 'user' | 'guest'>(), // custom type
+        status: f.string<'active' | 'inactive'>(), // custom type
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      // Regular strings should be string
+      expectTypeOf<Entity['name']>().toEqualTypeOf<string>()
+      expectTypeOf<Entity['email']>().toEqualTypeOf<string>()
+
+      // Custom types should be literal unions
+      expectTypeOf<Entity['role']>().toEqualTypeOf<'admin' | 'user' | 'guest'>()
+      expectTypeOf<Entity['status']>().toEqualTypeOf<'active' | 'inactive'>()
+    })
+
+    test('complex schema with custom types', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(), // required regular string
+        type: f.string<'app' | 'service' | 'library'>(), // required custom type
+        environment: f.string<'dev' | 'staging' | 'prod'>().nullable(), // optional custom type
+        status: f.string<'active' | 'inactive'>().default('active'), // optional custom type with default
+        description: f.string().nullable(), // optional regular string
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+      type CreateData = InferCreateData<typeof entity.schema>
+      type UpdateData = InferUpdateData<typeof entity.schema>
+
+      // Entity types
+      expectTypeOf<Entity['name']>().toEqualTypeOf<string>()
+      expectTypeOf<Entity['type']>().toEqualTypeOf<'app' | 'service' | 'library'>()
+      expectTypeOf<Entity['environment']>().toEqualTypeOf<'dev' | 'staging' | 'prod' | null>()
+      expectTypeOf<Entity['status']>().toEqualTypeOf<'active' | 'inactive'>()
+      expectTypeOf<Entity['description']>().toEqualTypeOf<string | null>()
+
+      // CreateData - name and type are required
+      const validCreate: CreateData = {
+        name: 'Test App',
+        type: 'app',
+      }
+
+      expect(validCreate).toBeDefined()
+
+      // UpdateData - all fields are optional
+      const validUpdate: UpdateData = {}
+
+      expect(validUpdate).toBeDefined()
+    })
+
+    test('custom string type should work with builder methods chaining', () => {
+      const entity = orm.entity('test', f => ({
+        type: f.string<'app' | 'service'>().maxLength(100).minLength(3),
+        status: f.string<'active' | 'inactive'>().unique().default('active'),
+        environment: f.string<'dev' | 'prod'>().nullable().column('env'),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      // Custom types should be preserved through chaining
+      expectTypeOf<Entity['type']>().toEqualTypeOf<'app' | 'service'>()
+      expectTypeOf<Entity['status']>().toEqualTypeOf<'active' | 'inactive'>()
+      expectTypeOf<Entity['environment']>().toEqualTypeOf<'dev' | 'prod' | null>()
+    })
+
+    test('custom string type with single literal should work', () => {
+      const entity = orm.entity('test', f => ({
+        constant: f.string<'fixed-value'>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['constant']>().toEqualTypeOf<'fixed-value'>()
+    })
+
+    test('custom string type should be distinct from enum', () => {
+      const entity = orm.entity('test', f => ({
+        customString: f.string<'option1' | 'option2'>(),
+        enumField: f.enum(['option1', 'option2'] as const),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      // Both should result in the same TypeScript type
+      expectTypeOf<Entity['customString']>().toEqualTypeOf<'option1' | 'option2'>()
+      expectTypeOf<Entity['enumField']>().toEqualTypeOf<'option1' | 'option2'>()
+
+      // But the config types are different
+      expect(entity.schema.customString.type).toBe('string')
+      expect(entity.schema.enumField.type).toBe('enum')
+    })
+  })
+
+  describe('Custom Number Types', () => {
+    test('number field with custom literal type should preserve type', () => {
+      const entity = orm.entity('test', f => ({
+        priority: f.number<1 | 2 | 3>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['priority']>().toEqualTypeOf<1 | 2 | 3>()
+    })
+
+    test('regular number field should remain number', () => {
+      const entity = orm.entity('test', f => ({
+        count: f.number(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['count']>().toEqualTypeOf<number>()
+    })
+
+    test('custom number type with nullable should include null', () => {
+      const entity = orm.entity('test', f => ({
+        rating: f.number<1 | 2 | 3 | 4 | 5>().nullable(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['rating']>().toEqualTypeOf<1 | 2 | 3 | 4 | 5 | null>()
+    })
+
+    test('custom number type with default should preserve type', () => {
+      const entity = orm.entity('test', f => ({
+        status: f.number<0 | 1>().default(0),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['status']>().toEqualTypeOf<0 | 1>()
+    })
+
+    test('custom number type in InferCreateData should be required', () => {
+      const entity = orm.entity('test', f => ({
+        priority: f.number<1 | 2 | 3>(),
+      })).build()
+
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      expectTypeOf<CreateData['priority']>().toEqualTypeOf<1 | 2 | 3>()
+    })
+
+    test('custom number type in InferUpdateData should be optional', () => {
+      const entity = orm.entity('test', f => ({
+        priority: f.number<1 | 2 | 3>(),
+        rating: f.number<1 | 2 | 3 | 4 | 5>(),
+      })).build()
+
+      type UpdateData = InferUpdateData<typeof entity.schema>
+
+      expectTypeOf<UpdateData['priority']>().toEqualTypeOf<1 | 2 | 3 | undefined>()
+      expectTypeOf<UpdateData['rating']>().toEqualTypeOf<1 | 2 | 3 | 4 | 5 | undefined>()
+    })
+
+    test('custom number type with builder methods chaining', () => {
+      const entity = orm.entity('test', f => ({
+        priority: f.number<1 | 2 | 3>().min(1).max(3).integer(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['priority']>().toEqualTypeOf<1 | 2 | 3>()
+    })
+  })
+
+  describe('Custom Boolean Types', () => {
+    test('boolean field with literal true type', () => {
+      const entity = orm.entity('test', f => ({
+        alwaysTrue: f.boolean<true>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['alwaysTrue']>().toEqualTypeOf<true>()
+    })
+
+    test('boolean field with literal false type', () => {
+      const entity = orm.entity('test', f => ({
+        alwaysFalse: f.boolean<false>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['alwaysFalse']>().toEqualTypeOf<false>()
+    })
+
+    test('regular boolean field should remain boolean', () => {
+      const entity = orm.entity('test', f => ({
+        isActive: f.boolean(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['isActive']>().toEqualTypeOf<boolean>()
+    })
+
+    test('custom boolean type with nullable', () => {
+      const entity = orm.entity('test', f => ({
+        flag: f.boolean<true>().nullable(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['flag']>().toEqualTypeOf<true | null>()
+    })
+
+    test('custom boolean type in InferCreateData', () => {
+      const entity = orm.entity('test', f => ({
+        mustBeTrue: f.boolean<true>(),
+      })).build()
+
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      expectTypeOf<CreateData['mustBeTrue']>().toEqualTypeOf<true>()
+    })
+  })
+
+  describe('Custom UUID Types', () => {
+    test('uuid field with custom string literal type', () => {
+      const entity = orm.entity('test', f => ({
+        version: f.uuid<'v4' | 'v5'>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['version']>().toEqualTypeOf<'v4' | 'v5'>()
+    })
+
+    test('regular uuid field should remain string', () => {
+      const entity = orm.entity('test', f => ({
+        id: f.uuid(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['id']>().toEqualTypeOf<string>()
+    })
+
+    test('custom uuid type with nullable', () => {
+      const entity = orm.entity('test', f => ({
+        optionalId: f.uuid<'custom-format'>().nullable(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['optionalId']>().toEqualTypeOf<'custom-format' | null>()
+    })
+
+    test('custom uuid type with builder methods chaining', () => {
+      const entity = orm.entity('test', f => ({
+        id: f.uuid<'v4' | 'v5'>().unique(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+
+      expectTypeOf<Entity['id']>().toEqualTypeOf<'v4' | 'v5'>()
+    })
+  })
+
+  describe('Mixed Custom Types', () => {
+    test('entity with multiple custom type fields', () => {
+      const entity = orm.entity('test', f => ({
+        name: f.string(),
+        type: f.string<'app' | 'service'>(),
+        priority: f.number<1 | 2 | 3>(),
+        count: f.number(),
+        isActive: f.boolean(),
+        requiresAuth: f.boolean<true>(),
+        uuid: f.uuid(),
+        versionTag: f.uuid<'v4'>(),
+      })).build()
+
+      type Entity = InferEntity<typeof entity.schema>
+      type CreateData = InferCreateData<typeof entity.schema>
+
+      // Custom types preserved
+      expectTypeOf<Entity['type']>().toEqualTypeOf<'app' | 'service'>()
+      expectTypeOf<Entity['priority']>().toEqualTypeOf<1 | 2 | 3>()
+      expectTypeOf<Entity['requiresAuth']>().toEqualTypeOf<true>()
+      expectTypeOf<Entity['versionTag']>().toEqualTypeOf<'v4'>()
+
+      // Regular types remain unchanged
+      expectTypeOf<Entity['name']>().toEqualTypeOf<string>()
+      expectTypeOf<Entity['count']>().toEqualTypeOf<number>()
+      expectTypeOf<Entity['isActive']>().toEqualTypeOf<boolean>()
+      expectTypeOf<Entity['uuid']>().toEqualTypeOf<string>()
+
+      // CreateData also preserves types
+      expectTypeOf<CreateData['type']>().toEqualTypeOf<'app' | 'service'>()
+      expectTypeOf<CreateData['priority']>().toEqualTypeOf<1 | 2 | 3>()
+      expectTypeOf<CreateData['requiresAuth']>().toEqualTypeOf<true>()
+    })
+  })
 })

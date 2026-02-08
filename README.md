@@ -36,7 +36,7 @@ const user = await users.create({
 f.string().maxLength(255).unique()
 f.number().integer().min(0).max(100)
 f.boolean().default(false)
-f.uuid().autoGenerate()
+f.uuid()
 f.timestamp().default('NOW()')
 f.date().nullable()
 f.array('string') // TEXT[]

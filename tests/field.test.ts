@@ -147,13 +147,6 @@ describe('Field Builders', () => {
       expect(config.nullable).toBe(false)
     })
 
-    test('should set autoGenerate', () => {
-      const field = f.uuid().autoGenerate()
-      const config = field.toConfig()
-
-      expect(config.autoGenerate).toBe(true)
-    })
-
     test('should set unique', () => {
       const field = f.uuid().unique()
       const config = field.toConfig()

@@ -49,17 +49,19 @@ export interface BaseFieldConfig<Nullable extends boolean = boolean, HasDefault 
   validators?: ValidatorEntry<unknown>[]
 }
 
-export interface StringFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
+export interface StringFieldConfig<CustomType = string, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'string'
   maxLength?: number
   minLength?: number
+  customType?: CustomType
 }
 
-export interface NumberFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
+export interface NumberFieldConfig<CustomType = number, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'number'
   min?: number
   max?: number
   integer?: boolean
+  customType?: CustomType
   foreignKey?: {
     table: string
     column: string
@@ -68,8 +70,9 @@ export interface NumberFieldConfig<Nullable extends boolean = boolean, HasDefaul
   }
 }
 
-export interface BooleanFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
+export interface BooleanFieldConfig<CustomType = boolean, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'boolean'
+  customType?: CustomType
 }
 
 export interface JsonFieldConfig<T = unknown, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
@@ -77,9 +80,9 @@ export interface JsonFieldConfig<T = unknown, Nullable extends boolean = boolean
   schema?: T
 }
 
-export interface UuidFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
+export interface UuidFieldConfig<CustomType = string, Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
   type: 'uuid'
-  autoGenerate?: boolean
+  customType?: CustomType
 }
 
 export interface TimestampFieldConfig<Nullable extends boolean = boolean, HasDefault extends boolean = boolean> extends BaseFieldConfig<Nullable, HasDefault> {
@@ -115,11 +118,11 @@ export interface ForeignKeyFieldConfig<Nullable extends boolean = boolean, HasDe
 }
 
 export type FieldConfig
-  = | StringFieldConfig<boolean, boolean>
-    | NumberFieldConfig<boolean, boolean>
-    | BooleanFieldConfig<boolean, boolean>
+  = | StringFieldConfig<any, boolean, boolean>
+    | NumberFieldConfig<any, boolean, boolean>
+    | BooleanFieldConfig<any, boolean, boolean>
     | JsonFieldConfig<unknown, boolean, boolean>
-    | UuidFieldConfig<boolean, boolean>
+    | UuidFieldConfig<any, boolean, boolean>
     | TimestampFieldConfig<boolean, boolean>
     | DateFieldConfig<boolean, boolean>
     | ArrayFieldConfig<'string' | 'number' | 'boolean', boolean, boolean>
@@ -136,10 +139,6 @@ export interface EntityMetadata {
 }
 
 interface FieldTypeMapping {
-  string: string
-  number: number
-  boolean: boolean
-  uuid: string
   timestamp: Date
   date: Date
   blob: Uint8Array
@@ -153,15 +152,23 @@ type InferArrayType<AT extends 'string' | 'number' | 'boolean'>
         : never
 
 export type InferFieldType<T extends FieldConfig>
-  = T extends JsonFieldConfig<infer U>
-    ? U
-    : T extends ArrayFieldConfig<infer AT, any, any>
-      ? InferArrayType<AT>
-      : T extends EnumFieldConfig<infer Values, any, any>
-        ? Values[number]
-        : T extends { type: infer Type extends keyof FieldTypeMapping }
-          ? FieldTypeMapping[Type]
-          : never
+  = T extends StringFieldConfig<infer CustomType, any, any>
+    ? CustomType
+    : T extends NumberFieldConfig<infer CustomType, any, any>
+      ? CustomType
+      : T extends BooleanFieldConfig<infer CustomType, any, any>
+        ? CustomType
+        : T extends UuidFieldConfig<infer CustomType, any, any>
+          ? CustomType
+          : T extends JsonFieldConfig<infer U>
+            ? U
+            : T extends ArrayFieldConfig<infer AT, any, any>
+              ? InferArrayType<AT>
+              : T extends EnumFieldConfig<infer Values, any, any>
+                ? Values[number]
+                : T extends { type: infer Type extends keyof FieldTypeMapping }
+                  ? FieldTypeMapping[Type]
+                  : never
 
 export type MakeNullable<T, Config extends FieldConfig> = Config['nullable'] extends true ? T | null : T
 
@@ -252,14 +259,14 @@ export type PatternOperator = 'LIKE' | 'ILIKE'
 export type AllWhereOperator = EqualityOperator | OrderingOperator | PatternOperator
 
 type OperatorsForFieldConfig<F extends FieldConfig>
-  = F extends StringFieldConfig<any, any> ? AllWhereOperator
-    : F extends NumberFieldConfig<any, any> ? EqualityOperator | OrderingOperator
+  = F extends StringFieldConfig<any, any, any> ? AllWhereOperator
+    : F extends NumberFieldConfig<any, any, any> ? EqualityOperator | OrderingOperator
       : F extends ForeignKeyFieldConfig<any, any> ? EqualityOperator | OrderingOperator
         : F extends TimestampFieldConfig<any, any> ? EqualityOperator | OrderingOperator
           : F extends DateFieldConfig<any, any> ? EqualityOperator | OrderingOperator
-            : F extends UuidFieldConfig<any, any> ? EqualityOperator | PatternOperator
+            : F extends UuidFieldConfig<any, any, any> ? EqualityOperator | PatternOperator
               : F extends EnumFieldConfig<any, any, any> ? EqualityOperator | PatternOperator
-                : F extends BooleanFieldConfig<any, any> ? EqualityOperator
+                : F extends BooleanFieldConfig<any, any, any> ? EqualityOperator
                   : F extends ArrayFieldConfig<any, any, any> ? EqualityOperator
                     : F extends JsonFieldConfig<any, any, any> ? EqualityOperator
                       : F extends BlobFieldConfig<any, any> ? EqualityOperator
@@ -284,7 +291,7 @@ export type ArrayFieldKeys<T extends EntitySchema> = {
 }[keyof T]
 
 export type StringLikeFieldKeys<T extends EntitySchema> = {
-  [K in keyof T]: T[K] extends StringFieldConfig<any, any> | UuidFieldConfig<any, any> | EnumFieldConfig<any, any, any> ? K : never
+  [K in keyof T]: T[K] extends StringFieldConfig<any, any, any> | UuidFieldConfig<any, any, any> | EnumFieldConfig<any, any, any> ? K : never
 }[keyof T]
 
 export type InferArrayElement<F extends FieldConfig>
