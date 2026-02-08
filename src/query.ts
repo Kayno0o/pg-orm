@@ -3,6 +3,7 @@ import type { CacheAdapter } from './cache'
 import type { AllWhereOperator, ArrayFieldKeys, DatabaseRow, EntityDefinition, EntitySchema, InferArrayElement, InferEntity, InferProjectionClean, InferUpdateData, JsonFieldKeys, OperatorsForKey, OrderDirection, QueryResult, ScopeDefinition, SQLValue, StringLikeFieldKeys, WhereValueForKey } from './types'
 import { hashCacheKey } from './cache'
 import { InvalidColumnError } from './errors'
+import { Expression, ExpressionBuilder } from './expression'
 import { extractOperation, queryLogger } from './logger'
 import { SchemaMetadata } from './schema-metadata'
 import { validateSQLIdentifier } from './sql-utils'
@@ -135,6 +136,11 @@ export class QueryBuilder<
     return this as any
   }
 
+  /** Creates an ExpressionBuilder for building composable WHERE expressions. */
+  expr(): ExpressionBuilder<T> {
+    return new ExpressionBuilder<T>()
+  }
+
   private _where(field: string, operator: string, value: SQLValue, connector: 'AND' | 'OR' = 'AND'): this {
     const columnName = field.includes('.')
       ? field
@@ -146,15 +152,53 @@ export class QueryBuilder<
     return this
   }
 
+  private _whereExpression(expression: Expression<T>, connector: 'AND' | 'OR'): this {
+    const resolveColumn = (field: string): string => {
+      return field.includes('.')
+        ? field
+        : this.validateColumnName(field)
+    }
+
+    const sql = expression._apply(this.addParam.bind(this), resolveColumn)
+
+    this.pushCondition(sql, connector)
+
+    return this
+  }
+
   where<K extends keyof T | 'id'>(field: K, operator: OperatorsForKey<T, K>, value: WhereValueForKey<T, K>): this
   where(field: `${string}.${string}`, operator: AllWhereOperator, value: SQLValue): this
-  where(field: any, operator: any, value: any): this {
+  where(expression: Expression<T>): this
+  where(callback: (e: ExpressionBuilder<T>) => Expression<T>): this
+  where(field: any, operator?: any, value?: any): this {
+    if (field instanceof Expression) {
+      return this._whereExpression(field, 'AND')
+    }
+
+    if (typeof field === 'function') {
+      const expression = field(new ExpressionBuilder<T>())
+
+      return this._whereExpression(expression, 'AND')
+    }
+
     return this._where(String(field), operator, value)
   }
 
   orWhere<K extends keyof T | 'id'>(field: K, operator: OperatorsForKey<T, K>, value: WhereValueForKey<T, K>): this
   orWhere(field: `${string}.${string}`, operator: AllWhereOperator, value: SQLValue): this
-  orWhere(field: any, operator: any, value: any): this {
+  orWhere(expression: Expression<T>): this
+  orWhere(callback: (e: ExpressionBuilder<T>) => Expression<T>): this
+  orWhere(field: any, operator?: any, value?: any): this {
+    if (field instanceof Expression) {
+      return this._whereExpression(field, 'OR')
+    }
+
+    if (typeof field === 'function') {
+      const expression = field(new ExpressionBuilder<T>())
+
+      return this._whereExpression(expression, 'OR')
+    }
+
     return this._where(String(field), operator, value, 'OR')
   }
 

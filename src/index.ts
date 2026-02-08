@@ -21,6 +21,8 @@ export {
   UniqueConstraintViolationError,
   ValidationError,
 } from './errors'
+export { Expression, ExpressionBuilder } from './expression'
+export type { ExpressionNode } from './expression'
 export { defineFactory, Factory } from './factory'
 export type { FactoryGenerator } from './factory'
 export { field } from './field'

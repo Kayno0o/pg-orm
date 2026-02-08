@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { getDatabaseConfig } from './db'
 import { BulkOperationError, EntityNotFoundError } from './errors'
+import { ExpressionBuilder } from './expression'
 import { extractOperation, queryLogger } from './logger'
 import { EntityMapper } from './mapper'
 import { QueryBuilder } from './query'
@@ -471,6 +472,13 @@ export class Repository<
       `DELETE FROM ${this.tableName} WHERE id IN ($1)`,
       [ids],
     )
+  }
+
+  /**
+   * Creates an ExpressionBuilder for building composable WHERE expressions.
+   */
+  expr(): ExpressionBuilder<T> {
+    return new ExpressionBuilder<T>()
   }
 
   /**
