@@ -1,0 +1,68 @@
+name: Deploy TypeDoc to Gitea Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.ts'
+      - '**/*.js'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pages:
+    runs-on: debian
+
+    steps:
+      - name: Install git before checkout
+        run: apt-get update && apt-get install -y git unzip lcov
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install and start PostgreSQL
+        run: |
+          apt-get update
+          apt-get install -y postgresql postgresql-contrib
+          service postgresql start
+          # Wait for PostgreSQL to be ready
+          until su - postgres -c "pg_isready"; do sleep 1; done
+          # Create test user and database
+          su - postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
+          su - postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
+          su - postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install project deps
+        run: bun install --frozen-lockfile
+
+      - name: Build pages
+        env:
+          database_url: postgres://test:test@localhost:5432/orm_test
+        run: |
+          bun run doc
+          bun run test:coverage
+
+      - name: Combine docs and coverage
+        run: |
+          mkdir -p combined/docs combined/coverage
+          cp -r docs/* combined/docs/
+          cp -r coverage/* combined/coverage/
+
+      - name: Deploy to gitea-pages branch
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: combined
+          publish_branch: gitea-pages
+          force_orphan: true
