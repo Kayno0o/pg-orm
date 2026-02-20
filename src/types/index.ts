@@ -121,7 +121,7 @@ export interface TableDef<
   readonly relations: TRelations
   readonly virtuals: TVirtuals
   readonly hooks: HookRegistry
-  hook: <E extends HookEvent>(event: E, handler: HookHandler<TColumns, E>) => void
+  hook: <E extends HookEvent>(event: E, handler: HookHandler<TColumns, E>) => this
 
   // Two-phase relation definition — avoids circular references.
   // Define all tables first, then call .withRelations() on each.
