@@ -3,7 +3,33 @@ import { SQL } from 'bun'
 import { wrapPgError } from '../errors/index'
 import { clearMapperCache, getOrCompileMapper } from '../mapper/index'
 import { Repository } from '../repo/index'
-import { PreparedStatementCache } from './cache'
+
+// --- Transaction isolation validation ---
+
+const VALID_ISOLATION_LEVELS = new Set([
+  'read uncommitted',
+  'read committed',
+  'repeatable read',
+  'serializable',
+])
+
+const VALID_ACCESS_MODES = new Set([
+  'read write',
+  'read only',
+])
+
+// --- Typed unsafe query helper ---
+
+interface UnsafeSql { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }
+
+async function unsafeQuery(sql: InstanceType<typeof SQL>, sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+  try {
+    return await (sql as unknown as UnsafeSql).unsafe(sqlStr, params) as Record<string, unknown>[]
+  }
+  catch (err) {
+    throw wrapPgError(err, sqlStr, params)
+  }
+}
 
 // --- Connection & Pool Configuration ---
 
@@ -22,6 +48,7 @@ export interface DbConfig {
   }
   tls?: boolean | object
   prepare?: boolean
+  /** @deprecated No-op — bun:sql manages its own prepared statement cache */
   cacheSize?: number
   tables?: AnyTableDef[]
 }
@@ -33,62 +60,53 @@ export interface Executable {
   sql: InstanceType<typeof SQL>
 }
 
+// --- Base Executor (shared query logic) ---
+
+abstract class BaseExecutor implements Executable {
+  abstract readonly sql: InstanceType<typeof SQL>
+
+  async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    return unsafeQuery(this.sql, sqlStr, params)
+  }
+}
+
 // --- Database Instance ---
 
-export class Database implements Executable {
+export class Database extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
-  private _cache: PreparedStatementCache
   private _tables: Map<string, AnyTableDef>
 
   constructor(config: DbConfig = {}) {
+    super()
+    const { pool, tables, cacheSize: _, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
-    if (config.url)
-      sqlOpts.url = config.url
+    for (const [key, val] of Object.entries(connOpts)) {
+      if (val !== undefined)
+        sqlOpts[key] = val
+    }
 
-    if (config.hostname)
-      sqlOpts.hostname = config.hostname
+    if (pool) {
+      if (pool.max)
+        sqlOpts.max = pool.max
 
-    if (config.port)
-      sqlOpts.port = config.port
+      if (pool.idleTimeout)
+        sqlOpts.idleTimeout = pool.idleTimeout
 
-    if (config.database)
-      sqlOpts.database = config.database
+      if (pool.maxLifetime)
+        sqlOpts.maxLifetime = pool.maxLifetime
 
-    if (config.username)
-      sqlOpts.username = config.username
-
-    if (config.password)
-      sqlOpts.password = config.password
-
-    if (config.tls !== undefined)
-      sqlOpts.tls = config.tls
-
-    if (config.prepare !== undefined)
-      sqlOpts.prepare = config.prepare
-
-    if (config.pool) {
-      if (config.pool.max)
-        sqlOpts.max = config.pool.max
-
-      if (config.pool.idleTimeout)
-        sqlOpts.idleTimeout = config.pool.idleTimeout
-
-      if (config.pool.maxLifetime)
-        sqlOpts.maxLifetime = config.pool.maxLifetime
-
-      if (config.pool.connectionTimeout)
-        sqlOpts.connectionTimeout = config.pool.connectionTimeout
+      if (pool.connectionTimeout)
+        sqlOpts.connectionTimeout = pool.connectionTimeout
     }
 
     this.sql = new SQL(sqlOpts as ConstructorParameters<typeof SQL>[0])
-    this._cache = new PreparedStatementCache(config.cacheSize)
 
     // Register tables
     this._tables = new Map()
 
-    if (config.tables) {
-      for (const table of config.tables) {
+    if (tables) {
+      for (const table of tables) {
         this._tables.set(table.name, table)
       }
     }
@@ -141,26 +159,8 @@ export class Database implements Executable {
     return this._tables
   }
 
-  async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    // Use bun:sql tagged template with parameter binding
-    // bun:sql expects tagged template usage, but we need to dynamically construct queries.
-    // We use sql.unsafe() for this — it still binds parameters safely via $1, $2, etc.
-    try {
-      const result = await (this.sql as unknown as { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }).unsafe(sqlStr, params)
-
-      return result as Record<string, unknown>[]
-    }
-    catch (err) {
-      throw wrapPgError(err, sqlStr, params)
-    }
-  }
-
   async execute<T>(builder: { _state: { op: string, table: string, columns: string[] | null, omitColumns: string[] }, toSQL: () => { sql: string, params: unknown[] } }, table: AnyTableDef): Promise<T[]> {
     const { sql: sqlStr, params } = builder.toSQL()
-    const cacheKey = sqlStr
-
-    this._cache.set(cacheKey, { sql: sqlStr })
-
     const rows = await this.query(sqlStr, params)
 
     // Apply JIT mapper
@@ -254,26 +254,25 @@ export class Database implements Executable {
       begin: (fn: (tx: unknown) => Promise<T>) => Promise<T>
     }).begin(async (sqlTx) => {
       if (opts?.isolation) {
-        await (sqlTx as { unsafe: (q: string, p: unknown[]) => Promise<unknown> }).unsafe(
+        if (!VALID_ISOLATION_LEVELS.has(opts.isolation))
+          throw new Error(`Invalid isolation level: "${opts.isolation}"`)
+
+        if (opts.accessMode && !VALID_ACCESS_MODES.has(opts.accessMode))
+          throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+
+        await (sqlTx as unknown as UnsafeSql).unsafe(
           `SET TRANSACTION ISOLATION LEVEL ${opts.isolation.toUpperCase()}${opts.accessMode ? ` ${opts.accessMode.toUpperCase().replace('_', ' ')}` : ''}`,
           [],
         )
       }
 
-      const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._cache)
+      const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>)
 
       return await fn(tx)
     })
   }
 
-  invalidateCache(tableName?: string): void {
-    if (tableName) {
-      this._cache.invalidateTable(tableName)
-    }
-    else {
-      this._cache.clear()
-    }
-
+  invalidateCache(): void {
     clearMapperCache()
   }
 
@@ -290,26 +289,14 @@ export interface TransactionOptions {
   accessMode?: 'read write' | 'read only'
 }
 
-export class TransactionClient implements Executable {
+export class TransactionClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
-  private _cache: PreparedStatementCache
 
   private _savepointCounter = 0
 
-  constructor(sqlTx: InstanceType<typeof SQL>, cache: PreparedStatementCache) {
+  constructor(sqlTx: InstanceType<typeof SQL>) {
+    super()
     this.sql = sqlTx
-    this._cache = cache
-  }
-
-  async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    try {
-      const result = await (this.sql as unknown as { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }).unsafe(sqlStr, params)
-
-      return result as Record<string, unknown>[]
-    }
-    catch (err) {
-      throw wrapPgError(err, sqlStr, params)
-    }
   }
 
   async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {
@@ -318,33 +305,21 @@ export class TransactionClient implements Executable {
     return await (this.sql as unknown as {
       savepoint: (fn: (sp: unknown) => Promise<T>) => Promise<T>
     }).savepoint(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, this._cache, name)
+      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name)
 
       return await fn(sp)
     })
   }
 }
 
-export class SavepointClient implements Executable {
+export class SavepointClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
-  private _cache: PreparedStatementCache
   readonly name: string
 
-  constructor(sqlSp: InstanceType<typeof SQL>, cache: PreparedStatementCache, name: string) {
+  constructor(sqlSp: InstanceType<typeof SQL>, name: string) {
+    super()
     this.sql = sqlSp
-    this._cache = cache
     this.name = name
-  }
-
-  async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    try {
-      const result = await (this.sql as unknown as { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }).unsafe(sqlStr, params)
-
-      return result as Record<string, unknown>[]
-    }
-    catch (err) {
-      throw wrapPgError(err, sqlStr, params)
-    }
   }
 
   async rollback(): Promise<void> {

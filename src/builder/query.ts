@@ -421,23 +421,9 @@ export function assembleQuery(state: QueryState): { sql: string, params: unknown
 }
 
 function buildSelectColumns(state: QueryState): string {
-  const cols: string[] = []
-
-  if (state.columns) {
-    // Explicit pick
-    for (const c of state.columns) {
-      if (!state.omitColumns.includes(c)) {
-        cols.push(`"${c}"`)
-      }
-    }
-  }
-  else if (state.omitColumns.length) {
-    // All minus omitted — emit * but note: actual omission happens at mapper level
-    cols.push('*')
-  }
-  else {
-    cols.push('*')
-  }
+  const cols: string[] = state.columns
+    ? state.columns.filter(c => !state.omitColumns.includes(c)).map(c => `"${c}"`)
+    : ['*']
 
   for (const cc of state.computedColumns) {
     cols.push(`${cc.expr} AS "${cc.alias}"`)

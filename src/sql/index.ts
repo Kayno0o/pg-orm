@@ -1,4 +1,3 @@
-export { type CacheEntry, PreparedStatementCache } from './cache'
 export {
   Database,
   type DbConfig,

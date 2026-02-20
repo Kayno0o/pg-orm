@@ -254,41 +254,28 @@ class ExprAssembler {
   }
 
   private walkLogical(op: ExprOp, pos: number): WalkResult {
-    switch (op.op) {
-      case OP_AND: {
-        const parts: string[] = []
-        let cursor = pos + 1
+    if (op.op === OP_AND || op.op === OP_OR) {
+      const connector = op.op === OP_AND ? ' AND ' : ' OR '
+      const parts: string[] = []
+      let cursor = pos + 1
 
-        for (let i = 0; i < op.count; i++) {
-          const r = this.walk(cursor)
+      for (let i = 0; i < op.count; i++) {
+        const r = this.walk(cursor)
 
-          parts.push(r.sql)
-          cursor = r.next
-        }
-
-        return { sql: `(${parts.join(' AND ')})`, next: cursor }
+        parts.push(r.sql)
+        cursor = r.next
       }
-      case OP_OR: {
-        const parts: string[] = []
-        let cursor = pos + 1
 
-        for (let i = 0; i < op.count; i++) {
-          const r = this.walk(cursor)
-
-          parts.push(r.sql)
-          cursor = r.next
-        }
-
-        return { sql: `(${parts.join(' OR ')})`, next: cursor }
-      }
-      case OP_NOT: {
-        const r = this.walk(pos + 1)
-
-        return { sql: `NOT (${r.sql})`, next: r.next }
-      }
-      default:
-        return { sql: 'TRUE', next: pos + 1 }
+      return { sql: `(${parts.join(connector)})`, next: cursor }
     }
+
+    if (op.op === OP_NOT) {
+      const r = this.walk(pos + 1)
+
+      return { sql: `NOT (${r.sql})`, next: r.next }
+    }
+
+    return { sql: 'TRUE', next: pos + 1 }
   }
 
   private walkFilter(op: ExprOp, pos: number): WalkResult {

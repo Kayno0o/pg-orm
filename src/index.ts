@@ -65,9 +65,6 @@ export { createRelationTypes, type RelationTypes } from './schema/relations'
 
 export { sanitizeMigrationName, validateIdentifier, validateTsLanguage } from './schema/validate'
 
-// Prepared statement cache
-export { type CacheEntry, PreparedStatementCache } from './sql/cache'
-
 // Execution engine
 export {
   Database,

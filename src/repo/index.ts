@@ -44,12 +44,7 @@ export class Repository<
     const { sql, params } = finalBuilder.toSQL()
     const rows = await this._query(sql, params)
 
-    const mapper = getOrCompileMapper(
-      this._table.name,
-      this._table.columns,
-      finalBuilder._state.columns ?? undefined,
-      finalBuilder._state.omitColumns.length ? finalBuilder._state.omitColumns : undefined,
-    )
+    const mapper = this._getMapper(finalBuilder)
     let mapped = mapChunk(mapper, rows)
 
     if (hasHooks(this._table, 'afterSelect')) {
@@ -175,12 +170,7 @@ export class Repository<
     const finalBuilder = cb ? cb(builder) : builder
     const chunkSize = opts.chunkSize ?? 500
     let offset = 0
-    const mapper = getOrCompileMapper(
-      this._table.name,
-      this._table.columns,
-      finalBuilder._state.columns ?? undefined,
-      finalBuilder._state.omitColumns.length ? finalBuilder._state.omitColumns : undefined,
-    )
+    const mapper = this._getMapper(finalBuilder)
 
     while (true) {
       finalBuilder._state.limit = chunkSize
@@ -237,6 +227,16 @@ export class Repository<
     return await this._executor.query(sql, params)
   }
 
+  // Get or compile mapper from a select builder's state
+  private _getMapper(builder: SelectBuilder<TColumns, TRelations, any>) {
+    return getOrCompileMapper(
+      this._table.name,
+      this._table.columns,
+      builder._state.columns ?? undefined,
+      builder._state.omitColumns.length ? builder._state.omitColumns : undefined,
+    )
+  }
+
   // Apply virtual fields to mapped rows
   private _applyVirtuals<T extends Record<string, unknown>>(rows: T[]): T[] {
     const virtuals = this._table.virtuals
@@ -268,8 +268,135 @@ export class Repository<
     return 'id'
   }
 
+  // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
+  private async _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+
+    return this._query(
+      `SELECT * FROM "${tableName}" WHERE "${column}" IN (${placeholders})`,
+      ids,
+    )
+  }
+
+  // --- Relation loading strategies ---
+
+  private async _loadBelongsTo(
+    parentRows: Record<string, unknown>[],
+    rel: AnyRelationDef,
+    relationName: string,
+  ): Promise<void> {
+    const fk = rel.foreignKey
+    const parentIds = parentRows.map(r => r[fk]).filter(v => v != null)
+
+    if (parentIds.length === 0) {
+      for (const row of parentRows) row[relationName] = null
+
+      return
+    }
+
+    const targetTable = this._resolveTable(rel.targetTable)
+    const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
+    const childRows = await this._batchQuery(rel.targetTable, targetPk, parentIds)
+
+    const indexed = new Map<unknown, Record<string, unknown>>()
+
+    for (const child of childRows) indexed.set(child[targetPk], child)
+
+    for (const parent of parentRows) {
+      parent[relationName] = indexed.get(parent[fk]) ?? null
+    }
+  }
+
+  private async _loadHasOneOrMany(
+    parentRows: Record<string, unknown>[],
+    rel: AnyRelationDef,
+    relationName: string,
+  ): Promise<void> {
+    const sourcePk = this._findPrimaryKey(this._table)
+    const targetFk = rel.foreignKey
+    const parentIds = parentRows.map(r => r[sourcePk]).filter(v => v != null)
+    const isMany = rel.type === 'hasMany'
+
+    if (parentIds.length === 0) {
+      for (const row of parentRows) {
+        row[relationName] = isMany ? [] : null
+      }
+
+      return
+    }
+
+    const childRows = await this._batchQuery(rel.targetTable, targetFk, parentIds)
+
+    if (isMany) {
+      const grouped = new Map<unknown, Record<string, unknown>[]>()
+
+      for (const child of childRows) {
+        const fk = child[targetFk]
+
+        if (!grouped.has(fk))
+          grouped.set(fk, [])
+
+        grouped.get(fk)!.push(child)
+      }
+
+      for (const parent of parentRows) {
+        parent[relationName] = grouped.get(parent[sourcePk]) ?? []
+      }
+    }
+    else {
+      const indexed = new Map<unknown, Record<string, unknown>>()
+
+      for (const child of childRows) indexed.set(child[targetFk], child)
+
+      for (const parent of parentRows) {
+        parent[relationName] = indexed.get(parent[sourcePk]) ?? null
+      }
+    }
+  }
+
+  private async _loadHasManyThrough(
+    parentRows: Record<string, unknown>[],
+    rel: AnyRelationDef,
+    relationName: string,
+  ): Promise<void> {
+    const sourcePk = this._findPrimaryKey(this._table)
+    const targetTable = this._resolveTable(rel.targetTable)
+    const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
+    const parentIds = parentRows.map(r => r[sourcePk]).filter(v => v != null)
+
+    if (parentIds.length === 0) {
+      for (const row of parentRows) row[relationName] = []
+
+      return
+    }
+
+    const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
+    const rows = await this._query(
+      `SELECT t.*, j."${rel.throughFrom!}" AS "__pivot_fk"
+       FROM "${rel.throughTable}" j
+       JOIN "${rel.targetTable}" t ON t."${targetPk}" = j."${rel.throughTo!}"
+       WHERE j."${rel.throughFrom!}" IN (${placeholders})`,
+      parentIds,
+    )
+
+    const grouped = new Map<unknown, Record<string, unknown>[]>()
+
+    for (const row of rows) {
+      const fk = row.__pivot_fk
+
+      if (!grouped.has(fk))
+        grouped.set(fk, [])
+
+      grouped.get(fk)!.push(row)
+      delete row.__pivot_fk
+    }
+
+    for (const parent of parentRows) {
+      parent[relationName] = grouped.get(parent[sourcePk]) ?? []
+    }
+  }
+
   // Batched relation loading — single query per relation.
-  // Uses string table names from RelationDef, resolved via table registry.
   private async _loadIncludes(
     parentRows: Record<string, unknown>[],
     includes: { relation: string, strategy: 'batch' | 'lateral' }[],
@@ -285,119 +412,14 @@ export class Repository<
       if (!rel)
         continue
 
-      const targetTableName = rel.targetTable
-
       if (rel.type === 'belongsTo') {
-        // belongsTo: this table has FK pointing to target's PK
-        const fk = rel.foreignKey
-        const parentIds = parentRows.map(r => r[fk]).filter(v => v != null)
-
-        if (parentIds.length === 0) {
-          for (const row of parentRows) row[inc.relation] = null
-
-          continue
-        }
-
-        // Resolve target table to find PK name
-        const targetTable = this._resolveTable(targetTableName)
-        const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-
-        const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
-        const childRows = await this._query(
-          `SELECT * FROM "${targetTableName}" WHERE "${targetPk}" IN (${placeholders})`,
-          parentIds,
-        )
-
-        const indexed = new Map<unknown, Record<string, unknown>>()
-
-        for (const child of childRows) indexed.set(child[targetPk], child)
-
-        for (const parent of parentRows) {
-          parent[inc.relation] = indexed.get(parent[fk]) ?? null
-        }
+        await this._loadBelongsTo(parentRows, rel, inc.relation)
       }
       else if (rel.type === 'hasOne' || rel.type === 'hasMany') {
-        // hasOne/hasMany: target table has FK pointing to this table's PK
-        const sourcePk = this._findPrimaryKey(this._table)
-        const targetFk = rel.foreignKey
-        const parentIds = parentRows.map(r => r[sourcePk]).filter(v => v != null)
-
-        if (parentIds.length === 0) {
-          for (const row of parentRows) {
-            row[inc.relation] = rel.type === 'hasMany' ? [] : null
-          }
-
-          continue
-        }
-
-        const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
-        const childRows = await this._query(
-          `SELECT * FROM "${targetTableName}" WHERE "${targetFk}" IN (${placeholders})`,
-          parentIds,
-        )
-
-        if (rel.type === 'hasMany') {
-          const grouped = new Map<unknown, Record<string, unknown>[]>()
-
-          for (const child of childRows) {
-            const fk = child[targetFk]
-
-            if (!grouped.has(fk))
-              grouped.set(fk, [])
-
-            grouped.get(fk)!.push(child)
-          }
-
-          for (const parent of parentRows) {
-            parent[inc.relation] = grouped.get(parent[sourcePk]) ?? []
-          }
-        }
-        else {
-          const indexed = new Map<unknown, Record<string, unknown>>()
-
-          for (const child of childRows) indexed.set(child[targetFk], child)
-
-          for (const parent of parentRows) {
-            parent[inc.relation] = indexed.get(parent[sourcePk]) ?? null
-          }
-        }
+        await this._loadHasOneOrMany(parentRows, rel, inc.relation)
       }
       else if (rel.type === 'hasManyThrough' && rel.throughTable) {
-        const sourcePk = this._findPrimaryKey(this._table)
-        const targetTable = this._resolveTable(targetTableName)
-        const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-        const parentIds = parentRows.map(r => r[sourcePk]).filter(v => v != null)
-
-        if (parentIds.length === 0) {
-          for (const row of parentRows) row[inc.relation] = []
-
-          continue
-        }
-
-        const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
-        const rows = await this._query(
-          `SELECT t.*, j."${rel.throughFrom!}" AS "__pivot_fk"
-           FROM "${rel.throughTable}" j
-           JOIN "${targetTableName}" t ON t."${targetPk}" = j."${rel.throughTo!}"
-           WHERE j."${rel.throughFrom!}" IN (${placeholders})`,
-          parentIds,
-        )
-
-        const grouped = new Map<unknown, Record<string, unknown>[]>()
-
-        for (const row of rows) {
-          const fk = row.__pivot_fk
-
-          if (!grouped.has(fk))
-            grouped.set(fk, [])
-
-          grouped.get(fk)!.push(row)
-          delete row.__pivot_fk
-        }
-
-        for (const parent of parentRows) {
-          parent[inc.relation] = grouped.get(parent[sourcePk]) ?? []
-        }
+        await this._loadHasManyThrough(parentRows, rel, inc.relation)
       }
     }
 
