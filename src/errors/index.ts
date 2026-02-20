@@ -1,0 +1,182 @@
+// --- Error Taxonomy ---
+// All errors extend OrmError. Never throw raw driver errors.
+
+export class OrmError extends Error {
+  override readonly cause: unknown
+  constructor(message: string, cause?: unknown) {
+    super(message)
+    this.name = 'OrmError'
+    this.cause = cause
+  }
+}
+
+export class QueryError extends OrmError {
+  readonly query: string
+  readonly params: unknown[]
+  constructor(message: string, query: string, params: unknown[], cause?: unknown) {
+    super(sanitizeMessage(message), cause)
+    this.name = 'QueryError'
+    this.query = shouldRedact() ? '[REDACTED]' : query
+    this.params = shouldRedact() ? [] : params
+  }
+}
+
+export class ConnectionError extends OrmError {
+  constructor(message: string, cause?: unknown) {
+    super(sanitizeMessage(message), cause)
+    this.name = 'ConnectionError'
+  }
+}
+
+export class TimeoutError extends OrmError {
+  constructor(message: string, cause?: unknown) {
+    super(sanitizeMessage(message), cause)
+    this.name = 'TimeoutError'
+  }
+}
+
+export interface ConstraintInfo {
+  constraint: string
+  table: string
+  column?: string
+  referencedTable?: string
+}
+
+export class ConstraintError extends QueryError {
+  readonly constraint: string
+  readonly table: string
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'ConstraintError'
+    this.constraint = info.constraint
+    this.table = info.table
+  }
+}
+
+export class UniqueError extends ConstraintError {
+  readonly column: string
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, info, cause)
+    this.name = 'UniqueError'
+    this.column = info.column ?? ''
+  }
+}
+
+export class ForeignKeyError extends ConstraintError {
+  readonly referencedTable: string
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, info, cause)
+    this.name = 'ForeignKeyError'
+    this.referencedTable = info.referencedTable ?? ''
+  }
+}
+
+export class NotNullError extends ConstraintError {
+  readonly column: string
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, info, cause)
+    this.name = 'NotNullError'
+    this.column = info.column ?? ''
+  }
+}
+
+export class CheckError extends ConstraintError {
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, info, cause)
+    this.name = 'CheckError'
+  }
+}
+
+export class MigrationError extends OrmError {
+  readonly phase: 'diff' | 'apply' | 'validate'
+  readonly migration?: string
+  constructor(message: string, phase: 'diff' | 'apply' | 'validate', migration?: string, cause?: unknown) {
+    super(message, cause)
+    this.name = 'MigrationError'
+    this.phase = phase
+    this.migration = migration
+  }
+}
+
+export class DestructiveOpError extends MigrationError {
+  readonly ops: string[]
+  constructor(message: string, phase: 'diff' | 'apply' | 'validate', ops: string[], migration?: string, cause?: unknown) {
+    super(message, phase, migration, cause)
+    this.name = 'DestructiveOpError'
+    this.ops = ops
+  }
+}
+
+function shouldRedact(): boolean {
+  return process.env.REDACT_QUERY_LOGS === '1'
+}
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
+// 3e + 2f: In production or when REDACT is enabled, strip raw PG error messages
+// which may contain data values from constraint errors (e.g., "Key (email)=(admin@example.com)
+// already exists"). Structured fields (constraint, column, table) are preserved.
+function sanitizeMessage(message: string): string {
+  if (shouldRedact())
+    return '[REDACTED]'
+
+  if (isProduction()) {
+    // Strip PG "Detail:" lines that contain actual data values
+    return message.replace(/\bDetail:.*$/gm, 'Detail: [redacted in production]')
+  }
+
+  return message
+}
+
+// Parse PG error codes into typed constraint errors
+// PG error codes: 23505 = unique_violation, 23503 = foreign_key_violation,
+// 23502 = not_null_violation, 23514 = check_violation
+export function wrapPgError(err: unknown, query: string, params: unknown[]): OrmError {
+  if (!(err instanceof Error))
+    return new OrmError(String(err), err)
+
+  const pgErr = err as Error & {
+    code?: string
+    constraint_name?: string
+    constraint?: string
+    table_name?: string
+    table?: string
+    column_name?: string
+    column?: string
+    detail?: string
+  }
+
+  const code = pgErr.code
+  const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
+  const table = pgErr.table_name ?? pgErr.table ?? ''
+  const column = pgErr.column_name ?? pgErr.column ?? ''
+
+  switch (code) {
+    case '23505': // unique_violation
+      return new UniqueError(pgErr.message, query, params, { constraint, table, column }, err)
+    case '23503': // foreign_key_violation
+      return new ForeignKeyError(pgErr.message, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, err)
+    case '23502': // not_null_violation
+      return new NotNullError(pgErr.message, query, params, { constraint, table, column }, err)
+    case '23514': // check_violation
+      return new CheckError(pgErr.message, query, params, { constraint, table }, err)
+    default:
+      if (code?.startsWith('08') || code === '57P01') {
+        return new ConnectionError(pgErr.message, err)
+      }
+
+      if (code === '57014') {
+        return new TimeoutError(pgErr.message, err)
+      }
+
+      return new QueryError(pgErr.message, query, params, err)
+  }
+}
+
+function extractReferencedTable(detail: string): string {
+  const match = detail.match(/table "(\w+)"/)
+
+  return match?.[1] ?? ''
+}
