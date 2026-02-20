@@ -19,7 +19,7 @@ const postTags = defineTable('mt_post_tags', t => ({
 const _posts = defineTable('mt_posts', t => ({
   id: t.serial().primaryKey(),
   title: t.text().notNull(),
-}))
+})).hook('afterDelete', () => console.log('blbl'))
 
 // 2. Two-phase: add relations — InferEntity<typeof _tags> gives full type safety
 const tags = _tags
@@ -33,6 +33,8 @@ const db = new Database({
 })
 
 const PostRepo = db.repo(postsTable)
+const PostTagRepo = db.repo(postTags)
+const TagRepo = db.repo(tags)
 
 async function main() {
   // Auto-migrate
@@ -44,17 +46,19 @@ async function main() {
   await db.raw`DELETE FROM mt_tags`
 
   // Seed data
-  const [p1] = await db.raw<{ id: number }>`INSERT INTO mt_posts (title) VALUES ('Post A') RETURNING id`
-  const [p2] = await db.raw<{ id: number }>`INSERT INTO mt_posts (title) VALUES ('Post B') RETURNING id`
-  const [t1] = await db.raw<{ id: number }>`INSERT INTO mt_tags (name) VALUES ('rust') RETURNING id`
-  const [t2] = await db.raw<{ id: number }>`INSERT INTO mt_tags (name) VALUES ('typescript') RETURNING id`
-  const [t3] = await db.raw<{ id: number }>`INSERT INTO mt_tags (name) VALUES ('bun') RETURNING id`
+  const p1 = await PostRepo.insertOne({ title: 'Post A' })
+  const p2 = await PostRepo.insertOne({ title: 'Post B' })
+  const t1 = await TagRepo.insertOne({ name: 'rust' })
+  const t2 = await TagRepo.insertOne({ name: 'typescript' })
+  const t3 = await TagRepo.insertOne({ name: 'bun' })
 
   // Link: Post A → rust, typescript; Post B → typescript, bun
-  await db.raw`INSERT INTO mt_post_tags ("postId", "tagId") VALUES (${p1!.id}, ${t1!.id})`
-  await db.raw`INSERT INTO mt_post_tags ("postId", "tagId") VALUES (${p1!.id}, ${t2!.id})`
-  await db.raw`INSERT INTO mt_post_tags ("postId", "tagId") VALUES (${p2!.id}, ${t2!.id})`
-  await db.raw`INSERT INTO mt_post_tags ("postId", "tagId") VALUES (${p2!.id}, ${t3!.id})`
+  await PostTagRepo.insertMany([
+    { postId: p1!.id, tagId: t1!.id },
+    { postId: p1!.id, tagId: t2!.id },
+    { postId: p2!.id, tagId: t2!.id },
+    { postId: p2!.id, tagId: t3!.id },
+  ])
 
   // Load posts with tags via hasManyThrough — fully typed!
   const postsWithTags = await PostRepo.findMany(q => q.include('tags'))
