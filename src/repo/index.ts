@@ -1,9 +1,25 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, InferInsert, InferSelect, InferUpdate } from '../types/index'
+import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
-import { hasHooks, runHooks } from '../hooks/index'
+import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
+
+// Cache virtual entries per table to avoid Object.entries on every call
+const _virtualEntriesCache = new WeakMap<AnyTableDef, [string, { compute: (r: unknown) => unknown }][]>()
+
+function getVirtualEntries(table: AnyTableDef): [string, { compute: (r: unknown) => unknown }][] {
+  let entries = _virtualEntriesCache.get(table)
+
+  if (!entries) {
+    const virtuals = table.virtuals
+
+    entries = virtuals ? Object.entries(virtuals) as [string, { compute: (r: unknown) => unknown }][] : []
+    _virtualEntriesCache.set(table, entries)
+  }
+
+  return entries
+}
 
 // --- Repository ---
 
@@ -30,6 +46,38 @@ export class Repository<
     return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry)
   }
 
+  // --- Hook helpers ---
+
+  private async _runBefore<T>(event: HookEvent, value: T): Promise<T> {
+    if (hasHooks(this._table, event)) {
+      return await runHooksAsync(this._table, event, value)
+    }
+
+    return value
+  }
+
+  private async _runAfter(event: HookEvent): Promise<void> {
+    if (hasHooks(this._table, event)) {
+      await runHooksAsync(this._table, event, undefined)
+    }
+  }
+
+  // --- Soft-delete helpers ---
+
+  private _getSoftDeleteColumn(): string | null {
+    const sd = this._table.meta?.softDelete as { column: string } | undefined
+
+    return sd?.column ?? null
+  }
+
+  private _applySoftDeleteFilter(builder: SelectBuilder<TColumns, TRelations, any>): void {
+    const col = this._getSoftDeleteColumn()
+
+    if (col && !builder._state.withTrashed) {
+      builder.andWhere(e => e.isNull(col as any))
+    }
+  }
+
   // --- Query methods (callback-style) ---
 
   async findMany(): Promise<InferSelect<TColumns>[]>
@@ -41,6 +89,10 @@ export class Repository<
   ): Promise<any[]> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
     const finalBuilder = cb ? cb(builder) : builder
+
+    // Auto-filter soft-deleted rows
+    this._applySoftDeleteFilter(finalBuilder)
+
     const { sql, params } = finalBuilder.toSQL()
     const rows = await this._query(sql, params)
 
@@ -48,7 +100,7 @@ export class Repository<
     let mapped = mapChunk(mapper, rows)
 
     if (hasHooks(this._table, 'afterSelect')) {
-      mapped = runHooks(this._table, 'afterSelect', mapped)
+      mapped = await runHooksAsync(this._table, 'afterSelect', mapped)
     }
 
     // Apply virtuals
@@ -78,11 +130,7 @@ export class Repository<
   }
 
   async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>> {
-    let v = values
-
-    if (hasHooks(this._table, 'beforeInsert')) {
-      v = runHooks(this._table, 'beforeInsert', v)
-    }
+    const v = await this._runBefore('beforeInsert', values)
 
     const b = new InsertBuilder<TColumns>(this._table.name)
       .values(v)
@@ -90,9 +138,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    if (hasHooks(this._table, 'afterInsert')) {
-      runHooks(this._table, 'afterInsert', undefined)
-    }
+    await this._runAfter('afterInsert')
 
     return rows[0] as InferSelect<TColumns>
   }
@@ -101,7 +147,7 @@ export class Repository<
     let v = values
 
     if (hasHooks(this._table, 'beforeInsert')) {
-      v = v.map(row => runHooks(this._table, 'beforeInsert', row))
+      v = await Promise.all(v.map(row => runHooksAsync(this._table, 'beforeInsert', row)))
     }
 
     const b = new InsertBuilder<TColumns>(this._table.name)
@@ -110,9 +156,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    if (hasHooks(this._table, 'afterInsert')) {
-      runHooks(this._table, 'afterInsert', undefined)
-    }
+    await this._runAfter('afterInsert')
 
     return rows as InferSelect<TColumns>[]
   }
@@ -121,11 +165,7 @@ export class Repository<
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns>[]> {
-    let s = set
-
-    if (hasHooks(this._table, 'beforeUpdate')) {
-      s = runHooks(this._table, 'beforeUpdate', s)
-    }
+    const s = await this._runBefore('beforeUpdate', set)
 
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
@@ -134,9 +174,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    if (hasHooks(this._table, 'afterUpdate')) {
-      runHooks(this._table, 'afterUpdate', undefined)
-    }
+    await this._runAfter('afterUpdate')
 
     return rows as InferSelect<TColumns>[]
   }
@@ -144,9 +182,17 @@ export class Repository<
   async deleteMany(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns>[]> {
-    if (hasHooks(this._table, 'beforeDelete')) {
-      runHooks(this._table, 'beforeDelete', undefined)
+    // Soft-delete: convert DELETE to UPDATE
+    const sdCol = this._getSoftDeleteColumn()
+
+    if (sdCol) {
+      return this.updateMany(
+        { [sdCol]: new Date() } as InferUpdate<TColumns>,
+        where,
+      )
     }
+
+    await this._runBefore('beforeDelete', undefined)
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
       .where(where)
@@ -154,9 +200,135 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    if (hasHooks(this._table, 'afterDelete')) {
-      runHooks(this._table, 'afterDelete', undefined)
+    await this._runAfter('afterDelete')
+
+    return rows as InferSelect<TColumns>[]
+  }
+
+  // --- Convenience methods ---
+
+  async findById(id: unknown): Promise<InferSelect<TColumns> | null> {
+    const pk = this._table.primaryKey ?? 'id'
+
+    return this.findOne(q => q.where(e => e.eq(pk as any, id as any)) as any)
+  }
+
+  async count(where?: (e: ExprBuilder<TColumns>) => ExprTape): Promise<number> {
+    const builder = new SelectBuilder<TColumns, TRelations>(this._table.name).count()
+
+    if (where) {
+      builder.where(where as any)
     }
+
+    this._applySoftDeleteFilter(builder as any)
+
+    const { sql, params } = builder.toSQL()
+    const rows = await this._query(sql, params)
+
+    return Number((rows[0] as any)?.count ?? 0)
+  }
+
+  async exists(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<boolean> {
+    const c = await this.count(where)
+
+    return c > 0
+  }
+
+  async updateOne(
+    set: InferUpdate<TColumns>,
+    where: (e: ExprBuilder<TColumns>) => ExprTape,
+  ): Promise<InferSelect<TColumns> | null> {
+    const rows = await this.updateMany(set, where)
+
+    return rows[0] ?? null
+  }
+
+  async deleteOne(
+    where: (e: ExprBuilder<TColumns>) => ExprTape,
+  ): Promise<InferSelect<TColumns> | null> {
+    const rows = await this.deleteMany(where)
+
+    return rows[0] ?? null
+  }
+
+  async findOrCreate(
+    values: InferInsert<TColumns>,
+    conflictTarget: (keyof TColumns & string)[],
+  ): Promise<InferSelect<TColumns>> {
+    const v = await this._runBefore('beforeInsert', values)
+
+    const b = new InsertBuilder<TColumns>(this._table.name)
+      .values(v)
+      .onConflict(conflictTarget)
+      .doNothing()
+      .returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+    const { sql, params } = b.toSQL()
+    const rows = await this._query(sql, params)
+
+    if (rows.length > 0) {
+      await this._runAfter('afterInsert')
+
+      return rows[0] as InferSelect<TColumns>
+    }
+
+    // Conflict occurred — fallback to SELECT
+    const whereEntries = conflictTarget.map(col => ({
+      col,
+      val: (v as Record<string, unknown>)[col],
+    }))
+
+    return this.findOne((q) => {
+      let builder = q
+
+      for (const entry of whereEntries) {
+        builder = builder.andWhere(e => e.eq(entry.col as any, entry.val as any)) as any
+      }
+
+      return builder as any
+    }) as Promise<InferSelect<TColumns>>
+  }
+
+  async paginate(opts: {
+    page: number
+    perPage: number
+    where?: (e: ExprBuilder<TColumns>) => ExprTape
+  }): Promise<{ data: InferSelect<TColumns>[], total: number, page: number, perPage: number, totalPages: number }> {
+    const { page, perPage, where: whereFn } = opts
+
+    const [data, total] = await Promise.all([
+      this.findMany((q) => {
+        let b = q.limit(perPage).offset((page - 1) * perPage)
+
+        if (whereFn)
+          b = b.where(whereFn as any) as any
+
+        return b as any
+      }) as Promise<InferSelect<TColumns>[]>,
+      this.count(whereFn),
+    ])
+
+    return {
+      data,
+      total,
+      page,
+      perPage,
+      totalPages: Math.ceil(total / perPage),
+    }
+  }
+
+  // Force-delete: bypass soft-delete and run a real DELETE
+  async forceDelete(
+    where: (e: ExprBuilder<TColumns>) => ExprTape,
+  ): Promise<InferSelect<TColumns>[]> {
+    await this._runBefore('beforeDelete', undefined)
+
+    const b = new DeleteBuilder<TColumns>(this._table.name)
+      .where(where)
+      .returning() as DeleteBuilder<TColumns, InferSelect<TColumns>>
+    const { sql, params } = b.toSQL()
+    const rows = await this._query(sql, params)
+
+    await this._runAfter('afterDelete')
 
     return rows as InferSelect<TColumns>[]
   }
@@ -171,6 +343,8 @@ export class Repository<
     const chunkSize = opts.chunkSize ?? 500
     let offset = 0
     const mapper = this._getMapper(finalBuilder)
+
+    this._applySoftDeleteFilter(finalBuilder)
 
     while (true) {
       finalBuilder._state.limit = chunkSize
@@ -239,14 +413,14 @@ export class Repository<
 
   // Apply virtual fields to mapped rows
   private _applyVirtuals<T extends Record<string, unknown>>(rows: T[]): T[] {
-    const virtuals = this._table.virtuals
+    const entries = getVirtualEntries(this._table)
 
-    if (!virtuals || Object.keys(virtuals).length === 0)
+    if (entries.length === 0)
       return rows
 
     for (const row of rows) {
-      for (const [key, virt] of Object.entries(virtuals)) {
-        ;(row as Record<string, unknown>)[key] = (virt as { compute: (r: unknown) => unknown }).compute(row)
+      for (const [key, virt] of entries) {
+        ;(row as Record<string, unknown>)[key] = virt.compute(row)
       }
     }
 
@@ -258,14 +432,9 @@ export class Repository<
     return this._tableRegistry?.get(name)
   }
 
-  // Find primary key column name for a table
+  // Find primary key column name for a table — uses cached value
   private _findPrimaryKey(table: AnyTableDef): string {
-    for (const [name, col] of Object.entries(table.columns)) {
-      if ((col as any).constraints.some((c: any) => c.type === 'primary_key'))
-        return name
-    }
-
-    return 'id'
+    return table.primaryKey ?? 'id'
   }
 
   // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)

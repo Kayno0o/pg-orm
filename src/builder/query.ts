@@ -1,5 +1,5 @@
 import type { AnyColumns, AnyRelations, InferInsert, InferRelationResult, InferSelect, InferUpdate } from '../types/index'
-import type { ExprBuilder, ExprTape } from './expr'
+import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import { assembleExpr, createExprBuilder } from './expr'
 
 // --- Mutable Query State ---
@@ -91,6 +91,8 @@ interface QueryState {
   rawParams: unknown[]
   // Includes (eager relation loading)
   includes: IncludeEntry[]
+  // Soft-delete bypass
+  withTrashed: boolean
 }
 
 function createState(op: QueryOp, table: string): QueryState {
@@ -125,6 +127,56 @@ function createState(op: QueryOp, table: string): QueryState {
     rawSql: null,
     rawParams: [],
     includes: [],
+    withTrashed: false,
+  }
+}
+
+function cloneState(s: QueryState): QueryState {
+  return {
+    ...s,
+    omitColumns: [...s.omitColumns],
+    computedColumns: s.computedColumns.map(c => ({ ...c })),
+    distinctOn: [...s.distinctOn],
+    whereTape: s.whereTape ? [...s.whereTape] : null,
+    joins: s.joins.map(j => ({ ...j })),
+    orderBy: s.orderBy.map(o => ({ ...o })),
+    groupBy: [...s.groupBy],
+    havingTape: s.havingTape ? [...s.havingTape] : null,
+    insertValues: s.insertValues ? { ...s.insertValues } : null,
+    insertManyValues: s.insertManyValues ? s.insertManyValues.map(r => ({ ...r })) : null,
+    setValues: s.setValues ? { ...s.setValues } : null,
+    returning: s.returning ? [...s.returning] : null,
+    conflictTarget: s.conflictTarget ? [...s.conflictTarget] : null,
+    conflictUpdateCols: s.conflictUpdateCols ? [...s.conflictUpdateCols] : null,
+    mergeOn: s.mergeOn ? [...s.mergeOn] : null,
+    mergeWhen: s.mergeWhen.map(w => ({ ...w })),
+    ctes: s.ctes.map(c => ({ ...c, params: [...c.params] })),
+    windows: s.windows.map(w => ({ ...w, partitionBy: [...w.partitionBy], orderBy: w.orderBy.map(o => ({ ...o })) })),
+    rawParams: [...s.rawParams],
+    includes: s.includes.map(i => ({ ...i })),
+  }
+}
+
+// --- Helpers ---
+
+function quoteCols(cols: string[]): string {
+  return cols.map(c => `"${c}"`).join(', ')
+}
+
+function formatOrderBy(entries: OrderEntry[]): string {
+  return entries.map(o => `"${o.col}" ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+}
+
+// Validate values for INSERT/UPDATE — reject undefined and non-finite numbers
+function validateValues(vals: Record<string, unknown>, context: string): void {
+  for (const [key, val] of Object.entries(vals)) {
+    if (val === undefined) {
+      throw new Error(`${context}: column "${key}" has value undefined. Use null for nullable columns.`)
+    }
+
+    if (typeof val === 'number' && !Number.isFinite(val)) {
+      throw new TypeError(`${context}: column "${key}" has non-finite value ${val}. NaN and Infinity are not valid SQL values.`)
+    }
   }
 }
 
@@ -191,7 +243,7 @@ class QueryAssembler {
 
   private appendReturning(): void {
     if (this.state.returning) {
-      this.parts.push(`RETURNING ${this.state.returning.length ? this.state.returning.map(c => `"${c}"`).join(', ') : '*'}`)
+      this.parts.push(`RETURNING ${this.state.returning.length ? quoteCols(this.state.returning) : '*'}`)
     }
   }
 
@@ -199,7 +251,7 @@ class QueryAssembler {
     if (!this.state.conflictTarget)
       return
 
-    const target = this.state.conflictTarget.map(c => `"${c}"`).join(', ')
+    const target = quoteCols(this.state.conflictTarget)
 
     if (this.state.conflictAction === 'nothing') {
       this.parts.push(`ON CONFLICT (${target}) DO NOTHING`)
@@ -234,7 +286,7 @@ class QueryAssembler {
       this.parts.push('SELECT count(*)')
     }
     else {
-      const distinct = this.state.distinct ? 'DISTINCT ' : this.state.distinctOn.length ? `DISTINCT ON (${this.state.distinctOn.map(c => `"${c}"`).join(', ')}) ` : ''
+      const distinct = this.state.distinct ? 'DISTINCT ' : this.state.distinctOn.length ? `DISTINCT ON (${quoteCols(this.state.distinctOn)}) ` : ''
       const cols = buildSelectColumns(this.state)
 
       this.parts.push(`SELECT ${distinct}${cols}`)
@@ -258,20 +310,20 @@ class QueryAssembler {
       this.parts.push(`WHERE ${this.assembleWhere(this.state.whereTape)}`)
 
     if (this.state.groupBy.length)
-      this.parts.push(`GROUP BY ${this.state.groupBy.map(c => `"${c}"`).join(', ')}`)
+      this.parts.push(`GROUP BY ${quoteCols(this.state.groupBy)}`)
 
     if (this.state.havingTape)
       this.parts.push(`HAVING ${this.assembleWhere(this.state.havingTape)}`)
 
     for (const w of this.state.windows) {
-      const partBy = w.partitionBy.length ? `PARTITION BY ${w.partitionBy.map(c => `"${c}"`).join(', ')}` : ''
-      const ordBy = w.orderBy.length ? `ORDER BY ${w.orderBy.map(o => `"${o.col}" ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')}` : ''
+      const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy)}` : ''
+      const ordBy = w.orderBy.length ? `ORDER BY ${formatOrderBy(w.orderBy)}` : ''
 
       this.parts.push(`WINDOW "${w.name}" AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
     }
 
     if (this.state.orderBy.length)
-      this.parts.push(`ORDER BY ${this.state.orderBy.map(o => `"${o.col}" ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')}`)
+      this.parts.push(`ORDER BY ${formatOrderBy(this.state.orderBy)}`)
 
     if (this.state.limit != null)
       this.parts.push(`LIMIT ${this.state.limit}`)
@@ -290,7 +342,7 @@ class QueryAssembler {
   private assembleInsert(): void {
     const vals = this.state.insertValues!
     const keys = Object.keys(vals)
-    const colList = keys.map(k => `"${k}"`).join(', ')
+    const colList = quoteCols(keys)
     const valList = keys.map(k => this.pushParam(vals[k])).join(', ')
 
     this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES (${valList})`)
@@ -305,7 +357,7 @@ class QueryAssembler {
       return
 
     const keys = Object.keys(rows[0]!)
-    const colList = keys.map(k => `"${k}"`).join(', ')
+    const colList = quoteCols(keys)
     const valueSets = rows.map(row => `(${keys.map(k => this.pushParam(row[k])).join(', ')})`)
 
     this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES ${valueSets.join(', ')}`)
@@ -377,7 +429,7 @@ class QueryAssembler {
     }
     else if (when.action === 'insert' && when.values) {
       const keys = Object.keys(when.values)
-      const cols = keys.map(k => `"${k}"`).join(', ')
+      const cols = quoteCols(keys)
       const vals = keys.map(k => this.pushParam(when.values![k])).join(', ')
 
       this.parts.push(`WHEN NOT MATCHED${condStr} THEN INSERT (${cols}) VALUES (${vals})`)
@@ -390,13 +442,13 @@ class QueryAssembler {
   private assembleUpsert(): void {
     const vals = this.state.insertValues!
     const keys = Object.keys(vals)
-    const colList = keys.map(k => `"${k}"`).join(', ')
+    const colList = quoteCols(keys)
     const valList = keys.map(k => this.pushParam(vals[k])).join(', ')
 
     this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES (${valList})`)
 
     if (this.state.conflictTarget) {
-      const target = this.state.conflictTarget.map(c => `"${c}"`).join(', ')
+      const target = quoteCols(this.state.conflictTarget)
       const updateCols = this.state.conflictUpdateCols ?? keys.filter(k => !this.state.conflictTarget!.includes(k))
       const setClauses = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ')
 
@@ -408,10 +460,16 @@ class QueryAssembler {
 
   private assembleRaw(): void {
     let rawSql = this.state.rawSql!
+    let paramIdx = 0
+    const params = this.state.rawParams
 
-    for (const p of this.state.rawParams) {
-      rawSql = rawSql.replace('?', this.pushParam(p))
-    }
+    rawSql = rawSql.replace(/\?/g, () => {
+      if (paramIdx < params.length) {
+        return this.pushParam(params[paramIdx++])
+      }
+
+      return '?'
+    })
     this.parts.push(rawSql)
   }
 }
@@ -432,17 +490,57 @@ function buildSelectColumns(state: QueryState): string {
   return cols.join(', ') || '*'
 }
 
+// --- Base Builder Classes (hierarchy eliminates duplication) ---
+
+abstract class BaseBuilder {
+  /** @internal */ _state: QueryState
+
+  constructor(op: QueryOp, table: string) {
+    this._state = createState(op, table)
+  }
+
+  toSQL(): { sql: string, params: unknown[] } {
+    return assembleQuery(this._state)
+  }
+
+  explain(): { sql: string, params: unknown[] } {
+    const { sql, params } = this.toSQL()
+
+    return { sql: `EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params }
+  }
+}
+
+abstract class MutationBuilder extends BaseBuilder {
+  // returning() is implemented per-subclass for proper return types
+}
+
+abstract class WhereableMutationBuilder extends MutationBuilder {
+  where(fn: (e: ExprBuilder<any>) => ExprTape): this {
+    const builder = createExprBuilder()
+
+    this._state.whereTape = fn(builder)
+
+    return this
+  }
+}
+
 // --- Query Builder (chainable, mutable, typed) ---
 
 export class SelectBuilder<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
   TResult = InferSelect<TColumns>,
-> {
-  /** @internal */ _state: QueryState
-
+> extends BaseBuilder {
   constructor(table: string) {
-    this._state = createState('select', table)
+    super('select', table)
+  }
+
+  clone(): SelectBuilder<TColumns, TRelations, TResult> {
+    const b = new SelectBuilder<TColumns, TRelations, TResult>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
   }
 
   pick<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns>, K[number]>> {
@@ -490,7 +588,7 @@ export class SelectBuilder<
     if (this._state.whereTape) {
       // Combine with AND
       this._state.whereTape = [
-        { op: 0 /* OP_AND */, count: 2 } as import('./expr').ExprOp,
+        { op: 0 /* OP_AND */, count: 2 } as ExprOp,
         ...this._state.whereTape,
         ...newTape,
       ]
@@ -609,19 +707,28 @@ export class SelectBuilder<
     return this as never
   }
 
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
+  withTrashed(): this {
+    this._state.withTrashed = true
+
+    return this
   }
 }
 
-export class InsertBuilder<TColumns extends AnyColumns, TResult = void> {
-  /** @internal */ _state: QueryState
-
+export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends MutationBuilder {
   constructor(table: string) {
-    this._state = createState('insert', table)
+    super('insert', table)
+  }
+
+  clone(): InsertBuilder<TColumns, TResult> {
+    const b = new InsertBuilder<TColumns, TResult>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
   }
 
   values(vals: InferInsert<TColumns>): this {
+    validateValues(vals as Record<string, unknown>, 'InsertBuilder.values()')
     this._state.insertValues = vals as Record<string, unknown>
 
     return this
@@ -629,6 +736,9 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> {
 
   many(vals: InferInsert<TColumns>[]): this {
     this._state.op = 'insert_many'
+    for (const v of vals) {
+      validateValues(v as Record<string, unknown>, 'InsertBuilder.many()')
+    }
     this._state.insertManyValues = vals as Record<string, unknown>[]
 
     return this
@@ -646,10 +756,6 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> {
     this._state.returning = cols.length ? cols : []
 
     return this as never
-  }
-
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
   }
 }
 
@@ -670,20 +776,27 @@ export class OnConflictBuilder<TColumns extends AnyColumns, TResult> {
   }
 }
 
-export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> {
-  /** @internal */ _state: QueryState
-
+export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
   constructor(table: string) {
-    this._state = createState('update', table)
+    super('update', table)
+  }
+
+  clone(): UpdateBuilder<TColumns, _TResult> {
+    const b = new UpdateBuilder<TColumns, _TResult>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
   }
 
   set(vals: InferUpdate<TColumns>): this {
+    validateValues(vals as Record<string, unknown>, 'UpdateBuilder.set()')
     this._state.setValues = vals as Record<string, unknown>
 
     return this
   }
 
-  where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
+  override where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
     this._state.whereTape = fn(builder)
@@ -698,20 +811,22 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> {
 
     return this as never
   }
-
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
-  }
 }
 
-export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> {
-  /** @internal */ _state: QueryState
-
+export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
   constructor(table: string) {
-    this._state = createState('delete', table)
+    super('delete', table)
   }
 
-  where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
+  clone(): DeleteBuilder<TColumns, _TResult> {
+    const b = new DeleteBuilder<TColumns, _TResult>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
+  }
+
+  override where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
     this._state.whereTape = fn(builder)
@@ -726,17 +841,19 @@ export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> {
 
     return this as never
   }
-
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
-  }
 }
 
-export class MergeBuilder<TColumns extends AnyColumns> {
-  /** @internal */ _state: QueryState
-
+export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   constructor(table: string) {
-    this._state = createState('merge', table)
+    super('merge', table)
+  }
+
+  clone(): MergeBuilder<TColumns> {
+    const b = new MergeBuilder<TColumns>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
   }
 
   using(sourceTable: string, alias: string): this {
@@ -798,20 +915,23 @@ export class MergeBuilder<TColumns extends AnyColumns> {
 
     return this as never
   }
-
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
-  }
 }
 
-export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> {
-  /** @internal */ _state: QueryState
-
+export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> extends MutationBuilder {
   constructor(table: string) {
-    this._state = createState('upsert', table)
+    super('upsert', table)
+  }
+
+  clone(): UpsertBuilder<TColumns, _TResult> {
+    const b = new UpsertBuilder<TColumns, _TResult>(this._state.table)
+
+    b._state = cloneState(this._state)
+
+    return b
   }
 
   values(vals: InferInsert<TColumns>): this {
+    validateValues(vals as Record<string, unknown>, 'UpsertBuilder.values()')
     this._state.insertValues = vals as Record<string, unknown>
 
     return this
@@ -835,9 +955,5 @@ export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> {
     this._state.returning = cols.length ? cols : []
 
     return this as never
-  }
-
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
   }
 }

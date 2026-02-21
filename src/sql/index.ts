@@ -2,6 +2,7 @@ export {
   Database,
   type DbConfig,
   type Executable,
+  type QueryEvent,
   SavepointClient,
   SavepointRollback,
   TransactionClient,

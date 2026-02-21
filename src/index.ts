@@ -1,7 +1,6 @@
 // Expression builder
 export {
   type AssembledExpr,
-  assembleExpr,
   createExprBuilder,
   type ExprBuilder,
   type ExprOp,
@@ -11,7 +10,6 @@ export {
 } from './builder/expr'
 // Query builders
 export {
-  assembleQuery,
   DeleteBuilder,
   type IncludeEntry,
   InsertBuilder,
@@ -34,13 +32,12 @@ export {
   QueryError,
   TimeoutError,
   UniqueError,
-  wrapPgError,
 } from './errors/index'
 // Hooks
-export { hasHooks, runHooks } from './hooks/index'
+export { hasHooks, runHooks, runHooksAsync } from './hooks/index'
 
 // JIT Mapper
-export { clearMapperCache, compileMapper, getOrCompileMapper, mapChunk, type RowMapper } from './mapper/index'
+export { type RowMapper } from './mapper/index'
 
 // Migration
 export {
@@ -63,18 +60,20 @@ export { defineTable } from './schema/index'
 
 export { createRelationTypes, type RelationTypes } from './schema/relations'
 
-export { sanitizeMigrationName, validateIdentifier, validateTsLanguage } from './schema/validate'
-
 // Execution engine
 export {
   Database,
   type DbConfig,
   type Executable,
+  type QueryEvent,
   SavepointClient,
   SavepointRollback,
   TransactionClient,
   type TransactionOptions,
 } from './sql/index'
+
+// Traits
+export { applyTrait, softDelete, timestamps, type Trait } from './traits/index'
 
 // Types
 export type {

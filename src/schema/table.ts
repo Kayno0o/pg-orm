@@ -1,6 +1,8 @@
-import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, HookRegistry, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
+import type { Trait } from '../traits/index'
+import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
 import type { ColumnTypes } from './columns'
 import { compileMapper } from '../mapper/index'
+import { applyTrait } from '../traits/index'
 import { ColumnBuilder, createColumnTypes } from './columns'
 import { createRelationTypes } from './relations'
 import { validateIdentifier } from './validate'
@@ -8,13 +10,23 @@ import { validateIdentifier } from './validate'
 // Type-level: extract column definitions from the builder callback return type
 type ExtractColumns<T extends Record<string, ColumnBuilder>> = {
   [K in keyof T]: T[K] extends ColumnBuilder<infer TType, infer TNullable, infer TDefault, infer TPrimary, infer TGenerated>
-    ? import('../types/index').ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
+    ? ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
     : never
 }
 
 // Type-level: extract virtual definitions from the virtuals map
 type ExtractVirtuals<TColumns extends Record<string, AnyColumnDef>, TVirt extends Record<string, (row: any) => any>> = {
   [K in keyof TVirt]: VirtualDef<InferSelect<TColumns>, ReturnType<TVirt[K]>>
+}
+
+// Find primary key column name from column definitions
+function findPrimaryKey(columns: Record<string, AnyColumnDef>): string | null {
+  for (const [name, col] of Object.entries(columns)) {
+    if (col.constraints.some((c: { type: string }) => c.type === 'primary_key'))
+      return name
+  }
+
+  return null
 }
 
 // Overload 1: columns only
@@ -93,6 +105,7 @@ export function defineTable(
   }
 
   const hooks: HookRegistry = {}
+  const meta: Record<string, unknown> = {}
 
   const table: Record<string, unknown> = {
     name,
@@ -100,6 +113,8 @@ export function defineTable(
     relations,
     virtuals: virtualDefs,
     hooks,
+    primaryKey: findPrimaryKey(columns),
+    meta,
     hook(event: HookEvent, handler: (...args: unknown[]) => unknown) {
       hooks[event] ||= []
       hooks[event]!.push(handler)
@@ -125,6 +140,13 @@ export function defineTable(
       }
 
       table.virtuals = newVirtuals
+
+      return table
+    },
+
+    // Apply a trait — merges columns, hooks, virtuals, and meta
+    withTrait(trait: Trait) {
+      applyTrait(table as unknown as AnyTableDef, trait)
 
       return table
     },

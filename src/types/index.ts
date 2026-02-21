@@ -1,3 +1,5 @@
+import type { Trait } from '../traits'
+
 // Branded type for SQL identifiers
 declare const __brand: unique symbol
 type Brand<T, B extends string> = T & { readonly [__brand]: B }
@@ -121,6 +123,8 @@ export interface TableDef<
   readonly relations: TRelations
   readonly virtuals: TVirtuals
   readonly hooks: HookRegistry
+  readonly primaryKey: string | null
+  readonly meta: Record<string, unknown>
   hook: <E extends HookEvent>(event: E, handler: HookHandler<TColumns, E>) => this
 
   // Two-phase relation definition — avoids circular references.
@@ -136,6 +140,9 @@ export interface TableDef<
   ) => TableDef<TName, TColumns, TRelations, {
     [K in keyof TVirtMap]: VirtualDef<InferSelect<TColumns>, ReturnType<TVirtMap[K]>>
   }>
+
+  // Apply a trait (composable table behavior)
+  withTrait: (trait: Trait) => this
 }
 
 export type HookEvent
@@ -145,10 +152,10 @@ export type HookEvent
     | 'afterSelect' | 'beforeUpsert'
 
 export type HookHandler<TColumns extends AnyColumns, E extends HookEvent>
-  = E extends 'afterSelect' ? (rows: InferSelect<TColumns>[]) => InferSelect<TColumns>[] | void
-    : E extends 'beforeInsert' | 'beforeUpsert' ? (row: InferInsert<TColumns>) => InferInsert<TColumns> | void
-      : E extends 'beforeUpdate' ? (row: Partial<InferSelect<TColumns>>) => Partial<InferSelect<TColumns>> | void
-        : E extends 'beforeDelete' | 'afterDelete' | 'afterInsert' | 'afterUpdate' ? () => void
+  = E extends 'afterSelect' ? (rows: InferSelect<TColumns>[]) => InferSelect<TColumns>[] | void | Promise<InferSelect<TColumns>[] | void>
+    : E extends 'beforeInsert' | 'beforeUpsert' ? (row: InferInsert<TColumns>) => InferInsert<TColumns> | void | Promise<InferInsert<TColumns> | void>
+      : E extends 'beforeUpdate' ? (row: Partial<InferSelect<TColumns>>) => Partial<InferSelect<TColumns>> | void | Promise<Partial<InferSelect<TColumns>> | void>
+        : E extends 'beforeDelete' | 'afterDelete' | 'afterInsert' | 'afterUpdate' ? () => void | Promise<void>
           : never
 
 export type HookRegistry = Partial<Record<HookEvent, ((...args: any[]) => any)[]>>

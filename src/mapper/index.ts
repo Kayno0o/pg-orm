@@ -46,11 +46,15 @@ function identityMapper(row: Record<string, unknown>): Record<string, unknown> {
   return row
 }
 
-// Apply mapper to an entire chunk at once (2e: per-chunk, not per-row on stream path)
+// Apply mapper to an entire chunk at once (per-chunk, not per-row on stream path)
 export function mapChunk(
   mapper: RowMapper<Record<string, unknown>>,
   rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
+  // Fast path: skip allocation when identity mapper
+  if (mapper === identityMapper)
+    return rows
+
   const len = rows.length
   const out = new Array<Record<string, unknown>>(len)
 

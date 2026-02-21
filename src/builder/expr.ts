@@ -133,74 +133,76 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   arrayOverlap: <K extends keyof TColumns & string>(col: K, vals: unknown[]) => ExprTape
 }
 
-// Runtime expression builder implementation
+// Singleton expression builder — stateless, so one instance serves all callers
+const _singletonExprBuilder: ExprBuilder<any> = {
+  and(...exprs) {
+    const tape: ExprTape = [{ op: OP_AND, count: exprs.length }]
+
+    for (const e of exprs) tape.push(...e)
+
+    return tape
+  },
+  or(...exprs) {
+    const tape: ExprTape = [{ op: OP_OR, count: exprs.length }]
+
+    for (const e of exprs) tape.push(...e)
+
+    return tape
+  },
+  not(expr) {
+    return [{ op: OP_NOT }, ...expr]
+  },
+
+  eq: (col, val) => [{ op: OP_EQ, col: col as string, val }],
+  neq: (col, val) => [{ op: OP_NEQ, col: col as string, val }],
+  gt: (col, val) => [{ op: OP_GT, col: col as string, val }],
+  gte: (col, val) => [{ op: OP_GTE, col: col as string, val }],
+  lt: (col, val) => [{ op: OP_LT, col: col as string, val }],
+  lte: (col, val) => [{ op: OP_LTE, col: col as string, val }],
+  in: (col, vals) => [{ op: OP_IN, col: col as string, vals: vals as unknown[] }],
+  notIn: (col, vals) => [{ op: OP_NOT_IN, col: col as string, vals: vals as unknown[] }],
+
+  isNull: col => [{ op: OP_IS_NULL, col: col as string }],
+  isNotNull: col => [{ op: OP_IS_NOT_NULL, col: col as string }],
+
+  like: (col, pattern) => [{ op: OP_LIKE, col: col as string, pattern }],
+  ilike: (col, pattern) => [{ op: OP_ILIKE, col: col as string, pattern }],
+
+  between: (col, lo, hi) => [{ op: OP_BETWEEN, col: col as string, lo, hi }],
+
+  exists: subquery => [{ op: OP_EXISTS, subquery }],
+  notExists: subquery => [{ op: OP_NOT_EXISTS, subquery }],
+  scalar: subquery => [{ op: OP_SCALAR, subquery }],
+
+  raw: (sql, ...params) => [{ op: OP_RAW, sql, params }],
+
+  jsonbPath(col, path, inner) {
+    const innerTape = inner(_singletonExprBuilder as ExprBuilder<AnyColumns>)
+
+    return [{ op: OP_JSONB_PATH, col, path, innerTape }]
+  },
+
+  tsMatch: (col, query) => [{ op: OP_TS_MATCH, col, query }],
+  tsQuery: (language, query) => {
+    validateTsLanguage(language)
+
+    return { language, query }
+  },
+
+  vectorCosineDistance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'cosine' }],
+  vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'l2' }],
+  vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'inner' }],
+
+  param: name => ({ __param: true, name }) as never,
+  ref: path => [{ op: OP_REF, path }],
+
+  arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string, val }],
+  arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string, vals }],
+}
+
+// Runtime expression builder — returns shared singleton (stateless)
 export function createExprBuilder<TColumns extends AnyColumns>(): ExprBuilder<TColumns> {
-  return {
-    and(...exprs) {
-      const tape: ExprTape = [{ op: OP_AND, count: exprs.length }]
-
-      for (const e of exprs) tape.push(...e)
-
-      return tape
-    },
-    or(...exprs) {
-      const tape: ExprTape = [{ op: OP_OR, count: exprs.length }]
-
-      for (const e of exprs) tape.push(...e)
-
-      return tape
-    },
-    not(expr) {
-      return [{ op: OP_NOT }, ...expr]
-    },
-
-    eq: (col, val) => [{ op: OP_EQ, col: col as string, val }],
-    neq: (col, val) => [{ op: OP_NEQ, col: col as string, val }],
-    gt: (col, val) => [{ op: OP_GT, col: col as string, val }],
-    gte: (col, val) => [{ op: OP_GTE, col: col as string, val }],
-    lt: (col, val) => [{ op: OP_LT, col: col as string, val }],
-    lte: (col, val) => [{ op: OP_LTE, col: col as string, val }],
-    in: (col, vals) => [{ op: OP_IN, col: col as string, vals: vals as unknown[] }],
-    notIn: (col, vals) => [{ op: OP_NOT_IN, col: col as string, vals: vals as unknown[] }],
-
-    isNull: col => [{ op: OP_IS_NULL, col: col as string }],
-    isNotNull: col => [{ op: OP_IS_NOT_NULL, col: col as string }],
-
-    like: (col, pattern) => [{ op: OP_LIKE, col: col as string, pattern }],
-    ilike: (col, pattern) => [{ op: OP_ILIKE, col: col as string, pattern }],
-
-    between: (col, lo, hi) => [{ op: OP_BETWEEN, col: col as string, lo, hi }],
-
-    exists: subquery => [{ op: OP_EXISTS, subquery }],
-    notExists: subquery => [{ op: OP_NOT_EXISTS, subquery }],
-    scalar: subquery => [{ op: OP_SCALAR, subquery }],
-
-    raw: (sql, ...params) => [{ op: OP_RAW, sql, params }],
-
-    jsonbPath(col, path, inner) {
-      const innerBuilder = createExprBuilder<AnyColumns>()
-      const innerTape = inner(innerBuilder)
-
-      return [{ op: OP_JSONB_PATH, col, path, innerTape }]
-    },
-
-    tsMatch: (col, query) => [{ op: OP_TS_MATCH, col, query }],
-    tsQuery: (language, query) => {
-      validateTsLanguage(language)
-
-      return { language, query }
-    },
-
-    vectorCosineDistance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'cosine' }],
-    vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'l2' }],
-    vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'inner' }],
-
-    param: name => ({ __param: true, name }) as never,
-    ref: path => [{ op: OP_REF, path }],
-
-    arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string, val }],
-    arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string, vals }],
-  }
+  return _singletonExprBuilder as ExprBuilder<TColumns>
 }
 
 // --- SQL Assembly from ExprTape ---
@@ -331,12 +333,16 @@ class ExprAssembler {
       }
       case OP_RAW: {
         let rawSql = op.sql
+        let paramIdx = 0
+        const params = op.params
 
-        for (const p of op.params) {
-          const placeholder = this.nextParam(p)
+        rawSql = rawSql.replace(/\?/g, () => {
+          if (paramIdx < params.length) {
+            return this.nextParam(params[paramIdx++])
+          }
 
-          rawSql = rawSql.replace('?', placeholder)
-        }
+          return '?'
+        })
 
         return { sql: rawSql, next: pos + 1 }
       }

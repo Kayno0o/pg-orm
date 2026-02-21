@@ -41,9 +41,9 @@ async function main() {
   await db.sync({ allowDestructive: true })
 
   // Clean slate
-  await db.raw`DELETE FROM mt_post_tags`
-  await db.raw`DELETE FROM mt_posts`
-  await db.raw`DELETE FROM mt_tags`
+  await PostTagRepo.deleteMany(q => q.or(q.isNotNull('postId'), q.isNotNull('tagId')))
+  await PostRepo.deleteMany(q => q.isNotNull('id'))
+  await TagRepo.deleteMany(q => q.isNotNull('id'))
 
   // Seed data
   const p1 = await PostRepo.insertOne({ title: 'Post A' })

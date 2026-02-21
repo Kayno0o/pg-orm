@@ -29,7 +29,7 @@ interface LiveEnum {
   values: string[]
 }
 
-export async function introspectLiveSchema(executor: Executable): Promise<{
+export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
   tables: LiveTable[]
   enums: LiveEnum[]
 }> {
@@ -39,32 +39,32 @@ export async function introspectLiveSchema(executor: Executable): Promise<{
       c.is_nullable, c.column_default, c.is_generated, c.generation_expression,
       c.character_maximum_length, c.numeric_precision, c.numeric_scale
     FROM information_schema.columns c
-    WHERE c.table_schema = 'public'
+    WHERE c.table_schema = $1
     ORDER BY c.table_name, c.ordinal_position
-  `, [])
+  `, [schema])
 
   const pkRows = await executor.query(`
     SELECT tc.table_name, kcu.column_name
     FROM information_schema.table_constraints tc
     JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public'
-  `, [])
+    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+  `, [schema])
 
   const uqRows = await executor.query(`
     SELECT tc.table_name, kcu.column_name
     FROM information_schema.table_constraints tc
     JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-    WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = 'public'
-  `, [])
+    WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = $1
+  `, [schema])
 
   const enumRows = await executor.query(`
     SELECT t.typname AS enum_name, e.enumlabel AS enum_value, e.enumsortorder
     FROM pg_type t
     JOIN pg_enum e ON t.oid = e.enumtypid
     JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'public'
+    WHERE n.nspname = $1
     ORDER BY t.typname, e.enumsortorder
-  `, [])
+  `, [schema])
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
