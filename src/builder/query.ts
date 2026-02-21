@@ -1,5 +1,6 @@
 import type { AnyColumns, AnyRelations, InferInsert, InferRelationResult, InferSelect, InferUpdate } from '../types/index'
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
+import { quote } from '../sql/utils'
 import { assembleExpr, createExprBuilder } from './expr'
 
 // --- Mutable Query State ---
@@ -32,7 +33,7 @@ interface WindowEntry {
 }
 
 interface MergeWhen {
-  type: 'matched' | 'not_matched'
+  type: 'matched' | 'not_matched' | 'not_matched_by_source'
   condition?: ExprTape
   action: 'update' | 'insert' | 'delete' | 'nothing'
   values?: Record<string, unknown>
@@ -160,11 +161,11 @@ function cloneState(s: QueryState): QueryState {
 // --- Helpers ---
 
 function quoteCols(cols: string[]): string {
-  return cols.map(c => `"${c}"`).join(', ')
+  return cols.map(quote).join(', ')
 }
 
 function formatOrderBy(entries: OrderEntry[]): string {
-  return entries.map(o => `"${o.col}" ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+  return entries.map(o => `${quote(o.col)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
 }
 
 // Validate values for INSERT/UPDATE — reject undefined and non-finite numbers
@@ -257,7 +258,7 @@ class QueryAssembler {
       this.parts.push(`ON CONFLICT (${target}) DO NOTHING`)
     }
     else if (this.state.conflictAction === 'update' && this.state.conflictUpdateCols) {
-      const setClauses = this.state.conflictUpdateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ')
+      const setClauses = this.state.conflictUpdateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
 
       this.parts.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
     }
@@ -275,7 +276,7 @@ class QueryAssembler {
         cteSql = cteSql.replace(/\$\d+/, this.pushParam(p))
       }
 
-      return `"${c.name}" AS (${mat}${cteSql})`
+      return `${quote(c.name)} AS (${mat}${cteSql})`
     })
 
     this.parts.push(`WITH ${cteParts.join(', ')}`)
@@ -292,17 +293,17 @@ class QueryAssembler {
       this.parts.push(`SELECT ${distinct}${cols}`)
     }
 
-    this.parts.push(`FROM "${this.state.table}"${this.state.alias ? ` AS "${this.state.alias}"` : ''}`)
+    this.parts.push(`FROM ${quote(this.state.table)}${this.state.alias ? ` AS ${quote(this.state.alias)}` : ''}`)
 
     for (const j of this.state.joins) {
       const joinType = j.type.toUpperCase()
       const onClause = j.on ? ` ON ${this.assembleWhere(j.on)}` : ''
 
       if (j.type === 'lateral') {
-        this.parts.push(`CROSS JOIN LATERAL (${j.table}) AS "${j.alias}"`)
+        this.parts.push(`CROSS JOIN LATERAL (${j.table}) AS ${quote(j.alias)}`)
       }
       else {
-        this.parts.push(`${joinType} JOIN "${j.table}" AS "${j.alias}"${onClause}`)
+        this.parts.push(`${joinType} JOIN ${quote(j.table)} AS ${quote(j.alias)}${onClause}`)
       }
     }
 
@@ -319,7 +320,7 @@ class QueryAssembler {
       const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy)}` : ''
       const ordBy = w.orderBy.length ? `ORDER BY ${formatOrderBy(w.orderBy)}` : ''
 
-      this.parts.push(`WINDOW "${w.name}" AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
+      this.parts.push(`WINDOW ${quote(w.name)} AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
     }
 
     if (this.state.orderBy.length)
@@ -345,7 +346,7 @@ class QueryAssembler {
     const colList = quoteCols(keys)
     const valList = keys.map(k => this.pushParam(vals[k])).join(', ')
 
-    this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES (${valList})`)
+    this.parts.push(`INSERT INTO ${quote(this.state.table)} (${colList}) VALUES (${valList})`)
     this.appendOnConflict()
     this.appendReturning()
   }
@@ -360,7 +361,7 @@ class QueryAssembler {
     const colList = quoteCols(keys)
     const valueSets = rows.map(row => `(${keys.map(k => this.pushParam(row[k])).join(', ')})`)
 
-    this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES ${valueSets.join(', ')}`)
+    this.parts.push(`INSERT INTO ${quote(this.state.table)} (${colList}) VALUES ${valueSets.join(', ')}`)
     this.appendOnConflict()
     this.appendReturning()
   }
@@ -369,13 +370,13 @@ class QueryAssembler {
     const vals = this.state.setValues!
     const setClauses = Object.entries(vals).map(([k, v]) => {
       if (typeof v === 'object' && v !== null && '__raw' in v) {
-        return `"${k}" = ${(v as { __raw: string }).__raw}`
+        return `${quote(k)} = ${(v as { __raw: string }).__raw}`
       }
 
-      return `"${k}" = ${this.pushParam(v)}`
+      return `${quote(k)} = ${this.pushParam(v)}`
     })
 
-    this.parts.push(`UPDATE "${this.state.table}" SET ${setClauses.join(', ')}`)
+    this.parts.push(`UPDATE ${quote(this.state.table)} SET ${setClauses.join(', ')}`)
 
     if (this.state.whereTape)
       this.parts.push(`WHERE ${this.assembleWhere(this.state.whereTape)}`)
@@ -384,7 +385,7 @@ class QueryAssembler {
   }
 
   private assembleDelete(): void {
-    this.parts.push(`DELETE FROM "${this.state.table}"`)
+    this.parts.push(`DELETE FROM ${quote(this.state.table)}`)
 
     if (this.state.whereTape)
       this.parts.push(`WHERE ${this.assembleWhere(this.state.whereTape)}`)
@@ -393,12 +394,12 @@ class QueryAssembler {
   }
 
   private assembleMerge(): void {
-    this.parts.push(`MERGE INTO "${this.state.table}"`)
+    this.parts.push(`MERGE INTO ${quote(this.state.table)}`)
 
     if (this.state.joins.length) {
       const j = this.state.joins[0]!
 
-      this.parts.push(`USING "${j.table}" AS "${j.alias}"`)
+      this.parts.push(`USING ${quote(j.table)} AS ${quote(j.alias)}`)
 
       if (this.state.mergeOn)
         this.parts.push(`ON ${this.assembleWhere(this.state.mergeOn)}`)
@@ -416,7 +417,13 @@ class QueryAssembler {
 
     if (when.type === 'matched') {
       if (when.action === 'update' && when.values) {
-        const setClauses = Object.entries(when.values).map(([k, v]) => `"${k}" = ${this.pushParam(v)}`).join(', ')
+        const setClauses = Object.entries(when.values).map(([k, v]) => {
+          if (v && typeof v === 'object' && '__raw' in v) {
+            return `${quote(k)} = ${(v as { __raw: string }).__raw}`
+          }
+
+          return `${quote(k)} = ${this.pushParam(v)}`
+        }).join(', ')
 
         this.parts.push(`WHEN MATCHED${condStr} THEN UPDATE SET ${setClauses}`)
       }
@@ -427,15 +434,44 @@ class QueryAssembler {
         this.parts.push(`WHEN MATCHED${condStr} THEN DO NOTHING`)
       }
     }
-    else if (when.action === 'insert' && when.values) {
-      const keys = Object.keys(when.values)
-      const cols = quoteCols(keys)
-      const vals = keys.map(k => this.pushParam(when.values![k])).join(', ')
+    else if (when.type === 'not_matched') {
+      if (when.action === 'insert' && when.values) {
+        const keys = Object.keys(when.values)
+        const cols = quoteCols(keys)
+        const vals = keys.map((k) => {
+          const v = when.values![k]
 
-      this.parts.push(`WHEN NOT MATCHED${condStr} THEN INSERT (${cols}) VALUES (${vals})`)
+          if (v && typeof v === 'object' && '__raw' in v) {
+            return (v as { __raw: string }).__raw
+          }
+
+          return this.pushParam(v)
+        }).join(', ')
+
+        this.parts.push(`WHEN NOT MATCHED${condStr} THEN INSERT (${cols}) VALUES (${vals})`)
+      }
+      else {
+        this.parts.push(`WHEN NOT MATCHED${condStr} THEN DO NOTHING`)
+      }
     }
-    else {
-      this.parts.push(`WHEN NOT MATCHED${condStr} THEN DO NOTHING`)
+    else if (when.type === 'not_matched_by_source') {
+      if (when.action === 'update' && when.values) {
+        const setClauses = Object.entries(when.values).map(([k, v]) => {
+          if (v && typeof v === 'object' && '__raw' in v) {
+            return `${quote(k)} = ${(v as { __raw: string }).__raw}`
+          }
+
+          return `${quote(k)} = ${this.pushParam(v)}`
+        }).join(', ')
+
+        this.parts.push(`WHEN NOT MATCHED BY SOURCE${condStr} THEN UPDATE SET ${setClauses}`)
+      }
+      else if (when.action === 'delete') {
+        this.parts.push(`WHEN NOT MATCHED BY SOURCE${condStr} THEN DELETE`)
+      }
+      else {
+        this.parts.push(`WHEN NOT MATCHED BY SOURCE${condStr} THEN DO NOTHING`)
+      }
     }
   }
 
@@ -445,12 +481,12 @@ class QueryAssembler {
     const colList = quoteCols(keys)
     const valList = keys.map(k => this.pushParam(vals[k])).join(', ')
 
-    this.parts.push(`INSERT INTO "${this.state.table}" (${colList}) VALUES (${valList})`)
+    this.parts.push(`INSERT INTO ${quote(this.state.table)} (${colList}) VALUES (${valList})`)
 
     if (this.state.conflictTarget) {
       const target = quoteCols(this.state.conflictTarget)
       const updateCols = this.state.conflictUpdateCols ?? keys.filter(k => !this.state.conflictTarget!.includes(k))
-      const setClauses = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ')
+      const setClauses = updateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
 
       this.parts.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
     }
@@ -480,11 +516,11 @@ export function assembleQuery(state: QueryState): { sql: string, params: unknown
 
 function buildSelectColumns(state: QueryState): string {
   const cols: string[] = state.columns
-    ? state.columns.filter(c => !state.omitColumns.includes(c)).map(c => `"${c}"`)
+    ? state.columns.filter(c => !state.omitColumns.includes(c)).map(quote)
     : ['*']
 
   for (const cc of state.computedColumns) {
-    cols.push(`${cc.expr} AS "${cc.alias}"`)
+    cols.push(`${cc.expr} AS ${quote(cc.alias)}`)
   }
 
   return cols.join(', ') || '*'
@@ -902,6 +938,31 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
       type: 'not_matched',
       action: 'insert',
       values,
+      condition: condition ? condition(builder) : undefined,
+    })
+
+    return this
+  }
+
+  whenNotMatchedBySource(action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    const builder = createExprBuilder<TColumns>()
+
+    this._state.mergeWhen.push({
+      type: 'not_matched_by_source',
+      action: 'update',
+      values,
+      condition: condition ? condition(builder) : undefined,
+    })
+
+    return this
+  }
+
+  whenNotMatchedBySourceDelete(condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    const builder = createExprBuilder<TColumns>()
+
+    this._state.mergeWhen.push({
+      type: 'not_matched_by_source',
+      action: 'delete',
       condition: condition ? condition(builder) : undefined,
     })
 

@@ -4,6 +4,7 @@ import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
+import { quote } from '../sql/utils'
 
 // Cache virtual entries per table to avoid Object.entries on every call
 const _virtualEntriesCache = new WeakMap<AnyTableDef, [string, { compute: (r: unknown) => unknown }][]>()
@@ -442,7 +443,7 @@ export class Repository<
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
 
     return this._query(
-      `SELECT * FROM "${tableName}" WHERE "${column}" IN (${placeholders})`,
+      `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
       ids,
     )
   }
@@ -541,10 +542,10 @@ export class Repository<
 
     const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
     const rows = await this._query(
-      `SELECT t.*, j."${rel.throughFrom!}" AS "__pivot_fk"
-       FROM "${rel.throughTable}" j
-       JOIN "${rel.targetTable}" t ON t."${targetPk}" = j."${rel.throughTo!}"
-       WHERE j."${rel.throughFrom!}" IN (${placeholders})`,
+      `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pivot_fk"
+       FROM ${quote(rel.throughTable!)} j
+       JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
+       WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`,
       parentIds,
     )
 

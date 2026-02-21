@@ -452,8 +452,11 @@ function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
 }
 
 function normalizeType(pgType: string): string {
-  // Normalize common type aliases
+  // Normalize common type aliases and pseudo-types
   return pgType
+    .toLowerCase()
+    .replace(/^serial$/, 'integer')
+    .replace(/^bigserial$/, 'bigint')
     .replace(/^int4$/, 'integer')
     .replace(/^int2$/, 'smallint')
     .replace(/^int8$/, 'bigint')
@@ -462,7 +465,6 @@ function normalizeType(pgType: string): string {
     .replace(/^bool$/, 'boolean')
     .replace(/^timestamptz$/, 'timestamp with time zone')
     .replace(/^timetz$/, 'time with time zone')
-    .toLowerCase()
 }
 
 // Escape single quotes in enum values for safe DDL embedding
