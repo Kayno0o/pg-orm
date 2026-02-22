@@ -19,14 +19,16 @@ type ExtractVirtuals<TColumns extends Record<string, AnyColumnDef>, TVirt extend
   [K in keyof TVirt]: VirtualDef<InferSelect<TColumns>, ReturnType<TVirt[K]>>
 }
 
-// Find primary key column name from column definitions
+// Find primary key column name(s) from column definitions
 function findPrimaryKey(columns: Record<string, AnyColumnDef>): string | null {
+  const pks: string[] = []
+
   for (const [name, col] of Object.entries(columns)) {
     if (col.constraints.some((c: { type: string }) => c.type === 'primary_key'))
-      return name
+      pks.push(name)
   }
 
-  return null
+  return pks.length === 1 ? pks[0]! : pks.length > 1 ? pks.join(',') : null
 }
 
 // Overload 1: columns only

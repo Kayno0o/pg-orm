@@ -107,6 +107,17 @@ export class DestructiveOpError extends MigrationError {
   }
 }
 
+export class StaleRecordError extends OrmError {
+  readonly table: string
+  readonly version: unknown
+  constructor(table: string, version: unknown) {
+    super(`Stale record: expected version ${version} on table "${table}" but row was updated by another process`)
+    this.name = 'StaleRecordError'
+    this.table = table
+    this.version = version
+  }
+}
+
 function shouldRedact(): boolean {
   return process.env.REDACT_QUERY_LOGS === '1'
 }

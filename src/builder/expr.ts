@@ -140,6 +140,19 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   // Array operators
   arrayContains: <K extends keyof TColumns & string>(col: K | ExprTape, val: unknown) => ExprTape
   arrayOverlap: <K extends keyof TColumns & string>(col: K | ExprTape, vals: unknown[]) => ExprTape
+
+  // Aggregate expressions — return raw SQL strings for use in computed columns
+  sum: <K extends keyof TColumns & string>(col: K) => string
+  avg: <K extends keyof TColumns & string>(col: K) => string
+  min: <K extends keyof TColumns & string>(col: K) => string
+  max: <K extends keyof TColumns & string>(col: K) => string
+  countCol: <K extends keyof TColumns & string>(col?: K) => string
+
+  // JSON/Array aggregate expressions
+  jsonAgg: <K extends keyof TColumns & string>(col: K) => string
+  jsonbAgg: <K extends keyof TColumns & string>(col: K) => string
+  arrayAgg: <K extends keyof TColumns & string>(col: K) => string
+  stringAgg: <K extends keyof TColumns & string>(col: K, delimiter: string) => string
 }
 
 // Singleton expression builder — stateless, so one instance serves all callers
@@ -208,6 +221,19 @@ const _singletonExprBuilder: ExprBuilder<any> = {
 
   arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string | ExprTape, val }],
   arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],
+
+  // Aggregate functions — return raw SQL strings
+  sum: col => `SUM(${quote(col as string)})`,
+  avg: col => `AVG(${quote(col as string)})`,
+  min: col => `MIN(${quote(col as string)})`,
+  max: col => `MAX(${quote(col as string)})`,
+  countCol: col => col ? `COUNT(${quote(col as string)})` : 'COUNT(*)',
+
+  // JSON/Array aggregate functions
+  jsonAgg: col => `json_agg(${quote(col as string)})`,
+  jsonbAgg: col => `jsonb_agg(${quote(col as string)})`,
+  arrayAgg: col => `array_agg(${quote(col as string)})`,
+  stringAgg: (col, delimiter) => `string_agg(${quote(col as string)}, '${delimiter.replace(/'/g, '\'\'')}')`,
 }
 
 // Escape LIKE/ILIKE special characters in user input

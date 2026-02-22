@@ -16,6 +16,7 @@ export {
   MergeBuilder,
   OnConflictBuilder,
   SelectBuilder,
+  SetOperationBuilder,
   UpdateBuilder,
   UpsertBuilder,
 } from './query'

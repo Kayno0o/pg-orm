@@ -4,7 +4,7 @@ import { SQL } from 'bun'
 import { DestructiveOpError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, introspectLiveSchema } from '../migration/index'
-import { Repository } from '../repo/index'
+import { clearVirtualEntriesCache, Repository } from '../repo/index'
 
 // --- Transaction isolation validation ---
 
@@ -43,6 +43,10 @@ export interface QueryEvent {
 
 // --- Connection & Pool Configuration ---
 
+export interface SlowQueryEvent extends QueryEvent {
+  threshold: number
+}
+
 export interface DbConfig {
   url?: string
   hostname?: string
@@ -67,6 +71,10 @@ export interface DbConfig {
   statementTimeout?: number
   /** Query logging callback — called after every query */
   onQuery?: (event: QueryEvent) => void
+  /** Slow query callback — called when a query exceeds the threshold */
+  onSlowQuery?: (event: SlowQueryEvent) => void
+  /** Slow query threshold in milliseconds (default: 1000) */
+  slowQueryThreshold?: number
 }
 
 export interface Executable {
@@ -82,13 +90,20 @@ abstract class BaseExecutor implements Executable {
   abstract readonly sql: InstanceType<typeof SQL>
 
   protected _onQuery?: (event: QueryEvent) => void
+  protected _onSlowQuery?: (event: SlowQueryEvent) => void
+  protected _slowQueryThreshold = 1000
 
   async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    if (this._onQuery) {
+    if (this._onQuery || this._onSlowQuery) {
       const start = performance.now()
       const result = await unsafeQuery(this.sql, sqlStr, params)
+      const durationMs = performance.now() - start
 
-      this._onQuery({ sql: sqlStr, params, durationMs: performance.now() - start })
+      if (this._onQuery)
+        this._onQuery({ sql: sqlStr, params, durationMs })
+
+      if (this._onSlowQuery && durationMs >= this._slowQueryThreshold)
+        this._onSlowQuery({ sql: sqlStr, params, durationMs, threshold: this._slowQueryThreshold })
 
       return result
     }
@@ -107,10 +122,15 @@ export class Database extends BaseExecutor {
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
+    this._onSlowQuery = onSlowQuery
+
+    if (slowQueryThreshold != null)
+      this._slowQueryThreshold = slowQueryThreshold
+
     this._schema = schema ?? 'public'
     this._statementTimeout = statementTimeout
 
@@ -272,7 +292,7 @@ export class Database extends BaseExecutor {
         )
       }
 
-      const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery)
+      const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
 
       return await fn(tx)
     })
@@ -292,6 +312,7 @@ export class Database extends BaseExecutor {
 
   invalidateCache(): void {
     clearMapperCache()
+    clearVirtualEntriesCache()
   }
 
   async close(opts?: { timeout?: number }): Promise<void> {
@@ -312,10 +333,14 @@ export class TransactionClient extends BaseExecutor {
 
   private _savepointCounter = 0
 
-  constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void) {
+  constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number) {
     super()
     this.sql = sqlTx
     this._onQuery = onQuery
+    this._onSlowQuery = onSlowQuery
+
+    if (slowQueryThreshold != null)
+      this._slowQueryThreshold = slowQueryThreshold
   }
 
   async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {
@@ -324,7 +349,7 @@ export class TransactionClient extends BaseExecutor {
     return await (this.sql as unknown as {
       savepoint: (fn: (sp: unknown) => Promise<T>) => Promise<T>
     }).savepoint(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery)
+      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
 
       return await fn(sp)
     })
@@ -335,11 +360,15 @@ export class SavepointClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
   readonly name: string
 
-  constructor(sqlSp: InstanceType<typeof SQL>, name: string, onQuery?: (event: QueryEvent) => void) {
+  constructor(sqlSp: InstanceType<typeof SQL>, name: string, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number) {
     super()
     this.sql = sqlSp
     this.name = name
     this._onQuery = onQuery
+    this._onSlowQuery = onSlowQuery
+
+    if (slowQueryThreshold != null)
+      this._slowQueryThreshold = slowQueryThreshold
   }
 
   async rollback(): Promise<void> {

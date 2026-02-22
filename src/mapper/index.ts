@@ -71,7 +71,7 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   pick?: string[],
   omit?: string[],
 ): RowMapper<Record<string, unknown>> {
-  const key = `${tableName}:${pick?.join(',') ?? '*'}:${omit?.join(',') ?? ''}`
+  const key = `${tableName}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}`
   let mapper = _mapperCache.get(key)
 
   if (!mapper) {

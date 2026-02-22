@@ -1,13 +1,19 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
+import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
 
 // Cache virtual entries per table to avoid Object.entries on every call
-const _virtualEntriesCache = new WeakMap<AnyTableDef, [string, { compute: (r: unknown) => unknown }][]>()
+let _virtualEntriesCache = new WeakMap<AnyTableDef, [string, { compute: (r: unknown) => unknown }][]>()
+
+export function clearVirtualEntriesCache(): void {
+  _virtualEntriesCache = new WeakMap()
+}
 
 function getVirtualEntries(table: AnyTableDef): [string, { compute: (r: unknown) => unknown }][] {
   let entries = _virtualEntriesCache.get(table)
@@ -63,6 +69,14 @@ export class Repository<
     }
   }
 
+  // --- Optimistic lock helpers ---
+
+  private _getOptimisticLockColumn(): string | null {
+    const ol = this._table.meta?.optimisticLock as { column: string } | undefined
+
+    return ol?.column ?? null
+  }
+
   // --- Soft-delete helpers ---
 
   private _getSoftDeleteColumn(): string | null {
@@ -97,8 +111,10 @@ export class Repository<
     const { sql, params } = finalBuilder.toSQL()
     const rows = await this._query(sql, params)
 
-    const mapper = this._getMapper(finalBuilder)
-    let mapped = mapChunk(mapper, rows)
+    // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
+    const hasOnlyComputed = finalBuilder._state.columns?.length === 0 && finalBuilder._state.computedColumns.length > 0
+    const mapper = hasOnlyComputed ? null : this._getMapper(finalBuilder)
+    let mapped = mapper ? mapChunk(mapper, rows) : rows
 
     if (hasHooks(this._table, 'afterSelect')) {
       mapped = await runHooksAsync(this._table, 'afterSelect', mapped)
@@ -130,7 +146,15 @@ export class Repository<
     return rows[0] ?? null
   }
 
-  async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>> {
+  async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>>
+  async insertOne(
+    values: InferInsert<TColumns>,
+    opts: { include: (keyof TRelations & string)[] },
+  ): Promise<InferSelect<TColumns>>
+  async insertOne(
+    values: InferInsert<TColumns>,
+    opts?: { include?: (keyof TRelations & string)[] },
+  ): Promise<InferSelect<TColumns>> {
     const v = await this._runBefore('beforeInsert', values)
 
     const b = new InsertBuilder<TColumns>(this._table.name)
@@ -140,6 +164,13 @@ export class Repository<
     const rows = await this._query(sql, params)
 
     await this._runAfter('afterInsert', rows)
+
+    // Load requested relations on the returned row
+    if (opts?.include?.length) {
+      const includes: IncludeEntry[] = opts.include.map(r => ({ relation: r, strategy: 'batch' }))
+
+      await this._loadIncludes(rows, includes)
+    }
 
     return rows[0] as InferSelect<TColumns>
   }
@@ -170,6 +201,12 @@ export class Repository<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns>[]> {
     const s = await this._runBefore('beforeUpdate', set)
+    const lockCol = this._getOptimisticLockColumn()
+
+    // Auto-increment version column for optimistic locking
+    if (lockCol) {
+      ;(s as Record<string, unknown>)[lockCol] = { __raw: `${quote(lockCol)} + 1` }
+    }
 
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
@@ -222,6 +259,19 @@ export class Repository<
   async findById(id: unknown): Promise<InferSelect<TColumns> | null> {
     const pk = this._table.primaryKey ?? 'id'
 
+    // Composite primary key: pk is comma-separated, id should be an object
+    if (pk.includes(',')) {
+      const pkCols = pk.split(',')
+
+      return this.findOne(q => q.where((e) => {
+        const conditions = pkCols.map(col =>
+          e.eq(col.trim() as any, (id as Record<string, unknown>)[col.trim()!] as any),
+        )
+
+        return e.and(...conditions)
+      }) as any)
+    }
+
     return this.findOne(q => q.where(e => e.eq(pk as any, id as any)) as any)
   }
 
@@ -264,6 +314,28 @@ export class Repository<
     return rows[0] ?? null
   }
 
+  // Optimistic lock update — adds WHERE version = $current, throws StaleRecordError if 0 rows affected
+  async updateWithLock(
+    set: InferUpdate<TColumns>,
+    where: (e: ExprBuilder<TColumns>) => ExprTape,
+    currentVersion: number,
+  ): Promise<InferSelect<TColumns>> {
+    const lockCol = this._getOptimisticLockColumn()
+
+    if (!lockCol) {
+      throw new Error('updateWithLock requires optimisticLock trait on table')
+    }
+
+    const rows = await this.updateMany(set, e =>
+      e.and(where(e), e.eq(lockCol as any, currentVersion as any)))
+
+    if (rows.length === 0) {
+      throw new StaleRecordError(this._table.name, currentVersion)
+    }
+
+    return rows[0] as InferSelect<TColumns>
+  }
+
   async deleteOne(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns> | null> {
@@ -276,7 +348,7 @@ export class Repository<
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
   ): Promise<InferSelect<TColumns>> {
-    const v = await this._runBefore('beforeInsert', values)
+    const v = await this._runBefore('beforeUpsert', values)
 
     // Use ON CONFLICT DO UPDATE with a no-op SET so RETURNING always returns the row
     const pk = this._table.primaryKey ?? 'id'
@@ -319,6 +391,47 @@ export class Repository<
       perPage,
       totalPages: Math.ceil(total / perPage),
     }
+  }
+
+  // Cursor-based pagination — efficient for large datasets
+  async paginateCursor(opts: {
+    take: number
+    cursor?: { column: keyof TColumns & string, value: unknown }
+    direction?: 'forward' | 'backward'
+    where?: (e: ExprBuilder<TColumns>) => ExprTape
+  }): Promise<{ data: InferSelect<TColumns>[], nextCursor: unknown | null }> {
+    const { take, cursor, direction = 'forward', where: whereFn } = opts
+    const col = cursor?.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
+    const isForward = direction === 'forward'
+
+    const data = await this.findMany((q) => {
+      let b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc')
+
+      if (whereFn)
+        b = b.where(whereFn as any) as any
+
+      if (cursor?.value != null) {
+        b = b.andWhere(e =>
+          isForward ? e.gt(col as any, cursor.value as any) : e.lt(col as any, cursor.value as any),
+        ) as any
+      }
+
+      return b as any
+    }) as InferSelect<TColumns>[]
+
+    const hasMore = data.length > take
+
+    if (hasMore)
+      data.pop()
+
+    // Reverse backward results to maintain consistent ordering
+    if (!isForward)
+      data.reverse()
+
+    const lastRow = data[data.length - 1] as Record<string, unknown> | undefined
+    const nextCursor = hasMore && lastRow ? lastRow[col as string] : null
+
+    return { data, nextCursor }
   }
 
   // Force-delete: bypass soft-delete and run a real DELETE
@@ -383,7 +496,12 @@ export class Repository<
 
   // Builder accessors for advanced usage
   select(): SelectBuilder<TColumns, TRelations> {
-    return new SelectBuilder<TColumns, TRelations>(this._table.name)
+    const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
+
+    // Auto-apply soft-delete filter (use .withTrashed() to bypass)
+    this._applySoftDeleteFilter(builder)
+
+    return builder
   }
 
   insert(): InsertBuilder<TColumns> {
@@ -422,7 +540,7 @@ export class Repository<
     )
   }
 
-  // Apply virtual fields to mapped rows
+  // Apply virtual fields to mapped rows — lazy evaluation via getters
   private _applyVirtuals<T extends Record<string, unknown>>(rows: T[]): T[] {
     const entries = getVirtualEntries(this._table)
 
@@ -431,7 +549,18 @@ export class Repository<
 
     for (const row of rows) {
       for (const [key, virt] of entries) {
-        ;(row as Record<string, unknown>)[key] = virt.compute(row)
+        Object.defineProperty(row, key, {
+          get() {
+            const value = virt.compute(row)
+
+            // Replace getter with computed value on first access
+            Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true })
+
+            return value
+          },
+          enumerable: true,
+          configurable: true,
+        })
       }
     }
 
@@ -449,21 +578,90 @@ export class Repository<
   }
 
   // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
-  private async _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+  // Chunks IDs to avoid exceeding PG parameter limits (65535 params)
+  private static readonly BATCH_CHUNK_SIZE = 5000
 
-    return this._query(
-      `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
-      ids,
-    )
+  private async _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
+    if (ids.length <= Repository.BATCH_CHUNK_SIZE) {
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+
+      return this._query(
+        `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
+        ids,
+      )
+    }
+
+    // Chunk large ID sets
+    const results: Record<string, unknown>[] = []
+
+    for (let i = 0; i < ids.length; i += Repository.BATCH_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + Repository.BATCH_CHUNK_SIZE)
+      const placeholders = chunk.map((_, j) => `$${j + 1}`).join(', ')
+      const rows = await this._query(
+        `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
+        chunk,
+      )
+
+      results.push(...rows)
+    }
+
+    return results
+  }
+
+  // Batched through-query helper with chunking
+  private async _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
+    const buildSql = (chunk: unknown[]) => {
+      const placeholders = chunk.map((_, i) => `$${i + 1}`).join(', ')
+
+      return `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pivot_fk"
+       FROM ${quote(rel.throughTable!)} j
+       JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
+       WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`
+    }
+
+    if (ids.length <= Repository.BATCH_CHUNK_SIZE) {
+      return this._query(buildSql(ids), ids)
+    }
+
+    const results: Record<string, unknown>[] = []
+
+    for (let i = 0; i < ids.length; i += Repository.BATCH_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + Repository.BATCH_CHUNK_SIZE)
+
+      results.push(...await this._query(buildSql(chunk), chunk))
+    }
+
+    return results
   }
 
   // --- Relation loading strategies ---
+
+  // Build a filtered query for a relation using callback, or fall back to batch query
+  private async _filteredBatchQuery(
+    tableName: string,
+    column: string,
+    ids: unknown[],
+    callback?: IncludeCallback,
+  ): Promise<Record<string, unknown>[]> {
+    if (!callback) {
+      return this._batchQuery(tableName, column, ids)
+    }
+
+    // Apply callback to a select builder, then inject the IN filter
+    const builder = new SelectBuilder<any, any>(tableName)
+    const filtered = callback(builder)
+
+    filtered.andWhere(e => e.in(column as any, ids as any))
+    const { sql, params } = filtered.toSQL()
+
+    return this._query(sql, params)
+  }
 
   private async _loadBelongsTo(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     relationName: string,
+    callback?: IncludeCallback,
   ): Promise<void> {
     const fk = rel.foreignKey
     const parentIds = [...new Set(parentRows.map(r => r[fk]).filter(v => v != null))]
@@ -476,7 +674,7 @@ export class Repository<
 
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-    const childRows = await this._batchQuery(rel.targetTable, targetPk, parentIds)
+    const childRows = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, callback)
 
     const indexed = new Map<unknown, Record<string, unknown>>()
 
@@ -491,6 +689,7 @@ export class Repository<
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     relationName: string,
+    callback?: IncludeCallback,
   ): Promise<void> {
     const sourcePk = this._findPrimaryKey(this._table)
     const targetFk = rel.foreignKey
@@ -505,7 +704,7 @@ export class Repository<
       return
     }
 
-    const childRows = await this._batchQuery(rel.targetTable, targetFk, parentIds)
+    const childRows = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, callback)
 
     if (isMany) {
       const grouped = new Map<unknown, Record<string, unknown>[]>()
@@ -550,14 +749,7 @@ export class Repository<
       return
     }
 
-    const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(', ')
-    const rows = await this._query(
-      `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pivot_fk"
-       FROM ${quote(rel.throughTable!)} j
-       JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
-       WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`,
-      parentIds,
-    )
+    const rows = await this._batchThroughQuery(rel, targetPk, parentIds)
 
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
@@ -576,32 +768,97 @@ export class Repository<
     }
   }
 
-  // Batched relation loading — single query per relation.
+  // Batched relation loading — single query per relation, all relations in parallel.
+  // Supports nested includes via dotted paths: 'posts.comments'
   private async _loadIncludes(
     parentRows: Record<string, unknown>[],
-    includes: { relation: string, strategy: 'batch' }[],
+    includes: IncludeEntry[],
   ): Promise<any[]> {
     const relations = this._table.relations
 
     if (!relations)
       return parentRows
 
+    // Separate top-level includes from nested includes
+    const topLevel: IncludeEntry[] = []
+    const nested = new Map<string, IncludeEntry[]>()
+
     for (const inc of includes) {
+      const dotIdx = inc.relation.indexOf('.')
+
+      if (dotIdx === -1) {
+        topLevel.push(inc)
+      }
+      else {
+        const parent = inc.relation.slice(0, dotIdx)
+        const child = inc.relation.slice(dotIdx + 1)
+
+        if (!nested.has(parent))
+          nested.set(parent, [])
+
+        nested.get(parent)!.push({ relation: child, strategy: 'batch', callback: inc.callback })
+
+        // Ensure parent relation is also loaded
+        if (!topLevel.some(t => t.relation === parent)) {
+          topLevel.push({ relation: parent, strategy: 'batch' })
+        }
+      }
+    }
+
+    const tasks: Promise<void>[] = []
+
+    for (const inc of topLevel) {
       const rel = relations[inc.relation] as AnyRelationDef | undefined
 
       if (!rel)
         continue
 
-      if (rel.type === 'belongsTo') {
-        await this._loadBelongsTo(parentRows, rel, inc.relation)
+      const loadAndNest = async () => {
+        if (rel.type === 'belongsTo') {
+          await this._loadBelongsTo(parentRows, rel, inc.relation, inc.callback)
+        }
+        else if (rel.type === 'hasOne' || rel.type === 'hasMany') {
+          await this._loadHasOneOrMany(parentRows, rel, inc.relation, inc.callback)
+        }
+        else if (rel.type === 'hasManyThrough' && rel.throughTable) {
+          await this._loadHasManyThrough(parentRows, rel, inc.relation)
+        }
+
+        // Load nested includes on the child rows
+        const nestedIncludes = nested.get(inc.relation)
+
+        if (nestedIncludes && nestedIncludes.length > 0) {
+          const targetTableDef = this._resolveTable(rel.targetTable)
+
+          if (targetTableDef) {
+            // Collect all child rows from all parents
+            const childRows: Record<string, unknown>[] = []
+
+            for (const parent of parentRows) {
+              const val = parent[inc.relation]
+
+              if (Array.isArray(val)) {
+                childRows.push(...val)
+              }
+              else if (val != null) {
+                childRows.push(val as Record<string, unknown>)
+              }
+            }
+
+            if (childRows.length > 0) {
+              // Create a temporary repo for the target table to resolve nested includes
+              const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry)
+
+              await childRepo._loadIncludes(childRows, nestedIncludes)
+            }
+          }
+        }
       }
-      else if (rel.type === 'hasOne' || rel.type === 'hasMany') {
-        await this._loadHasOneOrMany(parentRows, rel, inc.relation)
-      }
-      else if (rel.type === 'hasManyThrough' && rel.throughTable) {
-        await this._loadHasManyThrough(parentRows, rel, inc.relation)
-      }
+
+      tasks.push(loadAndNest())
     }
+
+    await Promise.all(tasks)
 
     return parentRows
   }

@@ -11,11 +11,13 @@ export {
 // Query builders
 export {
   DeleteBuilder,
+  type IncludeCallback,
   type IncludeEntry,
   InsertBuilder,
   MergeBuilder,
   OnConflictBuilder,
   SelectBuilder,
+  SetOperationBuilder,
   UpdateBuilder,
   UpsertBuilder,
 } from './builder/query'
@@ -30,6 +32,7 @@ export {
   NotNullError,
   OrmError,
   QueryError,
+  StaleRecordError,
   TimeoutError,
   UniqueError,
 } from './errors/index'
@@ -68,12 +71,13 @@ export {
   type QueryEvent,
   SavepointClient,
   SavepointRollback,
+  type SlowQueryEvent,
   TransactionClient,
   type TransactionOptions,
 } from './sql/index'
 
 // Traits
-export { applyTrait, softDelete, timestamps, type Trait } from './traits/index'
+export { applyTrait, optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
 
 // Types
 export type {

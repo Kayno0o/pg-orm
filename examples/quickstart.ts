@@ -2,15 +2,14 @@
 // Requires: docker compose up -d (PG18 on localhost:8532)
 
 import type { InferEntity, InferInsert } from '../src/index'
-import { Database, defineTable } from '../src/index'
+import { Database, defineTable, optimisticLock, softDelete, timestamps } from '../src/index'
 
 // 1. Define tables (columns only — no circular refs)
 const _users = defineTable('users', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull(),
   email: t.varchar(255).notNull().unique(),
-  deletedAt: t.timestamptz().nullable(),
-  createdAt: t.timestamptz().notNull().default('now()'),
+  role: t.text().notNull().default('\'user\''),
 }))
 
 const _posts = defineTable('posts', t => ({
@@ -18,23 +17,33 @@ const _posts = defineTable('posts', t => ({
   title: t.text().notNull(),
   body: t.text().notNull(),
   authorId: t.integer().notNull(),
-  createdAt: t.timestamptz().notNull().default('now()'),
+  published: t.bool().notNull().default('false'),
 }))
 
-// 2. Two-phase: add relations after both tables exist — fully typed via InferEntity
-const users = _users.withRelations(r => ({
-  posts: r.hasMany<InferEntity<typeof _posts>>('posts', 'authorId'),
-}))
+// Apply traits — softDelete, timestamps, and optimisticLock
+const users = _users
+  .withTrait(softDelete('deletedAt'))
+  .withTrait(timestamps())
+  .withRelations(r => ({
+    posts: r.hasMany<InferEntity<typeof _posts>>('posts', 'authorId'),
+  }))
 
-const posts = _posts.withRelations(r => ({
-  author: r.belongsTo<InferEntity<typeof _users>>('users', 'authorId'),
-}))
+const posts = _posts
+  .withTrait(timestamps())
+  .withTrait(optimisticLock())
+  .withRelations(r => ({
+    author: r.belongsTo<InferEntity<typeof _users>>('users', 'authorId'),
+  }))
 
-// 3. Database — connection pool + table registry
+// 3. Database — connection pool + table registry + slow query callback
 const db = new Database({
   url: 'postgres://test:test@localhost:8532/orm_test',
   pool: { max: 5 },
   tables: [users, posts],
+  slowQueryThreshold: 500,
+  onSlowQuery: (event) => {
+    console.log(`[SLOW QUERY] ${event.durationMs.toFixed(0)}ms (threshold: ${event.threshold}ms)`)
+  },
 })
 
 // 4. InferSelect / InferInsert — explicit type usage
@@ -67,9 +76,10 @@ async function main() {
 
   // insert many posts
   const insertedPosts = await PostRepo.insertMany([
-    { title: 'Hello', body: 'First post', authorId: alice.id },
-    { title: 'World', body: 'Second post', authorId: alice.id },
-    { title: 'Bob post', body: 'Third post', authorId: bob.id },
+    { title: 'Hello', body: 'First post', authorId: alice.id, published: true },
+    { title: 'World', body: 'Second post', authorId: alice.id, published: true },
+    { title: 'Draft', body: 'Unpublished', authorId: alice.id }, // omits 'published' — uses DB DEFAULT
+    { title: 'Bob post', body: 'Third post', authorId: bob.id, published: true },
   ])
 
   console.log('Inserted posts:', insertedPosts.length)
@@ -126,6 +136,95 @@ async function main() {
     console.log(`${p.title} by ${p.author?.name}`) // p.author is typed as User | null
   }
 
+  // --- NEW: Relation filtering on .include() ---
+  console.log('\n--- Relation filtering ---')
+  const usersWithPublished = await UserRepo.findMany(q =>
+    q.include('posts', sq => sq.where(e => e.eq('published', true))),
+  )
+
+  for (const u of usersWithPublished) {
+    console.log(`${u.name}: ${u.posts.length} published posts`)
+  }
+
+  // --- NEW: Aggregate functions ---
+  console.log('\n--- Aggregates ---')
+  const agg = await PostRepo.findMany(q =>
+    q.aggregate(e => ({
+      totalPosts: e.countCol(),
+      maxId: e.max('id'),
+      minId: e.min('id'),
+    })),
+  )
+
+  console.log('Aggregates:', agg[0])
+
+  // --- NEW: Cursor-based pagination ---
+  console.log('\n--- Cursor Pagination ---')
+  const page1 = await PostRepo.paginateCursor({ take: 2 })
+
+  console.log(`Page 1: ${page1.data.length} posts, nextCursor: ${page1.nextCursor}`)
+
+  if (page1.nextCursor != null) {
+    const page2 = await PostRepo.paginateCursor({
+      take: 2,
+      cursor: { column: 'id', value: page1.nextCursor },
+    })
+
+    console.log(`Page 2: ${page2.data.length} posts, nextCursor: ${page2.nextCursor}`)
+  }
+
+  // --- NEW: Optimistic locking ---
+  console.log('\n--- Optimistic Locking ---')
+  const post = await PostRepo.findOne(q => q.where(e => e.eq('title', 'Hello')))
+
+  if (post) {
+    console.log(`Post version before update: ${(post as any).version}`)
+    const updatedPost = await PostRepo.updateWithLock(
+      { title: 'Hello Updated' },
+      e => e.eq('id', post.id),
+      (post as any).version,
+    )
+
+    console.log(`Post version after update: ${(updatedPost as any).version}`)
+
+    // Try with stale version — should throw StaleRecordError
+    try {
+      await PostRepo.updateWithLock(
+        { title: 'Should Fail' },
+        e => e.eq('id', post.id),
+        (post as any).version, // stale version
+      )
+    }
+    catch (err: any) {
+      console.log(`StaleRecordError: ${err.message}`)
+    }
+  }
+
+  // --- NEW: Soft-delete awareness ---
+  console.log('\n--- Soft Delete ---')
+  await UserRepo.deleteOne(e => e.eq('id', bob.id))
+  const activeUsers = await UserRepo.findMany()
+
+  console.log(`Active users (soft-deleted excluded): ${activeUsers.length}`)
+  const allIncludingDeleted = await UserRepo.findMany(q => q.withTrashed())
+
+  console.log(`All users (with trashed): ${allIncludingDeleted.length}`)
+
+  // Soft-delete filter also applies on repo.select()
+  const selectBuilder = UserRepo.select()
+  const { sql } = selectBuilder.toSQL()
+
+  console.log(`repo.select() auto-filters soft-deleted: ${sql.includes('IS NULL')}`)
+
+  // --- NEW: Insert with include ---
+  console.log('\n--- Insert with Include ---')
+  const newPost = await PostRepo.insertOne(
+    { title: 'New Post', body: 'With author!', authorId: alice.id },
+    { include: ['author'] },
+  )
+
+  console.log(`Inserted post "${newPost.title}" by ${(newPost as any).author?.name}`)
+
   // 11. Transaction with savepoint
   await db.transaction(async (tx) => {
     const txRepo = UserRepo.using(tx)
@@ -139,7 +238,7 @@ async function main() {
       })
     }
     catch {
-      console.log('Savepoint rolled back (expected — duplicate email)')
+      console.log('\nSavepoint rolled back (expected — duplicate email)')
     }
   })
 
@@ -158,13 +257,14 @@ async function main() {
   console.log('Total users:', rawResult[0]?.count)
 
   // delete
-  const deleted = await UserRepo.deleteMany(e => e.eq('name', 'Charlie'))
+  const deleted = await UserRepo.forceDelete(e => e.eq('name', 'Charlie'))
 
-  console.log('Deleted:', deleted.length)
+  console.log('Force deleted:', deleted.length)
 
   // Cleanup
   await db.raw`DROP TABLE IF EXISTS posts`
   await db.raw`DROP TABLE IF EXISTS users`
+  await db.raw`DROP TYPE IF EXISTS role`
   await db.close()
 }
 

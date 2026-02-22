@@ -5,6 +5,7 @@ export {
   type QueryEvent,
   SavepointClient,
   SavepointRollback,
+  type SlowQueryEvent,
   TransactionClient,
   type TransactionOptions,
 } from './executor'

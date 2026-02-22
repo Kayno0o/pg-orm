@@ -66,6 +66,14 @@ export function softDelete(column = 'deletedAt'): Trait {
   }
 }
 
+// Optimistic locking: adds a version column that auto-increments on update
+export function optimisticLock(column = 'version'): Trait {
+  return {
+    columns: t => ({ [column]: t.int4().notNull().default('1') }),
+    meta: { optimisticLock: { column } },
+  }
+}
+
 // Timestamps: adds createdAt and updatedAt columns with auto-update hook
 export function timestamps(opts?: { createdAt?: string, updatedAt?: string }): Trait {
   const createdAt = opts?.createdAt ?? 'createdAt'

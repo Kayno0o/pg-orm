@@ -40,10 +40,14 @@ interface MergeWhen {
   values?: Record<string, unknown>
 }
 
+// Callback type for relation query customization
+export type IncludeCallback = (q: SelectBuilder<any, any, any>) => SelectBuilder<any, any, any>
+
 // Eager include entry — drives batched relation loading (no N+1)
 export interface IncludeEntry {
   relation: string
   strategy: 'batch'
+  callback?: IncludeCallback
 }
 
 interface QueryState {
@@ -364,9 +368,18 @@ class QueryAssembler {
     if (rows.length === 0)
       return
 
-    const keys = Object.keys(rows[0]!)
+    // Union all keys across all rows so missing optional columns use DEFAULT
+    const keySet = new Set<string>()
+
+    for (const row of rows) {
+      for (const k of Object.keys(row)) keySet.add(k)
+    }
+
+    const keys = [...keySet]
     const colList = quoteCols(keys)
-    const valueSets = rows.map(row => `(${keys.map(k => this.pushParam(row[k])).join(', ')})`)
+    const valueSets = rows.map(row =>
+      `(${keys.map(k => k in row ? this.pushParam(row[k]) : 'DEFAULT').join(', ')})`,
+    )
 
     this.parts.push(`INSERT INTO ${quote(this.state.table)} (${colList}) VALUES ${valueSets.join(', ')}`)
     this.appendOnConflict()
@@ -599,7 +612,7 @@ export class SelectBuilder<
     return this as never
   }
 
-  computed(expr: string, alias: string): SelectBuilder<TColumns, TRelations, TResult & Record<string, unknown>> {
+  computed<TComputed = unknown>(expr: string, alias: string): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
     this._state.computedColumns.push({ expr, alias })
 
     return this as never
@@ -758,10 +771,35 @@ export class SelectBuilder<
 
   // Typed eager relation loading — constrained to relation names only.
   // hasMany relations always use WHERE fk = ANY($1) batching, never per-row subqueries.
+  // Supports dotted paths for nested includes: .include('posts.comments')
+  // Supports optional callback for filtering/ordering: .include('posts', q => q.where(...).limit(5))
   include<K extends keyof TRelations & string>(
     relation: K,
-  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }> {
-    this._state.includes.push({ relation, strategy: 'batch' })
+    callback?: IncludeCallback,
+  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }>
+  include(
+    relation: string,
+    callback?: IncludeCallback,
+  ): SelectBuilder<TColumns, TRelations, any> {
+    this._state.includes.push({ relation, strategy: 'batch', callback })
+
+    return this as never
+  }
+
+  // Aggregate builder — uses ExprBuilder aggregate methods to build computed columns
+  // Usage: .aggregate(e => ({ total: e.sum('amount'), avg: e.avg('price') }))
+  aggregate<TAgg extends Record<string, string>>(
+    fn: (e: ExprBuilder<TColumns>) => TAgg,
+  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: number }> {
+    const builder = createExprBuilder<TColumns>()
+    const aggs = fn(builder)
+
+    // Replace columns with aggregates only
+    this._state.columns = []
+
+    for (const [alias, expr] of Object.entries(aggs)) {
+      this._state.computedColumns.push({ expr, alias })
+    }
 
     return this as never
   }
@@ -1045,5 +1083,129 @@ export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> extends
     this._state.returning = cols.length ? cols : []
 
     return this as never
+  }
+}
+
+// --- Set Operations (UNION / INTERSECT / EXCEPT) ---
+
+type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 'EXCEPT ALL'
+
+interface SetOperand {
+  sql: string
+  params: unknown[]
+}
+
+export class SetOperationBuilder<_TResult = Record<string, unknown>> {
+  private operands: SetOperand[] = []
+  private operators: SetOp[] = []
+  private _orderBy: OrderEntry[] = []
+  private _limit: number | null = null
+  private _offset: number | null = null
+
+  private constructor(first: SetOperand) {
+    this.operands.push(first)
+  }
+
+  static union<T>(
+    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+  ): SetOperationBuilder<T> {
+    const [first, ...rest] = queries
+    const builder = new SetOperationBuilder<T>(first!.toSQL())
+
+    for (const q of rest) {
+      builder.operators.push('UNION')
+      builder.operands.push(q.toSQL())
+    }
+
+    return builder
+  }
+
+  static unionAll<T>(
+    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+  ): SetOperationBuilder<T> {
+    const [first, ...rest] = queries
+    const builder = new SetOperationBuilder<T>(first!.toSQL())
+
+    for (const q of rest) {
+      builder.operators.push('UNION ALL')
+      builder.operands.push(q.toSQL())
+    }
+
+    return builder
+  }
+
+  static intersect<T>(
+    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+  ): SetOperationBuilder<T> {
+    const [first, ...rest] = queries
+    const builder = new SetOperationBuilder<T>(first!.toSQL())
+
+    for (const q of rest) {
+      builder.operators.push('INTERSECT')
+      builder.operands.push(q.toSQL())
+    }
+
+    return builder
+  }
+
+  static except<T>(
+    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+  ): SetOperationBuilder<T> {
+    const [first, ...rest] = queries
+    const builder = new SetOperationBuilder<T>(first!.toSQL())
+
+    for (const q of rest) {
+      builder.operators.push('EXCEPT')
+      builder.operands.push(q.toSQL())
+    }
+
+    return builder
+  }
+
+  orderBy(col: string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
+    this._orderBy.push({ col, dir, nulls })
+
+    return this
+  }
+
+  limit(n: number): this {
+    this._limit = n
+
+    return this
+  }
+
+  offset(n: number): this {
+    this._offset = n
+
+    return this
+  }
+
+  toSQL(): { sql: string, params: unknown[] } {
+    const allParams: unknown[] = []
+    const parts: string[] = []
+
+    for (let i = 0; i < this.operands.length; i++) {
+      if (i > 0)
+        parts.push(this.operators[i - 1]!)
+
+      const op = this.operands[i]!
+      const offset = allParams.length
+      // Re-number $N placeholders with correct offset
+      const sql = op.sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + offset}`)
+
+      allParams.push(...op.params)
+      parts.push(`(${sql})`)
+    }
+
+    if (this._orderBy.length)
+      parts.push(`ORDER BY ${formatOrderBy(this._orderBy)}`)
+
+    if (this._limit != null)
+      parts.push(`LIMIT ${this._limit}`)
+
+    if (this._offset != null)
+      parts.push(`OFFSET ${this._offset}`)
+
+    return { sql: parts.join(' '), params: allParams }
   }
 }
