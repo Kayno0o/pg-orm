@@ -184,7 +184,25 @@ export class Database extends BaseExecutor {
     const sqlStr = ops.map(o => `${o.sql};`).join('\n')
 
     if (!opts?.dryRun) {
-      await this.query(sqlStr, [])
+      // Separate enum ADD VALUE ops (can't run inside a transaction in PG < 16)
+      const enumAddOps = ops.filter(o => o.type === 'alter_enum_add')
+      const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
+
+      // Run enum ADD VALUE ops outside transaction
+      for (const op of enumAddOps) {
+        await this.query(`${op.sql};`, [])
+      }
+
+      // Run remaining DDL in a transaction via bun:sql's native begin()
+      if (otherOps.length > 0) {
+        await (this.sql as unknown as {
+          begin: (fn: (tx: unknown) => Promise<void>) => Promise<void>
+        }).begin(async (sqlTx) => {
+          for (const op of otherOps) {
+            await (sqlTx as unknown as UnsafeSql).unsafe(`${op.sql};`, [])
+          }
+        })
+      }
     }
 
     return { sql: sqlStr, ops }

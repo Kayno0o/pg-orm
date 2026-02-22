@@ -132,6 +132,11 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   param: <T = unknown>(name: string) => T
   ref: (path: string) => ExprTape
 
+  // Pattern convenience — auto-escape % and _ in user input
+  startsWith: <K extends keyof TColumns & string>(col: K | ExprTape, prefix: string) => ExprTape
+  endsWith: <K extends keyof TColumns & string>(col: K | ExprTape, suffix: string) => ExprTape
+  contains: <K extends keyof TColumns & string>(col: K | ExprTape, substr: string) => ExprTape
+
   // Array operators
   arrayContains: <K extends keyof TColumns & string>(col: K | ExprTape, val: unknown) => ExprTape
   arrayOverlap: <K extends keyof TColumns & string>(col: K | ExprTape, vals: unknown[]) => ExprTape
@@ -197,8 +202,17 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   param: name => ({ __param: true, name }) as never,
   ref: path => [{ op: OP_REF, path }],
 
+  startsWith: (col, prefix) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `${escapeLikePattern(prefix)}%` }],
+  endsWith: (col, suffix) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `%${escapeLikePattern(suffix)}` }],
+  contains: (col, substr) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `%${escapeLikePattern(substr)}%` }],
+
   arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string | ExprTape, val }],
   arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],
+}
+
+// Escape LIKE/ILIKE special characters in user input
+function escapeLikePattern(input: string): string {
+  return input.replace(/[%_\\]/g, '\\$&')
 }
 
 // Runtime expression builder — returns shared singleton (stateless)
@@ -306,18 +320,28 @@ class ExprAssembler {
     const colSql = this.walkCol(op.col)
 
     switch (op.op) {
-      case OP_EQ: return { sql: `${colSql} = ${this.nextParam(op.val)}`, next: pos + 1 }
-      case OP_NEQ: return { sql: `${colSql} <> ${this.nextParam(op.val)}`, next: pos + 1 }
+      case OP_EQ: return op.val === null
+        ? { sql: `${colSql} IS NULL`, next: pos + 1 }
+        : { sql: `${colSql} = ${this.nextParam(op.val)}`, next: pos + 1 }
+      case OP_NEQ: return op.val === null
+        ? { sql: `${colSql} IS NOT NULL`, next: pos + 1 }
+        : { sql: `${colSql} <> ${this.nextParam(op.val)}`, next: pos + 1 }
       case OP_GT: return { sql: `${colSql} > ${this.nextParam(op.val)}`, next: pos + 1 }
       case OP_GTE: return { sql: `${colSql} >= ${this.nextParam(op.val)}`, next: pos + 1 }
       case OP_LT: return { sql: `${colSql} < ${this.nextParam(op.val)}`, next: pos + 1 }
       case OP_LTE: return { sql: `${colSql} <= ${this.nextParam(op.val)}`, next: pos + 1 }
       case OP_IN: {
+        if (op.vals.length === 0)
+          return { sql: 'FALSE', next: pos + 1 }
+
         const placeholders = op.vals.map(v => this.nextParam(v))
 
         return { sql: `${colSql} IN (${placeholders.join(', ')})`, next: pos + 1 }
       }
       case OP_NOT_IN: {
+        if (op.vals.length === 0)
+          return { sql: 'TRUE', next: pos + 1 }
+
         const placeholders = op.vals.map(v => this.nextParam(v))
 
         return { sql: `${colSql} NOT IN (${placeholders.join(', ')})`, next: pos + 1 }
@@ -389,7 +413,9 @@ class ExprAssembler {
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
       }
       case OP_PARAM:
-        return { sql: `$${this.pidx++}`, next: pos + 1 }
+        // OP_PARAM is a named placeholder — push null as placeholder value
+        // so $N indices stay aligned with the params array
+        return { sql: this.nextParam(null), next: pos + 1 }
       case OP_REF:
         return { sql: quotePath(op.path), next: pos + 1 }
       case OP_SCALAR: {

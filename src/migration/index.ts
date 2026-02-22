@@ -422,6 +422,23 @@ function generateCreateTable(name: string, table: AnyTableDef): string {
     constraints.push(`  UNIQUE ("${col}")`)
   }
 
+  // Foreign key constraints
+  for (const [colName, colDef] of columnEntries(table.columns)) {
+    if (colDef.references) {
+      const ref = colDef.references
+      const targetTable = ref.table()
+      let fkSql = `  FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
+
+      if (ref.onDelete)
+        fkSql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
+
+      if (ref.onUpdate)
+        fkSql += ` ON UPDATE ${ref.onUpdate.toUpperCase()}`
+
+      constraints.push(fkSql)
+    }
+  }
+
   const all = [...colDefs, ...constraints].join(',\n')
 
   return `CREATE TABLE "${name}" (\n${all}\n)`

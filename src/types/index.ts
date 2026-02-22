@@ -155,8 +155,9 @@ export type HookHandler<TColumns extends AnyColumns, E extends HookEvent>
   = E extends 'afterSelect' ? (rows: InferSelect<TColumns>[]) => InferSelect<TColumns>[] | void | Promise<InferSelect<TColumns>[] | void>
     : E extends 'beforeInsert' | 'beforeUpsert' ? (row: InferInsert<TColumns>) => InferInsert<TColumns> | void | Promise<InferInsert<TColumns> | void>
       : E extends 'beforeUpdate' ? (row: Partial<InferSelect<TColumns>>) => Partial<InferSelect<TColumns>> | void | Promise<Partial<InferSelect<TColumns>> | void>
-        : E extends 'beforeDelete' | 'afterDelete' | 'afterInsert' | 'afterUpdate' ? () => void | Promise<void>
-          : never
+        : E extends 'afterInsert' | 'afterUpdate' | 'afterDelete' ? (rows: InferSelect<TColumns>[]) => void | Promise<void>
+          : E extends 'beforeDelete' ? () => void | Promise<void>
+            : never
 
 export type HookRegistry = Partial<Record<HookEvent, ((...args: any[]) => any)[]>>
 

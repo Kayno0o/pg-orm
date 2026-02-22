@@ -109,7 +109,7 @@ export function defineTable(
 
   const table: Record<string, unknown> = {
     name,
-    columns: Object.freeze(columns),
+    columns,
     relations,
     virtuals: virtualDefs,
     hooks,
@@ -126,20 +126,20 @@ export function defineTable(
     withRelations(builder: (r: RelationTypes) => AnyRelations) {
       const r = createRelationTypes()
 
-      table.relations = builder(r)
+      table.relations = Object.assign(table.relations ?? {}, builder(r))
 
       return table
     },
 
     // Two-phase: add virtuals after table is defined
     withVirtuals(virts: Record<string, (row: any) => any>) {
-      const newVirtuals: AnyVirtuals = {}
+      const existing = (table.virtuals ?? {}) as Record<string, VirtualDef>
 
       for (const key in virts) {
-        newVirtuals[key] = { _kind: 'virtual', compute: virts[key]! } as VirtualDef
+        existing[key] = { _kind: 'virtual', compute: virts[key]! } as VirtualDef
       }
 
-      table.virtuals = newVirtuals
+      table.virtuals = existing
 
       return table
     },

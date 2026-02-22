@@ -1,7 +1,7 @@
 import type { AnyColumns, AnyRelations, InferInsert, InferRelationResult, InferSelect, InferUpdate } from '../types/index'
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import { quote } from '../sql/utils'
-import { assembleExpr, createExprBuilder } from './expr'
+import { assembleExpr, createExprBuilder, OP_AND } from './expr'
 
 // --- Mutable Query State ---
 // Single flat object reused per builder chain. No cloning, no immutable snapshots.
@@ -24,6 +24,7 @@ interface CteEntry {
   sql: string
   params: unknown[]
   materialized?: boolean
+  recursive?: boolean
 }
 
 interface WindowEntry {
@@ -42,7 +43,7 @@ interface MergeWhen {
 // Eager include entry — drives batched relation loading (no N+1)
 export interface IncludeEntry {
   relation: string
-  strategy: 'batch' | 'lateral'
+  strategy: 'batch'
 }
 
 interface QueryState {
@@ -270,16 +271,22 @@ class QueryAssembler {
 
     const cteParts = this.state.ctes.map((c) => {
       const mat = c.materialized === true ? 'MATERIALIZED ' : c.materialized === false ? 'NOT MATERIALIZED ' : ''
-      let cteSql = c.sql
+      let paramIdx = 0
+      const cteParams = c.params
+      const cteSql = c.sql.replace(/\$\d+/g, () => {
+        if (paramIdx < cteParams.length) {
+          return this.pushParam(cteParams[paramIdx++])
+        }
 
-      for (const p of c.params) {
-        cteSql = cteSql.replace(/\$\d+/, this.pushParam(p))
-      }
+        return `$${this.pidx}`
+      })
 
       return `${quote(c.name)} AS (${mat}${cteSql})`
     })
 
-    this.parts.push(`WITH ${cteParts.join(', ')}`)
+    const hasRecursive = this.state.ctes.some(c => c.recursive)
+
+    this.parts.push(`WITH ${hasRecursive ? 'RECURSIVE ' : ''}${cteParts.join(', ')}`)
   }
 
   private assembleSelect(): void {
@@ -333,7 +340,7 @@ class QueryAssembler {
       this.parts.push(`OFFSET ${this.state.offset}`)
 
     if (this.state.lockMode) {
-      this.parts.push(`FOR ${this.state.lockMode.toUpperCase().replace('_', ' ')}`)
+      this.parts.push(`FOR ${this.state.lockMode.toUpperCase().replaceAll('_', ' ')}`)
 
       if (this.state.skipLocked)
         this.parts.push('SKIP LOCKED')
@@ -539,10 +546,11 @@ abstract class BaseBuilder {
     return assembleQuery(this._state)
   }
 
-  explain(): { sql: string, params: unknown[] } {
+  explain(opts?: { analyze?: boolean }): { sql: string, params: unknown[] } {
     const { sql, params } = this.toSQL()
+    const analyze = opts?.analyze ? 'ANALYZE, ' : ''
 
-    return { sql: `EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params }
+    return { sql: `EXPLAIN (${analyze}FORMAT JSON) ${sql}`, params }
   }
 }
 
@@ -624,7 +632,7 @@ export class SelectBuilder<
     if (this._state.whereTape) {
       // Combine with AND
       this._state.whereTape = [
-        { op: 0 /* OP_AND */, count: 2 } as ExprOp,
+        { op: OP_AND, count: 2 } as ExprOp,
         ...this._state.whereTape,
         ...newTape,
       ]
@@ -648,6 +656,22 @@ export class SelectBuilder<
     const builder = createExprBuilder<TColumns>()
 
     this._state.joins.push({ type: 'left', table, alias, on: on(builder) })
+
+    return this
+  }
+
+  rightJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    const builder = createExprBuilder<TColumns>()
+
+    this._state.joins.push({ type: 'right', table, alias, on: on(builder) })
+
+    return this
+  }
+
+  fullJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    const builder = createExprBuilder<TColumns>()
+
+    this._state.joins.push({ type: 'full', table, alias, on: on(builder) })
 
     return this
   }
@@ -720,6 +744,12 @@ export class SelectBuilder<
     return this
   }
 
+  withRecursive(name: string, sql: string, params: unknown[] = [], materialized?: boolean): this {
+    this._state.ctes.push({ name, sql, params, materialized, recursive: true })
+
+    return this
+  }
+
   as(_alias: string): this {
     this._state.alias = _alias
 
@@ -730,9 +760,8 @@ export class SelectBuilder<
   // hasMany relations always use WHERE fk = ANY($1) batching, never per-row subqueries.
   include<K extends keyof TRelations & string>(
     relation: K,
-    opts?: { strategy?: 'batch' | 'lateral' },
   ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }> {
-    this._state.includes.push({ relation, strategy: opts?.strategy ?? 'batch' })
+    this._state.includes.push({ relation, strategy: 'batch' })
 
     return this as never
   }
