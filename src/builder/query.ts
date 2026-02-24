@@ -173,7 +173,7 @@ function formatOrderBy(entries: OrderEntry[]): string {
   return entries.map(o => `${quote(o.col)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
 }
 
-// Validate values for INSERT/UPDATE — reject undefined and non-finite numbers
+// Validate values for INSERT/UPDATE — reject undefined, non-finite numbers, and __raw objects
 function validateValues(vals: Record<string, unknown>, context: string): void {
   for (const [key, val] of Object.entries(vals)) {
     if (val === undefined) {
@@ -182,6 +182,10 @@ function validateValues(vals: Record<string, unknown>, context: string): void {
 
     if (typeof val === 'number' && !Number.isFinite(val)) {
       throw new TypeError(`${context}: column "${key}" has non-finite value ${val}. NaN and Infinity are not valid SQL values.`)
+    }
+
+    if (val !== null && typeof val === 'object' && '__raw' in val) {
+      throw new TypeError(`${context}: column "${key}" contains a __raw object. Raw SQL expressions are not allowed in user-facing APIs.`)
     }
   }
 }
@@ -696,12 +700,20 @@ export class SelectBuilder<
   }
 
   limit(n: number): this {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError(`limit() requires a non-negative integer, got ${n}`)
+    }
+
     this._state.limit = n
 
     return this
   }
 
   offset(n: number): this {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError(`offset() requires a non-negative integer, got ${n}`)
+    }
+
     this._state.offset = n
 
     return this
@@ -1169,12 +1181,20 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
   }
 
   limit(n: number): this {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError(`limit() requires a non-negative integer, got ${n}`)
+    }
+
     this._limit = n
 
     return this
   }
 
   offset(n: number): this {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError(`offset() requires a non-negative integer, got ${n}`)
+    }
+
     this._offset = n
 
     return this

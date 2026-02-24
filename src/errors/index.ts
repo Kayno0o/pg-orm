@@ -150,6 +150,7 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
 
   const pgErr = err as Error & {
     code?: string
+    errno?: string
     constraint_name?: string
     constraint?: string
     table_name?: string
@@ -157,9 +158,10 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
     column_name?: string
     column?: string
     detail?: string
+    schema?: string
   }
 
-  const code = pgErr.code
+  const code = pgErr.errno ?? pgErr.code
   const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
   const table = pgErr.table_name ?? pgErr.table ?? ''
   const column = pgErr.column_name ?? pgErr.column ?? ''

@@ -25,6 +25,8 @@ export class ColumnBuilder<
   private _pgType: string
   private _constraints: ColumnConstraint[] = []
   private _references?: ForeignKeyRef
+  _enumName?: string
+  _enumValues?: readonly string[]
 
   constructor(pgType: string) {
     this._pgType = pgType
@@ -92,7 +94,7 @@ export class ColumnBuilder<
 
   // Finalize — freeze and return ColumnDef. Called internally by defineTable.
   _build(): ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated> {
-    return Object.freeze({
+    const def: Record<string, unknown> = {
       _kind: 'column' as const,
       _type: undefined as unknown as TType,
       _nullable: undefined as unknown as TNullable,
@@ -102,7 +104,15 @@ export class ColumnBuilder<
       pgType: this._pgType,
       constraints: Object.freeze(this._constraints) as ColumnConstraint[],
       references: this._references,
-    }) as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
+    }
+
+    // Preserve enum metadata for migration diffing
+    if (this._enumName) {
+      def._enumName = this._enumName
+      def._enumValues = this._enumValues
+    }
+
+    return Object.freeze(def) as unknown as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
   }
 }
 
@@ -207,9 +217,9 @@ export function createColumnTypes(): ColumnTypes {
     enum: (name, _values) => {
       const b = new ColumnBuilder(name)
 
-      // Store enum values for migration DDL
-      ;(b as unknown as Record<string, unknown>)._enumName = name
-      ;(b as unknown as Record<string, unknown>)._enumValues = _values
+      // Store enum values for migration DDL (preserved through _build())
+      b._enumName = name
+      b._enumValues = _values
 
       return b as never
     },

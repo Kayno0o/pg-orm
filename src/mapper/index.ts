@@ -6,6 +6,7 @@ import type { AnyColumns } from '../types/index'
 export type RowMapper<T> = (row: Record<string, unknown>) => T
 
 // Compile a mapper for a specific set of columns (cached per shape fingerprint)
+const MAPPER_CACHE_MAX = 1000
 const _mapperCache = new Map<string, RowMapper<Record<string, unknown>>>()
 
 // Build a JIT-compiled mapper for a set of columns.
@@ -77,6 +78,19 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   if (!mapper) {
     mapper = compileMapper(columns, pick, omit)
     _mapperCache.set(key, mapper)
+
+    // Bounded eviction: remove oldest 100 entries when cache exceeds max
+    if (_mapperCache.size > MAPPER_CACHE_MAX) {
+      let evicted = 0
+
+      for (const k of _mapperCache.keys()) {
+        if (evicted >= 100)
+          break
+
+        _mapperCache.delete(k)
+        evicted++
+      }
+    }
   }
 
   return mapper

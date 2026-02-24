@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 // Showcase — runnable with: bun run examples/showcase.ts
 // Highlights PG18 features (MERGE, JSONB subscripting) + new ORM features:
 // aggregates, set operations, typed computed columns, JSON aggregates

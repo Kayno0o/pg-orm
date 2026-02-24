@@ -27,7 +27,6 @@ export const OP_RAW = 18 as const
 export const OP_JSONB_PATH = 19 as const
 export const OP_TS_MATCH = 20 as const
 export const OP_VEC_DISTANCE = 21 as const
-export const OP_PARAM = 22 as const
 export const OP_REF = 23 as const // correlated column reference
 export const OP_SCALAR = 24 as const // scalar subquery
 export const OP_ARRAY_CONTAINS = 25 as const
@@ -57,7 +56,6 @@ export type ExprOp
     | { op: typeof OP_JSONB_PATH, col: string | ExprTape, path: string }
     | { op: typeof OP_TS_MATCH, col: string | ExprTape, query: TsQueryRef }
     | { op: typeof OP_VEC_DISTANCE, col: string | ExprTape, vec: number[] | Float32Array, metric: 'cosine' | 'l2' | 'inner' }
-    | { op: typeof OP_PARAM, name: string }
     | { op: typeof OP_REF, path: string }
     | { op: typeof OP_SCALAR, subquery: SubqueryRef }
     | { op: typeof OP_ARRAY_CONTAINS, col: string | ExprTape, val: unknown }
@@ -128,8 +126,7 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   vectorL2Distance: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
   vectorInnerProduct: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
 
-  // Parameterized values
-  param: <T = unknown>(name: string) => T
+  // Column reference
   ref: (path: string) => ExprTape
 
   // Pattern convenience — auto-escape % and _ in user input
@@ -212,7 +209,6 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col: col as string | ExprTape, vec, metric: 'l2' }],
   vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col: col as string | ExprTape, vec, metric: 'inner' }],
 
-  param: name => ({ __param: true, name }) as never,
   ref: path => [{ op: OP_REF, path }],
 
   startsWith: (col, prefix) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `${escapeLikePattern(prefix)}%` }],
@@ -438,10 +434,6 @@ class ExprAssembler {
 
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
       }
-      case OP_PARAM:
-        // OP_PARAM is a named placeholder — push null as placeholder value
-        // so $N indices stay aligned with the params array
-        return { sql: this.nextParam(null), next: pos + 1 }
       case OP_REF:
         return { sql: quotePath(op.path), next: pos + 1 }
       case OP_SCALAR: {

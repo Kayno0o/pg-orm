@@ -3,7 +3,7 @@ import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
-import { StaleRecordError } from '../errors/index'
+import { OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
@@ -35,6 +35,8 @@ export class Repository<
   TRelations extends AnyRelations = {},
   TVirtuals extends AnyVirtuals = {},
 > {
+  static MAX_INCLUDE_DEPTH = 5
+
   private _table: AnyTableDef
   private _executor: Executable
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
@@ -165,6 +167,9 @@ export class Repository<
 
     await this._runAfter('afterInsert', rows)
 
+    // Apply virtuals
+    this._applyVirtuals(rows)
+
     // Load requested relations on the returned row
     if (opts?.include?.length) {
       const includes: IncludeEntry[] = opts.include.map(r => ({ relation: r, strategy: 'batch' }))
@@ -193,6 +198,9 @@ export class Repository<
 
     await this._runAfter('afterInsert', rows)
 
+    // Apply virtuals
+    this._applyVirtuals(rows)
+
     return rows as InferSelect<TColumns>[]
   }
 
@@ -203,15 +211,16 @@ export class Repository<
     const s = await this._runBefore('beforeUpdate', set)
     const lockCol = this._getOptimisticLockColumn()
 
-    // Auto-increment version column for optimistic locking
-    if (lockCol) {
-      ;(s as Record<string, unknown>)[lockCol] = { __raw: `${quote(lockCol)} + 1` }
-    }
-
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
       .where(where)
       .returning() as UpdateBuilder<TColumns, InferSelect<TColumns>>
+
+    // Auto-increment version column for optimistic locking (after validation)
+    if (lockCol) {
+      ;(b as any)._state.setValues[lockCol] = { __raw: `${quote(lockCol)} + 1` }
+    }
+
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -613,7 +622,7 @@ export class Repository<
     const buildSql = (chunk: unknown[]) => {
       const placeholders = chunk.map((_, i) => `$${i + 1}`).join(', ')
 
-      return `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pivot_fk"
+      return `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
        FROM ${quote(rel.throughTable!)} j
        JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
        WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`
@@ -754,13 +763,13 @@ export class Repository<
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
     for (const row of rows) {
-      const fk = row.__pivot_fk
+      const fk = row.__pgorm_pivot_fk__
 
       if (!grouped.has(fk))
         grouped.set(fk, [])
 
       grouped.get(fk)!.push(row)
-      delete row.__pivot_fk
+      delete row.__pgorm_pivot_fk__
     }
 
     for (const parent of parentRows) {
@@ -773,7 +782,14 @@ export class Repository<
   private async _loadIncludes(
     parentRows: Record<string, unknown>[],
     includes: IncludeEntry[],
+    depth = 0,
   ): Promise<any[]> {
+    if (depth > Repository.MAX_INCLUDE_DEPTH) {
+      throw new OrmError(
+        `Maximum include depth of ${Repository.MAX_INCLUDE_DEPTH} exceeded. Check for circular includes or increase Repository.MAX_INCLUDE_DEPTH.`,
+      )
+    }
+
     const relations = this._table.relations
 
     if (!relations)
@@ -849,7 +865,7 @@ export class Repository<
               // Create a temporary repo for the target table to resolve nested includes
               const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry)
 
-              await childRepo._loadIncludes(childRows, nestedIncludes)
+              await childRepo._loadIncludes(childRows, nestedIncludes, depth + 1)
             }
           }
         }
