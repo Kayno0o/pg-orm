@@ -23,6 +23,6 @@ export function updateSuite(db: Database) {
           (row as any).version,
         )
       }
-    }),
+    }, { ops: 1 }),
   ])
 }

@@ -13,7 +13,7 @@ export function insertSuite(db: Database) {
         name: `BenchUser ${counter}`,
         email: `bench-insert-${counter}@test.com`,
       })
-    }),
+    }, { ops: 1 }),
 
     bench('insertMany.100', async () => {
       const base = counter
@@ -25,7 +25,7 @@ export function insertSuite(db: Database) {
       }))
 
       await repo.insertMany(rows)
-    }),
+    }, { ops: 1 }),
 
     bench('insertMany.1000', async () => {
       const base = counter
@@ -37,6 +37,6 @@ export function insertSuite(db: Database) {
       }))
 
       await repo.insertMany(rows)
-    }),
+    }, { ops: 1 }),
   ])
 }

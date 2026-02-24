@@ -16,7 +16,7 @@ export function deleteSuite(db: Database) {
       })
 
       await repo.deleteOne(e => e.eq('id', row.id))
-    }),
+    }, { ops: 1 }),
 
     bench('forceDelete', async () => {
       // Insert a row then hard-delete it
@@ -27,6 +27,6 @@ export function deleteSuite(db: Database) {
       })
 
       await repo.forceDelete(e => e.eq('id', row.id))
-    }),
+    }, { ops: 1 }),
   ])
 }

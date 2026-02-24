@@ -23,6 +23,8 @@ export type BenchmarkFn = () => Promise<void> | void
 export interface BenchmarkEntry {
   name: string
   fn: BenchmarkFn
+  /** Fixed ops per iteration — skips calibration. Use for mutating benchmarks (inserts/deletes). */
+  fixedOps?: number
 }
 
 // ── Timing ──
@@ -99,8 +101,8 @@ export async function runBenchmark(entry: BenchmarkEntry): Promise<BenchmarkResu
     await entry.fn()
   }
 
-  // Calibrate inner-loop count so each sample is long enough
-  const ops = await calibrate(entry.fn)
+  // Use fixed ops for mutating benchmarks, otherwise calibrate
+  const ops = entry.fixedOps ?? await calibrate(entry.fn)
 
   // Measure
   const perOpTimes: number[] = []
@@ -238,6 +240,6 @@ export function defineSuite(name: string, benchmarks: BenchmarkEntry[]): { name:
   return { name, benchmarks }
 }
 
-export function bench(name: string, fn: BenchmarkFn): BenchmarkEntry {
-  return { name, fn }
+export function bench(name: string, fn: BenchmarkFn, opts?: { ops?: number }): BenchmarkEntry {
+  return { name, fn, fixedOps: opts?.ops }
 }
