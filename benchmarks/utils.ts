@@ -65,8 +65,33 @@ export function max(values: number[]): number {
 
 // ── Runner ──
 
-const WARMUP_ITERATIONS = 3
-const MEASURE_ITERATIONS = 10
+const WARMUP_ITERATIONS = 5
+const MEASURE_ITERATIONS = 20
+
+// Minimum time (ms) each iteration must run its inner loop.
+// Longer = more ops per sample = less noise from single-op variance.
+const MIN_ITERATION_MS = 200
+
+/**
+ * Calibrate how many ops fit in MIN_ITERATION_MS.
+ * Starts at 1 and doubles until the target time is met.
+ */
+async function calibrate(fn: BenchmarkFn): Promise<number> {
+  let ops = 1
+
+  while (true) {
+    const start = nowNs()
+
+    for (let i = 0; i < ops; i++) await fn()
+    const elapsed = nsToMs(nowNs() - start)
+
+    if (elapsed >= MIN_ITERATION_MS)
+      return ops
+
+    // Scale up proportionally, with a floor of doubling
+    ops = Math.max(ops * 2, Math.ceil(ops * (MIN_ITERATION_MS / Math.max(elapsed, 0.01))))
+  }
+}
 
 export async function runBenchmark(entry: BenchmarkEntry): Promise<BenchmarkResult> {
   // Warmup
@@ -74,23 +99,26 @@ export async function runBenchmark(entry: BenchmarkEntry): Promise<BenchmarkResu
     await entry.fn()
   }
 
+  // Calibrate inner-loop count so each sample is long enough
+  const ops = await calibrate(entry.fn)
+
   // Measure
-  const durations: number[] = []
+  const perOpTimes: number[] = []
 
   for (let i = 0; i < MEASURE_ITERATIONS; i++) {
     const start = nowNs()
 
-    await entry.fn()
-    durations.push(nsToMs(nowNs() - start))
+    for (let j = 0; j < ops; j++) await entry.fn()
+    perOpTimes.push(nsToMs(nowNs() - start) / ops)
   }
 
-  const med = median(durations)
+  const med = median(perOpTimes)
 
   return {
     median: med,
-    p95: p95(durations),
-    min: min(durations),
-    max: max(durations),
+    p95: p95(perOpTimes),
+    min: min(perOpTimes),
+    max: max(perOpTimes),
     opsPerSec: med > 0 ? Math.round(1000 / med) : 0,
   }
 }
