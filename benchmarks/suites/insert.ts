@@ -9,11 +9,13 @@ export function insertSuite(db: Database) {
   return defineSuite('insert', [
     bench('insertOne', async () => {
       counter++
-      await repo.insertOne({
+      const row = await repo.insertOne({
         name: `BenchUser ${counter}`,
         email: `bench-insert-${counter}@test.com`,
       })
-    }, { ops: 1 }),
+
+      await repo.forceDelete(e => e.eq('id', row.id))
+    }, { ops: 50 }),
 
     bench('insertMany.100', async () => {
       const base = counter
@@ -23,9 +25,10 @@ export function insertSuite(db: Database) {
         name: `Batch100 ${base + i}`,
         email: `bench-batch100-${base + i}@test.com`,
       }))
+      const inserted = await repo.insertMany(rows)
 
-      await repo.insertMany(rows)
-    }, { ops: 1 }),
+      await repo.forceDelete(e => e.in('id', inserted.map(r => r.id)))
+    }, { ops: 10 }),
 
     bench('insertMany.1000', async () => {
       const base = counter
@@ -35,8 +38,9 @@ export function insertSuite(db: Database) {
         name: `Batch1000 ${base + i}`,
         email: `bench-batch1000-${base + i}@test.com`,
       }))
+      const inserted = await repo.insertMany(rows)
 
-      await repo.insertMany(rows)
-    }, { ops: 1 }),
+      await repo.forceDelete(e => e.in('id', inserted.map(r => r.id)))
+    }, { ops: 5 }),
   ])
 }

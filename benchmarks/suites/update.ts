@@ -14,6 +14,7 @@ export function updateSuite(db: Database) {
     }),
 
     bench('updateWithLock', async () => {
+      // Each call reads current version then updates, so it's always fresh
       const row = await repo.findOne(q => q.where(e => e.eq('id', 1)))
 
       if (row) {
@@ -23,6 +24,6 @@ export function updateSuite(db: Database) {
           (row as any).version,
         )
       }
-    }, { ops: 1 }),
+    }, { ops: 50 }),
   ])
 }
