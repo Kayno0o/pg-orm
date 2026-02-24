@@ -39,3 +39,4 @@ seeds
 testPkg
 docs
 schema.mermaid
+benchmarks/results
