@@ -1,7 +1,7 @@
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { SQL } from 'bun'
-import { DestructiveOpError, wrapPgError } from '../errors/index'
+import { ConnectionError, DestructiveOpError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, introspectLiveSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
@@ -75,6 +75,20 @@ export interface DbConfig {
   onSlowQuery?: (event: SlowQueryEvent) => void
   /** Slow query threshold in milliseconds (default: 1000) */
   slowQueryThreshold?: number
+  /** Called when ping() fails — useful for logging connection issues */
+  onPingError?: (error: unknown) => void
+  /**
+   * Retry transient connection errors (PG codes 08xxx, 57P01) with exponential backoff.
+   *  Disabled by default. Set `maxRetries` to enable.
+   */
+  retry?: {
+    /** Maximum number of retry attempts (default: 0, disabled) */
+    maxRetries?: number
+    /** Initial delay in milliseconds before first retry (default: 100) */
+    baseDelayMs?: number
+    /** Maximum delay between retries in milliseconds (default: 5000) */
+    maxDelayMs?: number
+  }
 }
 
 export interface Executable {
@@ -112,17 +126,35 @@ abstract class BaseExecutor implements Executable {
   }
 }
 
-// --- Database Instance ---
-
+/**
+ * Main database connection class. Manages the connection pool, table registry,
+ * and provides methods for querying, transactions, migrations, and health checks.
+ *
+ * @example
+ * ```ts
+ * const db = new Database({
+ *   url: 'postgres://user:pass@localhost:5432/mydb',
+ *   tables: [users, posts],
+ *   pool: { max: 10 },
+ * })
+ * await db.sync() // auto-migrate
+ * const repo = db.repo(users) // create repository
+ * await db.close() // cleanup
+ * ```
+ */
 export class Database extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
   private _tables: Map<string, AnyTableDef>
   private _schema: string
   private _statementTimeout?: number
+  private _pingErrorHandler?: (error: unknown) => void
+  private _retryMaxRetries: number
+  private _retryBaseDelay: number
+  private _retryMaxDelay: number
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
@@ -133,6 +165,10 @@ export class Database extends BaseExecutor {
 
     this._schema = schema ?? 'public'
     this._statementTimeout = statementTimeout
+    this._pingErrorHandler = onPingError
+    this._retryMaxRetries = retry?.maxRetries ?? 0
+    this._retryBaseDelay = retry?.baseDelayMs ?? 100
+    this._retryMaxDelay = retry?.maxDelayMs ?? 5000
 
     for (const [key, val] of Object.entries(connOpts)) {
       if (val !== undefined)
@@ -163,6 +199,35 @@ export class Database extends BaseExecutor {
         this._tables.set(table.name, table)
       }
     }
+  }
+
+  override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    if (this._retryMaxRetries <= 0) {
+      return super.query(sqlStr, params)
+    }
+
+    let lastError: unknown
+
+    for (let attempt = 0; attempt <= this._retryMaxRetries; attempt++) {
+      try {
+        return await super.query(sqlStr, params)
+      }
+      catch (err) {
+        lastError = err
+
+        if (attempt < this._retryMaxRetries && err instanceof ConnectionError) {
+          const delay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
+
+          await new Promise(resolve => setTimeout(resolve, delay))
+
+          continue
+        }
+
+        throw err
+      }
+    }
+
+    throw lastError
   }
 
   // Get the configured schema name
@@ -305,7 +370,9 @@ export class Database extends BaseExecutor {
 
       return true
     }
-    catch {
+    catch (err) {
+      this._pingErrorHandler?.(err)
+
       return false
     }
   }

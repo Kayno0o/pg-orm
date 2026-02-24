@@ -3,7 +3,10 @@ import type { AnyTableDef, VirtualDef } from '../types/index'
 import { ColumnBuilder, createColumnTypes } from '../schema/columns'
 import { validateIdentifier } from '../schema/validate'
 
-// A trait is a composable table behavior — adds columns, hooks, virtuals, and metadata
+/**
+ * A trait is a composable table behavior that adds columns, hooks, virtuals, and metadata.
+ * Apply with `table.withTrait(myTrait)`. Built-in traits: `softDelete()`, `timestamps()`, `optimisticLock()`.
+ */
 export interface Trait {
   columns?: (t: ColumnTypes) => Record<string, ColumnBuilder<any, any, any, any, any>>
   hooks?: (table: AnyTableDef) => void
@@ -55,7 +58,12 @@ export function applyTrait(table: AnyTableDef, trait: Trait): void {
 
 // --- Built-in Traits ---
 
-// Soft delete: adds a deletedAt column and isDeleted virtual
+/**
+ * Soft delete trait. Adds a nullable timestamp column and an `isDeleted` virtual.
+ * When applied, `deleteMany`/`deleteOne` will SET the column instead of DELETE.
+ * Use `.withTrashed()` on queries to include soft-deleted rows.
+ * Use `.forceDelete()` for a real DELETE.
+ */
 export function softDelete(column = 'deletedAt'): Trait {
   return {
     columns: t => ({ [column]: t.timestamptz().nullable() }),
@@ -66,7 +74,11 @@ export function softDelete(column = 'deletedAt'): Trait {
   }
 }
 
-// Optimistic locking: adds a version column that auto-increments on update
+/**
+ * Optimistic locking trait. Adds an integer version column (default 1)
+ * that auto-increments on every update. Use `repo.updateWithLock()` to
+ * ensure the version matches before updating — throws `StaleRecordError` on conflict.
+ */
 export function optimisticLock(column = 'version'): Trait {
   return {
     columns: t => ({ [column]: t.int4().notNull().default('1') }),
@@ -74,7 +86,10 @@ export function optimisticLock(column = 'version'): Trait {
   }
 }
 
-// Timestamps: adds createdAt and updatedAt columns with auto-update hook
+/**
+ * Timestamps trait. Adds `createdAt` and `updatedAt` columns (both default to `now()`).
+ * Registers a `beforeUpdate` hook that sets `updatedAt` to the current time on every update.
+ */
 export function timestamps(opts?: { createdAt?: string, updatedAt?: string }): Trait {
   const createdAt = opts?.createdAt ?? 'createdAt'
   const updatedAt = opts?.updatedAt ?? 'updatedAt'

@@ -63,7 +63,7 @@ describe('runHooksAsync', () => {
     })
     const result = await runHooksAsync(table, 'beforeInsert', { name: 'Alice' })
 
-    expect(result).toEqual({ name: 'Alice', processed: true })
+    expect(result).toEqual({ name: 'Alice', processed: true } as any)
   })
 
   it('chains async hooks sequentially', async () => {

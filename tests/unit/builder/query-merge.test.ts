@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { MergeBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, value: any }
+interface Cols { id: any, name: any, value: any, [key: string]: any }
 
 function merge() {
   return new MergeBuilder<Cols>('target')

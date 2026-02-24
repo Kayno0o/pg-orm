@@ -1,6 +1,7 @@
-// --- Error Taxonomy ---
-// All errors extend OrmError. Never throw raw driver errors.
-
+/**
+ * Base error for all ORM errors. All typed errors extend this class.
+ * Wraps the original driver error in `cause` for inspection.
+ */
 export class OrmError extends Error {
   override readonly cause: unknown
   constructor(message: string, cause?: unknown) {
@@ -10,6 +11,7 @@ export class OrmError extends Error {
   }
 }
 
+/** Query execution error. Contains the SQL and params (redacted in production). */
 export class QueryError extends OrmError {
   readonly query: string
   readonly params: unknown[]
@@ -21,6 +23,7 @@ export class QueryError extends OrmError {
   }
 }
 
+/** Connection error (PG codes 08xxx, 57P01). Indicates network or server issues. */
 export class ConnectionError extends OrmError {
   constructor(message: string, cause?: unknown) {
     super(sanitizeMessage(message), cause)
@@ -53,6 +56,7 @@ export class ConstraintError extends QueryError {
   }
 }
 
+/** Unique constraint violation (PG code 23505). */
 export class UniqueError extends ConstraintError {
   readonly column: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
@@ -62,6 +66,7 @@ export class UniqueError extends ConstraintError {
   }
 }
 
+/** Foreign key violation (PG code 23503). */
 export class ForeignKeyError extends ConstraintError {
   readonly referencedTable: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
@@ -71,6 +76,7 @@ export class ForeignKeyError extends ConstraintError {
   }
 }
 
+/** NOT NULL violation (PG code 23502). */
 export class NotNullError extends ConstraintError {
   readonly column: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
@@ -107,6 +113,7 @@ export class DestructiveOpError extends MigrationError {
   }
 }
 
+/** Thrown by `updateWithLock()` when the row version doesn't match (optimistic lock failure). */
 export class StaleRecordError extends OrmError {
   readonly table: string
   readonly version: unknown

@@ -8,8 +8,8 @@ describe('softDelete trait', () => {
 
     table.withTrait(softDelete())
 
-    expect(table.columns.deletedAt).toBeDefined()
-    expect(table.columns.deletedAt.pgType).toBe('timestamptz')
+    expect((table.columns as any).deletedAt).toBeDefined()
+    expect((table.columns as any).deletedAt.pgType).toBe('timestamptz')
   })
 
   it('adds isDeleted virtual', () => {
@@ -17,9 +17,9 @@ describe('softDelete trait', () => {
 
     table.withTrait(softDelete())
 
-    expect(table.virtuals.isDeleted).toBeDefined()
-    expect(table.virtuals.isDeleted.compute({ deletedAt: new Date() })).toBe(true)
-    expect(table.virtuals.isDeleted.compute({ deletedAt: null })).toBe(false)
+    expect((table.virtuals as any).isDeleted).toBeDefined()
+    expect((table.virtuals as any).isDeleted.compute({ deletedAt: new Date() })).toBe(true)
+    expect((table.virtuals as any).isDeleted.compute({ deletedAt: null })).toBe(false)
   })
 
   it('sets softDelete meta', () => {
@@ -35,7 +35,7 @@ describe('softDelete trait', () => {
 
     table.withTrait(softDelete('removedAt'))
 
-    expect(table.columns.removedAt).toBeDefined()
+    expect((table.columns as any).removedAt).toBeDefined()
     expect(table.meta.softDelete).toEqual({ column: 'removedAt' })
   })
 })
@@ -46,8 +46,8 @@ describe('optimisticLock trait', () => {
 
     table.withTrait(optimisticLock())
 
-    expect(table.columns.version).toBeDefined()
-    expect(table.columns.version.pgType).toBe('int4')
+    expect((table.columns as any).version).toBeDefined()
+    expect((table.columns as any).version.pgType).toBe('int4')
   })
 
   it('sets optimisticLock meta', () => {
@@ -63,7 +63,7 @@ describe('optimisticLock trait', () => {
 
     table.withTrait(optimisticLock('rev'))
 
-    expect(table.columns.rev).toBeDefined()
+    expect((table.columns as any).rev).toBeDefined()
     expect(table.meta.optimisticLock).toEqual({ column: 'rev' })
   })
 })
@@ -74,9 +74,9 @@ describe('timestamps trait', () => {
 
     table.withTrait(timestamps())
 
-    expect(table.columns.createdAt).toBeDefined()
-    expect(table.columns.updatedAt).toBeDefined()
-    expect(table.columns.createdAt.pgType).toBe('timestamptz')
+    expect((table.columns as any).createdAt).toBeDefined()
+    expect((table.columns as any).updatedAt).toBeDefined()
+    expect((table.columns as any).createdAt.pgType).toBe('timestamptz')
   })
 
   it('sets timestamps meta', () => {
@@ -113,8 +113,8 @@ describe('timestamps trait', () => {
 
     table.withTrait(timestamps({ createdAt: 'created', updatedAt: 'updated' }))
 
-    expect(table.columns.created).toBeDefined()
-    expect(table.columns.updated).toBeDefined()
+    expect((table.columns as any).created).toBeDefined()
+    expect((table.columns as any).updated).toBeDefined()
     expect(table.meta.timestamps).toEqual({ createdAt: 'created', updatedAt: 'updated' })
   })
 })
@@ -128,7 +128,7 @@ describe('applyTrait', () => {
       meta: { custom: true },
     })
 
-    expect(table.columns.extra).toBeDefined()
+    expect((table.columns as any).extra).toBeDefined()
     expect(table.meta.custom).toBe(true)
   })
 })

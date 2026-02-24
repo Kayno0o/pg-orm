@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { InsertBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, email: any, age: any }
+interface Cols { id: any, name: any, email: any, age: any, [key: string]: any }
 
 function insert() {
   return new InsertBuilder<Cols>('users')

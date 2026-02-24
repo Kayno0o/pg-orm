@@ -75,7 +75,7 @@ describe('Transactions', () => {
     const users = await db.repo(usersTable).findMany()
 
     expect(users).toHaveLength(1)
-    expect(users[0].name).toBe('Alice')
+    expect(users[0]!.name).toBe('Alice')
   })
 
   it('supports isolation level: serializable', async () => {

@@ -29,7 +29,7 @@ describe('Soft Delete', () => {
     const all = await repo.findMany(q => q.withTrashed())
 
     expect(all).toHaveLength(1)
-    expect(all[0].deletedAt).not.toBeNull()
+    expect((all[0] as any).deletedAt).not.toBeNull()
   })
 
   it('findMany excludes soft-deleted rows by default', async () => {
@@ -42,7 +42,7 @@ describe('Soft Delete', () => {
     const users = await repo.findMany()
 
     expect(users).toHaveLength(1)
-    expect(users[0].name).toBe('Bob')
+    expect(users[0]!.name).toBe('Bob')
   })
 
   it('withTrashed includes soft-deleted rows', async () => {
@@ -110,6 +110,6 @@ describe('Soft Delete', () => {
     const result = await repo.deleteOne(e => e.eq('email', 'a@test.com'))
 
     expect(result).not.toBeNull()
-    expect(result!.deletedAt).not.toBeNull()
+    expect((result as any).deletedAt).not.toBeNull()
   })
 })

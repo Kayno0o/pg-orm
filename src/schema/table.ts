@@ -31,6 +31,19 @@ function findPrimaryKey(columns: Record<string, AnyColumnDef>): string | null {
   return pks.length === 1 ? pks[0]! : pks.length > 1 ? pks.join(',') : null
 }
 
+/**
+ * Define a table schema with typed columns, optional relations, and optional virtuals.
+ * Returns a frozen TableDef used by `Database`, `Repository`, and the migration system.
+ *
+ * @example
+ * ```ts
+ * const users = defineTable('users', t => ({
+ *   id: t.serial().primaryKey(),
+ *   name: t.text().notNull(),
+ *   email: t.varchar(255).notNull().unique(),
+ * }))
+ * ```
+ */
 // Overload 1: columns only
 export function defineTable<
   TName extends string,

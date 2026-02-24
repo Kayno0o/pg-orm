@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { UpsertBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, email: any }
+interface Cols { id: any, name: any, email: any, [key: string]: any }
 
 function upsert() {
   return new UpsertBuilder<Cols>('users')

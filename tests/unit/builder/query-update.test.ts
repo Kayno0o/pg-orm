@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { UpdateBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, age: any }
+interface Cols { id: any, name: any, age: any, [key: string]: any }
 
 function update() {
   return new UpdateBuilder<Cols>('users')

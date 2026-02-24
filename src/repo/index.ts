@@ -28,8 +28,20 @@ function getVirtualEntries(table: AnyTableDef): [string, { compute: (r: unknown)
   return entries
 }
 
-// --- Repository ---
-
+/**
+ * Type-safe repository for a table definition.
+ * Provides CRUD operations, relation loading, streaming, pagination, and query building.
+ *
+ * Create via `db.repo(table)` — the repository inherits the database connection
+ * and table registry for relation resolution.
+ *
+ * @example
+ * ```ts
+ * const UserRepo = db.repo(users)
+ * const alice = await UserRepo.insertOne({ name: 'Alice', email: 'a@test.com' })
+ * const all = await UserRepo.findMany(q => q.where(e => e.eq('status', 'active')))
+ * ```
+ */
 export class Repository<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
@@ -461,6 +473,9 @@ export class Repository<
   }
 
   // Streaming via async iterator — JIT mapper applied per chunk, not per row.
+  // WARNING: Uses LIMIT/OFFSET chunking. If rows are inserted or deleted during
+  // iteration, rows may be skipped or duplicated. For correctness on mutable data,
+  // use paginateCursor() or run inside a REPEATABLE READ transaction.
   async* stream(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
     opts: { chunkSize?: number } = {},

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { DeleteBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any }
+interface Cols { id: any, name: any, [key: string]: any }
 
 function del() {
   return new DeleteBuilder<Cols>('users')

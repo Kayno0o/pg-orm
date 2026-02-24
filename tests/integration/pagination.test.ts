@@ -129,7 +129,7 @@ describe('Cursor Pagination', () => {
     const repo = db.repo(usersTable)
     // Get the last few items
     const allUsers = await repo.findMany(q => q.orderBy('id', 'asc'))
-    const lastId = allUsers[allUsers.length - 1].id
+    const lastId = allUsers[allUsers.length - 1]!.id
 
     const result = await repo.paginateCursor({
       take: 3,
@@ -139,7 +139,7 @@ describe('Cursor Pagination', () => {
 
     expect(result.data).toHaveLength(3)
     // Results should be in ascending order (reversed from backward fetch)
-    expect(result.data[0].id).toBeLessThan(result.data[2].id)
+    expect(result.data[0]!.id).toBeLessThan(result.data[2]!.id)
   })
 
   it('empty table returns empty data and null cursor', async () => {

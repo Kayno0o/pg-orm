@@ -27,6 +27,6 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["example.ts", "src/**/*", "examples/**/*"],
+  "include": ["example.ts", "src/**/*", "examples/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist", "migrations"]
 }

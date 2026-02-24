@@ -70,7 +70,7 @@ describe('defineTable', () => {
       parent: r.belongsTo('other', 'fk'),
     }))
 
-    expect(table.relations.parent).toBeDefined()
+    expect((table.relations as any).parent).toBeDefined()
   })
 
   it('supports withVirtuals', () => {
@@ -84,7 +84,7 @@ describe('defineTable', () => {
       fullName: (row: any) => `${row.firstName} ${row.lastName}`,
     })
 
-    expect(table.virtuals.fullName).toBeDefined()
+    expect((table.virtuals as any).fullName).toBeDefined()
   })
 
   it('supports withTrait', () => {
@@ -94,9 +94,9 @@ describe('defineTable', () => {
 
     table.withTrait(softDelete())
 
-    expect(table.columns.deletedAt).toBeDefined()
+    expect((table.columns as any).deletedAt).toBeDefined()
     expect(table.meta.softDelete).toBeDefined()
-    expect(table.virtuals.isDeleted).toBeDefined()
+    expect((table.virtuals as any).isDeleted).toBeDefined()
   })
 
   it('supports hook registration', () => {

@@ -29,6 +29,7 @@ interface LiveEnum {
   values: string[]
 }
 
+/** Introspect the live database schema via information_schema and pg_catalog. */
 export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
   tables: LiveTable[]
   enums: LiveEnum[]
@@ -152,6 +153,11 @@ export interface MigrationOp {
   description: string
 }
 
+/**
+ * Compare live database schema against desired table definitions and return migration operations.
+ * Detects: create/drop tables, add/drop/alter columns, enum create/add/remove.
+ * Destructive operations are flagged with `destructive: true`.
+ */
 export function diffSchema(
   live: { tables: LiveTable[], enums: LiveEnum[] },
   desired: ReadonlyMap<string, AnyTableDef>,
@@ -507,6 +513,7 @@ export interface MigrationFile {
   down: string
 }
 
+/** Generate a timestamped migration file with up/down SQL from the schema diff. */
 export async function generateMigration(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,
@@ -550,6 +557,7 @@ function generateReverseOp(op: MigrationOp): string {
   }
 }
 
+/** Execute raw migration SQL against the database. Wraps errors in MigrationError. */
 export async function applyMigration(executor: Executable, sql: string): Promise<void> {
   try {
     await executor.query(sql, [])
@@ -564,6 +572,7 @@ export async function applyMigration(executor: Executable, sql: string): Promise
   }
 }
 
+/** Check if the live database has drifted from the desired schema. */
 export async function getMigrationStatus(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,

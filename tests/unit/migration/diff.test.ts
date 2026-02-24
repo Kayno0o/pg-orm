@@ -6,7 +6,7 @@ function liveTables(tables: { name: string, columns: { name: string, dataType: s
   return { tables, enums: [] }
 }
 
-function registry(...tables: ReturnType<typeof defineTable>[]) {
+function registry(...tables: any[]) {
   return new Map(tables.map(t => [t.name, t]))
 }
 
@@ -19,10 +19,10 @@ describe('diffSchema', () => {
     const ops = diffSchema(liveTables([]), registry(table))
 
     expect(ops).toHaveLength(1)
-    expect(ops[0].type).toBe('create_table')
-    expect(ops[0].table).toBe('users')
-    expect(ops[0].destructive).toBe(false)
-    expect(ops[0].sql).toContain('CREATE TABLE')
+    expect(ops[0]!.type).toBe('create_table')
+    expect(ops[0]!.table).toBe('users')
+    expect(ops[0]!.destructive).toBe(false)
+    expect(ops[0]!.sql).toContain('CREATE TABLE')
   })
 
   it('detects dropped table', () => {
@@ -35,8 +35,8 @@ describe('diffSchema', () => {
     )
 
     expect(ops).toHaveLength(1)
-    expect(ops[0].type).toBe('drop_table')
-    expect(ops[0].destructive).toBe(true)
+    expect(ops[0]!.type).toBe('drop_table')
+    expect(ops[0]!.destructive).toBe(true)
   })
 
   it('detects added column', () => {

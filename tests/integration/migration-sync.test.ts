@@ -6,7 +6,7 @@ const TEST_URL = 'postgres://test:test@127.0.0.1:8532/orm_test'
 
 // Helper: creates a Database with all fixture tables + extra test tables
 // This avoids sync() wanting to drop fixture tables that other tests created
-function createSyncDb(extraTables: ReturnType<typeof defineTable>[]) {
+function createSyncDb(extraTables: any[]) {
   return new Database({ url: TEST_URL, tables: [...allTables, ...extraTables] })
 }
 
@@ -29,7 +29,7 @@ describe('Migration Sync', () => {
       // Verify table exists
       const rows = await db.raw<{ count: string }>('SELECT count(*) FROM "sync_test_fresh"', [])
 
-      expect(Number(rows[0].count)).toBe(0)
+      expect(Number(rows[0]!.count)).toBe(0)
     }
     finally {
       await db.raw('DROP TABLE IF EXISTS "sync_test_fresh"', [])

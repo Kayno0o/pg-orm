@@ -8,6 +8,7 @@ interface Cols {
   email: any
   status: any
   deletedAt: any
+  [key: string]: any
 }
 
 function select() {
@@ -241,10 +242,10 @@ describe('SelectBuilder', () => {
   })
 
   it('include adds include entry', () => {
-    const b = select().include('posts' as any)
+    const b = (select() as any).include('posts')
 
     expect(b._state.includes).toHaveLength(1)
-    expect(b._state.includes[0].relation).toBe('posts')
+    expect(b._state.includes[0]!.relation).toBe('posts')
   })
 })
 
