@@ -3,7 +3,7 @@ import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
-import { NotFoundError, OrmError, StaleRecordError } from '../errors/index'
+import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
@@ -84,11 +84,7 @@ export class Repository<
         await runHooksAsync(this._table, event, rows)
       }
       catch (err) {
-        throw new OrmError(
-          `"${event}" hook on table "${this._table.name}" threw after the mutation was committed. `
-          + `The database change was NOT rolled back. ${err instanceof Error ? err.message : String(err)}`,
-          err,
-        )
+        throw new AfterHookError(this._table.name, event, err)
       }
     }
   }
@@ -559,6 +555,51 @@ export class Repository<
         break
 
       offset += chunkSize
+    }
+  }
+
+  /**
+   * Cursor-based streaming via async iterator — uses keyset pagination internally.
+   * Unlike `stream()`, this is safe for mutable data (no skipped/duplicated rows).
+   *
+   * Requires an ordered column (defaults to the primary key).
+   *
+   * @example
+   * ```ts
+   * for await (const row of repo.streamCursor({ chunkSize: 100 })) {
+   *   console.log(row)
+   * }
+   * ```
+   */
+  async* streamCursor(
+    opts: {
+      chunkSize?: number
+      column?: keyof TColumns & string
+      direction?: 'forward' | 'backward'
+      where?: (e: ExprBuilder<TColumns>) => ExprTape
+    } = {},
+  ): AsyncGenerator<InferSelect<TColumns>, void, undefined> {
+    const chunkSize = opts.chunkSize ?? 500
+    const col = opts.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
+    const direction = opts.direction ?? 'forward'
+    let cursor: unknown | null = null
+
+    while (true) {
+      const result = await this.paginateCursor({
+        take: chunkSize,
+        cursor: cursor != null ? { column: col, value: cursor } : undefined,
+        direction,
+        where: opts.where,
+      })
+
+      for (const row of result.data) {
+        yield row
+      }
+
+      if (result.nextCursor == null)
+        break
+
+      cursor = result.nextCursor
     }
   }
 

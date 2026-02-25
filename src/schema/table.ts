@@ -1,5 +1,5 @@
 import type { Trait } from '../traits/index'
-import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
+import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
 import type { ColumnTypes } from './columns'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
@@ -119,6 +119,24 @@ export function defineTable(
     }
   }
 
+  // Collect index definitions from column metadata
+  const indexes: IndexDef[] = []
+
+  for (const key in builders) {
+    const b = builders[key]
+
+    if (b instanceof ColumnBuilder && (b as unknown as { _index?: object })._index) {
+      const idx = (b as unknown as { _index: { method?: IndexDef['method'], where?: string } })._index
+
+      indexes.push({
+        columns: [key],
+        unique: false,
+        method: idx.method,
+        where: idx.where,
+      })
+    }
+  }
+
   const hooks: HookRegistry = {}
   const meta: Record<string, unknown> = {}
 
@@ -129,6 +147,7 @@ export function defineTable(
     virtuals: virtualDefs,
     hooks,
     primaryKey: findPrimaryKey(columns),
+    indexes,
     meta,
     hook(event: HookEvent, handler: (...args: unknown[]) => unknown) {
       hooks[event] ||= []
@@ -155,6 +174,13 @@ export function defineTable(
       }
 
       table.virtuals = existing
+
+      return table
+    },
+
+    // Add composite or multi-column indexes
+    withIndexes(idxDefs: IndexDef[]) {
+      ;(table.indexes as IndexDef[]).push(...idxDefs)
 
       return table
     },

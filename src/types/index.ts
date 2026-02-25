@@ -95,6 +95,16 @@ export interface RelationTypes {
   ) => RelationDef<'hasManyThrough', TResult>
 }
 
+// --- Index Definitions ---
+
+export interface IndexDef {
+  readonly columns: string[]
+  readonly unique?: boolean
+  readonly method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin'
+  readonly where?: string
+  readonly name?: string
+}
+
 // --- Virtual/Computed Fields ---
 
 export interface VirtualDef<TRow = any, TResult = any> {
@@ -124,6 +134,7 @@ export interface TableDef<
   readonly virtuals: TVirtuals
   readonly hooks: HookRegistry
   readonly primaryKey: string | null
+  readonly indexes: IndexDef[]
   readonly meta: Record<string, unknown>
   hook: <E extends HookEvent>(event: E, handler: HookHandler<TColumns, E>) => this
 
@@ -140,6 +151,9 @@ export interface TableDef<
   ) => TableDef<TName, TColumns, TRelations, {
     [K in keyof TVirtMap]: VirtualDef<InferSelect<TColumns>, ReturnType<TVirtMap[K]>>
   }>
+
+  // Add composite or multi-column indexes
+  withIndexes: (indexes: IndexDef[]) => this
 
   // Apply a trait (composable table behavior)
   withTrait: (trait: Trait) => this

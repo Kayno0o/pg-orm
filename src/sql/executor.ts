@@ -202,6 +202,10 @@ export class Database extends BaseExecutor {
   }
 
   override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    if (this._draining) {
+      throw new ConnectionError('Database is draining — no new queries accepted')
+    }
+
     if (this._retryMaxRetries <= 0) {
       return super.query(sqlStr, params)
     }
@@ -216,7 +220,8 @@ export class Database extends BaseExecutor {
         lastError = err
 
         if (attempt < this._retryMaxRetries && (err instanceof ConnectionError || err instanceof DeadlockError)) {
-          const delay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
+          const baseDelay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
+          const delay = baseDelay * (0.5 + Math.random() * 0.5)
 
           await new Promise(resolve => setTimeout(resolve, delay))
 
@@ -247,50 +252,66 @@ export class Database extends BaseExecutor {
     return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables)
   }
 
-  // Auto-migrate: introspect live DB, diff against registered tables, apply DDL
+  // Auto-migrate: introspect live DB, diff against registered tables, apply DDL.
+  // Uses pg_advisory_lock to prevent concurrent sync() calls from corrupting schema.
   async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
-    // Lazy import to avoid circular dependency
-    const live = await introspectLiveSchema(this, this._schema)
-    const ops = diffSchema(live, this._tables)
+    // Advisory lock key — consistent hash for "pg-orm-sync"
+    const LOCK_KEY = 741953258
 
-    if (ops.length === 0)
-      return { sql: '', ops: [] }
+    // Acquire advisory lock (blocks until available)
+    await this.query('SELECT pg_advisory_lock($1)', [LOCK_KEY])
 
-    const destructiveOps = ops.filter(o => o.destructive)
+    try {
+      const live = await introspectLiveSchema(this, this._schema)
+      const ops = diffSchema(live, this._tables)
 
-    if (destructiveOps.length && !opts?.allowDestructive) {
-      throw new DestructiveOpError(
-        `Sync contains ${destructiveOps.length} destructive operation(s). Use { allowDestructive: true } to proceed.`,
-        'diff',
-        destructiveOps.map(o => o.description),
-      )
-    }
+      if (ops.length === 0)
+        return { sql: '', ops: [] }
 
-    const sqlStr = ops.map(o => `${o.sql};`).join('\n')
+      const destructiveOps = ops.filter(o => o.destructive)
 
-    if (!opts?.dryRun) {
-      // Separate enum ADD VALUE ops (can't run inside a transaction in PG < 16)
-      const enumAddOps = ops.filter(o => o.type === 'alter_enum_add')
-      const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
-
-      // Run enum ADD VALUE ops outside transaction
-      for (const op of enumAddOps) {
-        await this.query(`${op.sql};`, [])
+      if (destructiveOps.length && !opts?.allowDestructive) {
+        throw new DestructiveOpError(
+          `Sync contains ${destructiveOps.length} destructive operation(s). Use { allowDestructive: true } to proceed.`,
+          'diff',
+          destructiveOps.map(o => o.description),
+        )
       }
 
-      // Run remaining DDL in a transaction via bun:sql's native begin()
-      if (otherOps.length > 0) {
-        await (this.sql as unknown as {
-          begin: (fn: (tx: unknown) => Promise<void>) => Promise<void>
-        }).begin(async (sqlTx) => {
-          for (const op of otherOps) {
-            await (sqlTx as unknown as UnsafeSql).unsafe(`${op.sql};`, [])
-          }
-        })
+      const sqlStr = ops.map(o => `${o.sql};`).join('\n')
+
+      if (!opts?.dryRun) {
+        // Separate enum ADD VALUE ops (can't run inside a transaction in PG < 16)
+        const enumAddOps = ops.filter(o => o.type === 'alter_enum_add')
+        const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
+
+        // Run enum ADD VALUE ops outside transaction
+        for (const op of enumAddOps) {
+          await this.query(`${op.sql};`, [])
+        }
+
+        // Run remaining DDL in a transaction via bun:sql's native begin()
+        if (otherOps.length > 0) {
+          await (this.sql as unknown as {
+            begin: (fn: (tx: unknown) => Promise<void>) => Promise<void>
+          }).begin(async (sqlTx) => {
+            for (const op of otherOps) {
+              await (sqlTx as unknown as UnsafeSql).unsafe(`${op.sql};`, [])
+            }
+          })
+        }
+      }
+
+      return { sql: sqlStr, ops }
+    }
+    finally {
+      try {
+        await this.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY])
+      }
+      catch {
+        // unlock best-effort — connection may already be closed
       }
     }
-
-    return { sql: sqlStr, ops }
   }
 
   // Get the internal tables registry
@@ -409,8 +430,20 @@ export class Database extends BaseExecutor {
     clearVirtualEntriesCache()
   }
 
-  async close(opts?: { timeout?: number }): Promise<void> {
-    await (this.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }).close(opts)
+  /** Close the database connection pool. Pass `drain: true` to reject new queries before closing. */
+  async close(opts?: { timeout?: number, drain?: boolean }): Promise<void> {
+    if (opts?.drain) {
+      this._draining = true
+    }
+
+    await (this.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }).close({ timeout: opts?.timeout })
+  }
+
+  private _draining = false
+
+  /** Returns true if the database is draining (no new queries accepted). */
+  get draining(): boolean {
+    return this._draining
   }
 }
 

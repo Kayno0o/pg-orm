@@ -1,5 +1,5 @@
 import type { Executable } from '../sql/executor'
-import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint, IndexDef } from '../types/index'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 
 // Typed Object.entries for column maps
@@ -39,11 +39,21 @@ interface LiveForeignKey {
   onDelete: string
 }
 
+interface LiveIndex {
+  name: string
+  tableName: string
+  columns: string[]
+  isUnique: boolean
+  method: string
+  definition: string
+}
+
 /** Introspect the live database schema via information_schema and pg_catalog. */
 export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
   tables: LiveTable[]
   enums: LiveEnum[]
   foreignKeys: LiveForeignKey[]
+  indexes: LiveIndex[]
 }> {
   const colRows = await executor.query(`
     SELECT
@@ -97,6 +107,31 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
   `, [schema])
 
+  // Introspect indexes (exclude PK/unique constraint-backed indexes — those are handled separately)
+  const indexRows = await executor.query(`
+    SELECT
+      i.relname AS index_name,
+      t.relname AS table_name,
+      am.amname AS method,
+      ix.indisunique AS is_unique,
+      pg_get_indexdef(ix.indexrelid) AS definition,
+      array_agg(a.attname ORDER BY x.ordinality) AS columns
+    FROM pg_index ix
+    JOIN pg_class i ON i.oid = ix.indexrelid
+    JOIN pg_class t ON t.oid = ix.indrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_am am ON am.oid = i.relam
+    CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+    WHERE n.nspname = $1
+      AND NOT ix.indisprimary
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        WHERE c.conindid = ix.indexrelid AND c.contype IN ('u', 'p')
+      )
+    GROUP BY i.relname, t.relname, am.amname, ix.indisunique, ix.indexrelid
+  `, [schema])
+
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
 
@@ -111,6 +146,14 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
       referencedColumn: r.referenced_column as string,
       onUpdate: (r.update_rule as string).toLowerCase().replace(/ /g, ' '),
       onDelete: (r.delete_rule as string).toLowerCase().replace(/ /g, ' '),
+    })),
+    indexes: indexRows.map(r => ({
+      name: r.index_name as string,
+      tableName: r.table_name as string,
+      columns: r.columns as string[],
+      isUnique: r.is_unique as boolean,
+      method: r.method as string,
+      definition: r.definition as string,
     })),
   }
 }
@@ -186,6 +229,8 @@ export interface MigrationOp {
   type: 'create_table' | 'drop_table' | 'add_column' | 'drop_column' | 'alter_column'
     | 'create_enum' | 'alter_enum_add' | 'alter_enum_remove' | 'add_constraint' | 'drop_constraint'
     | 'add_fk' | 'drop_fk'
+    | 'create_index' | 'drop_index'
+    | 'rename_column'
   table?: string
   column?: string
   sql: string
@@ -199,7 +244,7 @@ export interface MigrationOp {
  * Destructive operations are flagged with `destructive: true`.
  */
 export function diffSchema(
-  live: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[] },
+  live: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[], indexes?: LiveIndex[] },
   desired: ReadonlyMap<string, AnyTableDef>,
 ): MigrationOp[] {
   const ops: MigrationOp[] = []
@@ -247,6 +292,9 @@ export function diffSchema(
     diffForeignKeys(ops, desired, live.foreignKeys)
   }
 
+  // Diff indexes
+  diffIndexes(ops, desired, live.indexes ?? [])
+
   return ops
 }
 
@@ -273,10 +321,42 @@ function collectEnumInfo(
 function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): void {
   const liveColMap = new Map(liveTable.columns.map(c => [c.name, c]))
 
+  // Build a map of renamedFrom -> newName for rename detection
+  const renameMap = new Map<string, string>()
+
+  for (const [colName, colDef] of columnEntries(tableDef.columns)) {
+    const renamedFrom = (colDef as unknown as { _renamedFrom?: string })._renamedFrom
+
+    if (renamedFrom) {
+      renameMap.set(renamedFrom, colName)
+    }
+  }
+
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
     const liveCol = liveColMap.get(colName)
 
     if (!liveCol) {
+      // Check if this column was renamed from another column
+      const renamedFrom = (colDef as unknown as { _renamedFrom?: string })._renamedFrom
+      const renamedLiveCol = renamedFrom ? liveColMap.get(renamedFrom) : undefined
+
+      if (renamedFrom && renamedLiveCol) {
+        ops.push({
+          type: 'rename_column',
+          table: tableName,
+          column: colName,
+          sql: `ALTER TABLE "${tableName}" RENAME COLUMN "${renamedFrom}" TO "${colName}"`,
+          destructive: false,
+          description: `Rename column "${renamedFrom}" to "${colName}" in "${tableName}"`,
+        })
+        liveColMap.delete(renamedFrom)
+
+        // Still diff the column properties after rename
+        diffColumn(ops, tableName, colName, colDef, renamedLiveCol)
+
+        continue
+      }
+
       ops.push({
         type: 'add_column',
         table: tableName,
@@ -294,6 +374,10 @@ function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTa
   }
 
   for (const [colName] of liveColMap) {
+    // Skip columns that were renamed (already handled above)
+    if (renameMap.has(colName))
+      continue
+
     ops.push({
       type: 'drop_column',
       table: tableName,
@@ -338,6 +422,30 @@ function diffColumn(ops: MigrationOp[], tableName: string, colName: string, colD
         description: `Change type of "${colName}" in "${tableName}" from ${liveType} to ${desiredType}`,
       })
     }
+  }
+
+  // Diff UNIQUE constraint
+  const desiredUnique = colDef.constraints.some((c: ColumnConstraint) => c.type === 'unique')
+
+  if (desiredUnique && !liveCol.isUnique && !liveCol.isPrimaryKey) {
+    ops.push({
+      type: 'add_constraint',
+      table: tableName,
+      column: colName,
+      sql: `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_key" UNIQUE ("${colName}")`,
+      destructive: false,
+      description: `Add UNIQUE constraint on "${colName}" in "${tableName}"`,
+    })
+  }
+  else if (!desiredUnique && liveCol.isUnique && !liveCol.isPrimaryKey) {
+    ops.push({
+      type: 'drop_constraint',
+      table: tableName,
+      column: colName,
+      sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${colName}_key"`,
+      destructive: true,
+      description: `Drop UNIQUE constraint on "${colName}" in "${tableName}"`,
+    })
   }
 
   const desiredNotNull = colDef.constraints.some((c: ColumnConstraint) => c.type === 'not_null')
@@ -541,6 +649,93 @@ function diffForeignKeys(
   }
 }
 
+// --- Index Diffing ---
+
+function buildIndexName(tableName: string, columns: string[], unique: boolean): string {
+  const suffix = unique ? 'unique' : 'idx'
+
+  return `${tableName}_${columns.join('_')}_${suffix}`
+}
+
+function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
+  const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
+  const method = idx.method ?? 'btree'
+  const unique = idx.unique ? 'UNIQUE ' : ''
+  const cols = idx.columns.map(c => `"${c}"`).join(', ')
+  let sql = `CREATE ${unique}INDEX "${name}" ON "${tableName}" USING ${method} (${cols})`
+
+  if (idx.where) {
+    sql += ` WHERE ${idx.where}`
+  }
+
+  return sql
+}
+
+function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<string, { tableName: string, idx: IndexDef }> {
+  const result = new Map<string, { tableName: string, idx: IndexDef }>()
+
+  for (const [tableName, tableDef] of desired) {
+    const indexes = tableDef.indexes ?? []
+
+    // Collect indexes from column-level .index() and table-level .withIndexes()
+    for (const idx of indexes) {
+      const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
+
+      result.set(name, { tableName, idx })
+    }
+
+    // Also collect single-column unique constraints as unique indexes for diffing
+    // (these are already handled by UNIQUE constraint, skip here)
+  }
+
+  return result
+}
+
+function diffIndexes(
+  ops: MigrationOp[],
+  desired: ReadonlyMap<string, AnyTableDef>,
+  liveIndexes: LiveIndex[],
+): void {
+  const desiredIndexes = collectDesiredIndexes(desired)
+  const liveIndexMap = new Map(liveIndexes.map(i => [i.name, i]))
+
+  for (const [name, { tableName, idx }] of desiredIndexes) {
+    if (liveIndexMap.has(name)) {
+      // Index exists — for now, don't diff changes (would need DROP + CREATE)
+      liveIndexMap.delete(name)
+
+      continue
+    }
+
+    // New index needed
+    ops.push({
+      type: 'create_index',
+      table: tableName,
+      sql: buildCreateIndexSql(tableName, idx),
+      destructive: false,
+      description: `Create index "${name}" on "${tableName}" (${idx.columns.join(', ')})`,
+    })
+  }
+
+  // Drop indexes that exist in live but not in desired (only for tables we manage)
+  for (const [name, liveIdx] of liveIndexMap) {
+    if (!desired.has(liveIdx.tableName))
+      continue
+
+    // Don't drop indexes on tables being dropped (table DROP handles it)
+    if (ops.some(o => o.type === 'drop_table' && o.table === liveIdx.tableName))
+      continue
+
+    ops.push({
+      type: 'drop_index',
+      table: liveIdx.tableName,
+      sql: `DROP INDEX "${name}"`,
+      destructive: true,
+      description: `Drop index "${name}" from "${liveIdx.tableName}"`,
+    })
+  }
+}
+
 // --- DDL Generation ---
 
 function generateCreateTable(name: string, table: AnyTableDef): string {
@@ -694,6 +889,14 @@ function generateReverseOp(op: MigrationOp): string {
     case 'add_column': return `ALTER TABLE "${op.table}" DROP COLUMN IF EXISTS "${op.column}";`
     case 'drop_column': return `-- Cannot reverse DROP COLUMN "${op.table}"."${op.column}" without original type`
     case 'create_enum': return `DROP TYPE IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
+    case 'create_index': return `DROP INDEX IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
+    case 'drop_index': return `-- Cannot reverse DROP INDEX without original definition`
+    case 'rename_column': {
+      // Extract old and new column names from the SQL
+      const match = op.sql.match(/RENAME COLUMN "(\w+)" TO "(\w+)"/)
+
+      return match ? `ALTER TABLE "${op.table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";` : `-- Cannot reverse: ${op.description}`
+    }
     default: return `-- Cannot automatically reverse: ${op.description}`
   }
 }

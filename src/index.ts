@@ -23,6 +23,7 @@ export {
 } from './builder/query'
 // Errors
 export {
+  AfterHookError,
   CheckError,
   ConnectionError,
   ConstraintError,
@@ -98,6 +99,7 @@ export type {
   HookEvent,
   HookHandler,
   HookRegistry,
+  IndexDef,
   InferEntity,
   InferInsert,
   InferInsertFromTable,

@@ -121,6 +121,26 @@ export class DestructiveOpError extends MigrationError {
   }
 }
 
+/**
+ * Thrown when an after-hook (afterInsert, afterUpdate, afterDelete) throws.
+ * The mutation was already committed — `committed: true` signals this to callers.
+ */
+export class AfterHookError extends OrmError {
+  readonly committed = true
+  readonly table: string
+  readonly hook: string
+  constructor(table: string, hook: string, cause: unknown) {
+    super(
+      `"${hook}" hook on table "${table}" threw after the mutation was committed. `
+      + `The database change was NOT rolled back. ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    )
+    this.name = 'AfterHookError'
+    this.table = table
+    this.hook = hook
+  }
+}
+
 /** Thrown by `findOneOrThrow()` when no row matches the query. */
 export class NotFoundError extends OrmError {
   readonly table: string

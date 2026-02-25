@@ -27,6 +27,8 @@ export class ColumnBuilder<
   private _references?: ForeignKeyRef
   _enumName?: string
   _enumValues?: readonly string[]
+  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  _renamedFrom?: string
 
   constructor(pgType: string) {
     this._pgType = pgType
@@ -92,6 +94,20 @@ export class ColumnBuilder<
     return this as never
   }
 
+  /** Create a B-tree index on this column (or specify method/partial filter). */
+  index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._index = { method: opts?.method, where: opts?.where }
+
+    return this as never
+  }
+
+  /** Mark this column as renamed from a previous name to avoid DROP+ADD data loss. */
+  renamedFrom(oldName: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._renamedFrom = oldName
+
+    return this as never
+  }
+
   // Finalize — freeze and return ColumnDef. Called internally by defineTable.
   _build(): ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated> {
     const def: Record<string, unknown> = {
@@ -110,6 +126,16 @@ export class ColumnBuilder<
     if (this._enumName) {
       def._enumName = this._enumName
       def._enumValues = this._enumValues
+    }
+
+    // Preserve index metadata for migration diffing
+    if (this._index) {
+      def._index = this._index
+    }
+
+    // Preserve rename metadata for migration diffing
+    if (this._renamedFrom) {
+      def._renamedFrom = this._renamedFrom
     }
 
     return Object.freeze(def) as unknown as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
