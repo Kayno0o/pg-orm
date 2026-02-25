@@ -29,10 +29,21 @@ interface LiveEnum {
   values: string[]
 }
 
+interface LiveForeignKey {
+  constraintName: string
+  tableName: string
+  columnName: string
+  referencedTable: string
+  referencedColumn: string
+  onUpdate: string
+  onDelete: string
+}
+
 /** Introspect the live database schema via information_schema and pg_catalog. */
 export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
   tables: LiveTable[]
   enums: LiveEnum[]
+  foreignKeys: LiveForeignKey[]
 }> {
   const colRows = await executor.query(`
     SELECT
@@ -67,12 +78,40 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
     ORDER BY t.typname, e.enumsortorder
   `, [schema])
 
+  const fkRows = await executor.query(`
+    SELECT
+      tc.constraint_name,
+      tc.table_name,
+      kcu.column_name,
+      ccu.table_name AS referenced_table,
+      ccu.column_name AS referenced_column,
+      rc.update_rule,
+      rc.delete_rule
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+    JOIN information_schema.constraint_column_usage ccu
+      ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+    JOIN information_schema.referential_constraints rc
+      ON tc.constraint_name = rc.constraint_name AND tc.table_schema = rc.constraint_schema
+    WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
+  `, [schema])
+
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
 
   return {
     tables: buildLiveTables(colRows, pkSet, uqSet),
     enums: buildLiveEnums(enumRows),
+    foreignKeys: fkRows.map(r => ({
+      constraintName: r.constraint_name as string,
+      tableName: r.table_name as string,
+      columnName: r.column_name as string,
+      referencedTable: r.referenced_table as string,
+      referencedColumn: r.referenced_column as string,
+      onUpdate: (r.update_rule as string).toLowerCase().replace(/ /g, ' '),
+      onDelete: (r.delete_rule as string).toLowerCase().replace(/ /g, ' '),
+    })),
   }
 }
 
@@ -146,6 +185,7 @@ function resolveDataType(row: Record<string, unknown>): string {
 export interface MigrationOp {
   type: 'create_table' | 'drop_table' | 'add_column' | 'drop_column' | 'alter_column'
     | 'create_enum' | 'alter_enum_add' | 'alter_enum_remove' | 'add_constraint' | 'drop_constraint'
+    | 'add_fk' | 'drop_fk'
   table?: string
   column?: string
   sql: string
@@ -159,7 +199,7 @@ export interface MigrationOp {
  * Destructive operations are flagged with `destructive: true`.
  */
 export function diffSchema(
-  live: { tables: LiveTable[], enums: LiveEnum[] },
+  live: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[] },
   desired: ReadonlyMap<string, AnyTableDef>,
 ): MigrationOp[] {
   const ops: MigrationOp[] = []
@@ -201,6 +241,11 @@ export function diffSchema(
   }
 
   diffEnums(ops, neededEnums, enumUsages, liveEnumMap)
+
+  // Diff FK constraints for existing tables (new tables already include FKs in CREATE TABLE)
+  if (live.foreignKeys) {
+    diffForeignKeys(ops, desired, live.foreignKeys)
+  }
 
   return ops
 }
@@ -398,6 +443,102 @@ function pushEnumRemovalOps(
     destructive: true,
     description: `Rename "${tmpName}" to "${enumName}"`,
   })
+}
+
+function buildAddFkSql(tableName: string, colName: string, ref: { table: () => AnyTableDef, column: string, onDelete?: string, onUpdate?: string }): string {
+  const targetTable = ref.table()
+  let sql = `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_fkey" FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
+
+  if (ref.onDelete)
+    sql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
+
+  if (ref.onUpdate)
+    sql += ` ON UPDATE ${ref.onUpdate.toUpperCase()}`
+
+  return sql
+}
+
+function fkChanged(liveFk: LiveForeignKey, ref: { table: () => AnyTableDef, column: string, onDelete?: string, onUpdate?: string }): boolean {
+  const targetTable = ref.table()
+
+  return liveFk.referencedTable !== targetTable.name
+    || liveFk.referencedColumn !== ref.column
+    || liveFk.onDelete !== (ref.onDelete ?? 'no action').toLowerCase()
+    || liveFk.onUpdate !== (ref.onUpdate ?? 'no action').toLowerCase()
+}
+
+function diffForeignKeys(
+  ops: MigrationOp[],
+  desired: ReadonlyMap<string, AnyTableDef>,
+  liveFks: LiveForeignKey[],
+): void {
+  const liveFkMap = new Map<string, LiveForeignKey>()
+
+  for (const fk of liveFks) {
+    liveFkMap.set(`${fk.tableName}.${fk.columnName}`, fk)
+  }
+
+  for (const [tableName, tableDef] of desired) {
+    if (ops.some(o => o.type === 'create_table' && o.table === tableName))
+      continue
+
+    for (const [colName, colDef] of columnEntries(tableDef.columns)) {
+      const key = `${tableName}.${colName}`
+      const liveFk = liveFkMap.get(key)
+      const ref = colDef.references
+
+      if (!ref && !liveFk)
+        continue
+
+      if (!ref && liveFk) {
+        ops.push({
+          type: 'drop_fk',
+          table: tableName,
+          column: colName,
+          sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT "${liveFk.constraintName}"`,
+          destructive: true,
+          description: `Drop FK constraint "${liveFk.constraintName}" on "${tableName}"."${colName}"`,
+        })
+
+        continue
+      }
+
+      if (!ref)
+        continue
+
+      if (liveFk && fkChanged(liveFk, ref)) {
+        ops.push({
+          type: 'drop_fk',
+          table: tableName,
+          column: colName,
+          sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT "${liveFk.constraintName}"`,
+          destructive: false,
+          description: `Drop FK constraint "${liveFk.constraintName}" on "${tableName}"."${colName}"`,
+        })
+        ops.push({
+          type: 'add_fk',
+          table: tableName,
+          column: colName,
+          sql: buildAddFkSql(tableName, colName, ref),
+          destructive: false,
+          description: `Add FK constraint on "${tableName}"."${colName}" → "${ref.table().name}"."${ref.column}"`,
+        })
+      }
+      else if (!liveFk) {
+        if (ops.some(o => o.type === 'add_column' && o.table === tableName && o.column === colName))
+          continue
+
+        ops.push({
+          type: 'add_fk',
+          table: tableName,
+          column: colName,
+          sql: buildAddFkSql(tableName, colName, ref),
+          destructive: false,
+          description: `Add FK constraint on "${tableName}"."${colName}" → "${ref.table().name}"."${ref.column}"`,
+        })
+      }
+    }
+  }
 }
 
 // --- DDL Generation ---

@@ -93,6 +93,14 @@ export class CheckError extends ConstraintError {
   }
 }
 
+/** Deadlock detected (PG code 40P01). Can be retried. */
+export class DeadlockError extends QueryError {
+  constructor(message: string, query: string, params: unknown[], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'DeadlockError'
+  }
+}
+
 export class MigrationError extends OrmError {
   readonly phase: 'diff' | 'apply' | 'validate'
   readonly migration?: string
@@ -110,6 +118,16 @@ export class DestructiveOpError extends MigrationError {
     super(message, phase, migration, cause)
     this.name = 'DestructiveOpError'
     this.ops = ops
+  }
+}
+
+/** Thrown by `findOneOrThrow()` when no row matches the query. */
+export class NotFoundError extends OrmError {
+  readonly table: string
+  constructor(table: string) {
+    super(`No record found in table "${table}"`)
+    this.name = 'NotFoundError'
+    this.table = table
   }
 }
 
@@ -182,6 +200,8 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
       return new NotNullError(pgErr.message, query, params, { constraint, table, column }, err)
     case '23514': // check_violation
       return new CheckError(pgErr.message, query, params, { constraint, table }, err)
+    case '40P01': // deadlock_detected
+      return new DeadlockError(pgErr.message, query, params, err)
     default:
       if (code?.startsWith('08') || code === '57P01') {
         return new ConnectionError(pgErr.message, err)

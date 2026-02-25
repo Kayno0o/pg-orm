@@ -1,7 +1,7 @@
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { SQL } from 'bun'
-import { ConnectionError, DestructiveOpError, wrapPgError } from '../errors/index'
+import { ConnectionError, DeadlockError, DestructiveOpError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, introspectLiveSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
@@ -215,7 +215,7 @@ export class Database extends BaseExecutor {
       catch (err) {
         lastError = err
 
-        if (attempt < this._retryMaxRetries && err instanceof ConnectionError) {
+        if (attempt < this._retryMaxRetries && (err instanceof ConnectionError || err instanceof DeadlockError)) {
           const delay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
 
           await new Promise(resolve => setTimeout(resolve, delay))
@@ -374,6 +374,33 @@ export class Database extends BaseExecutor {
       this._pingErrorHandler?.(err)
 
       return false
+    }
+  }
+
+  /**
+   * Query PostgreSQL for connection pool statistics.
+   * Returns the number of active connections for the current database.
+   *
+   * Note: This queries `pg_stat_activity`, which shows server-side connection state.
+   * Client-side pool metrics depend on the `bun:sql` driver internals.
+   */
+  async poolStats(): Promise<{ active: number, idle: number, total: number, maxConnections: number }> {
+    const rows = await this.query(`
+      SELECT
+        count(*) FILTER (WHERE state = 'active') AS active,
+        count(*) FILTER (WHERE state = 'idle') AS idle,
+        count(*) AS total,
+        (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_connections
+      FROM pg_stat_activity
+      WHERE datname = current_database() AND pid != pg_backend_pid()
+    `, [])
+    const row = rows[0] ?? {}
+
+    return {
+      active: Number(row.active ?? 0),
+      idle: Number(row.idle ?? 0),
+      total: Number(row.total ?? 0),
+      maxConnections: Number(row.max_connections ?? 0),
     }
   }
 

@@ -3,7 +3,7 @@ import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
-import { OrmError, StaleRecordError } from '../errors/index'
+import { NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
@@ -48,6 +48,7 @@ export class Repository<
   TVirtuals extends AnyVirtuals = {},
 > {
   static MAX_INCLUDE_DEPTH = 5
+  private static _streamWarned = false
 
   private _table: AnyTableDef
   private _executor: Executable
@@ -79,7 +80,16 @@ export class Repository<
 
   private async _runAfter(event: HookEvent, rows?: unknown[]): Promise<void> {
     if (hasHooks(this._table, event)) {
-      await runHooksAsync(this._table, event, rows)
+      try {
+        await runHooksAsync(this._table, event, rows)
+      }
+      catch (err) {
+        throw new OrmError(
+          `"${event}" hook on table "${this._table.name}" threw after the mutation was committed. `
+          + `The database change was NOT rolled back. ${err instanceof Error ? err.message : String(err)}`,
+          err,
+        )
+      }
     }
   }
 
@@ -158,6 +168,26 @@ export class Repository<
     const rows = await this.findMany(wrappedCb)
 
     return rows[0] ?? null
+  }
+
+  /**
+   * Like `findOne()`, but throws `NotFoundError` if no row matches.
+   * Useful for distinguishing "not found" from query errors.
+   */
+  async findOneOrThrow(): Promise<InferSelect<TColumns>>
+  async findOneOrThrow<TResult>(
+    cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
+  ): Promise<TResult>
+  async findOneOrThrow(
+    cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
+  ): Promise<any> {
+    const row = await this.findOne(cb as any)
+
+    if (row === null) {
+      throw new NotFoundError(this._table.name)
+    }
+
+    return row
   }
 
   async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>>
@@ -472,14 +502,28 @@ export class Repository<
     return rows as InferSelect<TColumns>[]
   }
 
-  // Streaming via async iterator — JIT mapper applied per chunk, not per row.
-  // WARNING: Uses LIMIT/OFFSET chunking. If rows are inserted or deleted during
-  // iteration, rows may be skipped or duplicated. For correctness on mutable data,
-  // use paginateCursor() or run inside a REPEATABLE READ transaction.
+  /**
+   * Streaming via async iterator — JIT mapper applied per chunk, not per row.
+   *
+   * **WARNING:** Uses LIMIT/OFFSET chunking. If rows are inserted or deleted during
+   * iteration, rows may be skipped or duplicated. For correctness on mutable data,
+   * use `paginateCursor()` or run inside a REPEATABLE READ transaction.
+   *
+   * Pass `{ unsafe: true }` to acknowledge this behavior and suppress the warning.
+   */
   async* stream(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
-    opts: { chunkSize?: number } = {},
+    opts: { chunkSize?: number, unsafe?: boolean } = {},
   ): AsyncGenerator<InferSelect<TColumns>, void, undefined> {
+    if (!opts.unsafe && !Repository._streamWarned) {
+      Repository._streamWarned = true
+      console.warn(
+        '[pg-orm] stream() uses LIMIT/OFFSET chunking — rows may be skipped or duplicated if data changes during iteration. '
+        + 'Use paginateCursor() or a REPEATABLE READ transaction for correctness. '
+        + 'Pass { unsafe: true } to suppress this warning.',
+      )
+    }
+
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
     const finalBuilder = cb ? cb(builder) : builder
     const chunkSize = opts.chunkSize ?? 500
@@ -571,11 +615,23 @@ export class Repository<
     if (entries.length === 0)
       return rows
 
+    const tableName = this._table.name
+
     for (const row of rows) {
       for (const [key, virt] of entries) {
         Object.defineProperty(row, key, {
           get() {
-            const value = virt.compute(row)
+            let value: unknown
+
+            try {
+              value = virt.compute(row)
+            }
+            catch (err) {
+              throw new OrmError(
+                `Virtual field "${key}" on table "${tableName}" threw during computation: ${err instanceof Error ? err.message : String(err)}`,
+                err,
+              )
+            }
 
             // Replace getter with computed value on first access
             Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true })
