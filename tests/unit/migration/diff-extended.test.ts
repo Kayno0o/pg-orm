@@ -389,14 +389,14 @@ describe('diffSchema — extended migration tests', () => {
     }))
     const posts = defineTable('posts', t => ({
       id: t.serial().primaryKey(),
-      authorId: t.integer().notNull().references(() => users.columns.id, { onDelete: 'cascade' }),
+      authorId: t.integer().notNull().references(() => users, 'id', { onDelete: 'cascade' }),
     }))
     const ops = diffSchema(live([]), registry(users, posts))
 
     const createPosts = ops.find(o => o.type === 'create_table' && o.table === 'posts')
 
     expect(createPosts).toBeDefined()
-    expect(createPosts!.sql).toContain('FOREIGN KEY')
+    expect(createPosts!.sql).toContain('FOREIGN KEY ("authorId") REFERENCES "users" ("id")')
     expect(createPosts!.sql).toContain('ON DELETE CASCADE')
   })
 

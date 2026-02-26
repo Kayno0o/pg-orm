@@ -6,6 +6,51 @@ import { clearMapperCache } from '../mapper/index'
 import { diffSchema, introspectLiveSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
 
+// --- Process cleanup for unclosed connections ---
+
+const activeInstances = new Set<WeakRef<{ sql: InstanceType<typeof SQL> }>>()
+let cleanupRegistered = false
+
+function closeInstance(instance: { sql: InstanceType<typeof SQL> }): void {
+  try {
+    const closer = instance.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }
+
+    // Fire-and-forget — process is exiting, we just need to initiate the close
+    void closer.close({ timeout: 1000 })
+  }
+  catch {
+    // best-effort — connection may already be closed
+  }
+}
+
+function cleanup(): void {
+  for (const ref of activeInstances) {
+    const instance = ref.deref()
+
+    if (instance)
+      closeInstance(instance)
+  }
+
+  activeInstances.clear()
+}
+
+function registerCleanupHandlers(): void {
+  if (cleanupRegistered)
+    return
+
+  cleanupRegistered = true
+
+  process.on('SIGINT', () => {
+    cleanup()
+    process.exit(130)
+  })
+  process.on('SIGTERM', () => {
+    cleanup()
+    process.exit(143)
+  })
+  process.on('beforeExit', cleanup)
+}
+
 // --- Transaction isolation validation ---
 
 const VALID_ISOLATION_LEVELS = new Set([
@@ -154,6 +199,7 @@ export class Database extends BaseExecutor {
   private _retryBaseDelay: number
   private _retryMaxDelay: number
   private _maxIncludeDepth: number
+  private _instanceRef: WeakRef<Database>
 
   constructor(config: DbConfig = {}) {
     super()
@@ -207,6 +253,11 @@ export class Database extends BaseExecutor {
         this._tables.set(table.name, table)
       }
     }
+
+    // Track instance for process cleanup
+    this._instanceRef = new WeakRef(this)
+    activeInstances.add(this._instanceRef)
+    registerCleanupHandlers()
   }
 
   override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
@@ -261,16 +312,48 @@ export class Database extends BaseExecutor {
   }
 
   // Auto-migrate: introspect live DB, diff against registered tables, apply DDL.
-  // Uses pg_advisory_lock to prevent concurrent sync() calls from corrupting schema.
+  // Uses pg_advisory_lock inside a transaction to prevent concurrent sync() calls.
+  // Advisory locks acquired inside a transaction are auto-released on COMMIT/ROLLBACK,
+  // guaranteeing same-connection acquire/release (avoids session-scoped lock leaks).
   async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
     // Advisory lock key — consistent hash for "pg-orm-sync"
     const LOCK_KEY = 741953258
 
-    // Acquire advisory lock (blocks until available)
-    await this.query('SELECT pg_advisory_lock($1)', [LOCK_KEY])
+    // Phase 1: Run a preliminary diff on the pool to find enum ADD VALUE ops.
+    // These can't run inside a transaction in PG < 16, so execute them first.
+    // If they succeed but the main transaction fails, the enum values persist
+    // harmlessly (skipped on retry via IF NOT EXISTS).
+    if (!opts?.dryRun) {
+      const preLive = await introspectLiveSchema(this, this._schema)
+      const preOps = diffSchema(preLive, this._tables)
+      const enumAddOps = preOps.filter(o => o.type === 'alter_enum_add')
 
-    try {
-      const live = await introspectLiveSchema(this, this._schema)
+      for (const op of enumAddOps) {
+        await this.query(`${op.sql};`, [])
+      }
+    }
+
+    // Phase 2: Acquire advisory lock + introspect + diff + apply DDL inside a
+    // single transaction. The lock is transaction-scoped and auto-released on commit.
+    return await (this.sql as unknown as {
+      begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
+    }).begin(async (sqlTx) => {
+      const txUnsafe = sqlTx as unknown as UnsafeSql
+
+      // Acquire transaction-scoped advisory lock (auto-released on COMMIT/ROLLBACK).
+      // pg_advisory_xact_lock is transaction-scoped — unlike pg_advisory_lock which
+      // is session-scoped even when called inside a transaction.
+      await txUnsafe.unsafe('SELECT pg_advisory_xact_lock($1)', [LOCK_KEY])
+
+      // Create a lightweight executor adapter for introspection queries
+      const txExecutor: Executable = {
+        query: async (sqlStr: string, params: unknown[]) => {
+          return await txUnsafe.unsafe(sqlStr, params) as Record<string, unknown>[]
+        },
+        sql: sqlTx as InstanceType<typeof SQL>,
+      }
+
+      const live = await introspectLiveSchema(txExecutor, this._schema)
       const ops = diffSchema(live, this._tables)
 
       if (ops.length === 0)
@@ -289,37 +372,17 @@ export class Database extends BaseExecutor {
       const sqlStr = ops.map(o => `${o.sql};`).join('\n')
 
       if (!opts?.dryRun) {
-        // Separate enum ADD VALUE ops (can't run inside a transaction in PG < 16)
-        const enumAddOps = ops.filter(o => o.type === 'alter_enum_add')
+        // Filter out enum ADD VALUE ops (already applied in Phase 1)
         const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
 
-        // Run enum ADD VALUE ops outside transaction
-        for (const op of enumAddOps) {
-          await this.query(`${op.sql};`, [])
-        }
-
-        // Run remaining DDL in a transaction via bun:sql's native begin()
-        if (otherOps.length > 0) {
-          await (this.sql as unknown as {
-            begin: (fn: (tx: unknown) => Promise<void>) => Promise<void>
-          }).begin(async (sqlTx) => {
-            for (const op of otherOps) {
-              await (sqlTx as unknown as UnsafeSql).unsafe(`${op.sql};`, [])
-            }
-          })
+        for (const op of otherOps) {
+          await txUnsafe.unsafe(`${op.sql};`, [])
         }
       }
 
       return { sql: sqlStr, ops }
-    }
-    finally {
-      try {
-        await this.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY])
-      }
-      catch {
-        // unlock best-effort — connection may already be closed
-      }
-    }
+    })
+    // Advisory lock auto-released on transaction commit/rollback
   }
 
   // Get the internal tables registry
@@ -444,6 +507,7 @@ export class Database extends BaseExecutor {
       this._draining = true
     }
 
+    activeInstances.delete(this._instanceRef)
     await (this.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }).close({ timeout: opts?.timeout })
   }
 

@@ -691,6 +691,32 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
   return result
 }
 
+function indexChanged(liveIdx: LiveIndex, tableName: string, idx: IndexDef): boolean {
+  const desiredMethod = idx.method ?? 'btree'
+
+  if (liveIdx.method !== desiredMethod)
+    return true
+
+  const desiredCols = idx.columns
+  const liveCols = liveIdx.columns
+
+  if (desiredCols.length !== liveCols.length || desiredCols.some((c, i) => c !== liveCols[i]))
+    return true
+
+  if ((idx.unique ?? false) !== liveIdx.isUnique)
+    return true
+
+  // Compare WHERE clause — extract from live definition if present
+  const whereIdx = liveIdx.definition.search(/\bWHERE\b/i)
+  const liveWhere = whereIdx >= 0 ? liveIdx.definition.slice(whereIdx + 6).trim() : undefined
+  const desiredWhere = idx.where?.trim()
+
+  if ((desiredWhere ?? '') !== (liveWhere ?? ''))
+    return true
+
+  return false
+}
+
 function diffIndexes(
   ops: MigrationOp[],
   desired: ReadonlyMap<string, AnyTableDef>,
@@ -701,7 +727,25 @@ function diffIndexes(
 
   for (const [name, { tableName, idx }] of desiredIndexes) {
     if (liveIndexMap.has(name)) {
-      // Index exists — for now, don't diff changes (would need DROP + CREATE)
+      const liveIdx = liveIndexMap.get(name)!
+
+      if (indexChanged(liveIdx, tableName, idx)) {
+        ops.push({
+          type: 'drop_index',
+          table: tableName,
+          sql: `DROP INDEX "${name}"`,
+          destructive: true,
+          description: `Drop index "${name}" from "${tableName}" (changed)`,
+        })
+        ops.push({
+          type: 'create_index',
+          table: tableName,
+          sql: buildCreateIndexSql(tableName, idx),
+          destructive: false,
+          description: `Recreate index "${name}" on "${tableName}" (${idx.columns.join(', ')})`,
+        })
+      }
+
       liveIndexMap.delete(name)
 
       continue

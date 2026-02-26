@@ -1,5 +1,5 @@
 import type {
-  AnyColumnDef,
+  AnyTableDef,
   ColumnConstraint,
   ColumnDef,
   ForeignKeyRef,
@@ -73,13 +73,13 @@ export class ColumnBuilder<
   }
 
   references(
-    target: () => AnyColumnDef,
+    target: () => AnyTableDef,
+    column: string,
     opts?: { onDelete?: ForeignKeyRef['onDelete'], onUpdate?: ForeignKeyRef['onUpdate'] },
   ): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
-    // We store the reference info — resolved lazily during migration
     this._references = {
-      table: target as unknown as ForeignKeyRef['table'],
-      column: '', // resolved from the target column
+      table: target,
+      column,
       onDelete: opts?.onDelete,
       onUpdate: opts?.onUpdate,
     }

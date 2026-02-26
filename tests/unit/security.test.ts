@@ -1,3 +1,4 @@
+import type { QueryError } from '../../src/errors/index'
 /**
  * Security tests — SQL injection, identifier escaping, input validation,
  * error message leakage, and common OWASP-style attack vectors.
@@ -5,10 +6,10 @@
 import { describe, expect, it } from 'bun:test'
 import { assembleExpr, createExprBuilder } from '../../src/builder/expr'
 import { assembleQuery, DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder } from '../../src/builder/query'
-import { QueryError, wrapPgError } from '../../src/errors/index'
+import { wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
-import { sanitizeMigrationName, validateIdentifier, validateTsLanguage } from '../../src/schema/validate'
+import { sanitizeMigrationName, validateIdentifier } from '../../src/schema/validate'
 import { quote, quotePath } from '../../src/sql/utils'
 
 const e = createExprBuilder<any>()
@@ -99,6 +100,7 @@ describe('Security: quote() escaping', () => {
 
   it('handles null bytes in strings', () => {
     const result = quote('col\0name')
+
     expect(result).toContain('"')
     // Should be wrapped in quotes regardless
     expect(result.startsWith('"')).toBe(true)
@@ -289,14 +291,14 @@ describe('Security: LIKE pattern auto-escaping', () => {
 
 describe('Security: stringAgg delimiter injection', () => {
   const maliciousDelimiters = [
-    "'); DROP TABLE users; --",
-    "' || chr(0) || '",
-    "' UNION SELECT password FROM users --",
+    '\'); DROP TABLE users; --',
+    '\' || chr(0) || \'',
+    '\' UNION SELECT password FROM users --',
     '\'); COPY pg_shadow TO \'/tmp/shadow',
-    "' || pg_read_file('/etc/passwd') || '",
-    "$(whoami)",
-    "`id`",
-    "' OR '1'='1",
+    '\' || pg_read_file(\'/etc/passwd\') || \'',
+    '$(whoami)',
+    '`id`',
+    '\' OR \'1\'=\'1',
   ]
 
   for (const delimiter of maliciousDelimiters) {
@@ -323,7 +325,7 @@ describe('Security: tsQuery language whitelist', () => {
     'english; SELECT pg_sleep(10)',
     '../../../etc/passwd',
     '',
-    'ENGLISH',  // case-sensitive validation
+    'ENGLISH', // case-sensitive validation
     'EnGlIsH',
   ]
 
@@ -343,7 +345,8 @@ describe('Security: INSERT/UPDATE value validation', () => {
       name: t.text().notNull(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     expect(() => builder.values({
       name: { __raw: 'DROP TABLE users' } as any,
     })).toThrow(/__raw/)
@@ -356,6 +359,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     }))
 
     const builder = new UpdateBuilder<any, any>(table.name)
+
     expect(() => builder.set({
       name: { __raw: 'DROP TABLE users' } as any,
     })).toThrow(/__raw/)
@@ -367,7 +371,8 @@ describe('Security: INSERT/UPDATE value validation', () => {
       name: t.text().notNull(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     expect(() => builder.values({
       name: undefined as any,
     })).toThrow(/undefined/)
@@ -379,9 +384,10 @@ describe('Security: INSERT/UPDATE value validation', () => {
       age: t.int4(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     expect(() => builder.values({
-      age: NaN as any,
+      age: Number.NaN as any,
     })).toThrow(/non-finite/)
   })
 
@@ -391,7 +397,8 @@ describe('Security: INSERT/UPDATE value validation', () => {
       score: t.real(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     expect(() => builder.values({
       score: Infinity as any,
     })).toThrow(/non-finite/)
@@ -411,6 +418,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
 
     // The mapper should work normally
     const result = mapper({ safe_col: 'hello' })
+
     expect(result).toEqual({ safe_col: 'hello' })
   })
 
@@ -420,6 +428,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
     }
     const mapper = compileMapper(columns as any, ['name'])
     const result = mapper({})
+
     expect(result).toEqual({ name: undefined })
   })
 })
@@ -548,7 +557,7 @@ describe('Security: Prototype pollution protection', () => {
   it('defineTable does not process __proto__ as column name', () => {
     // __proto__ contains underscore which passes the regex,
     // but it should not allow prototype pollution
-    const table = defineTable('test_table', t => ({
+    defineTable('test_table', t => ({
       __proto__: t.text(),
     } as any))
 
@@ -576,7 +585,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   }))
 
   it('SELECT with injection in WHERE value', () => {
-    const builder = new SelectBuilder<any, any, any>(table.name, table.columns)
+    const builder = new SelectBuilder<any, any, any>(table.name)
     const state = builder.where(e => e.eq('name', '\'; DROP TABLE users; --'))
     const result = assembleQuery((state as any)._state)
 
@@ -586,7 +595,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   })
 
   it('INSERT parameterizes all values', () => {
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
     const state = builder.values({
       name: '\'; DROP TABLE users; --',
       email: '1 OR 1=1',
@@ -632,7 +641,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   })
 
   it('LIMIT and OFFSET are parameterized', () => {
-    const builder = new SelectBuilder<any, any, any>(table.name, table.columns)
+    const builder = new SelectBuilder<any, any, any>(table.name)
     const state = builder.limit(10).offset(20)
     const result = assembleQuery((state as any)._state)
 
@@ -663,7 +672,8 @@ describe('Security: Value validation prevents dangerous types', () => {
       data: t.jsonb(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     // Only top-level __raw is checked, nested JSON is passed as a parameter
     // and doesn't affect SQL generation
     expect(() => builder.values({
@@ -679,7 +689,8 @@ describe('Security: Value validation prevents dangerous types', () => {
       name: t.text(),
     }))
 
-    const builder = new InsertBuilder<any, any, any>(table.name, table.columns)
+    const builder = new InsertBuilder<any, any>(table.name)
+
     expect(() => builder.values({
       name: { __raw: '(SELECT password FROM admin LIMIT 1)' } as any,
     })).toThrow(/__raw/)
@@ -738,7 +749,7 @@ describe('Security: Compound attack vectors', () => {
   })
 
   it('handles very long injection payloads', () => {
-    const longPayload = '\'; ' + 'DROP TABLE t;'.repeat(1000) + ' --'
+    const longPayload = `'; ${'DROP TABLE t;'.repeat(1000)} --`
     const result = sql(e.eq('name', longPayload))
 
     expect(result.sql).toBe('"name" = $1')

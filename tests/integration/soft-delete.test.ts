@@ -8,6 +8,7 @@ let db: Database
 beforeAll(async () => {
   db = createTestDb()
   await db.sync({ allowDestructive: true })
+  await truncateAll(db)
 })
 
 afterEach(async () => {
