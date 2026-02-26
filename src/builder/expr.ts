@@ -229,7 +229,12 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   jsonAgg: col => `json_agg(${quote(col as string)})`,
   jsonbAgg: col => `jsonb_agg(${quote(col as string)})`,
   arrayAgg: col => `array_agg(${quote(col as string)})`,
-  stringAgg: (col, delimiter) => `string_agg(${quote(col as string)}, '${delimiter.replace(/'/g, '\'\'')}')`,
+  stringAgg: (col, delimiter) => {
+    if (!(/^[\w\s.,;:|\-/]+$/).test(delimiter))
+      throw new Error(`stringAgg: unsafe delimiter characters: "${delimiter}"`)
+
+    return `string_agg(${quote(col as string)}, '${delimiter.replace(/'/g, '\'\'')}')`
+  },
 }
 
 // Escape LIKE/ILIKE special characters in user input
@@ -419,11 +424,16 @@ class ExprAssembler {
       case OP_JSONB_PATH:
         return { sql: `jsonb_path_exists(${this.walkCol(op.col)}, ${this.nextParam(op.path)})`, next: pos + 1 }
       case OP_JSONB_SUBSCRIPT: {
-        const path = op.path.map(p => `[${typeof p === 'number' ? p : `'${p.replace(/'/g, '\'\'')}'`}]`).join('')
+        let colSql = this.walkCol(op.col)
 
-        return { sql: `${this.walkCol(op.col)}${path}`, next: pos + 1 }
+        for (const segment of op.path) {
+          colSql = `(${colSql} -> ${this.nextParam(segment)})`
+        }
+
+        return { sql: colSql, next: pos + 1 }
       }
       case OP_TS_MATCH: {
+        validateTsLanguage(op.query.language)
         const p = this.nextParam(op.query.query)
 
         return { sql: `${this.walkCol(op.col)} @@ plainto_tsquery('${op.query.language}', ${p})`, next: pos + 1 }

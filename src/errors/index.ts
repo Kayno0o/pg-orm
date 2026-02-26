@@ -164,7 +164,13 @@ export class StaleRecordError extends OrmError {
 }
 
 function shouldRedact(): boolean {
-  return process.env.REDACT_QUERY_LOGS === '1'
+  if (process.env.REDACT_QUERY_LOGS === '0')
+    return false
+
+  if (process.env.REDACT_QUERY_LOGS === '1')
+    return true
+
+  return isProduction()
 }
 
 function isProduction(): boolean {

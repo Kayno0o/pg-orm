@@ -77,15 +77,17 @@ describe('SelectBuilder', () => {
   })
 
   it('limit accepts 0', () => {
-    const { sql } = select().limit(0).toSQL()
+    const { sql, params } = select().limit(0).toSQL()
 
-    expect(sql).toContain('LIMIT 0')
+    expect(sql).toContain('LIMIT $')
+    expect(params).toContain(0)
   })
 
   it('limit accepts valid integer', () => {
-    const { sql } = select().limit(10).toSQL()
+    const { sql, params } = select().limit(10).toSQL()
 
-    expect(sql).toContain('LIMIT 10')
+    expect(sql).toContain('LIMIT $')
+    expect(params).toContain(10)
   })
 
   it('offset validates non-negative integer', () => {
@@ -94,9 +96,10 @@ describe('SelectBuilder', () => {
   })
 
   it('offset accepts 0', () => {
-    const { sql } = select().offset(0).toSQL()
+    const { sql, params } = select().offset(0).toSQL()
 
-    expect(sql).toContain('OFFSET 0')
+    expect(sql).toContain('OFFSET $')
+    expect(params).toContain(0)
   })
 
   it('distinct adds DISTINCT', () => {
@@ -296,10 +299,12 @@ describe('SetOperationBuilder', () => {
   it('limit/offset work on set operations', () => {
     const q1 = select()
     const q2 = select()
-    const { sql } = SetOperationBuilder.union(q1, q2).limit(10).offset(5).toSQL()
+    const { sql, params } = SetOperationBuilder.union(q1, q2).limit(10).offset(5).toSQL()
 
-    expect(sql).toContain('LIMIT 10')
-    expect(sql).toContain('OFFSET 5')
+    expect(sql).toContain('LIMIT $')
+    expect(sql).toContain('OFFSET $')
+    expect(params).toContain(10)
+    expect(params).toContain(5)
   })
 
   it('limit validates on set operations', () => {

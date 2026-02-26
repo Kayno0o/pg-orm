@@ -342,10 +342,10 @@ class QueryAssembler {
       this.parts.push(`ORDER BY ${formatOrderBy(this.state.orderBy)}`)
 
     if (this.state.limit != null)
-      this.parts.push(`LIMIT ${this.state.limit}`)
+      this.parts.push(`LIMIT ${this.pushParam(this.state.limit)}`)
 
     if (this.state.offset != null)
-      this.parts.push(`OFFSET ${this.state.offset}`)
+      this.parts.push(`OFFSET ${this.pushParam(this.state.offset)}`)
 
     if (this.state.lockMode) {
       this.parts.push(`FOR ${this.state.lockMode.toUpperCase().replaceAll('_', ' ')}`)
@@ -1220,11 +1220,15 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     if (this._orderBy.length)
       parts.push(`ORDER BY ${formatOrderBy(this._orderBy)}`)
 
-    if (this._limit != null)
-      parts.push(`LIMIT ${this._limit}`)
+    if (this._limit != null) {
+      allParams.push(this._limit)
+      parts.push(`LIMIT $${allParams.length}`)
+    }
 
-    if (this._offset != null)
-      parts.push(`OFFSET ${this._offset}`)
+    if (this._offset != null) {
+      allParams.push(this._offset)
+      parts.push(`OFFSET $${allParams.length}`)
+    }
 
     return { sql: parts.join(' '), params: allParams }
   }

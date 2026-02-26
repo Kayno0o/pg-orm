@@ -54,18 +54,20 @@ describe('SetOperationBuilder', () => {
   })
 
   it('limit on set operation', () => {
-    const { sql } = SetOperationBuilder.union(select(), select())
+    const { sql, params } = SetOperationBuilder.union(select(), select())
       .limit(5)
       .toSQL()
 
-    expect(sql).toContain('LIMIT 5')
+    expect(sql).toContain('LIMIT $')
+    expect(params).toContain(5)
   })
 
   it('offset on set operation', () => {
-    const { sql } = SetOperationBuilder.union(select(), select())
+    const { sql, params } = SetOperationBuilder.union(select(), select())
       .offset(10)
       .toSQL()
 
-    expect(sql).toContain('OFFSET 10')
+    expect(sql).toContain('OFFSET $')
+    expect(params).toContain(10)
   })
 })

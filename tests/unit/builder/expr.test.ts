@@ -224,10 +224,18 @@ describe('ExprBuilder - JSONB', () => {
     expect(result.params).toEqual(['$.name'])
   })
 
-  it('jsonbSubscript generates subscript path', () => {
+  it('jsonbSubscript generates parameterized -> path', () => {
     const result = sql(e.jsonbSubscript('data', 'a', 0, 'b'))
 
-    expect(result.sql).toBe(`"data"['a'][0]['b']`)
+    expect(result.sql).toBe('((("data" -> $1) -> $2) -> $3)')
+    expect(result.params).toEqual(['a', 0, 'b'])
+  })
+
+  it('jsonbSubscript parameterizes injection payloads', () => {
+    const result = sql(e.jsonbSubscript('data', '\'; DROP TABLE users; --'))
+
+    expect(result.sql).toBe('("data" -> $1)')
+    expect(result.params).toEqual(['\'; DROP TABLE users; --'])
   })
 })
 
@@ -332,6 +340,18 @@ describe('ExprBuilder - Aggregates', () => {
 
   it('stringAgg generates string_agg()', () => {
     expect(e.stringAgg('name', ', ')).toBe('string_agg("name", \', \')')
+  })
+
+  it('stringAgg allows common delimiters', () => {
+    expect(() => e.stringAgg('name', ', ')).not.toThrow()
+    expect(() => e.stringAgg('name', ' | ')).not.toThrow()
+    expect(() => e.stringAgg('name', '; ')).not.toThrow()
+    expect(() => e.stringAgg('name', '-')).not.toThrow()
+  })
+
+  it('stringAgg rejects injection payloads', () => {
+    expect(() => e.stringAgg('name', '\'); DROP TABLE users; --')).toThrow('unsafe delimiter')
+    expect(() => e.stringAgg('name', '\' || chr(0) || \'')).toThrow('unsafe delimiter')
   })
 })
 

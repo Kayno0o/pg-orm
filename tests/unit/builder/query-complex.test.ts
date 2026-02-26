@@ -282,20 +282,23 @@ describe('Complex query builder', () => {
       expect(params).toEqual(['$.active'])
     })
 
-    it('generates JSONB subscript', () => {
-      const { sql } = select()
+    it('generates JSONB subscript with parameterized -> operator', () => {
+      const { sql, params } = select()
         .where(e => e.eq(e.jsonbSubscript('metadata', 'address', 'city'), 'Paris'))
         .toSQL()
 
-      expect(sql).toContain('"metadata"[\'address\'][\'city\']')
+      expect(sql).toContain('(("metadata" -> $1) -> $2)')
+      expect(params).toContain('address')
+      expect(params).toContain('city')
     })
 
     it('generates JSONB subscript with numeric index', () => {
-      const { sql } = select()
+      const { sql, params } = select()
         .where(e => e.eq(e.jsonbSubscript('tags', 0), 'important'))
         .toSQL()
 
-      expect(sql).toContain('"tags"[0]')
+      expect(sql).toContain('("tags" -> $1)')
+      expect(params).toContain(0)
     })
   })
 

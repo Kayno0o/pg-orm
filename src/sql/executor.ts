@@ -67,6 +67,8 @@ export interface DbConfig {
   tables?: AnyTableDef[]
   /** Schema name for introspection queries (default: 'public') */
   schema?: string
+  /** Maximum depth for nested `.include()` relation loading (default: 5) */
+  maxIncludeDepth?: number
   /** Statement timeout in milliseconds — applied to each connection */
   statementTimeout?: number
   /** Query logging callback — called after every query */
@@ -151,10 +153,11 @@ export class Database extends BaseExecutor {
   private _retryMaxRetries: number
   private _retryBaseDelay: number
   private _retryMaxDelay: number
+  private _maxIncludeDepth: number
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, maxIncludeDepth, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
@@ -164,11 +167,16 @@ export class Database extends BaseExecutor {
       this._slowQueryThreshold = slowQueryThreshold
 
     this._schema = schema ?? 'public'
+
+    if (statementTimeout !== undefined && (!Number.isFinite(statementTimeout) || statementTimeout < 0))
+      throw new TypeError('statementTimeout must be a non-negative finite number')
+
     this._statementTimeout = statementTimeout
     this._pingErrorHandler = onPingError
     this._retryMaxRetries = retry?.maxRetries ?? 0
     this._retryBaseDelay = retry?.baseDelayMs ?? 100
     this._retryMaxDelay = retry?.maxDelayMs ?? 5000
+    this._maxIncludeDepth = maxIncludeDepth ?? 5
 
     for (const [key, val] of Object.entries(connOpts)) {
       if (val !== undefined)
@@ -249,7 +257,7 @@ export class Database extends BaseExecutor {
   >(
     table: TableDef<TName, TColumns, TRelations, TVirtuals>,
   ): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables)
+    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth)
   }
 
   // Auto-migrate: introspect live DB, diff against registered tables, apply DDL.
@@ -373,7 +381,7 @@ export class Database extends BaseExecutor {
       // Apply statement timeout if configured
       if (this._statementTimeout) {
         await (sqlTx as unknown as UnsafeSql).unsafe(
-          `SET statement_timeout = ${this._statementTimeout}`,
+          `SET statement_timeout = ${Math.floor(this._statementTimeout)}`,
           [],
         )
       }

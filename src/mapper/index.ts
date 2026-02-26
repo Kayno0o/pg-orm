@@ -1,7 +1,16 @@
 import type { AnyColumns } from '../types/index'
 
-// JIT row mapper: pre-compile row-to-object mappers via new Function() at startup.
-// Each schema gets exactly one compiled mapper function. No per-row overhead.
+/**
+ * JIT row mapper: pre-compile row-to-object mappers via `new Function()` at startup.
+ * Each schema gets exactly one compiled mapper function. No per-row overhead.
+ *
+ * **Security model:** Column names are validated at `defineTable()` time against
+ * `/^[a-zA-Z_][a-zA-Z0-9_]*$/` — only safe identifiers pass. They are additionally
+ * escaped via `JSON.stringify()` when embedded into the Function source. User input
+ * (query params, row values) never enters the Function source — only schema-defined
+ * column names do. The compiled function only reads properties from the row object;
+ * it does not execute arbitrary code.
+ */
 
 export type RowMapper<T> = (row: Record<string, unknown>) => T
 

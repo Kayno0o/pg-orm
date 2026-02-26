@@ -53,19 +53,22 @@ export class Repository<
   private _table: AnyTableDef
   private _executor: Executable
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
+  private _maxIncludeDepth: number
 
   constructor(
     table: AnyTableDef,
     executor: Executable,
     tableRegistry?: ReadonlyMap<string, AnyTableDef>,
+    maxIncludeDepth?: number,
   ) {
     this._table = table
     this._executor = executor
     this._tableRegistry = tableRegistry
+    this._maxIncludeDepth = maxIncludeDepth ?? Repository.MAX_INCLUDE_DEPTH
   }
 
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry)
+    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth)
   }
 
   // --- Hook helpers ---
@@ -896,9 +899,9 @@ export class Repository<
     includes: IncludeEntry[],
     depth = 0,
   ): Promise<any[]> {
-    if (depth > Repository.MAX_INCLUDE_DEPTH) {
+    if (depth > this._maxIncludeDepth) {
       throw new OrmError(
-        `Maximum include depth of ${Repository.MAX_INCLUDE_DEPTH} exceeded. Check for circular includes or increase Repository.MAX_INCLUDE_DEPTH.`,
+        `Maximum include depth of ${this._maxIncludeDepth} exceeded. Check for circular includes or increase maxIncludeDepth.`,
       )
     }
 
@@ -975,7 +978,7 @@ export class Repository<
 
             if (childRows.length > 0) {
               // Create a temporary repo for the target table to resolve nested includes
-              const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry)
+              const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
 
               await childRepo._loadIncludes(childRows, nestedIncludes, depth + 1)
             }
