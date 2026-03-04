@@ -49,11 +49,14 @@ export { type RowMapper } from './mapper/index'
 export {
   applyMigration,
   diffSchema,
+  ensureMigrationTable,
   generateMigration,
+  getMigrationHistory,
   getMigrationStatus,
   introspectLiveSchema,
   type MigrationFile,
   type MigrationOp,
+  recordMigration,
 } from './migration/index'
 
 // Repository

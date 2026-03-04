@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 // Quickstart — runnable with: bun run examples/quickstart.ts
 // Requires: docker compose up -d (PG18 on localhost:8532)
 

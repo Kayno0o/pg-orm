@@ -267,9 +267,29 @@ class QueryAssembler {
       this.parts.push(`ON CONFLICT (${target}) DO NOTHING`)
     }
     else if (this.state.conflictAction === 'update' && this.state.conflictUpdateCols) {
-      const setClauses = this.state.conflictUpdateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
+      let updateCols = this.state.conflictUpdateCols
 
-      this.parts.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
+      // If no specific columns given, update all non-conflict columns from inserted values
+      if (updateCols.length === 0) {
+        const conflictSet = new Set(this.state.conflictTarget)
+        const valueKeys = this.state.insertValues
+          ? Object.keys(this.state.insertValues)
+          : this.state.insertManyValues?.[0]
+            ? Object.keys(this.state.insertManyValues[0])
+            : []
+
+        updateCols = valueKeys.filter(k => !conflictSet.has(k))
+      }
+
+      if (updateCols.length > 0) {
+        const setClauses = updateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
+
+        this.parts.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
+      }
+      else {
+        // No columns to update — fall back to DO NOTHING
+        this.parts.push(`ON CONFLICT (${target}) DO NOTHING`)
+      }
     }
   }
 

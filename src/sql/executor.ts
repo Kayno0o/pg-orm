@@ -1,9 +1,9 @@
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { SQL } from 'bun'
-import { ConnectionError, DeadlockError, DestructiveOpError, wrapPgError } from '../errors/index'
+import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
-import { diffSchema, introspectLiveSchema } from '../migration/index'
+import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
 
 // --- Process cleanup for unclosed connections ---
@@ -84,6 +84,8 @@ export interface QueryEvent {
   sql: string
   params: unknown[]
   durationMs: number
+  /** Optional request context for correlation (e.g., requestId, traceId). */
+  context?: Record<string, unknown>
 }
 
 // --- Connection & Pool Configuration ---
@@ -125,6 +127,11 @@ export interface DbConfig {
   /** Called when ping() fails — useful for logging connection issues */
   onPingError?: (error: unknown) => void
   /**
+   * Default LIMIT applied to findMany() when no explicit .limit() is set.
+   * Disabled by default (no limit). Set to a positive number to enable.
+   */
+  defaultLimit?: number
+  /**
    * Retry transient connection errors (PG codes 08xxx, 57P01) with exponential backoff.
    *  Disabled by default. Set `maxRetries` to enable.
    */
@@ -153,18 +160,23 @@ abstract class BaseExecutor implements Executable {
   protected _onQuery?: (event: QueryEvent) => void
   protected _onSlowQuery?: (event: SlowQueryEvent) => void
   protected _slowQueryThreshold = 1000
+  protected _context?: Record<string, unknown>
 
   async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     if (this._onQuery || this._onSlowQuery) {
       const start = performance.now()
       const result = await unsafeQuery(this.sql, sqlStr, params)
       const durationMs = performance.now() - start
+      const event: QueryEvent = { sql: sqlStr, params, durationMs }
+
+      if (this._context)
+        event.context = this._context
 
       if (this._onQuery)
-        this._onQuery({ sql: sqlStr, params, durationMs })
+        this._onQuery(event)
 
       if (this._onSlowQuery && durationMs >= this._slowQueryThreshold)
-        this._onSlowQuery({ sql: sqlStr, params, durationMs, threshold: this._slowQueryThreshold })
+        this._onSlowQuery({ ...event, threshold: this._slowQueryThreshold })
 
       return result
     }
@@ -199,11 +211,12 @@ export class Database extends BaseExecutor {
   private _retryBaseDelay: number
   private _retryMaxDelay: number
   private _maxIncludeDepth: number
+  private _defaultLimit?: number
   private _instanceRef: WeakRef<Database>
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, maxIncludeDepth, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
@@ -223,6 +236,7 @@ export class Database extends BaseExecutor {
     this._retryBaseDelay = retry?.baseDelayMs ?? 100
     this._retryMaxDelay = retry?.maxDelayMs ?? 5000
     this._maxIncludeDepth = maxIncludeDepth ?? 5
+    this._defaultLimit = defaultLimit
 
     for (const [key, val] of Object.entries(connOpts)) {
       if (val !== undefined)
@@ -308,7 +322,7 @@ export class Database extends BaseExecutor {
   >(
     table: TableDef<TName, TColumns, TRelations, TVirtuals>,
   ): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth)
+    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth, this._defaultLimit)
   }
 
   // Auto-migrate: introspect live DB, diff against registered tables, apply DDL.
@@ -378,11 +392,118 @@ export class Database extends BaseExecutor {
         for (const op of otherOps) {
           await txUnsafe.unsafe(`${op.sql};`, [])
         }
+
+        // Record migration in history table
+        await ensureMigrationTable(txExecutor)
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        const downSql = ops.slice().reverse().map((o) => {
+          // Inline reverse op generation for sync history
+          switch (o.type) {
+            case 'create_table': return `DROP TABLE IF EXISTS "${o.table}";`
+            case 'add_column': return `ALTER TABLE "${o.table}" DROP COLUMN IF EXISTS "${o.column}";`
+            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
+            case 'rename_column': {
+              const match = o.sql.match(/RENAME COLUMN "(\w+)" TO "(\w+)"/)
+
+              return match ? `ALTER TABLE "${o.table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";` : ''
+            }
+            default: return `-- Cannot reverse: ${o.description}`
+          }
+        }).filter(Boolean).join('\n')
+        // Simple djb2 hash
+        let hash = 5381
+
+        for (let i = 0; i < sqlStr.length; i++) {
+          hash = ((hash << 5) + hash + sqlStr.charCodeAt(i)) | 0
+        }
+
+        await recordMigration(txExecutor, {
+          name: `${timestamp}_sync`,
+          sqlHash: (hash >>> 0).toString(36),
+          upSql: sqlStr,
+          downSql,
+        })
       }
 
       return { sql: sqlStr, ops }
     })
     // Advisory lock auto-released on transaction commit/rollback
+  }
+
+  /**
+   * Rollback the last N migrations by executing their down SQL.
+   * Reads from the `_pgorm_migrations` history table.
+   */
+  async rollback(count = 1): Promise<{ rolledBack: string[], sql: string }> {
+    const history = await getMigrationHistory(this)
+
+    // Get the last N 'up' migrations that haven't been rolled back
+    const upMigrations = history.filter(m => m.direction === 'up')
+    const downIds = new Set(
+      history.filter(m => m.direction === 'down').map(m => m.name),
+    )
+    const pendingRollbacks = upMigrations
+      .filter(m => !downIds.has(m.name))
+      .slice(-count)
+      .reverse()
+
+    if (pendingRollbacks.length === 0) {
+      return { rolledBack: [], sql: '' }
+    }
+
+    const rolledBack: string[] = []
+    const sqlParts: string[] = []
+
+    return await (this.sql as unknown as {
+      begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
+    }).begin(async (sqlTx) => {
+      const txUnsafe = sqlTx as unknown as UnsafeSql
+      const txExecutor: Executable = {
+        query: async (sqlStr: string, params: unknown[]) => {
+          return await txUnsafe.unsafe(sqlStr, params) as Record<string, unknown>[]
+        },
+        sql: sqlTx as InstanceType<typeof SQL>,
+      }
+
+      for (const migration of pendingRollbacks) {
+        if (!migration.downSql || migration.downSql.trim() === '') {
+          throw new MigrationError(
+            `Cannot rollback migration "${migration.name}": no down SQL recorded`,
+            'apply',
+            migration.name,
+          )
+        }
+
+        // Execute each statement in the down SQL
+        const statements = migration.downSql.split(';').map(s => s.trim()).filter(s => s && !s.startsWith('--'))
+
+        for (const stmt of statements) {
+          await txUnsafe.unsafe(`${stmt};`, [])
+        }
+
+        // Record the rollback
+        // Simple djb2 hash
+        let hash = 5381
+        const downSql = migration.downSql
+
+        for (let i = 0; i < downSql.length; i++) {
+          hash = ((hash << 5) + hash + downSql.charCodeAt(i)) | 0
+        }
+
+        await recordMigration(txExecutor, {
+          name: migration.name,
+          sqlHash: (hash >>> 0).toString(36),
+          upSql: migration.upSql,
+          downSql: migration.downSql,
+          direction: 'down',
+        })
+
+        rolledBack.push(migration.name)
+        sqlParts.push(migration.downSql)
+      }
+
+      return { rolledBack, sql: sqlParts.join('\n\n') }
+    })
   }
 
   // Get the internal tables registry
@@ -425,34 +546,68 @@ export class Database extends BaseExecutor {
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
 
     // Use bun:sql's native transaction support
-    return await (this.sql as unknown as {
-      begin: (fn: (tx: unknown) => Promise<T>) => Promise<T>
-    }).begin(async (sqlTx) => {
-      if (opts?.isolation) {
-        if (!VALID_ISOLATION_LEVELS.has(opts.isolation))
-          throw new Error(`Invalid isolation level: "${opts.isolation}"`)
+    let txRef: TransactionClient | undefined
 
-        if (opts.accessMode && !VALID_ACCESS_MODES.has(opts.accessMode))
-          throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+    try {
+      const result = await (this.sql as unknown as {
+        begin: (fn: (tx: unknown) => Promise<T>) => Promise<T>
+      }).begin(async (sqlTx) => {
+        if (opts?.isolation) {
+          if (!VALID_ISOLATION_LEVELS.has(opts.isolation))
+            throw new Error(`Invalid isolation level: "${opts.isolation}"`)
 
-        await (sqlTx as unknown as UnsafeSql).unsafe(
-          `SET TRANSACTION ISOLATION LEVEL ${opts.isolation.toUpperCase()}${opts.accessMode ? ` ${opts.accessMode.toUpperCase().replace('_', ' ')}` : ''}`,
-          [],
-        )
+          if (opts.accessMode && !VALID_ACCESS_MODES.has(opts.accessMode))
+            throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+
+          await (sqlTx as unknown as UnsafeSql).unsafe(
+            `SET TRANSACTION ISOLATION LEVEL ${opts.isolation.toUpperCase()}${opts.accessMode ? ` ${opts.accessMode.toUpperCase().replace('_', ' ')}` : ''}`,
+            [],
+          )
+        }
+
+        // Apply statement timeout if configured
+        if (this._statementTimeout) {
+          await (sqlTx as unknown as UnsafeSql).unsafe(
+            `SET statement_timeout = ${Math.floor(this._statementTimeout)}`,
+            [],
+          )
+        }
+
+        const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
+
+        if (opts?.context)
+          tx._context = opts.context
+
+        txRef = tx
+
+        return await fn(tx)
+      })
+
+      // Transaction committed — fire onCommit callbacks
+      if (txRef) {
+        for (const cb of txRef._onCommitCallbacks) {
+          try {
+            await cb()
+          }
+          catch { /* best-effort — commit already happened */ }
+        }
       }
 
-      // Apply statement timeout if configured
-      if (this._statementTimeout) {
-        await (sqlTx as unknown as UnsafeSql).unsafe(
-          `SET statement_timeout = ${Math.floor(this._statementTimeout)}`,
-          [],
-        )
+      return result
+    }
+    catch (err) {
+      // Transaction rolled back — fire onRollback callbacks
+      if (txRef) {
+        for (const cb of txRef._onRollbackCallbacks) {
+          try {
+            await cb(err)
+          }
+          catch { /* best-effort */ }
+        }
       }
 
-      const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
-
-      return await fn(tx)
-    })
+      throw err
+    }
   }
 
   // Health check — returns true if the database is reachable
@@ -525,12 +680,17 @@ export class Database extends BaseExecutor {
 export interface TransactionOptions {
   isolation?: 'read uncommitted' | 'read committed' | 'repeatable read' | 'serializable'
   accessMode?: 'read write' | 'read only'
+  /** Optional context propagated to all QueryEvents within this transaction. */
+  context?: Record<string, unknown>
 }
 
 export class TransactionClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
 
   private _savepointCounter = 0
+  /** @internal */ _onCommitCallbacks: (() => void | Promise<void>)[] = []
+  /** @internal */ _onRollbackCallbacks: ((err: unknown) => void | Promise<void>)[] = []
+  /** @internal */ declare _context?: Record<string, unknown>
 
   constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number) {
     super()
@@ -540,6 +700,16 @@ export class TransactionClient extends BaseExecutor {
 
     if (slowQueryThreshold != null)
       this._slowQueryThreshold = slowQueryThreshold
+  }
+
+  /** Register a callback to run after the transaction commits successfully. */
+  onCommit(fn: () => void | Promise<void>): void {
+    this._onCommitCallbacks.push(fn)
+  }
+
+  /** Register a callback to run after the transaction rolls back. */
+  onRollback(fn: (err: unknown) => void | Promise<void>): void {
+    this._onRollbackCallbacks.push(fn)
   }
 
   async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {

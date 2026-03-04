@@ -2,6 +2,9 @@ import type { Executable } from '../sql/executor'
 import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint, IndexDef } from '../types/index'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 
+// Internal migration tracking table name
+const MIGRATION_TABLE = '_pgorm_migrations'
+
 // Typed Object.entries for column maps
 function columnEntries(columns: AnyColumns): [string, AnyColumnDef][] {
   return Object.entries(columns) as [string, AnyColumnDef][]
@@ -163,6 +166,10 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
 
   for (const row of colRows) {
     const tableName = row.table_name as string
+
+    // Exclude internal migration tracking table from introspection
+    if (tableName === MIGRATION_TABLE)
+      continue
 
     if (!tableMap.has(tableName))
       tableMap.set(tableName, { name: tableName, columns: [] })
@@ -958,6 +965,62 @@ export async function applyMigration(executor: Executable, sql: string): Promise
       err,
     )
   }
+}
+
+// --- Migration History Tracking ---
+
+/** Ensure the migration history table exists. */
+export async function ensureMigrationTable(executor: Executable): Promise<void> {
+  await executor.query(`
+    CREATE TABLE IF NOT EXISTS "${MIGRATION_TABLE}" (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      sql_hash TEXT NOT NULL,
+      up_sql TEXT NOT NULL,
+      down_sql TEXT NOT NULL DEFAULT '',
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      direction TEXT NOT NULL DEFAULT 'up'
+    )
+  `, [])
+}
+
+/** Record a migration in the history table. */
+export async function recordMigration(
+  executor: Executable,
+  entry: { name: string, sqlHash: string, upSql: string, downSql: string, direction?: 'up' | 'down' },
+): Promise<void> {
+  await executor.query(`
+    INSERT INTO "${MIGRATION_TABLE}" (name, sql_hash, up_sql, down_sql, direction)
+    VALUES ($1, $2, $3, $4, $5)
+  `, [entry.name, entry.sqlHash, entry.upSql, entry.downSql, entry.direction ?? 'up'])
+}
+
+/** Get the migration history from the history table. */
+export async function getMigrationHistory(executor: Executable): Promise<{
+  id: number
+  name: string
+  sqlHash: string
+  upSql: string
+  downSql: string
+  appliedAt: Date
+  direction: 'up' | 'down'
+}[]> {
+  await ensureMigrationTable(executor)
+  const rows = await executor.query(`
+    SELECT id, name, sql_hash, up_sql, down_sql, applied_at, direction
+    FROM "${MIGRATION_TABLE}"
+    ORDER BY id ASC
+  `, [])
+
+  return rows.map(r => ({
+    id: Number(r.id),
+    name: r.name as string,
+    sqlHash: r.sql_hash as string,
+    upSql: r.up_sql as string,
+    downSql: r.down_sql as string,
+    appliedAt: r.applied_at as Date,
+    direction: r.direction as 'up' | 'down',
+  }))
 }
 
 /** Check if the live database has drifted from the desired schema. */

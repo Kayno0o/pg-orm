@@ -54,21 +54,24 @@ export class Repository<
   private _executor: Executable
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
   private _maxIncludeDepth: number
+  private _defaultLimit?: number
 
   constructor(
     table: AnyTableDef,
     executor: Executable,
     tableRegistry?: ReadonlyMap<string, AnyTableDef>,
     maxIncludeDepth?: number,
+    defaultLimit?: number,
   ) {
     this._table = table
     this._executor = executor
     this._tableRegistry = tableRegistry
     this._maxIncludeDepth = maxIncludeDepth ?? Repository.MAX_INCLUDE_DEPTH
+    this._defaultLimit = defaultLimit
   }
 
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth)
+    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth, this._defaultLimit)
   }
 
   // --- Hook helpers ---
@@ -130,6 +133,11 @@ export class Repository<
 
     // Auto-filter soft-deleted rows
     this._applySoftDeleteFilter(finalBuilder)
+
+    // Apply default limit if no explicit limit was set
+    if (this._defaultLimit != null && finalBuilder._state.limit == null) {
+      finalBuilder._state.limit = this._defaultLimit
+    }
 
     const { sql, params } = finalBuilder.toSQL()
     const rows = await this._query(sql, params)
@@ -394,6 +402,35 @@ export class Repository<
     return rows[0] ?? null
   }
 
+  async upsertMany(
+    values: InferInsert<TColumns>[],
+    conflictTarget: (keyof TColumns & string)[],
+    updateColumns?: (keyof TColumns & string)[],
+  ): Promise<InferSelect<TColumns>[]> {
+    if (values.length === 0)
+      return []
+
+    let v = values
+
+    if (hasHooks(this._table, 'beforeUpsert')) {
+      v = await Promise.all(v.map(row => runHooksAsync(this._table, 'beforeUpsert', row)))
+    }
+
+    const ib = new InsertBuilder<TColumns>(this._table.name).many(v)
+    const conflict = ib.onConflict(conflictTarget)
+    const resolved = updateColumns?.length ? conflict.doUpdate(...updateColumns) : conflict.doUpdate()
+    const final = resolved.returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+    const { sql, params } = final.toSQL()
+    const rows = await this._query(sql, params)
+
+    await this._runAfter('afterInsert', rows)
+
+    // Apply virtuals
+    this._applyVirtuals(rows as any)
+
+    return rows as InferSelect<TColumns>[]
+  }
+
   async findOrCreate(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
@@ -482,6 +519,31 @@ export class Repository<
     const nextCursor = hasMore && lastRow ? lastRow[col as string] : null
 
     return { data, nextCursor }
+  }
+
+  // Restore soft-deleted records: sets the soft-delete column to NULL
+  async restore(
+    where: (e: ExprBuilder<TColumns>) => ExprTape,
+  ): Promise<InferSelect<TColumns>[]> {
+    const sdCol = this._getSoftDeleteColumn()
+
+    if (!sdCol) {
+      throw new OrmError('restore() requires softDelete trait on table')
+    }
+
+    const s = await this._runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
+
+    const b = new UpdateBuilder<TColumns>(this._table.name)
+      .set(s)
+      .where((e: ExprBuilder<TColumns>) =>
+        e.and(where(e), e.isNotNull(sdCol as any)))
+      .returning() as UpdateBuilder<TColumns, InferSelect<TColumns>>
+    const { sql, params } = b.toSQL()
+    const rows = await this._query(sql, params)
+
+    await this._runAfter('afterUpdate', rows)
+
+    return rows as InferSelect<TColumns>[]
   }
 
   // Force-delete: bypass soft-delete and run a real DELETE
@@ -898,6 +960,7 @@ export class Repository<
     parentRows: Record<string, unknown>[],
     includes: IncludeEntry[],
     depth = 0,
+    visited?: Set<string>,
   ): Promise<any[]> {
     if (depth > this._maxIncludeDepth) {
       throw new OrmError(
@@ -909,6 +972,21 @@ export class Repository<
 
     if (!relations)
       return parentRows
+
+    // Circular include detection
+    const seen = visited ?? new Set<string>()
+
+    for (const inc of includes) {
+      const topRelation = inc.relation.split('.')[0]!
+      const key = `${this._table.name}.${topRelation}`
+
+      if (seen.has(key)) {
+        throw new OrmError(
+          `Circular include detected: "${key}" was already loaded in this include chain. `
+          + `Break the cycle by removing the redundant .include().`,
+        )
+      }
+    }
 
     // Separate top-level includes from nested includes
     const topLevel: IncludeEntry[] = []
@@ -979,8 +1057,10 @@ export class Repository<
             if (childRows.length > 0) {
               // Create a temporary repo for the target table to resolve nested includes
               const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
+              const childVisited = new Set(seen)
 
-              await childRepo._loadIncludes(childRows, nestedIncludes, depth + 1)
+              childVisited.add(`${this._table.name}.${inc.relation}`)
+              await childRepo._loadIncludes(childRows, nestedIncludes, depth + 1, childVisited)
             }
           }
         }
