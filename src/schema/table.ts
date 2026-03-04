@@ -31,6 +31,39 @@ function findPrimaryKey(columns: Record<string, AnyColumnDef>): string | null {
   return pks.length === 1 ? pks[0]! : pks.length > 1 ? pks.join(',') : null
 }
 
+function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Record<string, AnyColumnDef>, indexes: IndexDef[] } {
+  const columns = {} as Record<string, AnyColumnDef>
+  const indexes: IndexDef[] = []
+
+  for (const key in builders) {
+    validateIdentifier(key, 'column')
+    const b = builders[key]
+
+    if (b instanceof ColumnBuilder) {
+      columns[key] = b._build()
+
+      if ((b as unknown as { _index?: object })._index) {
+        const idx = (b as unknown as { _index: { method?: IndexDef['method'], where?: string } })._index
+
+        indexes.push({ columns: [key], unique: false, method: idx.method, where: idx.where })
+      }
+    }
+  }
+
+  return { columns, indexes }
+}
+
+function buildVirtualDefs(virtuals?: Record<string, (row: any) => any>): AnyVirtuals {
+  const defs: AnyVirtuals = {}
+
+  if (virtuals) {
+    for (const key in virtuals)
+      defs[key] = { _kind: 'virtual', compute: virtuals[key]! } as VirtualDef
+  }
+
+  return defs
+}
+
 /**
  * Define a table schema with typed columns, optional relations, and optional virtuals.
  * Returns a frozen TableDef used by `Database`, `Repository`, and the migration system.
@@ -84,59 +117,12 @@ export function defineTable(
   relationBuilder?: (r: RelationTypes) => Record<string, AnyRelationDef>,
   virtuals?: Record<string, (row: any) => any>,
 ): AnyTableDef {
-  // Validate table name at definition time
   validateIdentifier(name, 'table')
 
-  const t = createColumnTypes()
-  const builders = columnBuilder(t)
-
-  const columns = {} as Record<string, AnyColumnDef>
-
-  for (const key in builders) {
-    validateIdentifier(key, 'column')
-    const b = builders[key]
-
-    if (b instanceof ColumnBuilder) {
-      columns[key] = b._build()
-    }
-  }
-
-  // Build relations if provided inline
-  let relations: AnyRelations = {}
-
-  if (relationBuilder) {
-    const r = createRelationTypes()
-
-    relations = relationBuilder(r) as AnyRelations
-  }
-
-  // Build virtuals if provided inline
-  const virtualDefs: AnyVirtuals = {}
-
-  if (virtuals) {
-    for (const key in virtuals) {
-      virtualDefs[key] = { _kind: 'virtual', compute: virtuals[key]! } as VirtualDef
-    }
-  }
-
-  // Collect index definitions from column metadata
-  const indexes: IndexDef[] = []
-
-  for (const key in builders) {
-    const b = builders[key]
-
-    if (b instanceof ColumnBuilder && (b as unknown as { _index?: object })._index) {
-      const idx = (b as unknown as { _index: { method?: IndexDef['method'], where?: string } })._index
-
-      indexes.push({
-        columns: [key],
-        unique: false,
-        method: idx.method,
-        where: idx.where,
-      })
-    }
-  }
-
+  const builders = columnBuilder(createColumnTypes())
+  const { columns, indexes } = buildColumns(builders)
+  const relations: AnyRelations = relationBuilder ? relationBuilder(createRelationTypes()) as AnyRelations : {}
+  const virtualDefs = buildVirtualDefs(virtuals)
   const hooks: HookRegistry = {}
   const meta: Record<string, unknown> = {}
 

@@ -982,6 +982,65 @@ export class Repository<
     }
   }
 
+  // Split dotted include paths into top-level and nested entries
+  private _splitIncludes(includes: IncludeEntry[]): { topLevel: IncludeEntry[], nested: Map<string, IncludeEntry[]> } {
+    const topLevel: IncludeEntry[] = []
+    const nested = new Map<string, IncludeEntry[]>()
+
+    for (const inc of includes) {
+      const dotIdx = inc.relation.indexOf('.')
+
+      if (dotIdx === -1) {
+        topLevel.push(inc)
+      }
+      else {
+        const parent = inc.relation.slice(0, dotIdx)
+        const child = inc.relation.slice(dotIdx + 1)
+
+        if (!nested.has(parent))
+          nested.set(parent, [])
+
+        nested.get(parent)!.push({ relation: child, strategy: 'batch', callback: inc.callback })
+
+        if (!topLevel.some(t => t.relation === parent)) {
+          topLevel.push({ relation: parent, strategy: 'batch' })
+        }
+      }
+    }
+
+    return { topLevel, nested }
+  }
+
+  // Recursively load nested includes on child rows after parent relation is loaded
+  private async _loadNestedIncludes(
+    parentRows: Record<string, unknown>[],
+    ctx: { relationName: string, rel: AnyRelationDef, includes: IncludeEntry[], seen: Set<string>, depth: number },
+  ): Promise<void> {
+    const targetTableDef = this._resolveTable(ctx.rel.targetTable)
+
+    if (!targetTableDef)
+      return
+
+    const childRows: Record<string, unknown>[] = []
+
+    for (const parent of parentRows) {
+      const val = parent[ctx.relationName]
+
+      if (Array.isArray(val))
+        childRows.push(...val)
+      else if (val != null)
+        childRows.push(val as Record<string, unknown>)
+    }
+
+    if (childRows.length > 0) {
+      const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
+      const childVisited = new Set(ctx.seen)
+
+      childVisited.add(`${this._table.name}.${ctx.relationName}`)
+      await childRepo._loadIncludes(childRows, ctx.includes, ctx.depth + 1, childVisited)
+    }
+  }
+
   // Batched relation loading — single query per relation, all relations in parallel.
   // Supports nested includes via dotted paths: 'posts.comments'
   private async _loadIncludes(
@@ -1001,12 +1060,10 @@ export class Repository<
     if (!relations)
       return parentRows
 
-    // Circular include detection
     const seen = visited ?? new Set<string>()
 
     for (const inc of includes) {
-      const topRelation = inc.relation.split('.')[0]!
-      const key = `${this._table.name}.${topRelation}`
+      const key = `${this._table.name}.${inc.relation.split('.')[0]!}`
 
       if (seen.has(key)) {
         throw new OrmError(
@@ -1016,32 +1073,7 @@ export class Repository<
       }
     }
 
-    // Separate top-level includes from nested includes
-    const topLevel: IncludeEntry[] = []
-    const nested = new Map<string, IncludeEntry[]>()
-
-    for (const inc of includes) {
-      const dotIdx = inc.relation.indexOf('.')
-
-      if (dotIdx === -1) {
-        topLevel.push(inc)
-      }
-      else {
-        const parent = inc.relation.slice(0, dotIdx)
-        const child = inc.relation.slice(dotIdx + 1)
-
-        if (!nested.has(parent))
-          nested.set(parent, [])
-
-        nested.get(parent)!.push({ relation: child, strategy: 'batch', callback: inc.callback })
-
-        // Ensure parent relation is also loaded
-        if (!topLevel.some(t => t.relation === parent)) {
-          topLevel.push({ relation: parent, strategy: 'batch' })
-        }
-      }
-    }
-
+    const { topLevel, nested } = this._splitIncludes(includes)
     const tasks: Promise<void>[] = []
 
     for (const inc of topLevel) {
@@ -1050,51 +1082,19 @@ export class Repository<
       if (!rel)
         continue
 
-      const loadAndNest = async () => {
-        if (rel.type === 'belongsTo') {
+      tasks.push((async () => {
+        if (rel.type === 'belongsTo')
           await this._loadBelongsTo(parentRows, rel, inc.relation, inc.callback)
-        }
-        else if (rel.type === 'hasOne' || rel.type === 'hasMany') {
+        else if (rel.type === 'hasOne' || rel.type === 'hasMany')
           await this._loadHasOneOrMany(parentRows, rel, inc.relation, inc.callback)
-        }
-        else if (rel.type === 'hasManyThrough' && rel.throughTable) {
+        else if (rel.type === 'hasManyThrough' && rel.throughTable)
           await this._loadHasManyThrough(parentRows, rel, inc.relation)
-        }
 
-        // Load nested includes on the child rows
         const nestedIncludes = nested.get(inc.relation)
 
-        if (nestedIncludes && nestedIncludes.length > 0) {
-          const targetTableDef = this._resolveTable(rel.targetTable)
-
-          if (targetTableDef) {
-            // Collect all child rows from all parents
-            const childRows: Record<string, unknown>[] = []
-
-            for (const parent of parentRows) {
-              const val = parent[inc.relation]
-
-              if (Array.isArray(val)) {
-                childRows.push(...val)
-              }
-              else if (val != null) {
-                childRows.push(val as Record<string, unknown>)
-              }
-            }
-
-            if (childRows.length > 0) {
-              // Create a temporary repo for the target table to resolve nested includes
-              const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
-              const childVisited = new Set(seen)
-
-              childVisited.add(`${this._table.name}.${inc.relation}`)
-              await childRepo._loadIncludes(childRows, nestedIncludes, depth + 1, childVisited)
-            }
-          }
-        }
-      }
-
-      tasks.push(loadAndNest())
+        if (nestedIncludes?.length)
+          await this._loadNestedIncludes(parentRows, { relationName: inc.relation, rel, includes: nestedIncludes, seen, depth })
+      })())
     }
 
     await Promise.all(tasks)

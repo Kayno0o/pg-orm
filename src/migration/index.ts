@@ -52,12 +52,7 @@ interface LiveIndex {
 }
 
 /** Introspect the live database schema via information_schema and pg_catalog. */
-export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
-  tables: LiveTable[]
-  enums: LiveEnum[]
-  foreignKeys: LiveForeignKey[]
-  indexes: LiveIndex[]
-}> {
+async function runIntrospectionQueries(executor: Executable, schema: string) {
   const colRows = await executor.query(`
     SELECT
       c.table_name, c.column_name, c.data_type, c.udt_name,
@@ -110,7 +105,6 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
   `, [schema])
 
-  // Introspect indexes (exclude PK/unique constraint-backed indexes — those are handled separately)
   const indexRows = await executor.query(`
     SELECT
       i.relname AS index_name,
@@ -134,6 +128,17 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
       )
     GROUP BY i.relname, t.relname, am.amname, ix.indisunique, ix.indexrelid
   `, [schema])
+
+  return { colRows, pkRows, uqRows, enumRows, fkRows, indexRows }
+}
+
+export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
+  tables: LiveTable[]
+  enums: LiveEnum[]
+  foreignKeys: LiveForeignKey[]
+  indexes: LiveIndex[]
+}> {
+  const { colRows, pkRows, uqRows, enumRows, fkRows, indexRows } = await runIntrospectionQueries(executor, schema)
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
@@ -396,39 +401,43 @@ function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTa
   }
 }
 
+function diffColumnType(ops: MigrationOp[], tableName: string, colName: string, ctx: { colDef: AnyColumnDef, desiredType: string, liveType: string }): void {
+  if (ctx.desiredType.startsWith('vector') || ctx.liveType.startsWith('vector')) {
+    ops.push({
+      type: 'drop_column',
+      table: tableName,
+      column: colName,
+      sql: `ALTER TABLE "${tableName}" DROP COLUMN "${colName}"`,
+      destructive: true,
+      description: `Drop column "${colName}" from "${tableName}" (vector dimension change)`,
+    })
+    ops.push({
+      type: 'add_column',
+      table: tableName,
+      column: colName,
+      sql: `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, ctx.colDef)}`,
+      destructive: true,
+      description: `Re-add column "${colName}" to "${tableName}" with new vector dimensions`,
+    })
+  }
+  else {
+    ops.push({
+      type: 'alter_column',
+      table: tableName,
+      column: colName,
+      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${ctx.colDef.pgType}`,
+      destructive: true,
+      description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
+    })
+  }
+}
+
 function diffColumn(ops: MigrationOp[], tableName: string, colName: string, colDef: AnyColumnDef, liveCol: LiveColumn): void {
   const desiredType = normalizeType(colDef.pgType)
   const liveType = normalizeType(liveCol.dataType)
 
   if (desiredType !== liveType) {
-    if (desiredType.startsWith('vector') || liveType.startsWith('vector')) {
-      ops.push({
-        type: 'drop_column',
-        table: tableName,
-        column: colName,
-        sql: `ALTER TABLE "${tableName}" DROP COLUMN "${colName}"`,
-        destructive: true,
-        description: `Drop column "${colName}" from "${tableName}" (vector dimension change)`,
-      })
-      ops.push({
-        type: 'add_column',
-        table: tableName,
-        column: colName,
-        sql: `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef)}`,
-        destructive: true,
-        description: `Re-add column "${colName}" to "${tableName}" with new vector dimensions`,
-      })
-    }
-    else {
-      ops.push({
-        type: 'alter_column',
-        table: tableName,
-        column: colName,
-        sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${colDef.pgType}`,
-        destructive: true,
-        description: `Change type of "${colName}" in "${tableName}" from ${liveType} to ${desiredType}`,
-      })
-    }
+    diffColumnType(ops, tableName, colName, { colDef, desiredType, liveType })
   }
 
   // Diff UNIQUE constraint
