@@ -640,9 +640,6 @@ function diffForeignKeys(
         })
       }
       else if (!liveFk) {
-        if (ops.some(o => o.type === 'add_column' && o.table === tableName && o.column === colName))
-          continue
-
         ops.push({
           type: 'add_fk',
           table: tableName,

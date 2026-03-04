@@ -313,7 +313,7 @@ export class Database extends BaseExecutor {
     return this._schema
   }
 
-  // Create a typed Repository for a table definition
+  /** Create a typed Repository for a table definition. */
   repo<
     TName extends string,
     TColumns extends AnyColumns,
@@ -325,10 +325,13 @@ export class Database extends BaseExecutor {
     return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth, this._defaultLimit)
   }
 
-  // Auto-migrate: introspect live DB, diff against registered tables, apply DDL.
-  // Uses pg_advisory_lock inside a transaction to prevent concurrent sync() calls.
-  // Advisory locks acquired inside a transaction are auto-released on COMMIT/ROLLBACK,
-  // guaranteeing same-connection acquire/release (avoids session-scoped lock leaks).
+  /**
+   * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
+   * Uses `pg_advisory_xact_lock` to prevent concurrent sync() calls.
+   *
+   * Pass `{ dryRun: true }` to preview changes without applying.
+   * Pass `{ allowDestructive: true }` to allow DROP/RENAME operations.
+   */
   async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
     // Advisory lock key — consistent hash for "pg-orm-sync"
     const LOCK_KEY = 741953258
@@ -474,12 +477,9 @@ export class Database extends BaseExecutor {
           )
         }
 
-        // Execute each statement in the down SQL
-        const statements = migration.downSql.split(';').map(s => s.trim()).filter(s => s && !s.startsWith('--'))
-
-        for (const stmt of statements) {
-          await txUnsafe.unsafe(`${stmt};`, [])
-        }
+        // Execute the entire down SQL as a single call (avoids naive `;` splitting
+        // which breaks on semicolons inside string literals or dollar-quoted blocks)
+        await txUnsafe.unsafe(migration.downSql, [])
 
         // Record the rollback
         // Simple djb2 hash
@@ -511,7 +511,14 @@ export class Database extends BaseExecutor {
     return this._tables
   }
 
-  // Raw SQL escape hatch.
+  /**
+   * Execute raw SQL. Supports tagged template literals or plain strings with params.
+   * @example
+   * ```ts
+   * const rows = await db.raw`SELECT * FROM users WHERE id = ${id}`
+   * const rows = await db.raw('SELECT * FROM users WHERE id = $1', [id])
+   * ```
+   */
   raw<T = unknown>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T[]>
   raw<T = unknown>(sqlStr: string, params?: unknown[]): Promise<T[]>
   async raw<T = unknown>(
@@ -535,7 +542,16 @@ export class Database extends BaseExecutor {
     return await this.query(sql, params) as T[]
   }
 
-  // Transaction support
+  /**
+   * Run a callback inside a database transaction. Auto-commits on success, rolls back on error.
+   * @example
+   * ```ts
+   * await db.transaction({ isolation: 'serializable' }, async (tx) => {
+   *   const repo = userRepo.using(tx)
+   *   await repo.updateOne({ balance: 0 }, e => e.eq('id', 1))
+   * })
+   * ```
+   */
   async transaction<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async transaction<T>(opts: TransactionOptions, fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async transaction<T>(
@@ -610,7 +626,7 @@ export class Database extends BaseExecutor {
     }
   }
 
-  // Health check — returns true if the database is reachable
+  /** Health check — returns true if the database is reachable. */
   async ping(): Promise<boolean> {
     try {
       await this.query('SELECT 1', [])
@@ -671,6 +687,26 @@ export class Database extends BaseExecutor {
   /** Returns true if the database is draining (no new queries accepted). */
   get draining(): boolean {
     return this._draining
+  }
+
+  /**
+   * Create a scoped database instance that attaches context to all query events.
+   * Useful for correlating queries to HTTP requests, trace IDs, etc.
+   *
+   * @example
+   * ```ts
+   * app.use((req, res, next) => {
+   *   req.db = db.withContext({ requestId: req.id, userId: req.user?.id })
+   *   next()
+   * })
+   * ```
+   */
+  withContext(ctx: Record<string, unknown>): Database {
+    const scoped = Object.create(this) as Database
+
+    scoped._context = ctx
+
+    return scoped
   }
 }
 

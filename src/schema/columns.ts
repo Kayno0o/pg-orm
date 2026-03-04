@@ -34,12 +34,14 @@ export class ColumnBuilder<
     this._pgType = pgType
   }
 
+  /** Mark column as NOT NULL. Required for insert unless it has a default. */
   notNull(): ColumnBuilder<TType, NotNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'not_null' })
 
     return this as never
   }
 
+  /** Mark column as nullable. The inferred type becomes `T | null`. */
   nullable(): ColumnBuilder<TType, IsNullable, TDefault, TPrimary, TGenerated> {
     // Remove any existing not_null constraint
     this._constraints = this._constraints.filter(c => c.type !== 'not_null')
@@ -47,12 +49,14 @@ export class ColumnBuilder<
     return this as never
   }
 
+  /** Set a SQL DEFAULT expression. Makes the column optional on insert. */
   default(value: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value })
 
     return this as never
   }
 
+  /** Mark as primary key. Implies NOT NULL and optional on insert. */
   primaryKey(): ColumnBuilder<TType, TNullable, HasDefault, IsPrimaryKey, TGenerated> {
     this._constraints.push({ type: 'primary_key' })
 
@@ -60,18 +64,24 @@ export class ColumnBuilder<
     return this as never
   }
 
+  /** Add a UNIQUE constraint on this column. */
   unique(): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'unique' })
 
     return this as never
   }
 
+  /**
+   * Add a CHECK constraint with a raw SQL expression.
+   * @remarks The expression is embedded directly into DDL — never pass user input.
+   */
   check(expr: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'check', value: expr })
 
     return this as never
   }
 
+  /** Add a FOREIGN KEY reference to another table's column. */
   references(
     target: () => AnyTableDef,
     column: string,
@@ -88,6 +98,10 @@ export class ColumnBuilder<
     return this as never
   }
 
+  /**
+   * Mark as a GENERATED ALWAYS AS (expr) STORED column.
+   * @remarks The expression is embedded directly into DDL — never pass user input.
+   */
   generated(expr: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, IsGenerated> {
     this._constraints.push({ type: 'generated', value: expr })
 
@@ -198,9 +212,30 @@ export interface ColumnTypes {
 
   // Network
   inet: () => ColumnBuilder<string>
+  cidr: () => ColumnBuilder<string>
+  macaddr: () => ColumnBuilder<string>
 
   // Full-text search
   tsvector: () => ColumnBuilder<string>
+  tsquery: () => ColumnBuilder<string>
+
+  // Geometric
+  point: () => ColumnBuilder<string>
+  line: () => ColumnBuilder<string>
+  circle: () => ColumnBuilder<string>
+  polygon: () => ColumnBuilder<string>
+  box: () => ColumnBuilder<string>
+  path: () => ColumnBuilder<string>
+
+  // Monetary
+  money: () => ColumnBuilder<string>
+
+  // Bit strings
+  bit: (n?: number) => ColumnBuilder<string>
+  varbit: (n?: number) => ColumnBuilder<string>
+
+  // XML
+  xml: () => ColumnBuilder<string>
 }
 
 // Runtime implementation of column type factory
@@ -259,6 +294,24 @@ export function createColumnTypes(): ColumnTypes {
     vector: n => new ColumnBuilder(`vector(${n})`),
 
     inet: () => new ColumnBuilder('inet'),
+    cidr: () => new ColumnBuilder('cidr'),
+    macaddr: () => new ColumnBuilder('macaddr'),
+
     tsvector: () => new ColumnBuilder('tsvector'),
+    tsquery: () => new ColumnBuilder('tsquery'),
+
+    point: () => new ColumnBuilder('point'),
+    line: () => new ColumnBuilder('line'),
+    circle: () => new ColumnBuilder('circle'),
+    polygon: () => new ColumnBuilder('polygon'),
+    box: () => new ColumnBuilder('box'),
+    path: () => new ColumnBuilder('path'),
+
+    money: () => new ColumnBuilder('money'),
+
+    bit: n => new ColumnBuilder(n != null ? `bit(${n})` : 'bit'),
+    varbit: n => new ColumnBuilder(n != null ? `varbit(${n})` : 'varbit'),
+
+    xml: () => new ColumnBuilder('xml'),
   }
 }

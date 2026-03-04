@@ -558,6 +558,11 @@ export function assembleQuery(state: QueryState): { sql: string, params: unknown
   return new QueryAssembler(state).assemble()
 }
 
+/** @internal */
+export function getBuilderState(builder: { _state: QueryState }): QueryState {
+  return builder._state
+}
+
 function buildSelectColumns(state: QueryState): string {
   const cols: string[] = state.columns
     ? state.columns.filter(c => !state.omitColumns.includes(c)).map(quote)
@@ -624,18 +629,21 @@ export class SelectBuilder<
     return b
   }
 
+  /** Select only the specified columns. */
   pick<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns>, K[number]>> {
     this._state.columns = cols as string[]
 
     return this as never
   }
 
+  /** Exclude the specified columns from the result. */
   omit<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Omit<InferSelect<TColumns>, K[number]>> {
     this._state.omitColumns = cols as string[]
 
     return this as never
   }
 
+  /** Add a computed SQL expression as a column in the result. */
   computed<TComputed = unknown>(expr: string, alias: string): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
     this._state.computedColumns.push({ expr, alias })
 
@@ -654,6 +662,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** Set the WHERE clause. Replaces any existing WHERE. */
   where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
@@ -662,6 +671,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** Add an additional AND condition to the existing WHERE clause. */
   andWhere(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
     const newTape = fn(builder)
@@ -681,6 +691,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** INNER JOIN another table. */
   join(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
@@ -689,6 +700,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** LEFT JOIN another table. */
   leftJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
@@ -713,12 +725,14 @@ export class SelectBuilder<
     return this
   }
 
+  /** Add an ORDER BY clause. Can be called multiple times for multi-column ordering. */
   orderBy(col: keyof TColumns & string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
     this._state.orderBy.push({ col: col as string, dir, nulls })
 
     return this
   }
 
+  /** Limit the number of returned rows. */
   limit(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
       throw new TypeError(`limit() requires a non-negative integer, got ${n}`)
@@ -729,6 +743,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** Skip the first N rows. */
   offset(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
       throw new TypeError(`offset() requires a non-negative integer, got ${n}`)
@@ -753,6 +768,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** Add FOR UPDATE row-level locking. */
   forUpdate(): this {
     this._state.lockMode = 'update'
 
@@ -842,6 +858,7 @@ export class SelectBuilder<
     return this as never
   }
 
+  /** Include soft-deleted rows in the result. */
   withTrashed(): this {
     this._state.withTrashed = true
 

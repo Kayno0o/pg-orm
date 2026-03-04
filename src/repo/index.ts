@@ -2,7 +2,7 @@ import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
-import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
@@ -114,13 +114,20 @@ export class Repository<
   private _applySoftDeleteFilter(builder: SelectBuilder<TColumns, TRelations, any>): void {
     const col = this._getSoftDeleteColumn()
 
-    if (col && !builder._state.withTrashed) {
+    if (col && !getBuilderState(builder).withTrashed) {
       builder.andWhere(e => e.isNull(col as any))
     }
   }
 
   // --- Query methods (callback-style) ---
 
+  /**
+   * Find all rows matching the query. Soft-deleted rows are excluded by default.
+   * @example
+   * ```ts
+   * const users = await repo.findMany(q => q.where(e => e.eq('role', 'admin')).orderBy('name'))
+   * ```
+   */
   async findMany(): Promise<InferSelect<TColumns>[]>
   async findMany<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
@@ -135,15 +142,17 @@ export class Repository<
     this._applySoftDeleteFilter(finalBuilder)
 
     // Apply default limit if no explicit limit was set
-    if (this._defaultLimit != null && finalBuilder._state.limit == null) {
-      finalBuilder._state.limit = this._defaultLimit
+    const state = getBuilderState(finalBuilder)
+
+    if (this._defaultLimit != null && state.limit == null) {
+      state.limit = this._defaultLimit
     }
 
     const { sql, params } = finalBuilder.toSQL()
     const rows = await this._query(sql, params)
 
     // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
-    const hasOnlyComputed = finalBuilder._state.columns?.length === 0 && finalBuilder._state.computedColumns.length > 0
+    const hasOnlyComputed = state.columns?.length === 0 && state.computedColumns.length > 0
     const mapper = hasOnlyComputed ? null : this._getMapper(finalBuilder)
     let mapped = mapper ? mapChunk(mapper, rows) : rows
 
@@ -155,13 +164,14 @@ export class Repository<
     mapped = this._applyVirtuals(mapped)
 
     // Handle .include() — batched relation loading (no N+1)
-    if (finalBuilder._state.includes.length > 0) {
-      mapped = await this._loadIncludes(mapped, finalBuilder._state.includes)
+    if (state.includes.length > 0) {
+      mapped = await this._loadIncludes(mapped, state.includes)
     }
 
     return mapped
   }
 
+  /** Find the first row matching the query, or `null` if none found. */
   async findOne(): Promise<InferSelect<TColumns> | null>
   async findOne<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
@@ -187,8 +197,8 @@ export class Repository<
   ): Promise<TResult>
   async findOneOrThrow(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
-  ): Promise<any> {
-    const row = await this.findOne(cb as any)
+  ): Promise<unknown> {
+    const row = cb ? await this.findOne(cb) : await this.findOne()
 
     if (row === null) {
       throw new NotFoundError(this._table.name)
@@ -197,6 +207,7 @@ export class Repository<
     return row
   }
 
+  /** Insert a single row and return the inserted record with all columns. */
   async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>>
   async insertOne(
     values: InferInsert<TColumns>,
@@ -229,6 +240,7 @@ export class Repository<
     return rows[0] as InferSelect<TColumns>
   }
 
+  /** Insert multiple rows in a single query and return all inserted records. */
   async insertMany(values: InferInsert<TColumns>[]): Promise<InferSelect<TColumns>[]> {
     if (values.length === 0)
       return []
@@ -253,6 +265,7 @@ export class Repository<
     return rows as InferSelect<TColumns>[]
   }
 
+  /** Update all rows matching `where` and return the updated records. */
   async updateMany(
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
@@ -267,7 +280,7 @@ export class Repository<
 
     // Auto-increment version column for optimistic locking (after validation)
     if (lockCol) {
-      ;(b as any)._state.setValues[lockCol] = { __raw: `${quote(lockCol)} + 1` }
+      getBuilderState(b).setValues![lockCol] = { __raw: `${quote(lockCol)} + 1` }
     }
 
     const { sql, params } = b.toSQL()
@@ -278,6 +291,7 @@ export class Repository<
     return rows as InferSelect<TColumns>[]
   }
 
+  /** Delete all rows matching `where`. Uses soft-delete if the trait is applied. Returns deleted records. */
   async deleteMany(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns>[]> {
@@ -314,6 +328,7 @@ export class Repository<
 
   // --- Convenience methods ---
 
+  /** Find a row by primary key. Supports composite PKs when `id` is an object. */
   async findById(id: unknown): Promise<InferSelect<TColumns> | null> {
     const pk = this._table.primaryKey ?? 'id'
 
@@ -333,6 +348,7 @@ export class Repository<
     return this.findOne(q => q.where(e => e.eq(pk as any, id as any)) as any)
   }
 
+  /** Count rows matching `where` (excludes soft-deleted by default). */
   async count(where?: (e: ExprBuilder<TColumns>) => ExprTape): Promise<number> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name).count()
 
@@ -348,6 +364,7 @@ export class Repository<
     return Number((rows[0] as any)?.count ?? 0)
   }
 
+  /** Check if any row matches `where` (excludes soft-deleted by default). */
   async exists(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<boolean> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
       .where(where as any)
@@ -355,14 +372,17 @@ export class Repository<
 
     this._applySoftDeleteFilter(builder as any)
 
-    builder._state.columns = []
-    builder._state.computedColumns = [{ expr: '1', alias: '_exists' }]
+    const existsState = getBuilderState(builder)
+
+    existsState.columns = []
+    existsState.computedColumns = [{ expr: '1', alias: '_exists' }]
     const { sql, params } = builder.toSQL()
     const rows = await this._query(sql, params)
 
     return rows.length > 0
   }
 
+  /** Update the first matching row and return it, or `null` if none matched. */
   async updateOne(
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
@@ -394,6 +414,7 @@ export class Repository<
     return rows[0] as InferSelect<TColumns>
   }
 
+  /** Delete the first matching row. Returns the deleted record or `null`. */
   async deleteOne(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<InferSelect<TColumns> | null> {
@@ -402,6 +423,7 @@ export class Repository<
     return rows[0] ?? null
   }
 
+  /** Bulk upsert: insert rows, update on conflict. Returns all affected records. */
   async upsertMany(
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
@@ -431,6 +453,7 @@ export class Repository<
     return rows as InferSelect<TColumns>[]
   }
 
+  /** Insert a row or return the existing one if conflict target matches. */
   async findOrCreate(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
@@ -452,6 +475,7 @@ export class Repository<
     return rows[0] as InferSelect<TColumns>
   }
 
+  /** Offset-based pagination with total count. Returns `{ data, total, page, perPage, totalPages }`. */
   async paginate(opts: {
     page: number
     perPage: number
@@ -596,8 +620,10 @@ export class Repository<
     while (true) {
       const chunkBuilder = finalBuilder.clone()
 
-      chunkBuilder._state.limit = chunkSize
-      chunkBuilder._state.offset = offset
+      const chunkState = getBuilderState(chunkBuilder)
+
+      chunkState.limit = chunkSize
+      chunkState.offset = offset
       const { sql, params } = chunkBuilder.toSQL()
       const rows = await this._query(sql, params)
 
@@ -706,11 +732,13 @@ export class Repository<
 
   // Get or compile mapper from a select builder's state
   private _getMapper(builder: SelectBuilder<TColumns, TRelations, any>) {
+    const s = getBuilderState(builder)
+
     return getOrCompileMapper(
       this._table.name,
       this._table.columns,
-      builder._state.columns ?? undefined,
-      builder._state.omitColumns.length ? builder._state.omitColumns : undefined,
+      s.columns ?? undefined,
+      s.omitColumns.length ? s.omitColumns : undefined,
     )
   }
 
