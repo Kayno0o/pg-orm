@@ -1,10 +1,64 @@
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
+import { createInterface } from 'node:readline'
+import { colors } from '@kaynooo/utils/tools'
 import { SQL } from 'bun'
 import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
+
+// --- Interactive confirmation for sync ---
+
+async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp[]): Promise<boolean> {
+  const safeOps = ops.filter(o => !o.destructive)
+
+  console.log(`\n${colors.bold.cyan('── Database Sync Preview ──')}\n`)
+
+  if (safeOps.length > 0) {
+    console.log(colors.bold.green(`${safeOps.length} safe operation(s):`))
+
+    for (const op of safeOps)
+      console.log(`  ${colors.green('+')} ${op.description}`)
+
+    console.log()
+  }
+
+  if (destructiveOps.length > 0) {
+    console.log(colors.bold.red(`${destructiveOps.length} destructive operation(s):`))
+
+    for (const op of destructiveOps)
+      console.log(`  ${colors.red('✗')} ${op.description}`)
+
+    console.log()
+  }
+
+  console.log(colors.dim('SQL to execute:'))
+  console.log(`${colors.dim(ops.map(o => `  ${o.sql};`).join('\n'))}\n`)
+
+  const answer = await new Promise<string>((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+
+    rl.question(
+      destructiveOps.length > 0
+        ? `${colors.bold.yellow(`Apply ${ops.length} operation(s) (${destructiveOps.length} destructive)? [y/N]`)} `
+        : `${colors.bold(`Apply ${ops.length} operation(s)? [Y/n]`)} `,
+      (ans: string) => {
+        rl.close()
+        resolve(ans.trim().toLowerCase())
+      },
+    )
+  })
+
+  const defaultYes = destructiveOps.length === 0
+
+  if (answer === 'y' || answer === 'yes' || (defaultYes && answer === ''))
+    return true
+
+  console.log(`${colors.dim('Sync cancelled.')}\n`)
+
+  return false
+}
 
 // --- Process cleanup for unclosed connections ---
 
@@ -331,8 +385,9 @@ export class Database extends BaseExecutor {
    *
    * Pass `{ dryRun: true }` to preview changes without applying.
    * Pass `{ allowDestructive: true }` to allow DROP/RENAME operations.
+   * Pass `{ confirm: true }` to show SQL and prompt for confirmation before applying.
    */
-  async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
+  async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean, confirm?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
     // Advisory lock key — consistent hash for "pg-orm-sync"
     const LOCK_KEY = 741953258
 
@@ -378,15 +433,22 @@ export class Database extends BaseExecutor {
 
       const destructiveOps = ops.filter(o => o.destructive)
 
-      if (destructiveOps.length && !opts?.allowDestructive) {
+      if (destructiveOps.length && !opts?.allowDestructive && !opts?.confirm) {
         throw new DestructiveOpError(
-          `Sync contains ${destructiveOps.length} destructive operation(s). Use { allowDestructive: true } to proceed.`,
+          `Sync contains ${destructiveOps.length} destructive operation(s). Use { allowDestructive: true } or { confirm: true } to proceed.`,
           'diff',
           destructiveOps.map(o => o.description),
         )
       }
 
       const sqlStr = ops.map(o => `${o.sql};`).join('\n')
+
+      if (opts?.confirm) {
+        const confirmed = await promptSync(ops, destructiveOps)
+
+        if (!confirmed)
+          return { sql: sqlStr, ops: [] }
+      }
 
       if (!opts?.dryRun) {
         // Filter out enum ADD VALUE ops (already applied in Phase 1)
