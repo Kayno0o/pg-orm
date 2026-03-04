@@ -18,7 +18,7 @@ const _posts = defineTable('posts', t => ({
   title: t.text().notNull(),
   body: t.text().notNull(),
   authorId: t.integer().notNull(),
-  published: t.bool().notNull().default('false'),
+  published: t.bool().notNull().default(false),
 }))
 
 // Apply traits — softDelete, timestamps, and optimisticLock

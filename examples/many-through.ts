@@ -21,7 +21,7 @@ const _comments = defineTable('mt_comments', t => ({
   id: t.serial().primaryKey(),
   postId: t.integer().notNull(),
   body: t.text().notNull(),
-  approved: t.bool().notNull().default('false'),
+  approved: t.bool().notNull().default(false),
 }))
 
 const _posts = defineTable('mt_posts', t => ({

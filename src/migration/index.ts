@@ -864,6 +864,36 @@ function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
     }
   }
 
+  // Generate CHECK constraints from metadata
+  const def = colDef as unknown as Record<string, unknown>
+  const checks: string[] = []
+
+  if (def._min != null)
+    checks.push(`"${name}" >= ${def._min}`)
+
+  if (def._max != null)
+    checks.push(`"${name}" <= ${def._max}`)
+
+  if (def._minLength != null)
+    checks.push(`length("${name}") >= ${def._minLength}`)
+
+  if (def._maxLength != null)
+    checks.push(`length("${name}") <= ${def._maxLength}`)
+
+  if (def._pattern != null)
+    checks.push(`"${name}" ~ '${(def._pattern as string).replace(/'/g, '\'\'')}'`)
+
+  if (def._oneOf != null) {
+    const vals = (def._oneOf as (string | number)[]).map(v =>
+      typeof v === 'string' ? `'${v.replace(/'/g, '\'\'')}'` : String(v),
+    ).join(', ')
+
+    checks.push(`"${name}" IN (${vals})`)
+  }
+
+  if (checks.length > 0)
+    parts.push(`CHECK (${checks.join(' AND ')})`)
+
   return parts.join(' ')
 }
 

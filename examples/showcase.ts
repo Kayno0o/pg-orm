@@ -17,10 +17,10 @@ const _products = defineTable('sc_products', t => ({
   sku: t.text().notNull().unique(),
   name: t.text().notNull(),
   price: t.numeric(10, 2).notNull(),
-  category: t.text().notNull().default('\'general\''),
-  metadata: t.jsonb<ProductMetadata>().notNull().default('\'{}\''),
-  stock: t.integer().notNull().default('0'),
-  updatedAt: t.timestamptz().notNull().default('now()'),
+  category: t.text().notNull().default('general'),
+  metadata: t.jsonb<ProductMetadata>().notNull().default({} as ProductMetadata),
+  stock: t.integer().notNull().default(0),
+  updatedAt: t.timestamptz().notNull().defaultRaw('now()'),
 }))
 
 // Archived products — same shape, for demonstrating UNION
@@ -29,10 +29,10 @@ const _archivedProducts = defineTable('sc_archived_products', t => ({
   sku: t.text().notNull().unique(),
   name: t.text().notNull(),
   price: t.numeric(10, 2).notNull(),
-  category: t.text().notNull().default('\'general\''),
-  metadata: t.jsonb<ProductMetadata>().notNull().default('\'{}\''),
-  stock: t.integer().notNull().default('0'),
-  updatedAt: t.timestamptz().notNull().default('now()'),
+  category: t.text().notNull().default('general'),
+  metadata: t.jsonb<ProductMetadata>().notNull().default({} as ProductMetadata),
+  stock: t.integer().notNull().default(0),
+  updatedAt: t.timestamptz().notNull().defaultRaw('now()'),
 }))
 
 // 2. Define a staging table for inventory updates

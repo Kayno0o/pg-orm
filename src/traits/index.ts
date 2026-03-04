@@ -81,7 +81,7 @@ export function softDelete(column = 'deletedAt'): Trait {
  */
 export function optimisticLock(column = 'version'): Trait {
   return {
-    columns: t => ({ [column]: t.int4().notNull().default('1') }),
+    columns: t => ({ [column]: t.int4().notNull().default(1) }),
     meta: { optimisticLock: { column } },
   }
 }
@@ -96,8 +96,8 @@ export function timestamps(opts?: { createdAt?: string, updatedAt?: string }): T
 
   return {
     columns: t => ({
-      [createdAt]: t.timestamptz().notNull().default('now()'),
-      [updatedAt]: t.timestamptz().notNull().default('now()'),
+      [createdAt]: t.timestamptz().notNull().defaultRaw('now()'),
+      [updatedAt]: t.timestamptz().notNull().defaultRaw('now()'),
     }),
     hooks: (table) => {
       table.hook('beforeUpdate' as any, ((row: any) => {

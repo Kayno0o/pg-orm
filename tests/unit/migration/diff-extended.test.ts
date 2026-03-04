@@ -415,7 +415,7 @@ describe('diffSchema — extended migration tests', () => {
   it('generates CREATE TABLE with default value', () => {
     const table = defineTable('items', t => ({
       id: t.serial().primaryKey(),
-      status: t.text().notNull().default('\'active\''),
+      status: t.text().notNull().default('active'),
     }))
     const ops = diffSchema(live([]), registry(table))
 

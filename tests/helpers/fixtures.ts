@@ -39,7 +39,7 @@ export const postTagsTable = defineTable('post_tags', t => ({
 export const versionedItemsTable = defineTable('versioned_items', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull(),
-  value: t.int4().notNull().default('0'),
+  value: t.int4().notNull().default(0),
 }))
   .withTrait(optimisticLock())
 

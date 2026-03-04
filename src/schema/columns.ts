@@ -13,6 +13,40 @@ import type {
   NotPrimaryKey,
 } from '../types/index'
 
+/** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
+function toSQLDefault(value: unknown, pgType: string): string {
+  if (value === null || value === undefined)
+    return 'NULL'
+
+  if (typeof value === 'number' || typeof value === 'bigint')
+    return String(value)
+
+  if (typeof value === 'boolean')
+    return value ? 'true' : 'false'
+
+  if (value instanceof Date)
+    return `'${value.toISOString()}'`
+
+  if (Array.isArray(value)) {
+    if (value.length === 0)
+      return `ARRAY[]::${pgType}`
+
+    const items = value.map(v =>
+      typeof v === 'string' ? `'${v.replace(/'/g, '\'\'')}'` : String(v),
+    ).join(',')
+
+    return `ARRAY[${items}]::${pgType}`
+  }
+
+  if (typeof value === 'object')
+    return `'${JSON.stringify(value).replace(/'/g, '\'\'')}'::${pgType}`
+
+  if (typeof value === 'string')
+    return `'${value.replace(/'/g, '\'\'')}'`
+
+  return String(value)
+}
+
 // Column builder — accumulates constraints, returns frozen ColumnDef on finalization
 // Each method returns a new typed builder (cheap: just mutates internal arrays)
 export class ColumnBuilder<
@@ -29,6 +63,12 @@ export class ColumnBuilder<
   _enumValues?: readonly string[]
   _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
   _renamedFrom?: string
+  _min?: number
+  _max?: number
+  _minLength?: number
+  _maxLength?: number
+  _pattern?: string
+  _oneOf?: readonly (string | number)[]
 
   constructor(pgType: string) {
     this._pgType = pgType
@@ -49,9 +89,16 @@ export class ColumnBuilder<
     return this as never
   }
 
-  /** Set a SQL DEFAULT expression. Makes the column optional on insert. */
-  default(value: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'default', value })
+  /** Set a DEFAULT value using a native JS value. Auto-converts to SQL. */
+  default(value: TType): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
+    this._constraints.push({ type: 'default', value: toSQLDefault(value, this._pgType) })
+
+    return this as never
+  }
+
+  /** Set a DEFAULT using a raw SQL expression (e.g. `'now()'`, `'uuid_generate_v4()'`). */
+  defaultRaw(sql: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
+    this._constraints.push({ type: 'default', value: sql })
 
     return this as never
   }
@@ -77,6 +124,48 @@ export class ColumnBuilder<
    */
   check(expr: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'check', value: expr })
+
+    return this as never
+  }
+
+  /** Add a minimum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
+  min(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._min = value
+
+    return this as never
+  }
+
+  /** Add a maximum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
+  max(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._max = value
+
+    return this as never
+  }
+
+  /** Add a minimum length CHECK constraint (for text/varchar). */
+  minLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._minLength = value
+
+    return this as never
+  }
+
+  /** Add a maximum length CHECK constraint (for text/varchar). */
+  maxLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._maxLength = value
+
+    return this as never
+  }
+
+  /** Add a regex pattern CHECK constraint (for text/varchar). Uses PostgreSQL `~` operator. */
+  pattern(regex: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._pattern = regex
+
+    return this as never
+  }
+
+  /** Add a CHECK constraint restricting values to a set of allowed values. */
+  oneOf<V extends TType>(values: readonly V[]): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._oneOf = values as readonly (string | number)[]
 
     return this as never
   }
@@ -152,6 +241,31 @@ export class ColumnBuilder<
       def._renamedFrom = this._renamedFrom
     }
 
+    // Preserve min/max metadata for CHECK constraint generation
+    if (this._min != null) {
+      def._min = this._min
+    }
+
+    if (this._max != null) {
+      def._max = this._max
+    }
+
+    if (this._minLength != null) {
+      def._minLength = this._minLength
+    }
+
+    if (this._maxLength != null) {
+      def._maxLength = this._maxLength
+    }
+
+    if (this._pattern != null) {
+      def._pattern = this._pattern
+    }
+
+    if (this._oneOf != null) {
+      def._oneOf = this._oneOf
+    }
+
     return Object.freeze(def) as unknown as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
   }
 }
@@ -160,8 +274,8 @@ export class ColumnBuilder<
 export interface ColumnTypes {
   // String types
   uuid: () => ColumnBuilder<string>
-  text: () => ColumnBuilder<string>
-  varchar: (n: number) => ColumnBuilder<string>
+  text: <T extends string = string>() => ColumnBuilder<T>
+  varchar: <T extends string = string>(n: number) => ColumnBuilder<T>
   citext: () => ColumnBuilder<string>
 
   // Numeric types

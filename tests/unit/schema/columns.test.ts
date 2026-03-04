@@ -31,7 +31,7 @@ describe('ColumnBuilder', () => {
   })
 
   it('chains default', () => {
-    const col = t.text().default('\'hello\'')._build()
+    const col = t.text().default('hello')._build()
 
     expect(col.constraints).toContainEqual({ type: 'default', value: '\'hello\'' })
   })
