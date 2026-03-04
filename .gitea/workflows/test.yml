@@ -32,7 +32,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check circular dependencies
-        run: bun run circular
+        run: bunx madge --circular ./src/index.ts
 
       - name: Typecheck
         run: bun run check
@@ -55,13 +55,19 @@ jobs:
         run: |
           apt-get update
           apt-get install -y postgresql postgresql-contrib
+          # Allow password-based local connections
+          PG_HBA=$(find /etc/postgresql -name pg_hba.conf | head -1)
+          sed -i 's/local\s\+all\s\+all\s\+peer/local all all md5/' "$PG_HBA"
+          sed -i 's/host\s\+all\s\+all\s\+127.0.0.1\/32\s\+\(ident\|scram-sha-256\)/host all all 127.0.0.1\/32 md5/' "$PG_HBA"
           service postgresql start
-          # Wait for PostgreSQL to be ready
-          until su - postgres -c "pg_isready"; do sleep 1; done
+          # Wait for PostgreSQL to accept connections
+          for i in $(seq 1 30); do su - postgres -c "pg_isready" && break || sleep 1; done
           # Create test user and database
           su - postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
           su - postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
           su - postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
+          # Verify connectivity
+          PGPASSWORD=test psql -h 127.0.0.1 -U test -d orm_test -c "SELECT 1"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
