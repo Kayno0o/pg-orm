@@ -156,7 +156,7 @@ export interface TableDef<
   withIndexes: (indexes: IndexDef[]) => this
 
   // Apply a trait (composable table behavior)
-  withTrait: (trait: Trait) => this
+  withTrait: <TNewCols extends AnyColumns = {}>(trait: Trait<TNewCols>) => TableDef<TName, TColumns & TNewCols, TRelations, TVirtuals>
 }
 
 export type HookEvent

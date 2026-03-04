@@ -172,7 +172,7 @@ export function defineTable(
     },
 
     // Apply a trait — merges columns, hooks, virtuals, and meta
-    withTrait(trait: Trait) {
+    withTrait(trait: Trait<any>) {
       applyTrait(table as unknown as AnyTableDef, trait)
 
       return table
