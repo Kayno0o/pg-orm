@@ -1,119 +1,128 @@
-export { hashCacheKey, InMemoryCache } from './cache'
-export type { CacheAdapter, CacheEntry } from './cache'
-export { runCLI } from './cli'
-export { closeDatabase, type DatabaseConfig, getDatabase, getPoolHealth, initializeDatabase, type PoolHealth, sql, SQL, transaction } from './db'
-export { createEntitySchema, EntityBuilder } from './entity'
+// Expression builder
 export {
-  ArraySizeError,
-  BulkOperationError,
-  DatabaseError,
-  EntityNotFoundError,
-  ForeignKeyConstraintViolationError,
-  InvalidColumnError,
-  InvalidIdentifierError,
-  JsonDepthError,
-  JsonSizeError,
-  NotNullConstraintViolationError,
-  OptimisticLockError,
+  type AssembledExpr,
+  createExprBuilder,
+  type ExprBuilder,
+  type ExprOp,
+  type ExprTape,
+  type SubqueryRef,
+  type TsQueryRef,
+} from './builder/expr'
+// Query builders
+export {
+  DeleteBuilder,
+  type IncludeCallback,
+  type IncludeEntry,
+  InsertBuilder,
+  MergeBuilder,
+  OnConflictBuilder,
+  SelectBuilder,
+  SetOperationBuilder,
+  UpdateBuilder,
+  UpsertBuilder,
+} from './builder/query'
+// Errors
+export {
+  AfterHookError,
+  CheckError,
+  ConnectionError,
+  ConstraintError,
+  DeadlockError,
+  DestructiveOpError,
+  ForeignKeyError,
+  MigrationError,
+  NotFoundError,
+  NotNullError,
+  OrmError,
   QueryError,
-  sanitizeError,
-  StringLengthError,
-  UniqueConstraintViolationError,
-  ValidationError,
-} from './errors'
-export { Expression, ExpressionBuilder } from './expression'
-export type { ExpressionNode } from './expression'
-export { defineFactory, Factory } from './factory'
-export type { FactoryGenerator } from './factory'
-export { field } from './field'
+  StaleRecordError,
+  TimeoutError,
+  UniqueError,
+} from './errors/index'
+// Hooks
+export { hasHooks, runHooks, runHooksAsync } from './hooks/index'
+
+// JIT Mapper
+export { type RowMapper } from './mapper/index'
+
+// Migration
+export {
+  applyMigration,
+  diffSchema,
+  ensureMigrationTable,
+  generateMigration,
+  getMigrationHistory,
+  getMigrationStatus,
+  introspectLiveSchema,
+  type MigrationFile,
+  type MigrationOp,
+  recordMigration,
+} from './migration/index'
+
+// Repository
+export { Repository } from './repo/index'
+
+export { type ColumnTypes } from './schema/columns'
+
+// Schema
+export { defineTable } from './schema/index'
+
+export { createRelationTypes, type RelationTypes } from './schema/relations'
+
+// Execution engine
+export {
+  Database,
+  type DbConfig,
+  type Executable,
+  type QueryEvent,
+  SavepointClient,
+  SavepointRollback,
+  type SlowQueryEvent,
+  TransactionClient,
+  type TransactionOptions,
+} from './sql/index'
+
+// Traits
+export { applyTrait, optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
+
+// Types
 export type {
-  ArrayFieldBuilder,
-  BlobFieldBuilder,
-  BooleanFieldBuilder,
-  DateFieldBuilder,
-  EnumFieldBuilder,
-  JsonFieldBuilder,
-  NumberFieldBuilder,
-  StringFieldBuilder,
-  TimestampFieldBuilder,
-  UuidFieldBuilder,
-} from './field'
-export { extractOperation, type QueryLogEntry, queryLogger, type QueryLogger, type QueryLoggingConfig } from './logger'
-export type {
-  DatabaseColumn,
-  DatabaseConstraint,
-  DatabaseIndex,
-  DatabaseSchema,
-  DatabaseTable,
-  Migration,
-  MigrationConfig,
-  MigrationRecord,
-  MigrationRunResult,
-  MigrationStatus,
-  PostgresType,
-  PostgresTypeMapping,
-  SchemaChange,
-  SchemaChangeType,
-  SchemaDiff,
-} from './migration/types'
-export { ORM } from './orm'
-export type { ORMConfig } from './orm'
-export { QueryBuilder } from './query'
-export { Repository } from './repository'
-export type { Seeder, SeederContext } from './seeder'
-export { SeederRunner } from './seeder'
-export { createTrait, paranoid, publishable, sluggable, softDelete, sortable, timestamps, uuidPrimary, versionable } from './traits'
-export type {
-  AfterCreateHook,
-  AfterDeleteHook,
-  AfterUpdateHook,
-  AggregationResult,
-  AllWhereOperator,
-  ArrayFieldConfig,
-  ArrayFieldKeys,
-  BaseFieldConfig,
-  BeforeCreateHook,
-  BeforeDeleteHook,
-  BeforeUpdateHook,
-  BlobFieldConfig,
-  BooleanFieldConfig,
-  CursorPaginationResult,
-  CustomValidator,
-  DatabaseRow,
-  DateFieldConfig,
-  EntityDefinition,
-  EntityHooks,
-  EntityMetadata,
-  EntitySchema,
-  EnumFieldConfig,
-  EqualityOperator,
-  FieldConfig,
-  FieldType,
-  GroupByResult,
-  InferArrayElement,
-  InferCreateData,
+  AnyColumnDef,
+  AnyColumns,
+  AnyRelationDef,
+  AnyRelations,
+  AnyTableDef,
+  AnyVirtuals,
+  ColumnConstraint,
+  ColumnDef,
+  ColumnNames,
+  ColumnType,
+  ForeignKeyRef,
+  HasDefault,
+  HookEvent,
+  HookHandler,
+  HookRegistry,
+  IndexDef,
   InferEntity,
-  InferField,
-  InferFieldType,
-  InferProjection,
-  InferProjectionClean,
-  InferUpdateData,
-  JsonFieldConfig,
-  JsonFieldKeys,
-  NumberFieldConfig,
-  OperatorsForKey,
-  OrderDirection,
-  OrderingOperator,
-  PaginationResult,
-  PatternOperator,
-  SQLInstance,
-  SQLValue,
-  StringFieldConfig,
-  StringLikeFieldKeys,
-  TimestampFieldConfig,
-  TraitDefinition,
-  TraitMethods,
-  UuidFieldConfig,
-  ValidationErrorDetail,
-  WhereValueForKey,
-} from './types'
+  InferInsert,
+  InferInsertFromTable,
+  InferRelationResult,
+  InferSelect,
+  InferSelectFromTable,
+  InferUpdate,
+  InferUpdateFromTable,
+  InferWhere,
+  IsGenerated,
+  IsNullable,
+  IsPrimaryKey,
+  NoDefault,
+  NotGenerated,
+  NotNullable,
+  NotPrimaryKey,
+  RelationDef,
+  RelationKind,
+  TableDef,
+  VirtualDef,
+  WithIncludes,
+  WithVirtuals,
+} from './types/index'

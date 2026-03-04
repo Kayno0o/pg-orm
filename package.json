@@ -1,7 +1,7 @@
 {
   "name": "@kaynooo/pg-orm",
   "type": "module",
-  "version": "2.3.0",
+  "version": "2.0.0",
   "description": "Lightweight ORM for Bun SQL with PostgreSQL support",
   "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
@@ -48,22 +48,21 @@
     "circular:schema": "madge ./src/index.ts --image graph.png",
     "duplicates": "jscpd ./src --threshold 2 --min-lines 10",
     "unused": "knip",
+    "bench": "bash bench.sh",
     "prepare": "husky"
   },
   "peerDependencies": {
     "bun-types": "latest"
   },
   "dependencies": {
-    "@kaynooo/utils": "^1.7.4",
-    "husky": "^9.1.7"
+    "@kaynooo/utils": "^1.7.4"
   },
   "devDependencies": {
     "@kaynooo/eslint": "^1.5.6",
-    "@types/benchmark": "^2.1.5",
     "@types/bun": "^1.3.8",
     "baseline-browser-mapping": "^2.9.19",
-    "benchmark": "^2.1.4",
     "bun-types": "^1.3.8",
+    "husky": "^9.1.7",
     "knip": "^5.83.0",
     "typedoc": "^0.28.16",
     "typedoc-github-theme": "^0.3.1"

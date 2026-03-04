@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -6,9 +6,40 @@ on:
       - main
     paths:
       - '**/*.ts'
+  pull_request:
+    paths:
+      - '**/*.ts'
   workflow_dispatch:
 
 jobs:
+  lint-and-typecheck:
+    runs-on: debian
+    steps:
+      - name: Install git before checkout
+        run: apt-get update && apt-get install -y git unzip
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install project deps
+        run: bun install --frozen-lockfile
+
+      - name: Check circular dependencies
+        run: bun run circular
+
+      - name: Typecheck
+        run: bun run check
+
+      - name: Lint
+        run: bun run lint:fix --dry-run 2>/dev/null || bunx eslint . --cache
+
   test:
     runs-on: debian
     steps:
@@ -39,6 +70,9 @@ jobs:
 
       - name: Install project deps
         run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
 
       - name: Run tests
         env:
