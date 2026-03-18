@@ -23,9 +23,9 @@ export async function withTestDb(fn: (db: Database) => Promise<void>): Promise<v
 }
 
 export async function truncateAll(db: Database): Promise<void> {
-  await db.raw('TRUNCATE "post_tags", "comments", "posts", "tags", "versioned_items", "users" CASCADE', [])
+  await db.raw('TRUNCATE "post_tags", "comments", "posts", "tags", "versioned_items", "users", "items" CASCADE', [])
 }
 
 export async function dropAllTables(db: Database): Promise<void> {
-  await db.raw('DROP TABLE IF EXISTS "post_tags", "comments", "posts", "versioned_items", "tags", "users" CASCADE', [])
+  await db.raw('DROP TABLE IF EXISTS "post_tags", "comments", "posts", "versioned_items", "tags", "users", "items" CASCADE', [])
 }

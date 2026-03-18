@@ -59,6 +59,13 @@ commentsTable.withRelations(r => ({
   author: r.belongsTo('users', 'authorId'),
 }))
 
+export const itemsTable = defineTable('items', t => ({
+  id: t.serial().primaryKey(),
+  name: t.text().notNull(),
+  tags: t.array(t.text()).notNull().default([]),
+  scores: t.array(t.int4()).nullable(),
+}))
+
 export const allTables = [
   usersTable,
   postsTable,
@@ -66,4 +73,5 @@ export const allTables = [
   tagsTable,
   postTagsTable,
   versionedItemsTable,
+  itemsTable,
 ]
