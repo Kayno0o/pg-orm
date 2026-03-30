@@ -1,7 +1,7 @@
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { createInterface } from 'node:readline'
-import { colors } from '@kaynooo/utils/tools'
+import { colors } from '@kaynooo/utils'
 import { SQL } from 'bun'
 import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'

@@ -13,6 +13,7 @@ export default typescript({
       ],
       'max-depth': ['warn', 4],
       'ts/no-empty-object-type': 'off',
+      'e18e/prefer-static-regex': 'warn',
     },
   },
 }, {
