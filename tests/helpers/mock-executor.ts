@@ -26,6 +26,6 @@ export class MockExecutor implements Executable {
   }
 
   get lastQuery(): RecordedQuery | undefined {
-    return this.queries[this.queries.length - 1]
+    return this.queries.at(-1)
   }
 }

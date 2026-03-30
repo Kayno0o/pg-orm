@@ -129,7 +129,7 @@ describe('Cursor Pagination', () => {
     const repo = db.repo(usersTable)
     // Get the last few items
     const allUsers = await repo.findMany(q => q.orderBy('id', 'asc'))
-    const lastId = allUsers[allUsers.length - 1]!.id
+    const lastId = allUsers.at(-1)!.id
 
     const result = await repo.paginateCursor({
       take: 3,

@@ -539,7 +539,7 @@ export class Repository<
     if (!isForward)
       data.reverse()
 
-    const lastRow = data[data.length - 1] as Record<string, unknown> | undefined
+    const lastRow = data.at(-1) as Record<string, unknown> | undefined
     const nextCursor = hasMore && lastRow ? lastRow[col as string] : null
 
     return { data, nextCursor }

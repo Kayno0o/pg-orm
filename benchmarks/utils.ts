@@ -160,7 +160,7 @@ export function loadPreviousResult(currentCommit: string): RunResult | null {
     return null
 
   // Load the most recent result that isn't the current commit
-  const filepath = join(RESULTS_DIR, files[files.length - 1]!)
+  const filepath = join(RESULTS_DIR, files.at(-1)!)
 
   try {
     return JSON.parse(readFileSync(filepath, 'utf-8')) as RunResult
