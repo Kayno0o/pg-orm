@@ -74,6 +74,7 @@ export {
   Database,
   type DbConfig,
   type Executable,
+  type QueryErrorEvent,
   type QueryEvent,
   SavepointClient,
   SavepointRollback,

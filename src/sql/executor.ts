@@ -199,6 +199,14 @@ export interface SlowQueryEvent extends QueryEvent {
   threshold: number
 }
 
+export interface QueryErrorEvent {
+  error: unknown
+  sql: string
+  params: unknown[]
+  /** Optional request context for correlation (e.g., requestId, traceId). */
+  context?: Record<string, unknown>
+}
+
 export interface DbConfig {
   url?: string
   hostname?: string
@@ -229,6 +237,8 @@ export interface DbConfig {
   onSlowQuery?: (event: SlowQueryEvent) => void
   /** Slow query threshold in milliseconds (default: 1000) */
   slowQueryThreshold?: number
+  /** Called when any query fails — receives the error, SQL, and params */
+  onError?: (event: QueryErrorEvent) => void
   /** Called when ping() fails — useful for logging connection issues */
   onPingError?: (error: unknown) => void
   /**
@@ -264,13 +274,24 @@ abstract class BaseExecutor implements Executable {
 
   protected _onQuery?: (event: QueryEvent) => void
   protected _onSlowQuery?: (event: SlowQueryEvent) => void
+  protected _onError?: (event: QueryErrorEvent) => void
   protected _slowQueryThreshold = 1000
   protected _context?: Record<string, unknown>
 
   async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     if (this._onQuery || this._onSlowQuery) {
       const start = performance.now()
-      const result = await unsafeQuery(this.sql, sqlStr, params)
+      let result: Record<string, unknown>[]
+
+      try {
+        result = await unsafeQuery(this.sql, sqlStr, params)
+      }
+      catch (err) {
+        this._onError?.({ error: err, sql: sqlStr, params, ...(this._context ? { context: this._context } : {}) })
+
+        throw err
+      }
+
       const durationMs = performance.now() - start
       const event: QueryEvent = { sql: sqlStr, params, durationMs }
 
@@ -286,7 +307,14 @@ abstract class BaseExecutor implements Executable {
       return result
     }
 
-    return unsafeQuery(this.sql, sqlStr, params)
+    try {
+      return await unsafeQuery(this.sql, sqlStr, params)
+    }
+    catch (err) {
+      this._onError?.({ error: err, sql: sqlStr, params, ...(this._context ? { context: this._context } : {}) })
+
+      throw err
+    }
   }
 }
 
@@ -321,11 +349,12 @@ export class Database extends BaseExecutor {
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
     this._onSlowQuery = onSlowQuery
+    this._onError = onError
 
     if (slowQueryThreshold != null)
       this._slowQueryThreshold = slowQueryThreshold
@@ -702,7 +731,7 @@ export class Database extends BaseExecutor {
           )
         }
 
-        const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
+        const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
 
         if (opts?.context)
           tx._context = opts.context
@@ -841,11 +870,12 @@ export class TransactionClient extends BaseExecutor {
   /** @internal */ _onRollbackCallbacks: ((err: unknown) => void | Promise<void>)[] = []
   /** @internal */ declare _context?: Record<string, unknown>
 
-  constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number) {
+  constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number, onError?: (event: QueryErrorEvent) => void) {
     super()
     this.sql = sqlTx
     this._onQuery = onQuery
     this._onSlowQuery = onSlowQuery
+    this._onError = onError
 
     if (slowQueryThreshold != null)
       this._slowQueryThreshold = slowQueryThreshold
@@ -867,7 +897,7 @@ export class TransactionClient extends BaseExecutor {
     return await (this.sql as unknown as {
       savepoint: (fn: (sp: unknown) => Promise<T>) => Promise<T>
     }).savepoint(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold)
+      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
 
       return await fn(sp)
     })
@@ -878,12 +908,13 @@ export class SavepointClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
   readonly name: string
 
-  constructor(sqlSp: InstanceType<typeof SQL>, name: string, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number) {
+  constructor(sqlSp: InstanceType<typeof SQL>, name: string, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number, onError?: (event: QueryErrorEvent) => void) {
     super()
     this.sql = sqlSp
     this.name = name
     this._onQuery = onQuery
     this._onSlowQuery = onSlowQuery
+    this._onError = onError
 
     if (slowQueryThreshold != null)
       this._slowQueryThreshold = slowQueryThreshold
