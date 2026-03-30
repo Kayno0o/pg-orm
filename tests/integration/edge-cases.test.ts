@@ -37,7 +37,7 @@ describe('restore()', () => {
 
     expect(restored).toHaveLength(1)
     expect(restored[0]!.name).toBe('Alice')
-    expect((restored[0] as any).deletedAt).toBeNull()
+    expect(restored[0]!.deletedAt).toBeNull()
 
     // Should be visible again
     expect(await repo.findMany()).toHaveLength(1)
@@ -112,7 +112,7 @@ describe('upsertMany()', () => {
 
     expect(result).toHaveLength(2)
 
-    const all = await repo.findMany(q => q.orderBy('email' as any, 'asc') as any) as any[]
+    const all = await repo.findMany(q => q.orderBy('email', 'asc'))
 
     expect(all).toHaveLength(2)
     expect(all[0]!.name).toBe('Alice Updated')
@@ -138,7 +138,7 @@ describe('upsertMany()', () => {
       ['name'],
     )
 
-    const user = await repo.findOne(q => q.where(e => e.eq('email', 'a@test.com')) as any) as any
+    const user = await repo.findOne(q => q.where(e => e.eq('email', 'a@test.com')))
 
     expect(user!.name).toBe('Alice Changed')
     // age should NOT be updated since we only specified 'name' as update column
@@ -170,7 +170,7 @@ describe('Default query limit', () => {
       expect(users).toHaveLength(2)
 
       // findMany with explicit limit should use that
-      const all = await repo.findMany(q => q.limit(10) as any)
+      const all = await repo.findMany(q => q.limit(10))
 
       expect(all).toHaveLength(3)
     }
@@ -392,10 +392,10 @@ describe('NULL handling in aggregates', () => {
     await repo.insertOne({ name: 'Bob', email: 'nullagg-b@test.com', age: null })
 
     const rows = await repo.findMany(q =>
-      q.pick().computed('SUM("age")', 'total') as any,
+      q.pick().computed('SUM("age")', 'total'),
     )
 
-    expect((rows[0] as any).total).toBeNull()
+    expect(rows[0]!.total).toBeNull()
   })
 })
 
@@ -404,7 +404,7 @@ describe('Large values', () => {
   it('handles large text values', async () => {
     const repo = db.repo(postsTable)
     const largeBody = 'x'.repeat(100_000)
-    const post = await repo.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 } as any)
+    const post = await repo.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
 
     expect(post.body).toBe(largeBody)
     expect(post.body.length).toBe(100_000)

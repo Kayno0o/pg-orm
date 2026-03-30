@@ -195,19 +195,19 @@ const _singletonExprBuilder: ExprBuilder<any> = {
 
   raw: (sql, ...params) => [{ op: OP_RAW, sql, params }],
 
-  jsonbPath: (col, path) => [{ op: OP_JSONB_PATH, col: col as string | ExprTape, path }],
-  jsonbSubscript: (col, ...path) => [{ op: OP_JSONB_SUBSCRIPT, col: col as string | ExprTape, path }],
+  jsonbPath: (col, path) => [{ op: OP_JSONB_PATH, col, path }],
+  jsonbSubscript: (col, ...path) => [{ op: OP_JSONB_SUBSCRIPT, col, path }],
 
-  tsMatch: (col, query) => [{ op: OP_TS_MATCH, col: col as string | ExprTape, query }],
+  tsMatch: (col, query) => [{ op: OP_TS_MATCH, col, query }],
   tsQuery: (language, query) => {
     validateTsLanguage(language)
 
     return { language, query }
   },
 
-  vectorCosineDistance: (col, vec) => [{ op: OP_VEC_DISTANCE, col: col as string | ExprTape, vec, metric: 'cosine' }],
-  vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col: col as string | ExprTape, vec, metric: 'l2' }],
-  vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col: col as string | ExprTape, vec, metric: 'inner' }],
+  vectorCosineDistance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'cosine' }],
+  vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'l2' }],
+  vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'inner' }],
 
   ref: path => [{ op: OP_REF, path }],
 

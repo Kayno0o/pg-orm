@@ -7,7 +7,7 @@ const MIGRATION_TABLE = '_pgorm_migrations'
 
 // Typed Object.entries for column maps
 function columnEntries(columns: AnyColumns): [string, AnyColumnDef][] {
-  return Object.entries(columns) as [string, AnyColumnDef][]
+  return Object.entries(columns)
 }
 
 // --- Schema Introspection (from information_schema + pg_catalog) ---

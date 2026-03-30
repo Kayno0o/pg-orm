@@ -137,7 +137,7 @@ export function defineTable(
     meta,
     hook(event: HookEvent, handler: (...args: unknown[]) => unknown) {
       hooks[event] ||= []
-      hooks[event]!.push(handler)
+      hooks[event].push(handler)
 
       return table
     },

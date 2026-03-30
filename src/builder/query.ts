@@ -727,7 +727,7 @@ export class SelectBuilder<
 
   /** Add an ORDER BY clause. Can be called multiple times for multi-column ordering. */
   orderBy(col: keyof TColumns & string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
-    this._state.orderBy.push({ col: col as string, dir, nulls })
+    this._state.orderBy.push({ col, dir, nulls })
 
     return this
   }

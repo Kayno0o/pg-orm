@@ -1,6 +1,7 @@
 import typescript from '@kaynooo/eslint/typescript'
 
 export default typescript({
+  strict: true,
   mergeOptions: {
     rules: {
       'unused-imports/no-unused-vars': [

@@ -119,7 +119,7 @@ export type AnyColumns = Record<string, AnyColumnDef>
 export type AnyRelationDef = RelationDef<any, any>
 export type AnyRelations = Record<string, AnyRelationDef>
 export type AnyVirtuals = Record<string, VirtualDef<any, any>>
-export type AnyTableDef = TableDef<any, any, any, any>
+export type AnyTableDef = TableDef<string, any, any, any>
 
 // Table definition — the runtime object returned by defineTable
 export interface TableDef<

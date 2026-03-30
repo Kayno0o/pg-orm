@@ -1,3 +1,4 @@
+import type { ExprTape } from '../../src/builder/expr'
 import type { QueryError } from '../../src/errors/index'
 /**
  * Security tests — SQL injection, identifier escaping, input validation,
@@ -15,7 +16,7 @@ import { quote, quotePath } from '../../src/sql/utils'
 const e = createExprBuilder<any>()
 
 function sql(tape: any, offset = 0) {
-  return assembleExpr(tape, offset)
+  return assembleExpr(tape as ExprTape, offset)
 }
 
 // ─── Identifier Validation ───────────────────────────────────────────────────
@@ -518,9 +519,9 @@ describe('Security: Error message sanitization in production', () => {
       )
 
       // Structured fields should still be accessible for programmatic error handling
-      expect((err as any).constraint).toBe('uq_email')
-      expect((err as any).table).toBe('users')
-      expect((err as any).column).toBe('email')
+      expect(err.constraint).toBe('uq_email')
+      expect(err.table).toBe('users')
+      expect(err.column).toBe('email')
     }
     finally {
       process.env.REDACT_QUERY_LOGS = originalRedact

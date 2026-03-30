@@ -378,16 +378,16 @@ export class Database extends BaseExecutor {
     }
 
     if (pool) {
-      if (pool.max)
+      if (pool.max !== undefined)
         sqlOpts.max = pool.max
 
-      if (pool.idleTimeout)
+      if (pool.idleTimeout !== undefined)
         sqlOpts.idleTimeout = pool.idleTimeout
 
-      if (pool.maxLifetime)
+      if (pool.maxLifetime !== undefined)
         sqlOpts.maxLifetime = pool.maxLifetime
 
-      if (pool.connectionTimeout)
+      if (pool.connectionTimeout !== undefined)
         sqlOpts.connectionTimeout = pool.connectionTimeout
     }
 
@@ -487,10 +487,10 @@ export class Database extends BaseExecutor {
 
     // Phase 2: Acquire advisory lock + introspect + diff + apply DDL inside a
     // single transaction. The lock is transaction-scoped and auto-released on commit.
-    return await (this.sql as unknown as {
+    return (this.sql as unknown as {
       begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
     }).begin(async (sqlTx) => {
-      const txUnsafe = sqlTx as unknown as UnsafeSql
+      const txUnsafe = sqlTx as UnsafeSql
 
       // Acquire transaction-scoped advisory lock (auto-released on COMMIT/ROLLBACK).
       // pg_advisory_xact_lock is transaction-scoped — unlike pg_advisory_lock which
@@ -599,10 +599,10 @@ export class Database extends BaseExecutor {
     const rolledBack: string[] = []
     const sqlParts: string[] = []
 
-    return await (this.sql as unknown as {
+    return (this.sql as unknown as {
       begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
     }).begin(async (sqlTx) => {
-      const txUnsafe = sqlTx as unknown as UnsafeSql
+      const txUnsafe = sqlTx as UnsafeSql
       const txExecutor: Executable = {
         query: async (sqlStr: string, params: unknown[]) => {
           return await txUnsafe.unsafe(sqlStr, params) as Record<string, unknown>[]
@@ -672,7 +672,7 @@ export class Database extends BaseExecutor {
     }
 
     // Tagged template: assemble SQL with $N placeholders
-    const parts = sqlOrStrings as TemplateStringsArray
+    const parts = sqlOrStrings
     let sql = parts[0] ?? ''
     const params: unknown[] = []
 
@@ -717,15 +717,15 @@ export class Database extends BaseExecutor {
           if (opts.accessMode && !VALID_ACCESS_MODES.has(opts.accessMode))
             throw new Error(`Invalid access mode: "${opts.accessMode}"`)
 
-          await (sqlTx as unknown as UnsafeSql).unsafe(
+          await (sqlTx as UnsafeSql).unsafe(
             `SET TRANSACTION ISOLATION LEVEL ${opts.isolation.toUpperCase()}${opts.accessMode ? ` ${opts.accessMode.toUpperCase().replace('_', ' ')}` : ''}`,
             [],
           )
         }
 
         // Apply statement timeout if configured
-        if (this._statementTimeout) {
-          await (sqlTx as unknown as UnsafeSql).unsafe(
+        if (this._statementTimeout !== undefined) {
+          await (sqlTx as UnsafeSql).unsafe(
             `SET statement_timeout = ${Math.floor(this._statementTimeout)}`,
             [],
           )
@@ -738,7 +738,7 @@ export class Database extends BaseExecutor {
 
         txRef = tx
 
-        return await fn(tx)
+        return fn(tx)
       })
 
       // Transaction committed — fire onCommit callbacks
@@ -894,12 +894,12 @@ export class TransactionClient extends BaseExecutor {
   async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {
     const name = `sp_${++this._savepointCounter}`
 
-    return await (this.sql as unknown as {
+    return (this.sql as unknown as {
       savepoint: (fn: (sp: unknown) => Promise<T>) => Promise<T>
     }).savepoint(async (sqlSp) => {
       const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
 
-      return await fn(sp)
+      return fn(sp)
     })
   }
 }

@@ -102,7 +102,7 @@ describe('timestamps trait', () => {
     const hook = table.hooks.beforeUpdate![0]!
     const before = new Date()
     const row: any = { name: 'test' }
-    const result = hook(row) as any
+    const result = hook(row)
 
     expect(result.updatedAt).toBeInstanceOf(Date)
     expect(result.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())

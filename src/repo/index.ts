@@ -21,7 +21,7 @@ function getVirtualEntries(table: AnyTableDef): [string, { compute: (r: unknown)
   if (!entries) {
     const virtuals = table.virtuals
 
-    entries = virtuals ? Object.entries(virtuals) as [string, { compute: (r: unknown) => unknown }][] : []
+    entries = virtuals ? Object.entries(virtuals) : []
     _virtualEntriesCache.set(table, entries)
   }
 
@@ -78,7 +78,7 @@ export class Repository<
 
   private async _runBefore<T>(event: HookEvent, value: T): Promise<T> {
     if (hasHooks(this._table, event)) {
-      return await runHooksAsync(this._table, event, value)
+      return runHooksAsync(this._table, event, value)
     }
 
     return value
@@ -180,7 +180,7 @@ export class Repository<
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
   ): Promise<any | null> {
     const wrappedCb = cb
-      ? (q: SelectBuilder<TColumns, TRelations>) => cb(q).limit(1) as SelectBuilder<TColumns, TRelations, any>
+      ? (q: SelectBuilder<TColumns, TRelations>) => cb(q).limit(1)
       : (q: SelectBuilder<TColumns, TRelations>) => q.limit(1) as SelectBuilder<TColumns, TRelations, any>
     const rows = await this.findMany(wrappedCb)
 
@@ -221,7 +221,7 @@ export class Repository<
 
     const b = new InsertBuilder<TColumns>(this._table.name)
       .values(v)
-      .returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -248,12 +248,12 @@ export class Repository<
     let v = values
 
     if (hasHooks(this._table, 'beforeInsert')) {
-      v = await Promise.all(v.map(row => runHooksAsync(this._table, 'beforeInsert', row)))
+      v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeInsert', row)))
     }
 
     const b = new InsertBuilder<TColumns>(this._table.name)
       .many(v)
-      .returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -276,7 +276,7 @@ export class Repository<
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
       .where(where)
-      .returning() as UpdateBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
 
     // Auto-increment version column for optimistic locking (after validation)
     if (lockCol) {
@@ -304,7 +304,7 @@ export class Repository<
       const b = new UpdateBuilder<TColumns>(this._table.name)
         .set({ [sdCol]: new Date() } as InferUpdate<TColumns>)
         .where(where)
-        .returning() as UpdateBuilder<TColumns, InferSelect<TColumns>>
+        .returning()
       const { sql, params } = b.toSQL()
       const rows = await this._query(sql, params)
 
@@ -317,7 +317,7 @@ export class Repository<
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
       .where(where)
-      .returning() as DeleteBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -338,7 +338,7 @@ export class Repository<
 
       return this.findOne(q => q.where((e) => {
         const conditions = pkCols.map(col =>
-          e.eq(col.trim() as any, (id as Record<string, unknown>)[col.trim()!] as any),
+          e.eq(col.trim() as any, (id as Record<string, unknown>)[col.trim()] as any),
         )
 
         return e.and(...conditions)
@@ -435,13 +435,13 @@ export class Repository<
     let v = values
 
     if (hasHooks(this._table, 'beforeUpsert')) {
-      v = await Promise.all(v.map(row => runHooksAsync(this._table, 'beforeUpsert', row)))
+      v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeUpsert', row)))
     }
 
     const ib = new InsertBuilder<TColumns>(this._table.name).many(v)
     const conflict = ib.onConflict(conflictTarget)
     const resolved = updateColumns?.length ? conflict.doUpdate(...updateColumns) : conflict.doUpdate()
-    const final = resolved.returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+    const final = resolved.returning()
     const { sql, params } = final.toSQL()
     const rows = await this._query(sql, params)
 
@@ -466,7 +466,7 @@ export class Repository<
       .values(v)
       .onConflict(conflictTarget)
       .doUpdate(pk as keyof TColumns & string)
-      .returning() as InsertBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -491,7 +491,7 @@ export class Repository<
           b = b.where(whereFn as any) as any
 
         return b as any
-      }) as Promise<InferSelect<TColumns>[]>,
+      }),
       this.count(whereFn),
     ])
 
@@ -528,7 +528,7 @@ export class Repository<
       }
 
       return b as any
-    }) as InferSelect<TColumns>[]
+    })
 
     const hasMore = data.length > take
 
@@ -540,7 +540,7 @@ export class Repository<
       data.reverse()
 
     const lastRow = data.at(-1) as Record<string, unknown> | undefined
-    const nextCursor = hasMore && lastRow ? lastRow[col as string] : null
+    const nextCursor = hasMore && lastRow ? lastRow[col] : null
 
     return { data, nextCursor }
   }
@@ -561,7 +561,7 @@ export class Repository<
       .set(s)
       .where((e: ExprBuilder<TColumns>) =>
         e.and(where(e), e.isNotNull(sdCol as any)))
-      .returning() as UpdateBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -578,7 +578,7 @@ export class Repository<
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
       .where(where)
-      .returning() as DeleteBuilder<TColumns, InferSelect<TColumns>>
+      .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
@@ -633,10 +633,10 @@ export class Repository<
       let mapped = mapChunk(mapper, rows) as InferSelect<TColumns>[]
 
       if (hasHooks(this._table, 'afterSelect')) {
-        mapped = await runHooksAsync(this._table, 'afterSelect', mapped) as InferSelect<TColumns>[]
+        mapped = await runHooksAsync(this._table, 'afterSelect', mapped)
       }
 
-      mapped = this._applyVirtuals(mapped) as InferSelect<TColumns>[]
+      mapped = this._applyVirtuals(mapped)
 
       for (const row of mapped) {
         yield row
@@ -727,7 +727,7 @@ export class Repository<
   // --- Private helpers ---
 
   private async _query(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    return await this._executor.query(sql, params)
+    return this._executor.query(sql, params)
   }
 
   // Get or compile mapper from a select builder's state

@@ -68,19 +68,19 @@ async function main() {
 
   // Link: Post A → rust, typescript; Post B → typescript, bun
   await PostTagRepo.insertMany([
-    { postId: p1!.id, tagId: t1!.id },
-    { postId: p1!.id, tagId: t2!.id },
-    { postId: p2!.id, tagId: t2!.id },
-    { postId: p2!.id, tagId: t3!.id },
+    { postId: p1.id, tagId: t1.id },
+    { postId: p1.id, tagId: t2.id },
+    { postId: p2.id, tagId: t2.id },
+    { postId: p2.id, tagId: t3.id },
   ])
 
   // Add comments
   await CommentRepo.insertMany([
-    { postId: p1!.id, body: 'Great post!', approved: true },
-    { postId: p1!.id, body: 'Spam', approved: false },
-    { postId: p1!.id, body: 'Interesting', approved: true },
-    { postId: p2!.id, body: 'Nice!', approved: true },
-    { postId: p2!.id, body: 'Meh', approved: false },
+    { postId: p1.id, body: 'Great post!', approved: true },
+    { postId: p1.id, body: 'Spam', approved: false },
+    { postId: p1.id, body: 'Interesting', approved: true },
+    { postId: p2.id, body: 'Nice!', approved: true },
+    { postId: p2.id, body: 'Meh', approved: false },
   ])
 
   // --- hasManyThrough ---
