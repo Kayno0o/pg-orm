@@ -7,7 +7,7 @@ import type { QueryError } from '../../src/errors/index'
 import { describe, expect, it } from 'bun:test'
 import { assembleExpr, createExprBuilder } from '../../src/builder/expr'
 import { assembleQuery, DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder } from '../../src/builder/query'
-import { wrapPgError } from '../../src/errors/index'
+import { UniqueError, wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
 import { sanitizeMigrationName, validateIdentifier } from '../../src/schema/validate'
@@ -519,9 +519,12 @@ describe('Security: Error message sanitization in production', () => {
       )
 
       // Structured fields should still be accessible for programmatic error handling
-      expect(err.constraint).toBe('uq_email')
-      expect(err.table).toBe('users')
-      expect(err.column).toBe('email')
+      expect(err).toBeInstanceOf(UniqueError)
+      const uniqueErr = err as UniqueError
+
+      expect(uniqueErr.constraint).toBe('uq_email')
+      expect(uniqueErr.table).toBe('users')
+      expect(uniqueErr.column).toBe('email')
     }
     finally {
       process.env.REDACT_QUERY_LOGS = originalRedact
@@ -560,16 +563,17 @@ describe('Security: Prototype pollution protection', () => {
     // but it should not allow prototype pollution
     defineTable('test_table', t => ({
       __proto__: t.text(),
-    } as any))
+    }))
 
     // Should not pollute Object.prototype
-    expect(({} as any).sqlType).toBeUndefined()
+    // @ts-expect-error we're checking if variable does not exist
+    expect({}.sqlType).toBeUndefined()
   })
 
   it('defineTable does not process constructor as column name', () => {
     const table = defineTable('test_table', t => ({
       constructor: t.text(),
-    } as any))
+    }))
 
     // Table should still be well-formed
     expect(table.name).toBe('test_table')
@@ -588,7 +592,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   it('SELECT with injection in WHERE value', () => {
     const builder = new SelectBuilder<any, any, any>(table.name)
     const state = builder.where(e => e.eq('name', '\'; DROP TABLE users; --'))
-    const result = assembleQuery((state as any)._state)
+    const result = assembleQuery(state._state)
 
     expect(result.sql).toContain('WHERE "name" = $1')
     expect(result.params).toEqual(['\'; DROP TABLE users; --'])
@@ -601,7 +605,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
       name: '\'; DROP TABLE users; --',
       email: '1 OR 1=1',
     }).returning()
-    const result = assembleQuery((state as any)._state)
+    const result = assembleQuery(state._state)
 
     expect(result.sql).toContain('INSERT INTO "users"')
     expect(result.sql).toContain('$1')
@@ -619,7 +623,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
       .set({ name: '\'; DROP TABLE users; --' })
       .where(e => e.eq('id', '1; DELETE FROM users'))
       .returning()
-    const result = assembleQuery((state as any)._state)
+    const result = assembleQuery(state._state)
 
     expect(result.sql).toContain('UPDATE "users" SET')
     expect(result.sql).toContain('$1')
@@ -633,7 +637,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   it('DELETE parameterizes WHERE', () => {
     const builder = new DeleteBuilder<any, any>(table.name)
     const state = builder.where(e => e.eq('id', '1 OR 1=1'))
-    const result = assembleQuery((state as any)._state)
+    const result = assembleQuery(state._state)
 
     expect(result.sql).toContain('DELETE FROM "users"')
     expect(result.sql).toContain('WHERE "id" = $1')
@@ -644,7 +648,7 @@ describe('Security: Full query assembly with malicious inputs', () => {
   it('LIMIT and OFFSET are parameterized', () => {
     const builder = new SelectBuilder<any, any, any>(table.name)
     const state = builder.limit(10).offset(20)
-    const result = assembleQuery((state as any)._state)
+    const result = assembleQuery(state._state)
 
     expect(result.sql).toContain('LIMIT $1')
     expect(result.sql).toContain('OFFSET $2')

@@ -95,6 +95,6 @@ describe('array columns — arrayOverlap filter', () => {
     )
 
     expect(results).toHaveLength(2)
-    expect(results.map((r: any) => r.name)).toEqual(['match1', 'match2'])
+    expect(results.map(r => r.name)).toEqual(['match1', 'match2'])
   })
 })

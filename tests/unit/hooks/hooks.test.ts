@@ -16,7 +16,7 @@ describe('runHooks (sync)', () => {
 
   it('applies hook transformation', () => {
     const table = makeTable({
-      beforeInsert: [(row: any) => ({ ...row, name: row.name.toUpperCase() })],
+      beforeInsert: [row => ({ ...row, name: row.name.toUpperCase() })],
     })
     const result = runHooks(table, 'beforeInsert', { name: 'alice' })
 
@@ -26,8 +26,8 @@ describe('runHooks (sync)', () => {
   it('chains multiple hooks in order', () => {
     const table = makeTable({
       beforeInsert: [
-        (row: any) => ({ ...row, a: 1 }),
-        (row: any) => ({ ...row, b: 2 }),
+        row => ({ ...row, a: 1 }),
+        row => ({ ...row, b: 2 }),
       ],
     })
     const result = runHooks(table, 'beforeInsert', {})
@@ -38,7 +38,7 @@ describe('runHooks (sync)', () => {
   it('skips hook result when returning undefined', () => {
     let called = false
     const table = makeTable({
-      beforeInsert: [(_row: any) => { called = true }],
+      beforeInsert: [(_row) => { called = true }],
     })
     const result = runHooks(table, 'beforeInsert', { name: 'Alice' })
 
@@ -59,7 +59,7 @@ describe('runHooks (sync)', () => {
 describe('runHooksAsync', () => {
   it('handles async hooks', async () => {
     const table = makeTable({
-      beforeInsert: [async (row: any) => ({ ...row, processed: true })],
+      beforeInsert: [async row => ({ ...row, processed: true })],
     })
     const result = await runHooksAsync(table, 'beforeInsert', { name: 'Alice' })
 
@@ -70,12 +70,12 @@ describe('runHooksAsync', () => {
     const order: number[] = []
     const table = makeTable({
       beforeInsert: [
-        async (row: any) => {
+        async (row) => {
           order.push(1)
 
           return { ...row, a: 1 }
         },
-        async (row: any) => {
+        async (row) => {
           order.push(2)
 
           return { ...row, b: 2 }

@@ -61,42 +61,42 @@ describe('defineTable', () => {
   })
 
   it('supports withRelations for two-phase definition', () => {
-    const table = defineTable('test', t => ({
+    const tableRef = defineTable('test', t => ({
       id: t.serial().primaryKey(),
       fk: t.int4(),
     }))
 
-    table.withRelations(r => ({
+    const table = tableRef.withRelations(r => ({
       parent: r.belongsTo('other', 'fk'),
     }))
 
-    expect((table.relations as any).parent).toBeDefined()
+    expect(table.relations.parent).toBeDefined()
   })
 
   it('supports withVirtuals', () => {
-    const table = defineTable('test', t => ({
+    const tableRef = defineTable('test', t => ({
       id: t.serial().primaryKey(),
       firstName: t.text().notNull(),
       lastName: t.text().notNull(),
     }))
 
-    table.withVirtuals({
-      fullName: (row: any) => `${row.firstName} ${row.lastName}`,
+    const table = tableRef.withVirtuals({
+      fullName: row => `${row.firstName} ${row.lastName}`,
     })
 
-    expect((table.virtuals as any).fullName).toBeDefined()
+    expect(table.virtuals.fullName).toBeDefined()
   })
 
   it('supports withTrait', () => {
-    const table = defineTable('test', t => ({
+    const tableRef = defineTable('test', t => ({
       id: t.serial().primaryKey(),
     }))
 
-    table.withTrait(softDelete())
+    const table = tableRef.withTrait(softDelete())
 
-    expect((table.columns as any).deletedAt).toBeDefined()
+    expect(table.columns.deletedAt).toBeDefined()
     expect(table.meta.softDelete).toBeDefined()
-    expect((table.virtuals as any).isDeleted).toBeDefined()
+    expect(table.virtuals.isDeleted).toBeDefined()
   })
 
   it('supports hook registration', () => {

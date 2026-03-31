@@ -1,8 +1,9 @@
+import type { InferEntity } from '../../src/index'
 import { defineTable, optimisticLock, softDelete, timestamps } from '../../src/index'
 
 // --- Shared table definitions for tests ---
 
-export const usersTable = defineTable('users', t => ({
+const usersTableDef = defineTable('users', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull(),
   email: t.text().notNull().unique(),
@@ -11,7 +12,7 @@ export const usersTable = defineTable('users', t => ({
   .withTrait(softDelete())
   .withTrait(timestamps())
 
-export const postsTable = defineTable('posts', t => ({
+const postsTableDef = defineTable('posts', t => ({
   id: t.serial().primaryKey(),
   title: t.text().notNull(),
   body: t.text().notNull(),
@@ -19,7 +20,7 @@ export const postsTable = defineTable('posts', t => ({
   publishedAt: t.timestamptz().nullable(),
 }))
 
-export const commentsTable = defineTable('comments', t => ({
+const commentsTableDef = defineTable('comments', t => ({
   id: t.serial().primaryKey(),
   body: t.text().notNull(),
   postId: t.int4().notNull(),
@@ -44,19 +45,19 @@ export const versionedItemsTable = defineTable('versioned_items', t => ({
   .withTrait(optimisticLock())
 
 // Wire relations after all tables are defined
-usersTable.withRelations(r => ({
-  posts: r.hasMany('posts', 'authorId'),
+export const usersTable = usersTableDef.withRelations(r => ({
+  posts: r.hasMany<InferEntity<typeof postsTableDef>>('posts', 'authorId'),
 }))
 
-postsTable.withRelations(r => ({
-  author: r.belongsTo('users', 'authorId'),
-  comments: r.hasMany('comments', 'postId'),
-  tags: r.hasManyThrough('tags', 'post_tags', { from: 'postId', to: 'tagId' }),
+export const postsTable = postsTableDef.withRelations(r => ({
+  author: r.belongsTo<InferEntity<typeof usersTable>>('users', 'authorId'),
+  comments: r.hasMany<InferEntity<typeof commentsTableDef>>('comments', 'postId'),
+  tags: r.hasManyThrough<InferEntity<typeof tagsTable>>('tags', 'post_tags', { from: 'postId', to: 'tagId' }),
 }))
 
-commentsTable.withRelations(r => ({
-  post: r.belongsTo('posts', 'postId'),
-  author: r.belongsTo('users', 'authorId'),
+export const commentsTable = commentsTableDef.withRelations(r => ({
+  post: r.belongsTo<InferEntity<typeof postsTable>>('posts', 'postId'),
+  author: r.belongsTo<InferEntity<typeof usersTable>>('users', 'authorId'),
 }))
 
 export const itemsTable = defineTable('items', t => ({

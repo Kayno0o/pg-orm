@@ -14,7 +14,7 @@ const hookLog: string[] = []
 
 beforeAll(async () => {
   // Register hooks
-  hookedTable.hook('beforeInsert', (row: any) => {
+  hookedTable.hook('beforeInsert', (row) => {
     hookLog.push('beforeInsert')
 
     return { ...row, name: row.name.toUpperCase() }
@@ -22,7 +22,7 @@ beforeAll(async () => {
   hookedTable.hook('afterInsert', () => {
     hookLog.push('afterInsert')
   })
-  hookedTable.hook('beforeUpdate', (row: any) => {
+  hookedTable.hook('beforeUpdate', (row) => {
     hookLog.push('beforeUpdate')
 
     return row

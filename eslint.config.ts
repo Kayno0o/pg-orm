@@ -14,7 +14,7 @@ export default typescript({
       ],
       'max-depth': ['warn', 4],
       'ts/no-empty-object-type': 'off',
-      'e18e/prefer-static-regex': 'warn',
+      'e18e/prefer-static-regex': 'off',
     },
   },
 }, {
@@ -24,5 +24,6 @@ export default typescript({
     'max-nested-callbacks': ['warn', 4],
     'max-lines-per-function': ['warn', { skipComments: true, skipBlankLines: true, max: 75 }],
     'max-params': ['warn', 5],
+    'e18e/prefer-static-regex': 'warn'
   },
 })

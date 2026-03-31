@@ -84,7 +84,7 @@ export {
 } from './sql/index'
 
 // Traits
-export { applyTrait, optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
+export { optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
 
 // Types
 export type {

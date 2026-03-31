@@ -1,5 +1,5 @@
 import type { ColumnTypes } from '../schema/columns'
-import type { AnyColumns, AnyTableDef, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, VirtualDef } from '../types/index'
+import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, VirtualDef } from '../types/index'
 import { ColumnBuilder, createColumnTypes } from '../schema/columns'
 import { validateIdentifier } from '../schema/validate'
 
@@ -8,8 +8,9 @@ import { validateIdentifier } from '../schema/validate'
  * Apply with `table.withTrait(myTrait)`. Built-in traits: `softDelete()`, `timestamps()`, `optimisticLock()`.
  * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`.
  */
-export interface Trait<TCols extends AnyColumns = {}> {
+export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}> {
   readonly _cols?: TCols
+  readonly _virts?: TVirts
   columns?: (t: ColumnTypes) => Record<string, ColumnBuilder<any, any, any, any, any>>
   hooks?: (table: AnyTableDef) => void
   virtuals?: Record<string, (row: any) => any>
@@ -66,7 +67,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
  * Use `.withTrashed()` on queries to include soft-deleted rows.
  * Use `.forceDelete()` for a real DELETE.
  */
-export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedAt' as C): Trait<Record<C, ColumnDef<Date, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>> {
+export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedAt' as C): Trait<Record<C, ColumnDef<Date, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>, { isDeleted: VirtualDef<any, boolean> }> {
   return {
     columns: t => ({ [column]: t.timestamptz().nullable() }),
     virtuals: {

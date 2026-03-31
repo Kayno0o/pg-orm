@@ -50,11 +50,11 @@ describe('belongsTo', () => {
   it('loads parent relation', async () => {
     const { post1, alice: _alice } = await seedRelations()
     const postRepo = db.repo(postsTable)
-    const posts = await postRepo.findMany(q => (q as any).include('author').where((e: any) => e.eq('id', post1.id)))
+    const posts = await postRepo.findMany(q => q.include('author').where(e => e.eq('id', post1.id)))
 
     expect(posts).toHaveLength(1)
-    expect((posts[0] as any).author).toBeDefined()
-    expect((posts[0] as any).author.name).toBe('Alice')
+    expect(posts[0]!.author).toBeDefined()
+    expect(posts[0]!.author.name).toBe('Alice')
   })
 
   it('sets null when FK is null', async () => {
@@ -68,10 +68,10 @@ describe('belongsTo', () => {
     // Delete the user to make the FK dangle (force delete bypasses soft-delete)
     await userRepo.forceDelete(e => e.eq('id', user.id))
 
-    const posts = await postRepo.findMany(q => (q as any).include('author'))
-    const orphan = posts.find((p: any) => p.title === 'Orphan')
+    const posts = await postRepo.findMany(q => q.include('author'))
+    const orphan = posts.find(p => p.title === 'Orphan')
 
-    expect((orphan as any).author).toBeNull()
+    expect(orphan!.author).toBeNull()
   })
 })
 
@@ -79,19 +79,19 @@ describe('hasMany', () => {
   it('loads children', async () => {
     const { alice } = await seedRelations()
     const userRepo = db.repo(usersTable)
-    const users = await userRepo.findMany(q => (q as any).include('posts').where((e: any) => e.eq('id', alice.id)))
+    const users = await userRepo.findMany(q => q.include('posts').where(e => e.eq('id', alice.id)))
 
     expect(users).toHaveLength(1)
-    expect((users[0] as any).posts).toHaveLength(2)
+    expect(users[0]!.posts).toHaveLength(2)
   })
 
   it('returns empty array when no children', async () => {
     const userRepo = db.repo(usersTable)
     const user = await userRepo.insertOne({ name: 'Loner', email: 'loner@test.com' })
 
-    const users = await userRepo.findMany(q => (q as any).include('posts').where((e: any) => e.eq('id', user.id)))
+    const users = await userRepo.findMany(q => q.include('posts').where(e => e.eq('id', user.id)))
 
-    expect((users[0] as any).posts).toEqual([])
+    expect(users[0]!.posts).toEqual([])
   })
 })
 
@@ -100,13 +100,13 @@ describe('nested includes', () => {
     await seedRelations()
     const userRepo = db.repo(usersTable)
     const users = await userRepo.findMany(q =>
-      (q as any).include('posts').include('posts.comments'))
+      q.include('posts').include('posts.comments'))
 
-    const alice = users.find((u: any) => u.name === 'Alice')!
+    const alice = users.find(u => u.name === 'Alice')!
 
-    expect((alice as any).posts).toBeDefined()
+    expect(alice.posts).toBeDefined()
 
-    const postsWithComments = (alice as any).posts.filter((p: any) => p.comments?.length > 0)
+    const postsWithComments = alice.posts.filter(p => p.comments?.length > 0)
 
     expect(postsWithComments.length).toBeGreaterThan(0)
   })
@@ -117,12 +117,12 @@ describe('hasManyThrough', () => {
     const { post1 } = await seedRelations()
     const postRepo = db.repo(postsTable)
     const posts = await postRepo.findMany(q =>
-      (q as any).include('tags').where((e: any) => e.eq('id', post1.id)))
+      q.include('tags').where(e => e.eq('id', post1.id)))
 
     expect(posts).toHaveLength(1)
-    expect((posts[0] as any).tags).toHaveLength(2)
+    expect(posts[0]!.tags).toHaveLength(2)
 
-    const tagNames = (posts[0] as any).tags.map((t: any) => t.name).sort()
+    const tagNames = posts[0]!.tags.map(t => t.name).sort()
 
     expect(tagNames).toEqual(['postgres', 'typescript'])
   })
@@ -131,19 +131,19 @@ describe('hasManyThrough', () => {
     const { post3 } = await seedRelations()
     const postRepo = db.repo(postsTable)
     const posts = await postRepo.findMany(q =>
-      (q as any).include('tags').where((e: any) => e.eq('id', post3.id)))
+      q.include('tags').where(e => e.eq('id', post3.id)))
 
-    expect((posts[0] as any).tags).toEqual([])
+    expect(posts[0]!.tags).toEqual([])
   })
 
   it('uses __pgorm_pivot_fk__ internally (no collision)', async () => {
     const { post1 } = await seedRelations()
     const postRepo = db.repo(postsTable)
     const posts = await postRepo.findMany(q =>
-      (q as any).include('tags').where((e: any) => e.eq('id', post1.id)))
+      q.include('tags').where(e => e.eq('id', post1.id)))
 
     // The pivot FK should be cleaned up from the result
-    const tag = (posts[0] as any).tags[0]
+    const tag = posts[0]!.tags[0]
 
     expect(tag).not.toHaveProperty('__pgorm_pivot_fk__')
     expect(tag).not.toHaveProperty('__pivot_fk')
@@ -155,10 +155,10 @@ describe('filtered includes', () => {
     const { alice } = await seedRelations()
     const userRepo = db.repo(usersTable)
     const users = await userRepo.findMany(q =>
-      (q as any).include('posts', (pq: any) => pq.where((e: any) => e.eq('title', 'Post 1'))).where((e: any) => e.eq('id', alice.id)))
+      q.include('posts', pq => pq.where(e => e.eq('title', 'Post 1'))).where(e => e.eq('id', alice.id)))
 
-    expect((users[0] as any).posts).toHaveLength(1)
-    expect((users[0] as any).posts[0].title).toBe('Post 1')
+    expect(users[0]!.posts).toHaveLength(1)
+    expect(users[0]!.posts[0]!.title).toBe('Post 1')
   })
 })
 
@@ -175,12 +175,12 @@ describe('large batch chunking', () => {
       await postRepo.insertOne({ title: `Post by ${user.name}`, body: 'body', authorId: user.id })
     }
 
-    const result = await userRepo.findMany(q => (q as any).include('posts'))
+    const result = await userRepo.findMany(q => q.include('posts'))
 
     expect(result).toHaveLength(20)
 
     for (const u of result) {
-      expect((u as any).posts).toHaveLength(1)
+      expect(u.posts).toHaveLength(1)
     }
   })
 })
