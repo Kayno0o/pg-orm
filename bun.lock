@@ -9,7 +9,7 @@
         "typescript": "^5.9.3",
       },
       "devDependencies": {
-        "@kaynooo/eslint": "^2.1.2",
+        "@kaynooo/eslint": "^2.1.3",
         "@types/bun": "^1.3.11",
         "baseline-browser-mapping": "^2.10.13",
         "bun-types": "^1.3.11",
@@ -96,7 +96,7 @@
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
-    "@kaynooo/eslint": ["@kaynooo/eslint@2.1.2", "https://git.kaynooo.fr/api/packages/kaynooo/npm/%40kaynooo%2Feslint/-/2.1.2/eslint-2.1.2.tgz", { "dependencies": { "@antfu/eslint-config": "^7.7.3", "eslint-plugin-better-tailwindcss": "^4.3.2", "eslint-plugin-format": "^2.0.1", "lodash.merge": "^4.6.2" }, "peerDependencies": { "eslint": "^10.1.0" } }, "sha512-xJgojoVdacEgWT5gJaN+KFEmbb68b87BgRGTU+KlRQZ6QGnY1GmU1qXVsw1A8Y5T5cxEwdCsYcV5rqSimj/k9A=="],
+    "@kaynooo/eslint": ["@kaynooo/eslint@2.1.3", "https://git.kaynooo.fr/api/packages/kaynooo/npm/%40kaynooo%2Feslint/-/2.1.3/eslint-2.1.3.tgz", { "dependencies": { "@antfu/eslint-config": "^7.7.3", "eslint-plugin-better-tailwindcss": "^4.3.2", "eslint-plugin-format": "^2.0.1", "lodash.merge": "^4.6.2" }, "peerDependencies": { "eslint": "^10.1.0" } }, "sha512-seRzZ4QYTrUvD6MO8XbVmEkJw+vdL2RLVj62WHiwFslaaMU2/f4I8by584nmFDGgH3erzNfjksGJDZMX2kPvPA=="],
 
     "@kaynooo/utils": ["@kaynooo/utils@1.8.2", "https://git.kaynooo.fr/api/packages/kaynooo/npm/%40kaynooo%2Futils/-/1.8.2/utils-1.8.2.tgz", { "peerDependencies": { "typescript": "^5.0.0" } }, "sha512-KGEfe/Z/hvUrMajluiSBJDGyJ0Jzo7V+KAkYIVOB3qVoqpdKXnPLXcqO3PphIfw4D0okE8Ar31lC885z6CCtHw=="],
 

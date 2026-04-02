@@ -3,6 +3,7 @@ import { validateTsLanguage } from '../schema/validate'
 import { quote, quotePath } from '../sql/utils'
 
 // --- Expression Tape (flat instruction array, no heap-allocated tree) ---
+const PARAM_RE = /\?/g
 
 // Opcode tags
 export const OP_AND = 0 as const
@@ -152,6 +153,9 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   stringAgg: <K extends keyof TColumns & string>(col: K, delimiter: string) => string
 }
 
+const STRING_AGG_RE = /^[\w\s.,;:|\-/]+$/
+const QUOTE_RE = /'/g
+
 // Singleton expression builder — stateless, so one instance serves all callers
 const _singletonExprBuilder: ExprBuilder<any> = {
   and(...exprs) {
@@ -223,23 +227,25 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   avg: col => `AVG(${quote(col as string)})`,
   min: col => `MIN(${quote(col as string)})`,
   max: col => `MAX(${quote(col as string)})`,
-  countCol: col => col ? `COUNT(${quote(col as string)})` : 'COUNT(*)',
+  countCol: col => col !== undefined ? `COUNT(${quote(col as string)})` : 'COUNT(*)',
 
   // JSON/Array aggregate functions
   jsonAgg: col => `json_agg(${quote(col as string)})`,
   jsonbAgg: col => `jsonb_agg(${quote(col as string)})`,
   arrayAgg: col => `array_agg(${quote(col as string)})`,
   stringAgg: (col, delimiter) => {
-    if (!(/^[\w\s.,;:|\-/]+$/).test(delimiter))
+    if (!STRING_AGG_RE.test(delimiter))
       throw new Error(`stringAgg: unsafe delimiter characters: "${delimiter}"`)
 
-    return `string_agg(${quote(col as string)}, '${delimiter.replace(/'/g, '\'\'')}')`
+    return `string_agg(${quote(col as string)}, '${delimiter.replace(QUOTE_RE, '\'\'')}')`
   },
 }
 
+const LIKE_RE = /[%_\\]/g
+
 // Escape LIKE/ILIKE special characters in user input
 function escapeLikePattern(input: string): string {
-  return input.replace(/[%_\\]/g, '\\$&')
+  return input.replace(LIKE_RE, '\\$&')
 }
 
 // Runtime expression builder — returns shared singleton (stateless)
@@ -411,7 +417,7 @@ class ExprAssembler {
         let paramIdx = 0
         const params = op.params
 
-        rawSql = rawSql.replace(/\?/g, () => {
+        rawSql = rawSql.replace(PARAM_RE, () => {
           if (paramIdx < params.length) {
             return this.nextParam(params[paramIdx++])
           }

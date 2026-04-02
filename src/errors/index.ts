@@ -155,7 +155,7 @@ export class NotFoundError extends OrmError {
 export class StaleRecordError extends OrmError {
   readonly table: string
   readonly version: unknown
-  constructor(table: string, version: unknown) {
+  constructor(table: string, version: number) {
     super(`Stale record: expected version ${version} on table "${table}" but row was updated by another process`)
     this.name = 'StaleRecordError'
     this.table = table

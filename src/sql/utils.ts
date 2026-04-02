@@ -1,3 +1,5 @@
+const QUOTE_RE = /"/g
+
 /**
  * Safely quote a PostgreSQL identifier (table, column, etc.)
  * Handles internal double quotes by escaping them as "".
@@ -6,7 +8,7 @@ export function quote(name: string): string {
   if (name === '*')
     return '*'
 
-  return `"${name.replace(/"/g, '""')}"`
+  return `"${name.replace(QUOTE_RE, '""')}"`
 }
 
 /**

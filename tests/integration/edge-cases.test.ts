@@ -1,4 +1,4 @@
-import type { Database } from '../../src/index'
+import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { OrmError } from '../../src/index'
 import { getMigrationHistory } from '../../src/migration/index'
@@ -287,7 +287,7 @@ describe('Transaction hooks', () => {
 // --- 3.2 Request context correlation ---
 describe('Request context correlation', () => {
   it('propagates context to QueryEvent', async () => {
-    const events: any[] = []
+    const events: QueryEvent[] = []
     const { Database } = await import('../../src/index')
     const ctxDb = new Database({
       url: 'postgres://test:test@127.0.0.1:8532/orm_test',
@@ -311,7 +311,7 @@ describe('Request context correlation', () => {
       const withContext = events.filter(e => e.context?.requestId === 'req-123')
 
       expect(withContext.length).toBeGreaterThan(0)
-      expect(withContext[0].context.userId).toBe(42)
+      expect(withContext[0]!.context!.userId).toBe(42)
     }
     finally {
       await ctxDb.raw('DELETE FROM "users" WHERE email LIKE $1', ['ctx-%'])
@@ -320,7 +320,7 @@ describe('Request context correlation', () => {
   })
 
   it('does not add context when not specified', async () => {
-    const events: any[] = []
+    const events: QueryEvent[] = []
     const { Database } = await import('../../src/index')
     const ctxDb = new Database({
       url: 'postgres://test:test@127.0.0.1:8532/orm_test',

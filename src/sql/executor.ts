@@ -52,7 +52,7 @@ async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp[]): Pr
 
   const defaultYes = destructiveOps.length === 0
 
-  if (answer === 'y' || answer === 'yes' || defaultYes && answer === '')
+  if (answer === 'y' || answer === 'yes' || (defaultYes && answer === ''))
     return true
 
   console.log(`${colors.dim('Sync cancelled.')}\n`)
@@ -123,6 +123,9 @@ const VALID_ACCESS_MODES = new Set([
 
 interface UnsafeSql { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }
 
+const BACKSLASH_RE = /\\/g
+const QUOTE_RE = /"/g
+
 /**
  * Serialize a JS array to a PostgreSQL array literal string, e.g.:
  *   ['a', 'b'] → '{"a","b"}'
@@ -140,7 +143,7 @@ export function serializePgArray(val: unknown[]): string {
       return serializePgArray(item)
 
     if (typeof item === 'string')
-      return `"${item.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+      return `"${item.replace(BACKSLASH_RE, '\\\\').replace(QUOTE_RE, '\\"')}"`
 
     if (typeof item === 'boolean')
       return item ? 'true' : 'false'
@@ -317,6 +320,11 @@ abstract class BaseExecutor implements Executable {
     }
   }
 }
+
+const RENAME_COLUMN_RE = /RENAME COLUMN "(\w+)" TO "(\w+)"/
+const TIMESTAMP_RE = /[:.]/g
+// eslint-disable-next-line regexp/no-unused-capturing-group
+const QUOTED_WORD_RE = /"(\w+)"/
 
 /**
  * Main database connection class. Manages the connection pool, table registry,
@@ -540,15 +548,15 @@ export class Database extends BaseExecutor {
 
         // Record migration in history table
         await ensureMigrationTable(txExecutor)
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        const timestamp = new Date().toISOString().replace(TIMESTAMP_RE, '-').slice(0, 19)
         const downSql = ops.slice().reverse().map((o) => {
           // Inline reverse op generation for sync history
           switch (o.type) {
             case 'create_table': return `DROP TABLE IF EXISTS "${o.table}";`
             case 'add_column': return `ALTER TABLE "${o.table}" DROP COLUMN IF EXISTS "${o.column}";`
-            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
+            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(QUOTED_WORD_RE)?.[0] ?? 'unknown'};`
             case 'rename_column': {
-              const match = o.sql.match(/RENAME COLUMN "(\w+)" TO "(\w+)"/)
+              const match = o.sql.match(RENAME_COLUMN_RE)
 
               return match ? `ALTER TABLE "${o.table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";` : ''
             }

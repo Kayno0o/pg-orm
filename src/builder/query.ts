@@ -6,6 +6,8 @@ import { assembleExpr, createExprBuilder, OP_AND } from './expr'
 // --- Mutable Query State ---
 // Single flat object reused per builder chain. No cloning, no immutable snapshots.
 
+const PLACEHOLDER_RE = /\$(\d+)/g
+
 type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' | 'merge' | 'upsert' | 'count' | 'raw'
 
 type OrderDir = 'asc' | 'desc'
@@ -301,7 +303,7 @@ class QueryAssembler {
       const mat = c.materialized === true ? 'MATERIALIZED ' : c.materialized === false ? 'NOT MATERIALIZED ' : ''
       let paramIdx = 0
       const cteParams = c.params
-      const cteSql = c.sql.replace(/\$\d+/g, () => {
+      const cteSql = c.sql.replace(PLACEHOLDER_RE, () => {
         if (paramIdx < cteParams.length) {
           return this.pushParam(cteParams[paramIdx++])
         }
@@ -328,7 +330,7 @@ class QueryAssembler {
       this.parts.push(`SELECT ${distinct}${cols}`)
     }
 
-    this.parts.push(`FROM ${quote(this.state.table)}${this.state.alias ? ` AS ${quote(this.state.alias)}` : ''}`)
+    this.parts.push(`FROM ${quote(this.state.table)}${this.state.alias !== undefined ? ` AS ${quote(this.state.alias)}` : ''}`)
 
     for (const j of this.state.joins) {
       const joinType = j.type.toUpperCase()
@@ -462,9 +464,8 @@ class QueryAssembler {
     if (when.type === 'matched') {
       if (when.action === 'update' && when.values) {
         const setClauses = Object.entries(when.values).map(([k, v]) => {
-          if (v && typeof v === 'object' && '__raw' in v) {
+          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v)
             return `${quote(k)} = ${(v as { __raw: string }).__raw}`
-          }
 
           return `${quote(k)} = ${this.pushParam(v)}`
         }).join(', ')
@@ -485,7 +486,7 @@ class QueryAssembler {
         const vals = keys.map((k) => {
           const v = when.values![k]
 
-          if (v && typeof v === 'object' && '__raw' in v) {
+          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v) {
             return (v as { __raw: string }).__raw
           }
 
@@ -501,7 +502,7 @@ class QueryAssembler {
     else if (when.type === 'not_matched_by_source') {
       if (when.action === 'update' && when.values) {
         const setClauses = Object.entries(when.values).map(([k, v]) => {
-          if (v && typeof v === 'object' && '__raw' in v) {
+          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v) {
             return `${quote(k)} = ${(v as { __raw: string }).__raw}`
           }
 
@@ -1260,7 +1261,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
       const op = this.operands[i]!
       const offset = allParams.length
       // Re-number $N placeholders with correct offset
-      const sql = op.sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + offset}`)
+      const sql = op.sql.replace(PLACEHOLDER_RE, (_, n) => `$${Number(n) + offset}`)
 
       allParams.push(...op.params)
       parts.push(`(${sql})`)

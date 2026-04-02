@@ -1,4 +1,4 @@
-import type { Executable } from '../../../src/index'
+import type { AnyTableDef, Executable } from '../../../src/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable, DestructiveOpError } from '../../../src/index'
 import { diffSchema, generateMigration } from '../../../src/migration/index'
@@ -28,7 +28,7 @@ function live(tables: { name: string, columns: ReturnType<typeof liveCol>[] }[],
   return { tables, enums }
 }
 
-function registry(...tables: any[]) {
+function registry(...tables: AnyTableDef[]) {
   return new Map(tables.map(t => [t.name, t]))
 }
 

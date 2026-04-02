@@ -1,9 +1,10 @@
+import type { ExprTape } from '../../../src/builder/expr'
 import { describe, expect, it } from 'bun:test'
 import { assembleExpr, createExprBuilder } from '../../../src/builder/expr'
 
 const e = createExprBuilder<any>()
 
-function sql(tape: any, offset = 0) {
+function sql(tape: ExprTape, offset = 0) {
   return assembleExpr(tape, offset)
 }
 

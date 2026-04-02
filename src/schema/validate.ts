@@ -54,7 +54,9 @@ export function validateTsLanguage(language: string): void {
   }
 }
 
+const MIGRATION_NAME_RE = /[^\w-]/g
+
 // Sanitize migration filename — no path traversal
 export function sanitizeMigrationName(name: string): string {
-  return name.replace(/[^\w-]/g, '_')
+  return name.replace(MIGRATION_NAME_RE, '_')
 }

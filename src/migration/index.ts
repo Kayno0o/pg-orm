@@ -4,6 +4,7 @@ import { DestructiveOpError, MigrationError } from '../errors/index'
 
 // Internal migration tracking table name
 const MIGRATION_TABLE = '_pgorm_migrations'
+const SPACE_RE = / /g
 
 // Typed Object.entries for column maps
 function columnEntries(columns: AnyColumns): [string, AnyColumnDef][] {
@@ -152,8 +153,8 @@ export async function introspectLiveSchema(executor: Executable, schema = 'publi
       columnName: r.column_name as string,
       referencedTable: r.referenced_table as string,
       referencedColumn: r.referenced_column as string,
-      onUpdate: (r.update_rule as string).toLowerCase().replace(/ /g, ' '),
-      onDelete: (r.delete_rule as string).toLowerCase().replace(/ /g, ' '),
+      onUpdate: (r.update_rule as string).toLowerCase().replace(SPACE_RE, ' '),
+      onDelete: (r.delete_rule as string).toLowerCase().replace(SPACE_RE, ' '),
     })),
     indexes: indexRows.map(r => ({
       name: r.index_name as string,
@@ -704,6 +705,8 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
   return result
 }
 
+const WHERE_RE = /\bWHERE\b/i
+
 function indexChanged(liveIdx: LiveIndex, tableName: string, idx: IndexDef): boolean {
   const desiredMethod = idx.method ?? 'btree'
 
@@ -720,7 +723,7 @@ function indexChanged(liveIdx: LiveIndex, tableName: string, idx: IndexDef): boo
     return true
 
   // Compare WHERE clause — extract from live definition if present
-  const whereIdx = liveIdx.definition.search(/\bWHERE\b/i)
+  const whereIdx = liveIdx.definition.search(WHERE_RE)
   const liveWhere = whereIdx >= 0 ? liveIdx.definition.slice(whereIdx + 6).trim() : undefined
   const desiredWhere = idx.where?.trim()
 

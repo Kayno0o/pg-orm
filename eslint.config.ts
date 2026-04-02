@@ -15,7 +15,8 @@ export default typescript({
       'max-depth': ['warn', 4],
       'ts/no-empty-object-type': 'off',
       'e18e/prefer-static-regex': 'off',
-      'style/no-extra-parens': ['warn', 'all'],
+      'style/no-extra-parens': ['warn', 'all', { nestedBinaryExpressions: false, ternaryOperandBinaryExpressions: false }],
+      'ts/switch-exhaustiveness-check': 'off'
     },
   },
 }, {
