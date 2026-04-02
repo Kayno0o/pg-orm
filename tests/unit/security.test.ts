@@ -1,3 +1,4 @@
+import type { AnyColumns } from '../../src'
 import type { ExprTape } from '../../src/builder/expr'
 import type { QueryError } from '../../src/errors/index'
 /**
@@ -414,7 +415,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
     // JSON.stringify in the mapper prevents code injection
     const columns = {
       safe_col: { sqlType: 'text', constraints: [] },
-    }
+    } as unknown as AnyColumns
     const mapper = compileMapper(columns)
 
     // The mapper should work normally
@@ -426,7 +427,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
   it('mapper returns undefined for missing properties, does not throw', () => {
     const columns = {
       name: { sqlType: 'text', constraints: [] },
-    }
+    } as unknown as AnyColumns
     const mapper = compileMapper(columns, ['name'])
     const result = mapper({})
 

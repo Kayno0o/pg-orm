@@ -103,11 +103,11 @@ export function timestamps<C extends string = 'createdAt', U extends string = 'u
       [updatedAt]: t.timestamptz().notNull().defaultRaw('now()'),
     }),
     hooks: (table) => {
-      table.hook('beforeUpdate' as any, ((row: any) => {
-        row[updatedAt] = new Date()
+      table.hook('beforeUpdate', (row) => {
+        ;(row as Record<string, unknown>)[updatedAt] = new Date()
 
         return row
-      }) as any)
+      })
     },
     meta: { timestamps: { createdAt, updatedAt } },
   }

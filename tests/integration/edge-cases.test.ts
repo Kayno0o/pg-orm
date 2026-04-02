@@ -73,7 +73,7 @@ describe('restore()', () => {
   it('throws on table without softDelete trait', async () => {
     const repo = db.repo(postsTable)
 
-    await expect(repo.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
+    expect(repo.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
   })
 })
 

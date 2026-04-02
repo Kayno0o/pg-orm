@@ -1,7 +1,13 @@
+import type { ColumnDef, HasDefault, IsPrimaryKey, NoDefault, NotGenerated, NotNullable, NotPrimaryKey } from '../../../src/types/index'
 import { describe, expect, it } from 'bun:test'
 import { UpsertBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, email: any, [key: string]: any }
+// eslint-disable-next-line ts/consistent-type-definitions
+type Cols = {
+  id: ColumnDef<number, NotNullable, HasDefault, IsPrimaryKey, NotGenerated>
+  name: ColumnDef<string, NotNullable, NoDefault, NotPrimaryKey, NotGenerated>
+  email: ColumnDef<string, NotNullable, NoDefault, NotPrimaryKey, NotGenerated>
+}
 
 function upsert() {
   return new UpsertBuilder<Cols>('users')
@@ -39,6 +45,7 @@ describe('UpsertBuilder', () => {
   })
 
   it('validateValues rejects __raw', () => {
+    // @ts-expect-error — intentionally passing invalid type to test runtime validation
     expect(() => upsert().values({ name: { __raw: 'evil' } })).toThrow(/__raw/)
   })
 

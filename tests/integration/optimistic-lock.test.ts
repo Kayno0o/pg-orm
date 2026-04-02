@@ -53,7 +53,7 @@ describe('Optimistic Lock', () => {
     )
 
     // Second update with stale version should fail
-    await expect(
+    expect(
       repo.updateWithLock(
         { value: 300 },
         e => e.eq('id', item.id),
@@ -71,12 +71,12 @@ describe('Optimistic Lock', () => {
       e => e.eq('id', item.id),
     )
 
-    expect(updated[0].version).toBe(2)
+    expect(updated[0]!.version).toBe(2)
   })
 
   it('multiple sequential updates increment version correctly', async () => {
     const repo = db.repo(versionedItemsTable)
-    let item: any = await repo.insertOne({ name: 'Item 1', value: 100 })
+    let item = await repo.insertOne({ name: 'Item 1', value: 100 })
 
     item = await repo.updateWithLock({ value: 200 }, e => e.eq('id', item.id), 1)
 

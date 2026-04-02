@@ -1,3 +1,4 @@
+import type { Executable } from '../../../src/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable, DestructiveOpError } from '../../../src/index'
 import { diffSchema, generateMigration } from '../../../src/migration/index'
@@ -451,7 +452,7 @@ describe('diffSchema — extended migration tests', () => {
     const mockExecutor = {
       query: async () => [],
       sql: {},
-    }
+    } as unknown as Executable
 
     const result = await generateMigration(mockExecutor, registry(table))
 
@@ -475,7 +476,7 @@ describe('diffSchema — extended migration tests', () => {
         return []
       },
       sql: {},
-    }
+    } as unknown as Executable
 
     try {
       await generateMigration(mockExecutor, registry())

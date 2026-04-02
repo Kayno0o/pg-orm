@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test'
 import { hasHooks, runHooks, runHooksAsync } from '../../../src/hooks/index'
 
 function makeTable(hooks: HookRegistry): AnyTableDef {
-  return { name: 'test', columns: {}, relations: {}, virtuals: {}, hooks, primaryKey: null, meta: {} }
+  return { name: 'test', columns: {}, relations: {}, virtuals: {}, hooks, primaryKey: null, indexes: [], meta: {} } as unknown as AnyTableDef
 }
 
 describe('runHooks (sync)', () => {
@@ -63,7 +63,7 @@ describe('runHooksAsync', () => {
     })
     const result = await runHooksAsync(table, 'beforeInsert', { name: 'Alice' })
 
-    expect(result).toEqual({ name: 'Alice', processed: true })
+    expect(result as Record<string, unknown>).toEqual({ name: 'Alice', processed: true })
   })
 
   it('chains async hooks sequentially', async () => {

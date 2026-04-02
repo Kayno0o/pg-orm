@@ -101,8 +101,8 @@ describe('Deadlock detection', () => {
 
     const tx1 = db.transaction({ isolation: 'serializable' }, async (tx) => {
       // Read current value
-      const rows = await tx.query('SELECT "age" FROM "users" WHERE "email" = $1', ['counter@test.com'])
-      const currentAge = rows[0].age
+      const rows = await tx.query('SELECT "age" FROM "users" WHERE "email" = $1', ['counter@test.com']) as { age: number }[]
+      const currentAge = rows[0]!.age
 
       await new Promise(resolve => setTimeout(resolve, 100))
       // Write back incremented
@@ -111,8 +111,8 @@ describe('Deadlock detection', () => {
 
     const tx2 = db.transaction({ isolation: 'serializable' }, async (tx) => {
       // Read current value
-      const rows = await tx.query('SELECT "age" FROM "users" WHERE "email" = $1', ['counter@test.com'])
-      const currentAge = rows[0].age
+      const rows = await tx.query('SELECT "age" FROM "users" WHERE "email" = $1', ['counter@test.com']) as { age: number }[]
+      const currentAge = rows[0]!.age
 
       await new Promise(resolve => setTimeout(resolve, 100))
       // Write back incremented

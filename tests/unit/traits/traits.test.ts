@@ -91,11 +91,14 @@ describe('timestamps trait', () => {
 
     const hook = table.hooks.beforeUpdate![0]!
     const before = new Date()
-    const row: any = { name: 'test' }
-    const result = hook(row)
+    const result = hook({})
 
-    expect(result.updatedAt).toBeInstanceOf(Date)
-    expect(result.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime())
+    // Hook is sync and always returns a value
+    expect(result).toBeDefined()
+    const row = result as Exclude<typeof result, void | Promise<unknown>>
+
+    expect(row.updatedAt).toBeInstanceOf(Date)
+    expect(row.updatedAt!.getTime()).toBeGreaterThanOrEqual(before.getTime())
   })
 
   it('supports custom column names', () => {

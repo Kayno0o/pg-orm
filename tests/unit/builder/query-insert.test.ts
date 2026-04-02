@@ -1,7 +1,14 @@
+import type { ColumnDef, HasDefault, IsNullable, IsPrimaryKey, NoDefault, NotGenerated, NotNullable, NotPrimaryKey } from '../../../src/types/index'
 import { describe, expect, it } from 'bun:test'
 import { InsertBuilder } from '../../../src/builder/query'
 
-interface Cols { id: any, name: any, email: any, age: any, [key: string]: any }
+// eslint-disable-next-line ts/consistent-type-definitions
+type Cols = {
+  id: ColumnDef<number, NotNullable, HasDefault, IsPrimaryKey, NotGenerated>
+  name: ColumnDef<string, NotNullable, NoDefault, NotPrimaryKey, NotGenerated>
+  email: ColumnDef<string, NotNullable, NoDefault, NotPrimaryKey, NotGenerated>
+  age: ColumnDef<number, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>
+}
 
 function insert() {
   return new InsertBuilder<Cols>('users')
@@ -81,22 +88,27 @@ describe('InsertBuilder', () => {
   })
 
   it('validateValues rejects undefined', () => {
+    // @ts-expect-error name is required
     expect(() => insert().values({ name: undefined })).toThrow(/undefined/)
   })
 
   it('validateValues rejects NaN', () => {
+    // @ts-expect-error reject invalid values
     expect(() => insert().values({ name: 'ok', age: Number.NaN })).toThrow(/non-finite/)
   })
 
   it('validateValues rejects Infinity', () => {
+    // @ts-expect-error reject invalid values
     expect(() => insert().values({ name: 'ok', age: Infinity })).toThrow(/non-finite/)
   })
 
   it('validateValues rejects __raw objects', () => {
+    // @ts-expect-error reject invalid values
     expect(() => insert().values({ name: { __raw: 'DROP TABLE' } })).toThrow(/__raw/)
   })
 
   it('validateValues allows null', () => {
+    // @ts-expect-error reject invalid values
     expect(() => insert().values({ name: 'ok', age: null })).not.toThrow()
   })
 

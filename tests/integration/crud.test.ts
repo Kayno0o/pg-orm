@@ -218,7 +218,7 @@ describe('CRUD - deleteMany', () => {
     const deleted = await repo.deleteMany(e => e.eq('id', user.id))
 
     expect(deleted).toHaveLength(1)
-    expect(deleted[0].deletedAt).not.toBeNull()
+    expect(deleted[0]!.deletedAt).not.toBeNull()
 
     // Soft-deleted rows should not appear in findMany
     const remaining = await repo.findMany()

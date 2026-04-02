@@ -1,7 +1,7 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate } from '../types/index'
+import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
@@ -128,10 +128,10 @@ export class Repository<
    * const users = await repo.findMany(q => q.where(e => e.eq('role', 'admin')).orderBy('name'))
    * ```
    */
-  async findMany(): Promise<InferSelect<TColumns>[]>
+  async findMany(): Promise<WithVirtuals<TColumns, TVirtuals>[]>
   async findMany<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<TResult[]>
+  ): Promise<(TResult & InferVirtuals<TVirtuals>)[]>
   async findMany(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
   ): Promise<any[]> {
@@ -172,10 +172,10 @@ export class Repository<
   }
 
   /** Find the first row matching the query, or `null` if none found. */
-  async findOne(): Promise<InferSelect<TColumns> | null>
+  async findOne(): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async findOne<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<TResult | null>
+  ): Promise<(TResult & InferVirtuals<TVirtuals>) | null>
   async findOne(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
   ): Promise<any | null> {
@@ -191,10 +191,10 @@ export class Repository<
    * Like `findOne()`, but throws `NotFoundError` if no row matches.
    * Useful for distinguishing "not found" from query errors.
    */
-  async findOneOrThrow(): Promise<InferSelect<TColumns>>
+  async findOneOrThrow(): Promise<WithVirtuals<TColumns, TVirtuals>>
   async findOneOrThrow<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<TResult>
+  ): Promise<TResult & InferVirtuals<TVirtuals>>
   async findOneOrThrow(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
   ): Promise<unknown> {
@@ -208,15 +208,15 @@ export class Repository<
   }
 
   /** Insert a single row and return the inserted record with all columns. */
-  async insertOne(values: InferInsert<TColumns>): Promise<InferSelect<TColumns>>
+  async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
   async insertOne(
     values: InferInsert<TColumns>,
     opts: { include: (keyof TRelations & string)[] },
-  ): Promise<InferSelect<TColumns>>
+  ): Promise<WithVirtuals<TColumns, TVirtuals>>
   async insertOne(
     values: InferInsert<TColumns>,
     opts?: { include?: (keyof TRelations & string)[] },
-  ): Promise<InferSelect<TColumns>> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
     const v = await this._runBefore('beforeInsert', values)
 
     const b = new InsertBuilder<TColumns>(this._table.name)
@@ -237,11 +237,11 @@ export class Repository<
       await this._loadIncludes(rows, includes)
     }
 
-    return rows[0] as InferSelect<TColumns>
+    return rows[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Insert multiple rows in a single query and return all inserted records. */
-  async insertMany(values: InferInsert<TColumns>[]): Promise<InferSelect<TColumns>[]> {
+  async insertMany(values: InferInsert<TColumns>[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
 
@@ -262,14 +262,14 @@ export class Repository<
     // Apply virtuals
     this._applyVirtuals(rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Update all rows matching `where` and return the updated records. */
   async updateMany(
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns>[]> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     const s = await this._runBefore('beforeUpdate', set)
     const lockCol = this._getOptimisticLockColumn()
 
@@ -288,13 +288,13 @@ export class Repository<
 
     await this._runAfter('afterUpdate', rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Delete all rows matching `where`. Uses soft-delete if the trait is applied. Returns deleted records. */
   async deleteMany(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns>[]> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     // Soft-delete: convert DELETE to UPDATE but fire delete hooks
     const sdCol = this._getSoftDeleteColumn()
 
@@ -310,7 +310,7 @@ export class Repository<
 
       await this._runAfter('afterDelete', rows)
 
-      return rows as InferSelect<TColumns>[]
+      return rows as WithVirtuals<TColumns, TVirtuals>[]
     }
 
     await this._runBefore('beforeDelete', undefined)
@@ -323,13 +323,13 @@ export class Repository<
 
     await this._runAfter('afterDelete', rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   // --- Convenience methods ---
 
   /** Find a row by primary key. Supports composite PKs when `id` is an object. */
-  async findById(id: unknown): Promise<InferSelect<TColumns> | null> {
+  async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
     const pk = this._table.primaryKey ?? 'id'
 
     // Composite primary key: pk is comma-separated, id should be an object
@@ -386,7 +386,7 @@ export class Repository<
   async updateOne(
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns> | null> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.updateMany(set, where)
 
     return rows[0] ?? null
@@ -397,7 +397,7 @@ export class Repository<
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
     currentVersion: number,
-  ): Promise<InferSelect<TColumns>> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
     const lockCol = this._getOptimisticLockColumn()
 
     if (!lockCol) {
@@ -411,13 +411,13 @@ export class Repository<
       throw new StaleRecordError(this._table.name, currentVersion)
     }
 
-    return rows[0] as InferSelect<TColumns>
+    return rows[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Delete the first matching row. Returns the deleted record or `null`. */
   async deleteOne(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns> | null> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.deleteMany(where)
 
     return rows[0] ?? null
@@ -428,7 +428,7 @@ export class Repository<
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
     updateColumns?: (keyof TColumns & string)[],
-  ): Promise<InferSelect<TColumns>[]> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
 
@@ -450,14 +450,14 @@ export class Repository<
     // Apply virtuals
     this._applyVirtuals(rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Insert a row or return the existing one if conflict target matches. */
   async findOrCreate(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
-  ): Promise<InferSelect<TColumns>> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
     const v = await this._runBefore('beforeUpsert', values)
 
     // Use ON CONFLICT DO UPDATE with a no-op SET so RETURNING always returns the row
@@ -472,7 +472,7 @@ export class Repository<
 
     await this._runAfter('afterInsert', rows)
 
-    return rows[0] as InferSelect<TColumns>
+    return rows[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Offset-based pagination with total count. Returns `{ data, total, page, perPage, totalPages }`. */
@@ -480,7 +480,7 @@ export class Repository<
     page: number
     perPage: number
     where?: (e: ExprBuilder<TColumns>) => ExprTape
-  }): Promise<{ data: InferSelect<TColumns>[], total: number, page: number, perPage: number, totalPages: number }> {
+  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], total: number, page: number, perPage: number, totalPages: number }> {
     const { page, perPage, where: whereFn } = opts
 
     const [data, total] = await Promise.all([
@@ -510,7 +510,7 @@ export class Repository<
     cursor?: { column: keyof TColumns & string, value: unknown }
     direction?: 'forward' | 'backward'
     where?: (e: ExprBuilder<TColumns>) => ExprTape
-  }): Promise<{ data: InferSelect<TColumns>[], nextCursor: unknown | null }> {
+  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: unknown | null }> {
     const { take, cursor, direction = 'forward', where: whereFn } = opts
     const col = cursor?.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
     const isForward = direction === 'forward'
@@ -548,7 +548,7 @@ export class Repository<
   // Restore soft-deleted records: sets the soft-delete column to NULL
   async restore(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns>[]> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     const sdCol = this._getSoftDeleteColumn()
 
     if (sdCol === null) {
@@ -567,13 +567,13 @@ export class Repository<
 
     await this._runAfter('afterUpdate', rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   // Force-delete: bypass soft-delete and run a real DELETE
   async forceDelete(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<InferSelect<TColumns>[]> {
+  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runBefore('beforeDelete', undefined)
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
@@ -584,7 +584,7 @@ export class Repository<
 
     await this._runAfter('afterDelete', rows)
 
-    return rows as InferSelect<TColumns>[]
+    return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /**
@@ -599,7 +599,7 @@ export class Repository<
   async* stream(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
     opts: { chunkSize?: number, unsafe?: boolean } = {},
-  ): AsyncGenerator<InferSelect<TColumns>, void, undefined> {
+  ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     if (!opts.unsafe && !Repository._streamWarned) {
       Repository._streamWarned = true
       console.warn(
@@ -630,7 +630,7 @@ export class Repository<
       if (rows.length === 0)
         break
 
-      let mapped = mapChunk(mapper, rows) as InferSelect<TColumns>[]
+      let mapped = mapChunk(mapper, rows) as WithVirtuals<TColumns, TVirtuals>[]
 
       if (hasHooks(this._table, 'afterSelect')) {
         mapped = await runHooksAsync(this._table, 'afterSelect', mapped)
@@ -669,7 +669,7 @@ export class Repository<
       direction?: 'forward' | 'backward'
       where?: (e: ExprBuilder<TColumns>) => ExprTape
     } = {},
-  ): AsyncGenerator<InferSelect<TColumns>, void, undefined> {
+  ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     const chunkSize = opts.chunkSize ?? 500
     const col = opts.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
     const direction = opts.direction ?? 'forward'

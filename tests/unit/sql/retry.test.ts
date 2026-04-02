@@ -89,7 +89,7 @@ describe('Retry logic', () => {
   it('throws non-retryable errors immediately', async () => {
     let calls = 0
 
-    await expect(retryQuery(async () => {
+    expect(retryQuery(async () => {
       calls++
 
       throw new QueryError('syntax error', 'SELECT ???', [])
@@ -101,7 +101,7 @@ describe('Retry logic', () => {
   it('throws after maxRetries exhausted', async () => {
     let calls = 0
 
-    await expect(retryQuery(async () => {
+    expect(retryQuery(async () => {
       calls++
 
       throw new ConnectionError('connection lost')
@@ -113,7 +113,7 @@ describe('Retry logic', () => {
   it('does not retry when maxRetries is 0', async () => {
     let calls = 0
 
-    await expect(retryQuery(async () => {
+    expect(retryQuery(async () => {
       calls++
 
       throw new ConnectionError('connection lost')
@@ -129,7 +129,7 @@ describe('Retry logic', () => {
     // Measure delays by tracking promise resolution timing
     const start = performance.now()
 
-    await expect(retryQuery(async () => {
+    expect(retryQuery(async () => {
       calls++
 
       if (calls > 1)

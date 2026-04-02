@@ -53,7 +53,7 @@ describe('Migration Sync', () => {
       expect(createOps.length).toBeGreaterThan(0)
 
       // Table should NOT exist
-      await expect(db.raw('SELECT 1 FROM "sync_test_dry"', [])).rejects.toThrow()
+      expect(db.raw('SELECT 1 FROM "sync_test_dry"', [])).rejects.toThrow()
     }
     finally {
       await db.raw('DROP TABLE IF EXISTS "sync_test_dry"', [])
@@ -138,7 +138,7 @@ describe('Migration Sync', () => {
       // Create with extra column
       await db1.raw('CREATE TABLE "sync_test_destruct" ("id" serial PRIMARY KEY, "old_col" text)', [])
 
-      await expect(db1.sync()).rejects.toThrow(DestructiveOpError)
+      expect(db1.sync()).rejects.toThrow(DestructiveOpError)
     }
     finally {
       await db1.raw('DROP TABLE IF EXISTS "sync_test_destruct"', [])

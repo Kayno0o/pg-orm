@@ -137,7 +137,7 @@ export interface TableDef<
   readonly columns: TColumns
   readonly relations: TRelations
   readonly virtuals: TVirtuals
-  readonly hooks: HookRegistry
+  readonly hooks: { [E in HookEvent]?: HookHandler<TColumns, E>[] }
   readonly primaryKey: string | null
   readonly indexes: IndexDef[]
   readonly meta: Record<string, unknown>
@@ -251,16 +251,19 @@ export type WithIncludes<
   [K in TIncluded]: InferRelationResult<TRelations[K]>
 }
 
+// Extract just the virtual field types from a virtuals map
+export type InferVirtuals<TVirtuals extends AnyVirtuals> = {
+  [K in keyof TVirtuals]: TVirtuals[K] extends VirtualDef<any, infer TResult> ? TResult : never
+}
+
 // Merge column select type with virtual field results
 export type WithVirtuals<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals>
-  = InferSelect<TColumns> & {
-    [K in keyof TVirtuals]: TVirtuals[K] extends VirtualDef<any, infer TResult> ? TResult : never
-  }
+  = InferSelect<TColumns> & InferVirtuals<TVirtuals>
 
 // --- Helpers to infer from a TableDef ---
 
-// Short alias — infer the entity (row) type from a table definition
-export type InferEntity<T extends AnyTableDef> = InferSelect<T['columns']>
+// Short alias — infer the entity (row) type from a table definition (includes virtuals)
+export type InferEntity<T extends AnyTableDef> = WithVirtuals<T['columns'], T extends TableDef<any, any, any, infer V> ? V : {}>
 
 export type InferSelectFromTable<T extends AnyTableDef> = InferSelect<T['columns']>
 export type InferInsertFromTable<T extends AnyTableDef> = InferInsert<T['columns']>

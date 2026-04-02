@@ -25,7 +25,7 @@ describe('Error Wrapping - integration', () => {
 
     await repo.insertOne({ name: 'Alice', email: 'dup@test.com' })
 
-    await expect(
+    expect(
       repo.insertOne({ name: 'Bob', email: 'dup@test.com' }),
     ).rejects.toThrow(UniqueError)
   })
@@ -64,7 +64,7 @@ describe('Error Wrapping - integration', () => {
     try {
       const postRepo = db.repo(postsTable)
 
-      await expect(
+      expect(
         postRepo.insertOne({ title: 'Bad', body: 'body', authorId: 999999 }),
       ).rejects.toThrow(ForeignKeyError)
     }
@@ -80,7 +80,8 @@ describe('Error Wrapping - integration', () => {
   it('throws NotNullError on null required column', async () => {
     const repo = db.repo(usersTable)
 
-    await expect(
+    expect(
+      // @ts-expect-error name is supposed to be non-nullable
       repo.insertOne({ name: null, email: 'test@test.com' }),
     ).rejects.toThrow(NotNullError)
   })
@@ -98,6 +99,6 @@ describe('Error Wrapping - integration', () => {
     await tempDb.close({ timeout: 5000 })
 
     // After close, raw queries should fail
-    await expect(tempDb.raw('SELECT 1', [])).rejects.toThrow()
+    expect(tempDb.raw('SELECT 1', [])).rejects.toThrow()
   })
 })

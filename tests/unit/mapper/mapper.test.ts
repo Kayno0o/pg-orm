@@ -1,3 +1,4 @@
+import type { AnyColumns } from '../../../src'
 import { describe, expect, it } from 'bun:test'
 import { clearMapperCache, compileMapper, getOrCompileMapper, mapChunk } from '../../../src/mapper/index'
 
@@ -5,7 +6,7 @@ const columns = {
   id: { _kind: 'column', pgType: 'serial', constraints: [] },
   name: { _kind: 'column', pgType: 'text', constraints: [] },
   age: { _kind: 'column', pgType: 'int4', constraints: [] },
-}
+} as unknown as AnyColumns
 
 describe('compileMapper', () => {
   it('returns identity mapper when all columns selected', () => {

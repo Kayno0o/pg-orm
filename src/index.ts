@@ -112,6 +112,7 @@ export type {
   InferSelectFromTable,
   InferUpdate,
   InferUpdateFromTable,
+  InferVirtuals,
   InferWhere,
   IsGenerated,
   IsNullable,

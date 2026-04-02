@@ -1,3 +1,4 @@
+import type { AnyTableDef } from '../../../src/types/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from '../../../src/index'
 import { diffSchema } from '../../../src/migration/index'
@@ -6,7 +7,7 @@ function liveTables(tables: { name: string, columns: { name: string, dataType: s
   return { tables, enums: [] }
 }
 
-function registry(...tables: any[]) {
+function registry(...tables: AnyTableDef[]) {
   return new Map(tables.map(t => [t.name, t]))
 }
 
