@@ -154,7 +154,7 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
 }
 
 const STRING_AGG_RE = /^[\w\s.,;:|\-/]+$/
-const QUOTE_RE = /'/g
+const SINGLE_QUOTE_RE = /'/g
 
 // Singleton expression builder — stateless, so one instance serves all callers
 const _singletonExprBuilder: ExprBuilder<any> = {
@@ -237,7 +237,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
     if (!STRING_AGG_RE.test(delimiter))
       throw new Error(`stringAgg: unsafe delimiter characters: "${delimiter}"`)
 
-    return `string_agg(${quote(col as string)}, '${delimiter.replace(QUOTE_RE, '\'\'')}')`
+    return `string_agg(${quote(col as string)}, '${delimiter.replace(SINGLE_QUOTE_RE, '\'\'')}')`
   },
 }
 

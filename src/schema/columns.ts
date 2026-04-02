@@ -13,6 +13,8 @@ import type {
   NotPrimaryKey,
 } from '../types/index'
 
+const SINGLE_QUOTE_RE = /'/g
+
 /** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
 function toSQLDefault(value: unknown, pgType: string): string {
   if (value === null || value === undefined)
@@ -32,17 +34,17 @@ function toSQLDefault(value: unknown, pgType: string): string {
       return `ARRAY[]::${pgType}`
 
     const items = value.map(v =>
-      typeof v === 'string' ? `'${v.replace(/'/g, '\'\'')}'` : String(v),
+      typeof v === 'string' ? `'${v.replace(SINGLE_QUOTE_RE, '\'\'')}'` : String(v),
     ).join(',')
 
     return `ARRAY[${items}]::${pgType}`
   }
 
   if (typeof value === 'object')
-    return `'${JSON.stringify(value).replace(/'/g, '\'\'')}'::${pgType}`
+    return `'${JSON.stringify(value).replace(SINGLE_QUOTE_RE, '\'\'')}'::${pgType}`
 
   if (typeof value === 'string')
-    return `'${value.replace(/'/g, '\'\'')}'`
+    return `'${value.replace(SINGLE_QUOTE_RE, '\'\'')}'`
 
   return String(value)
 }
