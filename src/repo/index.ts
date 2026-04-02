@@ -1,7 +1,7 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
@@ -505,14 +505,15 @@ export class Repository<
   }
 
   // Cursor-based pagination — efficient for large datasets
-  async paginateCursor(opts: {
+  async paginateCursor<K extends keyof TColumns & string>(opts: {
     take: number
-    cursor?: { column: keyof TColumns & string, value: unknown }
+    column?: K
+    cursor?: InferSelect<TColumns>[K] | null
     direction?: 'forward' | 'backward'
     where?: (e: ExprBuilder<TColumns>) => ExprTape
-  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: unknown | null }> {
+  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
     const { take, cursor, direction = 'forward', where: whereFn } = opts
-    const col = cursor?.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
+    const col = (opts.column ?? this._table.primaryKey ?? 'id') as keyof TColumns & string
     const isForward = direction === 'forward'
 
     const data = await this.findMany((q) => {
@@ -521,9 +522,9 @@ export class Repository<
       if (whereFn)
         b = b.where(whereFn)
 
-      if (cursor?.value != null) {
+      if (cursor != null) {
         b = b.andWhere(e =>
-          isForward ? e.gt(col, cursor.value) : e.lt(col, cursor.value),
+          isForward ? e.gt(col, cursor) : e.lt(col, cursor),
         )
       }
 
@@ -673,12 +674,13 @@ export class Repository<
     const chunkSize = opts.chunkSize ?? 500
     const col = opts.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
     const direction = opts.direction ?? 'forward'
-    let cursor: unknown | null = null
+    let cursor: unknown = undefined
 
     while (true) {
       const result = await this.paginateCursor({
         take: chunkSize,
-        cursor: cursor != null ? { column: col, value: cursor } : undefined,
+        column: col,
+        cursor: cursor as never,
         direction,
         where: opts.where,
       })

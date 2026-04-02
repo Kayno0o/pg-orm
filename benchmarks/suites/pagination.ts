@@ -15,12 +15,12 @@ export function paginationSuite(db: Database) {
     }),
 
     bench('cursor.forward', async () => {
-      const page1 = await repo.paginateCursor({ take: 20 })
+      const page1 = await repo.paginateCursor({ take: 20, column: 'id' })
 
       if (page1.nextCursor != null) {
         await repo.paginateCursor({
           take: 20,
-          cursor: { column: 'id', value: page1.nextCursor },
+          column: 'id', cursor: page1.nextCursor,
         })
       }
     }),

@@ -160,14 +160,14 @@ async function main() {
 
   // --- NEW: Cursor-based pagination ---
   console.log('\n--- Cursor Pagination ---')
-  const page1 = await PostRepo.paginateCursor({ take: 2 })
+  const page1 = await PostRepo.paginateCursor({ take: 2, column: 'id' })
 
   console.log(`Page 1: ${page1.data.length} posts, nextCursor: ${page1.nextCursor}`)
 
   if (page1.nextCursor != null) {
     const page2 = await PostRepo.paginateCursor({
       take: 2,
-      cursor: { column: 'id', value: page1.nextCursor },
+      column: 'id', cursor: page1.nextCursor,
     })
 
     console.log(`Page 2: ${page2.data.length} posts, nextCursor: ${page2.nextCursor}`)

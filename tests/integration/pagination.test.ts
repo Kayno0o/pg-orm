@@ -96,10 +96,10 @@ describe('Cursor Pagination', () => {
   it('forward pagination follows cursor', async () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
-    const page1 = await repo.paginateCursor({ take: 3 })
+    const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
     const page2 = await repo.paginateCursor({
       take: 3,
-      cursor: { column: 'id', value: page1.nextCursor },
+      column: 'id', cursor: page1.nextCursor,
     })
 
     expect(page2.data).toHaveLength(3)
@@ -114,10 +114,10 @@ describe('Cursor Pagination', () => {
   it('last page returns null cursor', async () => {
     await seedUsers(5)
     const repo = db.repo(usersTable)
-    const page1 = await repo.paginateCursor({ take: 3 })
+    const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
     const page2 = await repo.paginateCursor({
       take: 3,
-      cursor: { column: 'id', value: page1.nextCursor },
+      column: 'id', cursor: page1.nextCursor,
     })
 
     expect(page2.data).toHaveLength(2)
@@ -133,7 +133,7 @@ describe('Cursor Pagination', () => {
 
     const result = await repo.paginateCursor({
       take: 3,
-      cursor: { column: 'id', value: lastId },
+      column: 'id', cursor: lastId,
       direction: 'backward',
     })
 

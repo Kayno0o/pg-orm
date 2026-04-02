@@ -299,10 +299,10 @@ const page = await repo.paginate({ page: 1, perPage: 20 })
 // { data, total, page, perPage, totalPages }
 
 // Cursor-based (efficient for large datasets)
-const page1 = await repo.paginateCursor({ take: 20 })
+const page1 = await repo.paginateCursor({ take: 20, column: 'id' })
 const page2 = await repo.paginateCursor({
   take: 20,
-  cursor: { column: 'id', value: page1.nextCursor },
+  column: 'id', cursor: page1.nextCursor,
 })
 ```
 

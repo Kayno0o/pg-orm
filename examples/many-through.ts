@@ -150,14 +150,14 @@ async function main() {
 
   // --- NEW: Cursor pagination ---
   console.log('\n--- Cursor Pagination ---')
-  const page1 = await CommentRepo.paginateCursor({ take: 2 })
+  const page1 = await CommentRepo.paginateCursor({ take: 2, column: 'id' })
 
   console.log(`Page 1: ${page1.data.length} comments (next: ${page1.nextCursor})`)
 
   if (page1.nextCursor != null) {
     const page2 = await CommentRepo.paginateCursor({
       take: 2,
-      cursor: { column: 'id', value: page1.nextCursor },
+      column: 'id', cursor: page1.nextCursor,
     })
 
     console.log(`Page 2: ${page2.data.length} comments (next: ${page2.nextCursor})`)
@@ -165,7 +165,7 @@ async function main() {
     if (page2.nextCursor != null) {
       const page3 = await CommentRepo.paginateCursor({
         take: 2,
-        cursor: { column: 'id', value: page2.nextCursor },
+        column: 'id', cursor: page2.nextCursor,
       })
 
       console.log(`Page 3: ${page3.data.length} comments (next: ${page3.nextCursor})`)
