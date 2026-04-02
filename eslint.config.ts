@@ -23,8 +23,8 @@ export default typescript({
   rules: {
     // 'complexity': ['warn', 20],
     'max-nested-callbacks': ['warn', 4],
-    'max-lines-per-function': ['warn', { skipComments: true, skipBlankLines: true, max: 75 }],
-    'max-params': ['warn', 5],
+    // 'max-lines-per-function': ['warn', { skipComments: true, skipBlankLines: true, max: 75 }],
+    // 'max-params': ['warn', 5],
     'e18e/prefer-static-regex': 'warn',
   },
 })

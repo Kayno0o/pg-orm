@@ -116,6 +116,7 @@ describe('Transactions', () => {
 
   it('rejects invalid isolation level', async () => {
     expect(
+      // @ts-expect-error check invalid value
       db.transaction({ isolation: 'invalid' }, async () => { /* noop */ }),
     ).rejects.toThrow()
   })

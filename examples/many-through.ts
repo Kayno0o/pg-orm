@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 // hasManyThrough smoke check — runnable with: bun run examples/many-through.ts
 // Validates M:N relations, nested includes, and relation filtering.
 // Requires: docker compose up -d (PG18 on localhost:8532)
