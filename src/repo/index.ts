@@ -175,7 +175,7 @@ export class Repository<
   async findOne(): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async findOne<TResult>(
     cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<(TResult & InferVirtuals<TVirtuals>) | null>
+  ): Promise<TResult & InferVirtuals<TVirtuals> | null>
   async findOne(
     cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
   ): Promise<any | null> {
@@ -674,7 +674,7 @@ export class Repository<
     const chunkSize = opts.chunkSize ?? 500
     const col = opts.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
     const direction = opts.direction ?? 'forward'
-    let cursor: unknown = undefined
+    let cursor: unknown
 
     while (true) {
       const result = await this.paginateCursor({

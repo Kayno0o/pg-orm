@@ -167,7 +167,8 @@ async function main() {
   if (page1.nextCursor != null) {
     const page2 = await PostRepo.paginateCursor({
       take: 2,
-      column: 'id', cursor: page1.nextCursor,
+      column: 'id',
+      cursor: page1.nextCursor,
     })
 
     console.log(`Page 2: ${page2.data.length} posts, nextCursor: ${page2.nextCursor}`)
@@ -178,25 +179,25 @@ async function main() {
   const post = await PostRepo.findOne(q => q.where(e => e.eq('title', 'Hello')))
 
   if (post) {
-    console.log(`Post version before update: ${(post as any).version}`)
+    console.log(`Post version before update: ${post.version}`)
     const updatedPost = await PostRepo.updateWithLock(
       { title: 'Hello Updated' },
       e => e.eq('id', post.id),
-      (post as any).version,
+      post.version,
     )
 
-    console.log(`Post version after update: ${(updatedPost as any).version}`)
+    console.log(`Post version after update: ${updatedPost.version}`)
 
     // Try with stale version — should throw StaleRecordError
     try {
       await PostRepo.updateWithLock(
         { title: 'Should Fail' },
         e => e.eq('id', post.id),
-        (post as any).version, // stale version
+        post.version, // stale version
       )
     }
-    catch (err: any) {
-      console.log(`StaleRecordError: ${err.message}`)
+    catch (err) {
+      console.log(`StaleRecordError: ${(err as Error).message}`)
     }
   }
 
@@ -223,7 +224,7 @@ async function main() {
     { include: ['author'] },
   )
 
-  console.log(`Inserted post "${newPost.title}" by ${(newPost as any).author?.name}`)
+  console.log(`Inserted post "${newPost.title}" by ${newPost.author?.name}`)
 
   // 11. Transaction with savepoint
   await db.transaction(async (tx) => {

@@ -99,7 +99,8 @@ describe('Cursor Pagination', () => {
     const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
     const page2 = await repo.paginateCursor({
       take: 3,
-      column: 'id', cursor: page1.nextCursor,
+      column: 'id',
+      cursor: page1.nextCursor,
     })
 
     expect(page2.data).toHaveLength(3)
@@ -117,7 +118,8 @@ describe('Cursor Pagination', () => {
     const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
     const page2 = await repo.paginateCursor({
       take: 3,
-      column: 'id', cursor: page1.nextCursor,
+      column: 'id',
+      cursor: page1.nextCursor,
     })
 
     expect(page2.data).toHaveLength(2)
@@ -133,7 +135,8 @@ describe('Cursor Pagination', () => {
 
     const result = await repo.paginateCursor({
       take: 3,
-      column: 'id', cursor: lastId,
+      column: 'id',
+      cursor: lastId,
       direction: 'backward',
     })
 

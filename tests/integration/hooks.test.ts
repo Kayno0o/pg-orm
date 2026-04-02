@@ -39,6 +39,7 @@ beforeAll(async () => {
   hookedTable.hook('afterSelect', (rows: any[]) => {
     hookLog.push('afterSelect')
 
+    // eslint-disable-next-line ts/no-unsafe-return
     return rows
   })
 

@@ -21,7 +21,7 @@ export function updateSuite(db: Database) {
         await repo.updateWithLock(
           { bio: `Locked update ${Date.now()}` },
           e => e.eq('id', row.id),
-          (row as any).version,
+          row.version,
         )
       }
     }, { ops: 50 }),

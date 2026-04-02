@@ -15,7 +15,7 @@ export default typescript({
       'max-depth': ['warn', 4],
       'ts/no-empty-object-type': 'off',
       'e18e/prefer-static-regex': 'off',
-      'style/no-extra-parens': 'warn',
+      'style/no-extra-parens': ['warn', 'all'],
     },
   },
 }, {

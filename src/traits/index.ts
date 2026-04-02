@@ -51,7 +51,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
 
   // Merge meta
   if (trait.meta) {
-    const meta = (table as any).meta as Record<string, unknown>
+    const meta = table.meta
 
     for (const key in trait.meta) {
       meta[key] = trait.meta[key]
@@ -71,6 +71,7 @@ export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedA
   return {
     columns: t => ({ [column]: t.timestamptz().nullable() }),
     virtuals: {
+      // eslint-disable-next-line ts/no-unsafe-member-access
       isDeleted: (row: any) => row[column] != null,
     },
     meta: { softDelete: { column } },

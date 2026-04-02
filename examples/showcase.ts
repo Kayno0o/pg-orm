@@ -159,7 +159,7 @@ async function main() {
   )
 
   for (const row of byCategory) {
-    console.log(`  ${(row as any).category}: ${row.count} products, avg price $${Number((row as any).avgPrice).toFixed(2)}`)
+    console.log(`  ${row.category}: ${row.count} products, avg price $${Number(row.avgPrice).toFixed(2)}`)
   }
 
   // --- NEW: JSON aggregates ---
@@ -173,7 +173,7 @@ async function main() {
   )
 
   for (const row of skusByCategory) {
-    console.log(`  ${(row as any).category}: [${(row as any).skus.join(', ')}]`)
+    console.log(`  ${row.category}: [${row.skus.join(', ')}]`)
   }
 
   // --- NEW: Set operations (UNION) ---
@@ -202,7 +202,7 @@ async function main() {
   )
 
   for (const p of withDiscount) {
-    console.log(`  ${p.name}: $${p.price} -> $${Number((p as any).discountedPrice).toFixed(2)} (10% off)`)
+    console.log(`  ${p.name}: $${p.price} -> $${Number(p.discountedPrice).toFixed(2)} (10% off)`)
   }
 
   // Cleanup
