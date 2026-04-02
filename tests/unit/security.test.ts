@@ -349,7 +349,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     const builder = new InsertBuilder<any, any>(table.name)
 
     expect(() => builder.values({
-      name: { __raw: 'DROP TABLE users' } as any,
+      name: { __raw: 'DROP TABLE users' },
     })).toThrow(/__raw/)
   })
 
@@ -362,7 +362,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     const builder = new UpdateBuilder<any, any>(table.name)
 
     expect(() => builder.set({
-      name: { __raw: 'DROP TABLE users' } as any,
+      name: { __raw: 'DROP TABLE users' },
     })).toThrow(/__raw/)
   })
 
@@ -375,7 +375,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     const builder = new InsertBuilder<any, any>(table.name)
 
     expect(() => builder.values({
-      name: undefined as any,
+      name: undefined,
     })).toThrow(/undefined/)
   })
 
@@ -388,7 +388,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     const builder = new InsertBuilder<any, any>(table.name)
 
     expect(() => builder.values({
-      age: Number.NaN as any,
+      age: Number.NaN,
     })).toThrow(/non-finite/)
   })
 
@@ -401,7 +401,7 @@ describe('Security: INSERT/UPDATE value validation', () => {
     const builder = new InsertBuilder<any, any>(table.name)
 
     expect(() => builder.values({
-      score: Infinity as any,
+      score: Infinity,
     })).toThrow(/non-finite/)
   })
 })
@@ -415,7 +415,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
     const columns = {
       safe_col: { sqlType: 'text', constraints: [] },
     }
-    const mapper = compileMapper(columns as any)
+    const mapper = compileMapper(columns)
 
     // The mapper should work normally
     const result = mapper({ safe_col: 'hello' })
@@ -427,7 +427,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
     const columns = {
       name: { sqlType: 'text', constraints: [] },
     }
-    const mapper = compileMapper(columns as any, ['name'])
+    const mapper = compileMapper(columns, ['name'])
     const result = mapper({})
 
     expect(result).toEqual({ name: undefined })
@@ -697,7 +697,7 @@ describe('Security: Value validation prevents dangerous types', () => {
     const builder = new InsertBuilder<any, any>(table.name)
 
     expect(() => builder.values({
-      name: { __raw: '(SELECT password FROM admin LIMIT 1)' } as any,
+      name: { __raw: '(SELECT password FROM admin LIMIT 1)' },
     })).toThrow(/__raw/)
   })
 })

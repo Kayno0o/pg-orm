@@ -76,7 +76,7 @@ describe('Streaming', () => {
 
     for await (const row of repo.stream()) {
       // isDeleted is a virtual from softDelete trait
-      expect((row as any).isDeleted).toBe(false)
+      expect(row.isDeleted).toBe(false)
     }
   })
 

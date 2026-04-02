@@ -450,7 +450,7 @@ describe('diffSchema — extended migration tests', () => {
     }))
     const mockExecutor = {
       query: async () => [],
-      sql: {} as any,
+      sql: {},
     }
 
     const result = await generateMigration(mockExecutor, registry(table))
@@ -474,7 +474,7 @@ describe('diffSchema — extended migration tests', () => {
 
         return []
       },
-      sql: {} as any,
+      sql: {},
     }
 
     try {

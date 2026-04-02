@@ -96,11 +96,12 @@ describe('hasMany', () => {
 })
 
 describe('nested includes', () => {
-  it('loads nested relations via dotted path', async () => {
+  it('loads nested relations via callback composition', async () => {
     await seedRelations()
     const userRepo = db.repo(usersTable)
     const users = await userRepo.findMany(q =>
-      q.include('posts').include('posts.comments'))
+      q.include('posts', postsTable, pq =>
+        pq.include('comments')))
 
     const alice = users.find(u => u.name === 'Alice')!
 
@@ -109,6 +110,20 @@ describe('nested includes', () => {
     const postsWithComments = alice.posts.filter(p => p.comments?.length > 0)
 
     expect(postsWithComments.length).toBeGreaterThan(0)
+  })
+
+  it('supports filtering with nested includes', async () => {
+    const { alice } = await seedRelations()
+    const userRepo = db.repo(usersTable)
+    const users = await userRepo.findMany(q =>
+      q.include('posts', postsTable, pq =>
+        pq.where(e => e.eq('title', 'Post 1'))
+          .include('comments', commentsTable, cq => cq))
+        .where(e => e.eq('id', alice.id)))
+
+    expect(users[0]!.posts).toHaveLength(1)
+    expect(users[0]!.posts[0]!.title).toBe('Post 1')
+    expect(users[0]!.posts[0]!.comments.length).toBeGreaterThan(0)
   })
 })
 
@@ -155,7 +170,7 @@ describe('filtered includes', () => {
     const { alice } = await seedRelations()
     const userRepo = db.repo(usersTable)
     const users = await userRepo.findMany(q =>
-      q.include('posts', pq => pq.where(e => e.eq('title', 'Post 1'))).where(e => e.eq('id', alice.id)))
+      q.include('posts', postsTable, pq => pq.where(e => e.eq('title', 'Post 1'))).where(e => e.eq('id', alice.id)))
 
     expect(users[0]!.posts).toHaveLength(1)
     expect(users[0]!.posts[0]!.title).toBe('Post 1')

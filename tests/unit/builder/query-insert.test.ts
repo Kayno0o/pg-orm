@@ -10,7 +10,7 @@ function insert() {
 describe('InsertBuilder', () => {
   it('generates INSERT with values', () => {
     const { sql, params } = insert()
-      .values({ name: 'Alice', email: 'alice@test.com' } as any)
+      .values({ name: 'Alice', email: 'alice@test.com' })
       .toSQL()
 
     expect(sql).toContain('INSERT INTO "users"')
@@ -21,7 +21,7 @@ describe('InsertBuilder', () => {
 
   it('returning generates RETURNING *', () => {
     const { sql } = insert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .returning()
       .toSQL()
 
@@ -30,7 +30,7 @@ describe('InsertBuilder', () => {
 
   it('returning with specific columns', () => {
     const { sql } = insert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .returning('id', 'name')
       .toSQL()
 
@@ -39,7 +39,7 @@ describe('InsertBuilder', () => {
 
   it('onConflict doNothing', () => {
     const { sql } = insert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict(['email'])
       .doNothing()
       .toSQL()
@@ -49,7 +49,7 @@ describe('InsertBuilder', () => {
 
   it('onConflict doUpdate', () => {
     const { sql } = insert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict(['email'])
       .doUpdate('name')
       .toSQL()
@@ -62,7 +62,7 @@ describe('InsertBuilder', () => {
       .many([
         { name: 'Alice', email: 'a@b.com' },
         { name: 'Bob', email: 'b@b.com' },
-      ] as any)
+      ])
       .toSQL()
 
     expect(sql).toContain('VALUES')
@@ -74,34 +74,34 @@ describe('InsertBuilder', () => {
       .many([
         { name: 'Alice', email: 'a@b.com', age: 30 },
         { name: 'Bob', email: 'b@b.com' },
-      ] as any)
+      ])
       .toSQL()
 
     expect(sql).toContain('DEFAULT')
   })
 
   it('validateValues rejects undefined', () => {
-    expect(() => insert().values({ name: undefined } as any)).toThrow(/undefined/)
+    expect(() => insert().values({ name: undefined })).toThrow(/undefined/)
   })
 
   it('validateValues rejects NaN', () => {
-    expect(() => insert().values({ name: 'ok', age: Number.NaN } as any)).toThrow(/non-finite/)
+    expect(() => insert().values({ name: 'ok', age: Number.NaN })).toThrow(/non-finite/)
   })
 
   it('validateValues rejects Infinity', () => {
-    expect(() => insert().values({ name: 'ok', age: Infinity } as any)).toThrow(/non-finite/)
+    expect(() => insert().values({ name: 'ok', age: Infinity })).toThrow(/non-finite/)
   })
 
   it('validateValues rejects __raw objects', () => {
-    expect(() => insert().values({ name: { __raw: 'DROP TABLE' } } as any)).toThrow(/__raw/)
+    expect(() => insert().values({ name: { __raw: 'DROP TABLE' } })).toThrow(/__raw/)
   })
 
   it('validateValues allows null', () => {
-    expect(() => insert().values({ name: 'ok', age: null } as any)).not.toThrow()
+    expect(() => insert().values({ name: 'ok', age: null })).not.toThrow()
   })
 
   it('clone produces independent copy', () => {
-    const a = insert().values({ name: 'Alice', email: 'a@b.com' } as any)
+    const a = insert().values({ name: 'Alice', email: 'a@b.com' })
     const b = a.clone()
 
     expect(b._state.insertValues).toEqual(a._state.insertValues)
@@ -110,7 +110,7 @@ describe('InsertBuilder', () => {
 
   it('explain wraps query', () => {
     const { sql } = insert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .explain()
 
     expect(sql).toStartWith('EXPLAIN')

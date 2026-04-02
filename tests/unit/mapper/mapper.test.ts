@@ -5,7 +5,7 @@ const columns = {
   id: { _kind: 'column', pgType: 'serial', constraints: [] },
   name: { _kind: 'column', pgType: 'text', constraints: [] },
   age: { _kind: 'column', pgType: 'int4', constraints: [] },
-} as any
+}
 
 describe('compileMapper', () => {
   it('returns identity mapper when all columns selected', () => {

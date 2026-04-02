@@ -10,7 +10,7 @@ function update() {
 describe('UpdateBuilder', () => {
   it('generates UPDATE SET', () => {
     const { sql, params } = update()
-      .set({ name: 'Bob' } as any)
+      .set({ name: 'Bob' })
       .where(e => e.eq('id', 1))
       .toSQL()
 
@@ -21,7 +21,7 @@ describe('UpdateBuilder', () => {
 
   it('returning generates RETURNING *', () => {
     const { sql } = update()
-      .set({ name: 'Bob' } as any)
+      .set({ name: 'Bob' })
       .where(e => e.eq('id', 1))
       .returning()
       .toSQL()
@@ -31,7 +31,7 @@ describe('UpdateBuilder', () => {
 
   it('returning with specific columns', () => {
     const { sql } = update()
-      .set({ name: 'Bob' } as any)
+      .set({ name: 'Bob' })
       .where(e => e.eq('id', 1))
       .returning('id', 'name')
       .toSQL()
@@ -51,19 +51,19 @@ describe('UpdateBuilder', () => {
   })
 
   it('validateValues rejects undefined', () => {
-    expect(() => update().set({ name: undefined } as any)).toThrow(/undefined/)
+    expect(() => update().set({ name: undefined })).toThrow(/undefined/)
   })
 
   it('validateValues rejects NaN', () => {
-    expect(() => update().set({ age: Number.NaN } as any)).toThrow(/non-finite/)
+    expect(() => update().set({ age: Number.NaN })).toThrow(/non-finite/)
   })
 
   it('validateValues rejects __raw in user-facing API', () => {
-    expect(() => update().set({ name: { __raw: 'evil' } } as any)).toThrow(/__raw/)
+    expect(() => update().set({ name: { __raw: 'evil' } })).toThrow(/__raw/)
   })
 
   it('clone produces independent copy', () => {
-    const a = update().set({ name: 'Alice' } as any)
+    const a = update().set({ name: 'Alice' })
     const b = a.clone()
 
     b.where(e => e.eq('id', 1))
@@ -72,14 +72,14 @@ describe('UpdateBuilder', () => {
   })
 
   it('without where generates UPDATE without WHERE', () => {
-    const { sql } = update().set({ name: 'Bob' } as any).toSQL()
+    const { sql } = update().set({ name: 'Bob' }).toSQL()
 
     expect(sql).toBe('UPDATE "users" SET "name" = $1')
   })
 
   it('multiple SET values', () => {
     const { sql, params } = update()
-      .set({ name: 'Bob', age: 30 } as any)
+      .set({ name: 'Bob', age: 30 })
       .toSQL()
 
     expect(sql).toContain('"name" = $1')

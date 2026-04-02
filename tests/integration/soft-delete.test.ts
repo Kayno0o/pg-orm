@@ -30,7 +30,7 @@ describe('Soft Delete', () => {
     const all = await repo.findMany(q => q.withTrashed())
 
     expect(all).toHaveLength(1)
-    expect((all[0] as any).deletedAt).not.toBeNull()
+    expect(all[0].deletedAt).not.toBeNull()
   })
 
   it('findMany excludes soft-deleted rows by default', async () => {
@@ -96,12 +96,12 @@ describe('Soft Delete', () => {
 
     const user = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    expect((user as any).isDeleted).toBe(false)
+    expect(user.isDeleted).toBe(false)
 
     await repo.deleteMany(e => e.eq('id', user.id))
     const deleted = await repo.findMany(q => q.withTrashed())
 
-    expect((deleted[0] as any).isDeleted).toBe(true)
+    expect(deleted[0].isDeleted).toBe(true)
   })
 
   it('deleteOne returns the soft-deleted row', async () => {
@@ -111,6 +111,6 @@ describe('Soft Delete', () => {
     const result = await repo.deleteOne(e => e.eq('email', 'a@test.com'))
 
     expect(result).not.toBeNull()
-    expect((result as any).deletedAt).not.toBeNull()
+    expect(result.deletedAt).not.toBeNull()
   })
 })

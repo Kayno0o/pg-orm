@@ -115,7 +115,7 @@ export class Repository<
     const col = this._getSoftDeleteColumn()
 
     if (col && !getBuilderState(builder).withTrashed) {
-      builder.andWhere(e => e.isNull(col as any))
+      builder.andWhere(e => e.isNull(col))
     }
   }
 
@@ -231,7 +231,7 @@ export class Repository<
     this._applyVirtuals(rows)
 
     // Load requested relations on the returned row
-    if (opts?.include?.length) {
+    if (opts?.include?.length !== undefined && opts?.include?.length !== 0) {
       const includes: IncludeEntry[] = opts.include.map(r => ({ relation: r, strategy: 'batch' }))
 
       await this._loadIncludes(rows, includes)
@@ -279,7 +279,7 @@ export class Repository<
       .returning()
 
     // Auto-increment version column for optimistic locking (after validation)
-    if (lockCol) {
+    if (lockCol !== null) {
       getBuilderState(b).setValues![lockCol] = { __raw: `${quote(lockCol)} + 1` }
     }
 
@@ -338,14 +338,14 @@ export class Repository<
 
       return this.findOne(q => q.where((e) => {
         const conditions = pkCols.map(col =>
-          e.eq(col.trim() as any, (id as Record<string, unknown>)[col.trim()] as any),
+          e.eq(col.trim(), (id as Record<string, unknown>)[col.trim()]),
         )
 
         return e.and(...conditions)
-      }) as any)
+      }))
     }
 
-    return this.findOne(q => q.where(e => e.eq(pk as any, id as any)) as any)
+    return this.findOne(q => q.where(e => e.eq(pk, id)))
   }
 
   /** Count rows matching `where` (excludes soft-deleted by default). */
@@ -353,24 +353,24 @@ export class Repository<
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name).count()
 
     if (where) {
-      builder.where(where as any)
+      builder.where(where)
     }
 
-    this._applySoftDeleteFilter(builder as any)
+    this._applySoftDeleteFilter(builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._query(sql, params)
 
-    return Number((rows[0] as any)?.count ?? 0)
+    return Number(rows[0]?.count ?? 0)
   }
 
   /** Check if any row matches `where` (excludes soft-deleted by default). */
   async exists(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<boolean> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
-      .where(where as any)
+      .where(where)
       .limit(1)
 
-    this._applySoftDeleteFilter(builder as any)
+    this._applySoftDeleteFilter(builder)
 
     const existsState = getBuilderState(builder)
 
@@ -405,7 +405,7 @@ export class Repository<
     }
 
     const rows = await this.updateMany(set, e =>
-      e.and(where(e), e.eq(lockCol as any, currentVersion as any)))
+      e.and(where(e), e.eq(lockCol, currentVersion)))
 
     if (rows.length === 0) {
       throw new StaleRecordError(this._table.name, currentVersion)
@@ -448,7 +448,7 @@ export class Repository<
     await this._runAfter('afterInsert', rows)
 
     // Apply virtuals
-    this._applyVirtuals(rows as any)
+    this._applyVirtuals(rows)
 
     return rows as InferSelect<TColumns>[]
   }
@@ -488,9 +488,9 @@ export class Repository<
         let b = q.limit(perPage).offset((page - 1) * perPage)
 
         if (whereFn)
-          b = b.where(whereFn as any) as any
+          b = b.where(whereFn)
 
-        return b as any
+        return b
       }),
       this.count(whereFn),
     ])
@@ -519,15 +519,15 @@ export class Repository<
       let b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc')
 
       if (whereFn)
-        b = b.where(whereFn as any) as any
+        b = b.where(whereFn)
 
       if (cursor?.value != null) {
         b = b.andWhere(e =>
-          isForward ? e.gt(col as any, cursor.value as any) : e.lt(col as any, cursor.value as any),
-        ) as any
+          isForward ? e.gt(col, cursor.value) : e.lt(col, cursor.value),
+        )
       }
 
-      return b as any
+      return b
     })
 
     const hasMore = data.length > take
@@ -551,7 +551,7 @@ export class Repository<
   ): Promise<InferSelect<TColumns>[]> {
     const sdCol = this._getSoftDeleteColumn()
 
-    if (!sdCol) {
+    if (sdCol === null) {
       throw new OrmError('restore() requires softDelete trait on table')
     }
 
@@ -560,7 +560,7 @@ export class Repository<
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
       .where((e: ExprBuilder<TColumns>) =>
-        e.and(where(e), e.isNotNull(sdCol as any)))
+        e.and(where(e), e.isNotNull(sdCol)))
       .returning()
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
@@ -850,60 +850,75 @@ export class Repository<
 
   // --- Relation loading strategies ---
 
-  // Build a filtered query for a relation using callback, or fall back to batch query
+  // Build a filtered query for a relation using callback, or fall back to batch query.
+  // Extracts nested includes from the callback's builder state (they don't affect SQL).
   private async _filteredBatchQuery(
     tableName: string,
     column: string,
     ids: unknown[],
     callback?: IncludeCallback,
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<{ rows: Record<string, unknown>[], nestedIncludes: IncludeEntry[] }> {
     if (!callback) {
-      return this._batchQuery(tableName, column, ids)
+      return { rows: await this._batchQuery(tableName, column, ids), nestedIncludes: [] }
     }
 
     // Apply callback to a select builder, then inject the IN filter
     const builder = new SelectBuilder<any, any>(tableName)
     const filtered = callback(builder)
 
-    filtered.andWhere(e => e.in(column as any, ids as any))
+    // Extract nested includes before generating SQL
+    const nestedIncludes = [...filtered._state.includes]
+
+    filtered._state.includes = []
+
+    filtered.andWhere(e => e.in(column, ids))
     const { sql, params } = filtered.toSQL()
 
-    return this._query(sql, params)
+    return { rows: await this._query(sql, params), nestedIncludes }
   }
 
   private async _loadBelongsTo(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
-    relationName: string,
-    callback?: IncludeCallback,
+    inc: IncludeEntry,
+    ctx: { depth: number, seen: Set<string> },
   ): Promise<void> {
     const fk = rel.foreignKey
     const parentIds = [...new Set(parentRows.map(r => r[fk]).filter(v => v != null))]
 
     if (parentIds.length === 0) {
-      for (const row of parentRows) row[relationName] = null
+      for (const row of parentRows) row[inc.relation] = null
 
       return
     }
 
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-    const childRows = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, callback)
+    const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, inc.callback)
 
     const indexed = new Map<unknown, Record<string, unknown>>()
 
     for (const child of childRows) indexed.set(child[targetPk], child)
 
     for (const parent of parentRows) {
-      parent[relationName] = indexed.get(parent[fk]) ?? null
+      parent[inc.relation] = indexed.get(parent[fk]) ?? null
+    }
+
+    if (nestedIncludes.length > 0 && targetTable) {
+      const childVisited = new Set(ctx.seen)
+
+      childVisited.add(`${this._table.name}.${inc.relation}`)
+      const childRepo = new Repository(targetTable, this._executor, this._tableRegistry, this._maxIncludeDepth)
+
+      await childRepo._loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
     }
   }
 
   private async _loadHasOneOrMany(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
-    relationName: string,
-    callback?: IncludeCallback,
+    inc: IncludeEntry,
+    ctx: { depth: number, seen: Set<string> },
   ): Promise<void> {
     const sourcePk = this._findPrimaryKey(this._table)
     const targetFk = rel.foreignKey
@@ -912,13 +927,13 @@ export class Repository<
 
     if (parentIds.length === 0) {
       for (const row of parentRows) {
-        row[relationName] = isMany ? [] : null
+        row[inc.relation] = isMany ? [] : null
       }
 
       return
     }
 
-    const childRows = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, callback)
+    const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, inc.callback)
 
     if (isMany) {
       const grouped = new Map<unknown, Record<string, unknown>[]>()
@@ -933,7 +948,7 @@ export class Repository<
       }
 
       for (const parent of parentRows) {
-        parent[relationName] = grouped.get(parent[sourcePk]) ?? []
+        parent[inc.relation] = grouped.get(parent[sourcePk]) ?? []
       }
     }
     else {
@@ -942,7 +957,20 @@ export class Repository<
       for (const child of childRows) indexed.set(child[targetFk], child)
 
       for (const parent of parentRows) {
-        parent[relationName] = indexed.get(parent[sourcePk]) ?? null
+        parent[inc.relation] = indexed.get(parent[sourcePk]) ?? null
+      }
+    }
+
+    if (nestedIncludes.length > 0) {
+      const targetTableDef = this._resolveTable(rel.targetTable)
+
+      if (targetTableDef) {
+        const childVisited = new Set(ctx.seen)
+
+        childVisited.add(`${this._table.name}.${inc.relation}`)
+        const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
+
+        await childRepo._loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
       }
     }
   }
@@ -982,67 +1010,9 @@ export class Repository<
     }
   }
 
-  // Split dotted include paths into top-level and nested entries
-  private _splitIncludes(includes: IncludeEntry[]): { topLevel: IncludeEntry[], nested: Map<string, IncludeEntry[]> } {
-    const topLevel: IncludeEntry[] = []
-    const nested = new Map<string, IncludeEntry[]>()
-
-    for (const inc of includes) {
-      const dotIdx = inc.relation.indexOf('.')
-
-      if (dotIdx === -1) {
-        topLevel.push(inc)
-      }
-      else {
-        const parent = inc.relation.slice(0, dotIdx)
-        const child = inc.relation.slice(dotIdx + 1)
-
-        if (!nested.has(parent))
-          nested.set(parent, [])
-
-        nested.get(parent)!.push({ relation: child, strategy: 'batch', callback: inc.callback })
-
-        if (!topLevel.some(t => t.relation === parent)) {
-          topLevel.push({ relation: parent, strategy: 'batch' })
-        }
-      }
-    }
-
-    return { topLevel, nested }
-  }
-
-  // Recursively load nested includes on child rows after parent relation is loaded
-  private async _loadNestedIncludes(
-    parentRows: Record<string, unknown>[],
-    ctx: { relationName: string, rel: AnyRelationDef, includes: IncludeEntry[], seen: Set<string>, depth: number },
-  ): Promise<void> {
-    const targetTableDef = this._resolveTable(ctx.rel.targetTable)
-
-    if (!targetTableDef)
-      return
-
-    const childRows: Record<string, unknown>[] = []
-
-    for (const parent of parentRows) {
-      const val = parent[ctx.relationName]
-
-      if (Array.isArray(val))
-        childRows.push(...val)
-      else if (val != null)
-        childRows.push(val as Record<string, unknown>)
-    }
-
-    if (childRows.length > 0) {
-      const childRepo = new Repository(targetTableDef, this._executor, this._tableRegistry, this._maxIncludeDepth)
-      const childVisited = new Set(ctx.seen)
-
-      childVisited.add(`${this._table.name}.${ctx.relationName}`)
-      await childRepo._loadIncludes(childRows, ctx.includes, ctx.depth + 1, childVisited)
-    }
-  }
-
   // Batched relation loading — single query per relation, all relations in parallel.
-  // Supports nested includes via dotted paths: 'posts.comments'
+  // Nested includes are handled via callback composition: each _load* method extracts
+  // nested includes from the callback's builder state and recursively loads them.
   private async _loadIncludes(
     parentRows: Record<string, unknown>[],
     includes: IncludeEntry[],
@@ -1063,7 +1033,7 @@ export class Repository<
     const seen = visited ?? new Set<string>()
 
     for (const inc of includes) {
-      const key = `${this._table.name}.${inc.relation.split('.')[0]!}`
+      const key = `${this._table.name}.${inc.relation}`
 
       if (seen.has(key)) {
         throw new OrmError(
@@ -1073,27 +1043,23 @@ export class Repository<
       }
     }
 
-    const { topLevel, nested } = this._splitIncludes(includes)
     const tasks: Promise<void>[] = []
 
-    for (const inc of topLevel) {
+    for (const inc of includes) {
       const rel = relations[inc.relation] as AnyRelationDef | undefined
 
       if (!rel)
         continue
 
+      const ctx = { depth, seen }
+
       tasks.push((async () => {
         if (rel.type === 'belongsTo')
-          await this._loadBelongsTo(parentRows, rel, inc.relation, inc.callback)
+          await this._loadBelongsTo(parentRows, rel, inc, ctx)
         else if (rel.type === 'hasOne' || rel.type === 'hasMany')
-          await this._loadHasOneOrMany(parentRows, rel, inc.relation, inc.callback)
+          await this._loadHasOneOrMany(parentRows, rel, inc, ctx)
         else if (rel.type === 'hasManyThrough' && rel.throughTable)
           await this._loadHasManyThrough(parentRows, rel, inc.relation)
-
-        const nestedIncludes = nested.get(inc.relation)
-
-        if (nestedIncludes?.length)
-          await this._loadNestedIncludes(parentRows, { relationName: inc.relation, rel, includes: nestedIncludes, seen, depth })
       })())
     }
 

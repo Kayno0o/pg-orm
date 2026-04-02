@@ -6,7 +6,7 @@ export type { RelationTypes } from '../types/index'
 
 // Factory for simple relations (belongsTo, hasOne, hasMany) — identical structure
 function simpleRelation<T extends 'belongsTo' | 'hasOne' | 'hasMany'>(type: T) {
-  return (targetTable: string, foreignKey: string) => {
+  return (targetTable: string, foreignKey: string, _opts?: { nullable: boolean }) => {
     validateIdentifier(targetTable, 'relation target table')
     validateIdentifier(foreignKey, 'relation foreign key')
 

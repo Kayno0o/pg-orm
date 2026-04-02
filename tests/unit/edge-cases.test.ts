@@ -20,7 +20,7 @@ describe('Edge Cases — Unit', () => {
       mock.preset([{ id: 1, name: 'Alice', email: 'a@test.com', age: null, deletedAt: null, createdAt: new Date(), updatedAt: new Date() }])
       const repo = new Repository(usersTable, mock)
 
-      await repo.restore(e => e.eq('id' as any, 1))
+      await repo.restore(e => e.eq('id' , 1))
 
       expect(mock.queries.length).toBeGreaterThanOrEqual(1)
       const query = mock.queries[0]!
@@ -82,7 +82,7 @@ describe('Edge Cases — Unit', () => {
       mock.preset([])
       const repo = new Repository(usersTable, mock, undefined, undefined, 100)
 
-      await repo.findMany(q => q.limit(10) as any)
+      await repo.findMany(q => q.limit(10) )
 
       const query = mock.queries[0]!
 
@@ -111,7 +111,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
       const repo = new Repository(postsTable, mock)
 
-      const result = await repo.upsertMany([], ['id' as any])
+      const result = await repo.upsertMany([], ['id' ])
 
       expect(result).toEqual([])
       expect(mock.queries).toHaveLength(0)
@@ -130,8 +130,8 @@ describe('Edge Cases — Unit', () => {
         [
           { title: 'Post 1', body: 'Body 1', authorId: 1 },
           { title: 'Post 2', body: 'Body 2', authorId: 1 },
-        ] as any[],
-        ['title' as any],
+        ] [],
+        ['title' ],
       )
 
       expect(result).toHaveLength(2)
@@ -150,8 +150,8 @@ describe('Edge Cases — Unit', () => {
       const repo = new Repository(postsTable, mock)
 
       await repo.upsertMany(
-        [{ title: 'Post 1', body: 'Body 1', authorId: 1 }] as any[],
-        ['title' as any],
+        [{ title: 'Post 1', body: 'Body 1', authorId: 1 }] [],
+        ['title' ],
       )
 
       const sql = mock.queries[0]!.sql
@@ -171,9 +171,9 @@ describe('Edge Cases — Unit', () => {
       const repo = new Repository(postsTable, mock)
 
       await repo.upsertMany(
-        [{ title: 'Post 1', body: 'Updated', authorId: 1 }] as any[],
-        ['title' as any],
-        ['body' as any],
+        [{ title: 'Post 1', body: 'Updated', authorId: 1 }] [],
+        ['title' ],
+        ['body' ],
       )
 
       const sql = mock.queries[0]!.sql

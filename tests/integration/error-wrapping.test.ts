@@ -81,7 +81,7 @@ describe('Error Wrapping - integration', () => {
     const repo = db.repo(usersTable)
 
     await expect(
-      repo.insertOne({ name: null, email: 'test@test.com' } as any),
+      repo.insertOne({ name: null, email: 'test@test.com' }),
     ).rejects.toThrow(NotNullError)
   })
 

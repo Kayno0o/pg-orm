@@ -32,8 +32,8 @@ describe('CRUD - insertOne', () => {
     const repo = db.repo(usersTable)
     const user = await repo.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
-    expect((user as any).createdAt).toBeInstanceOf(Date)
-    expect((user as any).updatedAt).toBeInstanceOf(Date)
+    expect(user.createdAt).toBeInstanceOf(Date)
+    expect(user.updatedAt).toBeInstanceOf(Date)
   })
 
   it('inserts with nullable field', async () => {
@@ -179,7 +179,7 @@ describe('CRUD - updateMany', () => {
 
     await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
     const updated = await repo.updateMany(
-      { name: 'Alice Updated' } as any,
+      { name: 'Alice Updated' },
       e => e.eq('email', 'a@test.com'),
     )
 
@@ -194,7 +194,7 @@ describe('CRUD - updateOne', () => {
 
     await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
     const updated = await repo.updateOne(
-      { name: 'Alice V2' } as any,
+      { name: 'Alice V2' },
       e => e.eq('email', 'a@test.com'),
     )
 
@@ -204,7 +204,7 @@ describe('CRUD - updateOne', () => {
 
   it('returns null when no match', async () => {
     const repo = db.repo(usersTable)
-    const result = await repo.updateOne({ name: 'Nobody' } as any, e => e.eq('id', 999999))
+    const result = await repo.updateOne({ name: 'Nobody' }, e => e.eq('id', 999999))
 
     expect(result).toBeNull()
   })
@@ -218,7 +218,7 @@ describe('CRUD - deleteMany', () => {
     const deleted = await repo.deleteMany(e => e.eq('id', user.id))
 
     expect(deleted).toHaveLength(1)
-    expect((deleted[0] as any).deletedAt).not.toBeNull()
+    expect(deleted[0].deletedAt).not.toBeNull()
 
     // Soft-deleted rows should not appear in findMany
     const remaining = await repo.findMany()

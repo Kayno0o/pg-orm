@@ -10,7 +10,7 @@ function upsert() {
 describe('UpsertBuilder', () => {
   it('generates INSERT with ON CONFLICT DO UPDATE', () => {
     const { sql, params: _params } = upsert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict('email')
       .toSQL()
 
@@ -20,7 +20,7 @@ describe('UpsertBuilder', () => {
 
   it('doUpdate with specific columns', () => {
     const { sql } = upsert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict('email')
       .doUpdate('name')
       .toSQL()
@@ -30,7 +30,7 @@ describe('UpsertBuilder', () => {
 
   it('returning adds RETURNING', () => {
     const { sql } = upsert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict('email')
       .returning()
       .toSQL()
@@ -39,11 +39,11 @@ describe('UpsertBuilder', () => {
   })
 
   it('validateValues rejects __raw', () => {
-    expect(() => upsert().values({ name: { __raw: 'evil' } } as any)).toThrow(/__raw/)
+    expect(() => upsert().values({ name: { __raw: 'evil' } })).toThrow(/__raw/)
   })
 
   it('clone produces independent copy', () => {
-    const a = upsert().values({ name: 'Alice', email: 'a@b.com' } as any)
+    const a = upsert().values({ name: 'Alice', email: 'a@b.com' })
     const b = a.clone()
 
     b.onConflict('email')
@@ -53,7 +53,7 @@ describe('UpsertBuilder', () => {
 
   it('explain wraps query', () => {
     const { sql } = upsert()
-      .values({ name: 'Alice', email: 'a@b.com' } as any)
+      .values({ name: 'Alice', email: 'a@b.com' })
       .onConflict('email')
       .explain()
 

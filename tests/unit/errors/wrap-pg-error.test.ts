@@ -18,7 +18,7 @@ function pgError(code: string, opts: Record<string, string> = {}): Error & Recor
 
   for (const [k, v] of Object.entries(opts)) {
     if (k !== 'message')
-      (err as any)[k] = v
+      err[k] = v
   }
 
   return err

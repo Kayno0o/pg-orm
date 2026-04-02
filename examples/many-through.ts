@@ -103,7 +103,7 @@ async function main() {
   // --- NEW: Include with filtering ---
   console.log('\n--- Include with Filtering ---')
   const postsWithApproved = await PostRepo.findMany(q =>
-    q.include('comments', sq => sq.where(e => e.eq('approved', true))),
+    q.include('comments', comments, sq => sq.where(e => e.eq('approved', true))),
   )
 
   for (const post of postsWithApproved) {

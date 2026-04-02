@@ -52,7 +52,7 @@ async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp[]): Pr
 
   const defaultYes = destructiveOps.length === 0
 
-  if (answer === 'y' || answer === 'yes' || (defaultYes && answer === ''))
+  if (answer === 'y' || answer === 'yes' || defaultYes && answer === '')
     return true
 
   console.log(`${colors.dim('Sync cancelled.')}\n`)
@@ -287,7 +287,7 @@ abstract class BaseExecutor implements Executable {
         result = await unsafeQuery(this.sql, sqlStr, params)
       }
       catch (err) {
-        this._onError?.({ error: err, sql: sqlStr, params, ...(this._context ? { context: this._context } : {}) })
+        this._onError?.({ error: err, sql: sqlStr, params, ...this._context ? { context: this._context } : {} })
 
         throw err
       }
@@ -311,7 +311,7 @@ abstract class BaseExecutor implements Executable {
       return await unsafeQuery(this.sql, sqlStr, params)
     }
     catch (err) {
-      this._onError?.({ error: err, sql: sqlStr, params, ...(this._context ? { context: this._context } : {}) })
+      this._onError?.({ error: err, sql: sqlStr, params, ...this._context ? { context: this._context } : {} })
 
       throw err
     }
@@ -559,7 +559,7 @@ export class Database extends BaseExecutor {
         let hash = 5381
 
         for (let i = 0; i < sqlStr.length; i++) {
-          hash = ((hash << 5) + hash + sqlStr.charCodeAt(i)) | 0
+          hash = (hash << 5) + hash + sqlStr.charCodeAt(i) | 0
         }
 
         await recordMigration(txExecutor, {
@@ -629,7 +629,7 @@ export class Database extends BaseExecutor {
         const downSql = migration.downSql
 
         for (let i = 0; i < downSql.length; i++) {
-          hash = ((hash << 5) + hash + downSql.charCodeAt(i)) | 0
+          hash = (hash << 5) + hash + downSql.charCodeAt(i) | 0
         }
 
         await recordMigration(txExecutor, {

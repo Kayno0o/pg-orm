@@ -54,9 +54,11 @@ export type RelationKind = 'belongsTo' | 'hasOne' | 'hasMany' | 'hasManyThrough'
 // RelationDef carries a phantom TResult type for typed includes.
 // TResult is the row type of the target table (e.g. { id: number, title: string }).
 // Defaults to Record<string, any> when no type param is provided.
+// TNullable controls whether the resolved relation can be null (e.g. nullable FK in belongsTo).
 export interface RelationDef<
   TKind extends RelationKind = RelationKind,
   TResult = Record<string, any>,
+  TNullable extends boolean = false,
 > {
   readonly _kind: 'relation'
   readonly type: TKind
@@ -68,20 +70,23 @@ export interface RelationDef<
   readonly throughTo?: string
   // Phantom type for result inference
   readonly _result?: TResult
+  readonly _nullable?: TNullable
 }
 
 // Relation builder interface — the `r` param in .withRelations() and defineTable()
 // Pure type definition (no runtime code) — safe to keep in types module.
 export interface RelationTypes {
-  belongsTo: <TResult = Record<string, any>>(
+  belongsTo: <TResult = Record<string, any>, TNullable extends boolean = false>(
     targetTable: string,
     foreignKey: string,
-  ) => RelationDef<'belongsTo', TResult>
+    opts?: { nullable: TNullable },
+  ) => RelationDef<'belongsTo', TResult, TNullable>
 
-  hasOne: <TResult = Record<string, any>>(
+  hasOne: <TResult = Record<string, any>, TNullable extends boolean = true>(
     targetTable: string,
     foreignKey: string,
-  ) => RelationDef<'hasOne', TResult>
+    opts?: { nullable: TNullable },
+  ) => RelationDef<'hasOne', TResult, TNullable>
 
   hasMany: <TResult = Record<string, any>>(
     targetTable: string,
@@ -116,7 +121,7 @@ export interface VirtualDef<TRow = any, TResult = any> {
 
 export type AnyColumnDef = ColumnDef<any, any, any, any, any>
 export type AnyColumns = Record<string, AnyColumnDef>
-export type AnyRelationDef = RelationDef<any, any>
+export type AnyRelationDef = RelationDef<any, any, any>
 export type AnyRelations = Record<string, AnyRelationDef>
 export type AnyVirtuals = Record<string, VirtualDef<any, any>>
 export type AnyTableDef = TableDef<string, any, any, any>
@@ -229,11 +234,12 @@ export type InferWhere<TColumns extends AnyColumns> = {
 // --- Relation result inference ---
 
 // Map a RelationDef to its result type using the phantom TResult
+// For belongsTo/hasOne, nullability depends on the TNullable flag (e.g. non-nullable FK → T, nullable FK → T | null)
 export type InferRelationResult<R extends AnyRelationDef>
-  = R extends RelationDef<'hasMany', infer T> ? T[]
-    : R extends RelationDef<'hasManyThrough', infer T> ? T[]
-      : R extends RelationDef<'belongsTo', infer T> ? T | null
-        : R extends RelationDef<'hasOne', infer T> ? T | null
+  = R extends RelationDef<'hasMany', infer T, any> ? T[]
+    : R extends RelationDef<'hasManyThrough', infer T, any> ? T[]
+      : R extends RelationDef<'belongsTo', infer T, infer N> ? N extends true ? T | null : T
+        : R extends RelationDef<'hasOne', infer T, infer N> ? N extends true ? T | null : T
           : never
 
 // Merge base select type with included relation results

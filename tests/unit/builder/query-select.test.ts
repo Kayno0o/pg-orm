@@ -245,7 +245,7 @@ describe('SelectBuilder', () => {
   })
 
   it('include adds include entry', () => {
-    const b = (select() as any).include('posts')
+    const b = select().include('posts')
 
     expect(b._state.includes).toHaveLength(1)
     expect(b._state.includes[0]!.relation).toBe('posts')

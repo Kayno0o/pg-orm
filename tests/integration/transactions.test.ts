@@ -116,7 +116,7 @@ describe('Transactions', () => {
 
   it('rejects invalid isolation level', async () => {
     await expect(
-      db.transaction({ isolation: 'invalid' as any }, async () => { /* noop */ }),
+      db.transaction({ isolation: 'invalid' }, async () => { /* noop */ }),
     ).rejects.toThrow()
   })
 

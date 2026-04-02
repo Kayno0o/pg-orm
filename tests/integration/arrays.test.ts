@@ -91,7 +91,7 @@ describe('array columns — arrayOverlap filter', () => {
     await repo.insertOne({ name: 'nomatch', tags: ['d'] })
 
     const results = await repo.findMany(q =>
-      q.where(e => e.arrayOverlap('tags', ['a', 'c'])).orderBy('name' as any, 'asc') as any,
+      q.where(e => e.arrayOverlap('tags', ['a', 'c'])).orderBy('name', 'asc'),
     )
 
     expect(results).toHaveLength(2)

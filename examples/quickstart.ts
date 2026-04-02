@@ -140,7 +140,7 @@ async function main() {
   // --- NEW: Relation filtering on .include() ---
   console.log('\n--- Relation filtering ---')
   const usersWithPublished = await UserRepo.findMany(q =>
-    q.include('posts', sq => sq.where(e => e.eq('published', true))),
+    q.include('posts', posts, sq => sq.where(e => e.eq('published', true))),
   )
 
   for (const u of usersWithPublished) {

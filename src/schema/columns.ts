@@ -370,7 +370,7 @@ export function createColumnTypes(): ColumnTypes {
     float8: () => new ColumnBuilder('float8'),
     real: () => new ColumnBuilder('float4'),
     doublePrecision: () => new ColumnBuilder('float8'),
-    numeric: (p, s) => new ColumnBuilder(p != null ? (s != null ? `numeric(${p},${s})` : `numeric(${p})`) : 'numeric'),
+    numeric: (p, s) => new ColumnBuilder(p != null ? s != null ? `numeric(${p},${s})` : `numeric(${p})` : 'numeric'),
     serial: () => new ColumnBuilder('serial') as never,
     bigserial: () => new ColumnBuilder('bigserial') as never,
 

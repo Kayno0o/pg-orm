@@ -24,7 +24,7 @@ describe('Optimistic Lock', () => {
     const repo = db.repo(versionedItemsTable)
     const item = await repo.insertOne({ name: 'Item 1', value: 100 })
 
-    expect((item as any).version).toBe(1)
+    expect(item.version).toBe(1)
   })
 
   it('updateWithLock succeeds with correct version', async () => {
@@ -32,13 +32,13 @@ describe('Optimistic Lock', () => {
     const item = await repo.insertOne({ name: 'Item 1', value: 100 })
 
     const updated = await repo.updateWithLock(
-      { value: 200 } as any,
+      { value: 200 },
       e => e.eq('id', item.id),
-      (item as any).version,
+      item.version,
     )
 
     expect(updated.value).toBe(200)
-    expect((updated as any).version).toBe(2) // version incremented
+    expect(updated.version).toBe(2) // version incremented
   })
 
   it('updateWithLock throws StaleRecordError on version mismatch', async () => {
@@ -47,17 +47,17 @@ describe('Optimistic Lock', () => {
 
     // First update succeeds
     await repo.updateWithLock(
-      { value: 200 } as any,
+      { value: 200 },
       e => e.eq('id', item.id),
-      (item as any).version,
+      item.version,
     )
 
     // Second update with stale version should fail
     await expect(
       repo.updateWithLock(
-        { value: 300 } as any,
+        { value: 300 },
         e => e.eq('id', item.id),
-        (item as any).version, // stale version (1, but now it's 2)
+        item.version, // stale version (1, but now it's 2)
       ),
     ).rejects.toThrow(StaleRecordError)
   })
@@ -67,22 +67,22 @@ describe('Optimistic Lock', () => {
     const item = await repo.insertOne({ name: 'Item 1', value: 100 })
 
     const updated = await repo.updateMany(
-      { value: 200 } as any,
+      { value: 200 },
       e => e.eq('id', item.id),
     )
 
-    expect((updated[0] as any).version).toBe(2)
+    expect(updated[0].version).toBe(2)
   })
 
   it('multiple sequential updates increment version correctly', async () => {
     const repo = db.repo(versionedItemsTable)
     let item: any = await repo.insertOne({ name: 'Item 1', value: 100 })
 
-    item = await repo.updateWithLock({ value: 200 } as any, e => e.eq('id', item.id), 1)
+    item = await repo.updateWithLock({ value: 200 }, e => e.eq('id', item.id), 1)
 
     expect(item.version).toBe(2)
 
-    item = await repo.updateWithLock({ value: 300 } as any, e => e.eq('id', item.id), 2)
+    item = await repo.updateWithLock({ value: 300 }, e => e.eq('id', item.id), 2)
 
     expect(item.version).toBe(3)
   })

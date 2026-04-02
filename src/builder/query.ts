@@ -1,4 +1,4 @@
-import type { AnyColumns, AnyRelations, InferInsert, InferRelationResult, InferSelect, InferUpdate } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, InferInsert, InferRelationResult, InferSelect, InferUpdate, RelationDef } from '../types/index'
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import { quote } from '../sql/utils'
 import { assembleExpr, createExprBuilder, OP_AND } from './expr'
@@ -819,14 +819,26 @@ export class SelectBuilder<
 
   // Typed eager relation loading — constrained to relation names only.
   // hasMany relations always use WHERE fk = ANY($1) batching, never per-row subqueries.
-  // Supports dotted paths for nested includes: .include('posts.comments')
-  // Supports optional callback for filtering/ordering: .include('posts', q => q.where(...).limit(5))
+  //
+  // Two forms:
+  //   .include('posts')                                           — simple include
+  //   .include('posts', postsTable, pq => pq.include(...))       — typed callback (filtering + nesting)
   include<K extends keyof TRelations & string>(
     relation: K,
-    callback?: IncludeCallback,
   ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }>
+  include<K extends keyof TRelations & string, TTable extends AnyTableDef, TChildResult>(
+    relation: K,
+    table: TTable,
+    callback: (q: SelectBuilder<TTable['columns'], TTable['relations'], InferSelect<TTable['columns']>>) => SelectBuilder<TTable['columns'], TTable['relations'], TChildResult>,
+  ): SelectBuilder<TColumns, TRelations, TResult & {
+    [P in K]: TRelations[P] extends RelationDef<'hasMany', any, any> ? TChildResult[]
+      : TRelations[P] extends RelationDef<'hasManyThrough', any, any> ? TChildResult[]
+        : TRelations[P] extends RelationDef<infer _K, any, infer N> ? N extends true ? TChildResult | null : TChildResult
+          : TChildResult
+  }>
   include(
     relation: string,
+    table?: AnyTableDef,
     callback?: IncludeCallback,
   ): SelectBuilder<TColumns, TRelations, any> {
     this._state.includes.push({ relation, strategy: 'batch', callback })
