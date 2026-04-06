@@ -404,7 +404,8 @@ describe('Large values', () => {
   it('handles large text values', async () => {
     const repo = db.repo(postsTable)
     const largeBody = 'x'.repeat(100_000)
-    const post = await repo.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
+    const postId = await repo.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
+    const post = await repo.findOneOrThrow(q => q.where(e => e.eq('id', postId)))
 
     expect(post.body).toBe(largeBody)
     expect(post.body.length).toBe(100_000)

@@ -58,7 +58,7 @@ async function main() {
   await db.raw`DELETE FROM mt_posts`
   await db.raw`DELETE FROM mt_tags`
 
-  // Seed data
+  // Seed data (insertOne now returns the primary key only)
   const p1 = await PostRepo.insertOne({ title: 'Post A' })
   const p2 = await PostRepo.insertOne({ title: 'Post B' })
   const t1 = await TagRepo.insertOne({ name: 'rust' })
@@ -67,19 +67,19 @@ async function main() {
 
   // Link: Post A → rust, typescript; Post B → typescript, bun
   await PostTagRepo.insertMany([
-    { postId: p1.id, tagId: t1.id },
-    { postId: p1.id, tagId: t2.id },
-    { postId: p2.id, tagId: t2.id },
-    { postId: p2.id, tagId: t3.id },
+    { postId: p1, tagId: t1 },
+    { postId: p1, tagId: t2 },
+    { postId: p2, tagId: t2 },
+    { postId: p2, tagId: t3 },
   ])
 
   // Add comments
   await CommentRepo.insertMany([
-    { postId: p1.id, body: 'Great post!', approved: true },
-    { postId: p1.id, body: 'Spam', approved: false },
-    { postId: p1.id, body: 'Interesting', approved: true },
-    { postId: p2.id, body: 'Nice!', approved: true },
-    { postId: p2.id, body: 'Meh', approved: false },
+    { postId: p1, body: 'Great post!', approved: true },
+    { postId: p1, body: 'Spam', approved: false },
+    { postId: p1, body: 'Interesting', approved: true },
+    { postId: p2, body: 'Nice!', approved: true },
+    { postId: p2, body: 'Meh', approved: false },
   ])
 
   // --- hasManyThrough ---

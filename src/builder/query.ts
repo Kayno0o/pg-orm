@@ -1,5 +1,5 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, InferInsert, InferRelationResult, InferSelect, InferUpdate, RelationDef } from '../types/index'
-import type { ExprBuilder, ExprOp, ExprTape } from './expr'
+import type { AggResult, ExprBuilder, ExprOp, ExprTape } from './expr'
 import { quote } from '../sql/utils'
 import { assembleExpr, createExprBuilder, OP_AND } from './expr'
 
@@ -849,9 +849,9 @@ export class SelectBuilder<
 
   // Aggregate builder — uses ExprBuilder aggregate methods to build computed columns
   // Usage: .aggregate(e => ({ total: e.sum('amount'), avg: e.avg('price') }))
-  aggregate<TAgg extends Record<string, string>>(
+  aggregate<TAgg extends Record<string, AggResult<unknown>>>(
     fn: (e: ExprBuilder<TColumns>) => TAgg,
-  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: number }> {
+  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number }> {
     const builder = createExprBuilder<TColumns>()
     const aggs = fn(builder)
 

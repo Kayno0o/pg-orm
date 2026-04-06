@@ -311,36 +311,36 @@ describe('ExprBuilder - Ref', () => {
 
 describe('ExprBuilder - Aggregates', () => {
   it('sum generates SUM()', () => {
-    expect(e.sum('amount')).toBe('SUM("amount")')
+    expect(e.sum('amount') as string).toBe('SUM("amount")')
   })
 
   it('avg generates AVG()', () => {
-    expect(e.avg('price')).toBe('AVG("price")')
+    expect(e.avg('price') as string).toBe('AVG("price")')
   })
 
   it('min generates MIN()', () => {
-    expect(e.min('age')).toBe('MIN("age")')
+    expect(e.min('age') as string).toBe('MIN("age")')
   })
 
   it('max generates MAX()', () => {
-    expect(e.max('age')).toBe('MAX("age")')
+    expect(e.max('age') as string).toBe('MAX("age")')
   })
 
   it('countCol generates COUNT()', () => {
-    expect(e.countCol('id')).toBe('COUNT("id")')
-    expect(e.countCol()).toBe('COUNT(*)')
+    expect(e.countCol('id') as string).toBe('COUNT("id")')
+    expect(e.countCol() as string).toBe('COUNT(*)')
   })
 
   it('jsonAgg generates json_agg()', () => {
-    expect(e.jsonAgg('data')).toBe('json_agg("data")')
+    expect(e.jsonAgg('data') as string).toBe('json_agg("data")')
   })
 
   it('arrayAgg generates array_agg()', () => {
-    expect(e.arrayAgg('id')).toBe('array_agg("id")')
+    expect(e.arrayAgg('id') as string).toBe('array_agg("id")')
   })
 
   it('stringAgg generates string_agg()', () => {
-    expect(e.stringAgg('name', ', ')).toBe('string_agg("name", \', \')')
+    expect(e.stringAgg('name', ', ') as string).toBe('string_agg("name", \', \')')
   })
 
   it('stringAgg allows common delimiters', () => {

@@ -24,27 +24,27 @@ describe('Deadlock detection', () => {
     const repo = db.repo(usersTable)
 
     // Insert two users
-    const alice = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
-    const bob = await repo.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const aliceId = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const bobId = await repo.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
     let deadlockDetected = false
 
     const tx1 = db.transaction(async (tx) => {
       const r = repo.using(tx)
 
-      await r.updateOne({ name: 'Alice-updated' }, e => e.eq('id', alice.id))
+      await r.updateOne({ name: 'Alice-updated' }, e => e.eq('id', aliceId))
       // Give tx2 time to lock bob
       await new Promise(resolve => setTimeout(resolve, 100))
-      await r.updateOne({ name: 'Bob-updated' }, e => e.eq('id', bob.id))
+      await r.updateOne({ name: 'Bob-updated' }, e => e.eq('id', bobId))
     })
 
     const tx2 = db.transaction(async (tx) => {
       const r = repo.using(tx)
 
-      await r.updateOne({ name: 'Bob-updated2' }, e => e.eq('id', bob.id))
+      await r.updateOne({ name: 'Bob-updated2' }, e => e.eq('id', bobId))
       // Give tx1 time to lock alice
       await new Promise(resolve => setTimeout(resolve, 100))
-      await r.updateOne({ name: 'Alice-updated2' }, e => e.eq('id', alice.id))
+      await r.updateOne({ name: 'Alice-updated2' }, e => e.eq('id', aliceId))
     })
 
     try {

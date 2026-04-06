@@ -1,7 +1,7 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
@@ -207,41 +207,24 @@ export class Repository<
     return row
   }
 
-  /** Insert a single row and return the inserted record with all columns. */
-  async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async insertOne(
-    values: InferInsert<TColumns>,
-    opts: { include: (keyof TRelations & string)[] },
-  ): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async insertOne(
-    values: InferInsert<TColumns>,
-    opts?: { include?: (keyof TRelations & string)[] },
-  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
+  /** Insert a single row and return the primary key of the inserted record. */
+  async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
     const v = await this._runBefore('beforeInsert', values)
 
+    const pk = this._table.primaryKey ?? 'id'
     const b = new InsertBuilder<TColumns>(this._table.name)
       .values(v)
-      .returning()
+      .returning(pk)
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
     await this._runAfter('afterInsert', rows)
 
-    // Apply virtuals
-    this._applyVirtuals(rows)
-
-    // Load requested relations on the returned row
-    if (opts?.include?.length !== undefined && opts?.include?.length !== 0) {
-      const includes: IncludeEntry[] = opts.include.map(r => ({ relation: r, strategy: 'batch' }))
-
-      await this._loadIncludes(rows, includes)
-    }
-
-    return rows[0] as WithVirtuals<TColumns, TVirtuals>
+    return rows[0]![pk] as InferPrimaryKey<TColumns>
   }
 
-  /** Insert multiple rows in a single query and return all inserted records. */
-  async insertMany(values: InferInsert<TColumns>[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+  /** Insert multiple rows in a single query and return the primary keys of the inserted records. */
+  async insertMany(values: InferInsert<TColumns>[]): Promise<InferPrimaryKey<TColumns>[]> {
     if (values.length === 0)
       return []
 
@@ -251,18 +234,16 @@ export class Repository<
       v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeInsert', row)))
     }
 
+    const pk = this._table.primaryKey ?? 'id'
     const b = new InsertBuilder<TColumns>(this._table.name)
       .many(v)
-      .returning()
+      .returning(pk)
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
     await this._runAfter('afterInsert', rows)
 
-    // Apply virtuals
-    this._applyVirtuals(rows)
-
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+    return rows.map(r => r[pk]) as InferPrimaryKey<TColumns>[]
   }
 
   /** Update all rows matching `where` and return the updated records. */

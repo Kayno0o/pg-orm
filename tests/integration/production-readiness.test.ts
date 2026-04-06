@@ -36,7 +36,8 @@ describe('SQL Injection E2E', () => {
     ]
 
     for (const payload of payloads) {
-      const user = await repo.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
+      const userId = await repo.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
+      const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
       // Value stored as literal string
       expect(user.name).toBe(payload)
@@ -86,13 +87,13 @@ describe('SQL Injection E2E', () => {
 
   it('handles injection payloads in update set values', async () => {
     const repo = db.repo(usersTable)
-    const user = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     const payload = `'; UPDATE users SET email='hacked'; --`
 
-    await repo.updateOne({ name: payload }, e => e.eq('id', user.id))
+    await repo.updateOne({ name: payload }, e => e.eq('id', userId))
 
-    const updated = await repo.findById(user.id)
+    const updated = await repo.findById(userId)
 
     expect(updated!.name).toBe(payload)
     expect(updated!.email).toBe('alice@test.com') // Not modified

@@ -1,5 +1,6 @@
 // Expression builder
 export {
+  type AggResult,
   type AssembledExpr,
   createExprBuilder,
   type ExprBuilder,
@@ -107,6 +108,7 @@ export type {
   InferEntity,
   InferInsert,
   InferInsertFromTable,
+  InferPrimaryKey,
   InferRelationResult,
   InferSelect,
   InferSelectFromTable,

@@ -22,9 +22,9 @@ afterAll(async () => {
 describe('Soft Delete', () => {
   it('deleteMany sets deletedAt instead of removing row', async () => {
     const repo = db.repo(usersTable)
-    const user = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    await repo.deleteMany(e => e.eq('id', user.id))
+    await repo.deleteMany(e => e.eq('id', userId))
 
     // Row should still exist in DB via withTrashed
     const all = await repo.findMany(q => q.withTrashed())
@@ -94,11 +94,12 @@ describe('Soft Delete', () => {
   it('isDeleted virtual works correctly', async () => {
     const repo = db.repo(usersTable)
 
-    const user = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.isDeleted).toBe(false)
 
-    await repo.deleteMany(e => e.eq('id', user.id))
+    await repo.deleteMany(e => e.eq('id', userId))
     const deleted = await repo.findMany(q => q.withTrashed())
 
     expect(deleted[0]!.isDeleted).toBe(true)

@@ -67,25 +67,25 @@ async function main() {
   await db.raw`DELETE FROM posts`
   await db.raw`DELETE FROM users`
 
-  // 7. Basic CRUD — insert
-  const alice = await UserRepo.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
+  // 7. Basic CRUD — insert (returns primary key only)
+  const aliceId = await UserRepo.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
 
-  console.log('Inserted:', alice.id, alice.email) // email lowercased by hook
+  console.log('Inserted id:', aliceId)
 
-  const bob = await UserRepo.insertOne({ name: 'Bob', email: 'bob@example.com' })
+  const bobId = await UserRepo.insertOne({ name: 'Bob', email: 'bob@example.com' })
 
-  // insert many posts
-  const insertedPosts = await PostRepo.insertMany([
-    { title: 'Hello', body: 'First post', authorId: alice.id, published: true },
-    { title: 'World', body: 'Second post', authorId: alice.id, published: true },
-    { title: 'Draft', body: 'Unpublished', authorId: alice.id }, // omits 'published' — uses DB DEFAULT
-    { title: 'Bob post', body: 'Third post', authorId: bob.id, published: true },
+  // insert many posts (returns array of primary keys)
+  const insertedPostIds = await PostRepo.insertMany([
+    { title: 'Hello', body: 'First post', authorId: aliceId, published: true },
+    { title: 'World', body: 'Second post', authorId: aliceId, published: true },
+    { title: 'Draft', body: 'Unpublished', authorId: aliceId }, // omits 'published' — uses DB DEFAULT
+    { title: 'Bob post', body: 'Third post', authorId: bobId, published: true },
   ])
 
-  console.log('Inserted posts:', insertedPosts.length)
+  console.log('Inserted posts:', insertedPostIds.length)
 
   // findOne — callback style
-  const found = await UserRepo.findOne(q => q.where(e => e.eq('id', alice.id)))
+  const found = await UserRepo.findOne(q => q.where(e => e.eq('id', aliceId)))
 
   console.log('Found user:', found?.name)
 
@@ -97,7 +97,7 @@ async function main() {
   // update
   const updated = await UserRepo.updateMany(
     { name: 'Alice Updated' },
-    e => e.eq('id', alice.id),
+    e => e.eq('id', aliceId),
   )
 
   console.log('Updated:', updated[0]?.name)
@@ -106,8 +106,8 @@ async function main() {
   const filtered = await PostRepo.findMany(q =>
     q.where(e =>
       e.or(
-        e.eq('authorId', alice.id),
-        e.and(e.eq('authorId', bob.id), e.like('title', 'Bob%')),
+        e.eq('authorId', aliceId),
+        e.and(e.eq('authorId', bobId), e.like('title', 'Bob%')),
       ),
     ),
   )
@@ -117,7 +117,7 @@ async function main() {
   // 9. Join query
   const joined = await PostRepo.findMany(q =>
     q.join('users', 'u', e => e.raw('"u"."id" = "posts"."authorId"'))
-      .where(e => e.eq('authorId', alice.id)),
+      .where(e => e.eq('authorId', aliceId)),
   )
 
   console.log('Joined posts:', joined.length)
@@ -203,7 +203,7 @@ async function main() {
 
   // --- NEW: Soft-delete awareness ---
   console.log('\n--- Soft Delete ---')
-  await UserRepo.deleteOne(e => e.eq('id', bob.id))
+  await UserRepo.deleteOne(e => e.eq('id', bobId))
   const activeUsers = await UserRepo.findMany()
 
   console.log(`Active users (soft-deleted excluded): ${activeUsers.length}`)
@@ -217,11 +217,13 @@ async function main() {
 
   console.log(`repo.select() auto-filters soft-deleted: ${sql.includes('IS NULL')}`)
 
-  // --- NEW: Insert with include ---
-  console.log('\n--- Insert with Include ---')
-  const newPost = await PostRepo.insertOne(
-    { title: 'New Post', body: 'With author!', authorId: alice.id },
-    { include: ['author'] },
+  // --- Insert and re-select with relations ---
+  console.log('\n--- Insert and Re-select ---')
+  const newPostId = await PostRepo.insertOne(
+    { title: 'New Post', body: 'With author!', authorId: aliceId },
+  )
+  const newPost = await PostRepo.findOneOrThrow(q =>
+    q.where(e => e.eq('id', newPostId)).include('author'),
   )
 
   console.log(`Inserted post "${newPost.title}" by ${newPost.author?.name}`)

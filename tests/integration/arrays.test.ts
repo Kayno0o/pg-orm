@@ -22,35 +22,40 @@ afterAll(async () => {
 describe('array columns — insert & select', () => {
   it('inserts and retrieves a text array', async () => {
     const repo = db.repo(itemsTable)
-    const item = await repo.insertOne({ name: 'item1', tags: ['Seb', 'Sebouille', 'Sebobar'] })
+    const itemId = await repo.insertOne({ name: 'item1', tags: ['Seb', 'Sebouille', 'Sebobar'] })
+    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual(['Seb', 'Sebouille', 'Sebobar'])
   })
 
   it('inserts and retrieves an int array', async () => {
     const repo = db.repo(itemsTable)
-    const item = await repo.insertOne({ name: 'item2', tags: [], scores: [10, 20, 30] })
+    const itemId = await repo.insertOne({ name: 'item2', tags: [], scores: [10, 20, 30] })
+    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.scores).toEqual([10, 20, 30])
   })
 
   it('inserts and retrieves an empty array', async () => {
     const repo = db.repo(itemsTable)
-    const item = await repo.insertOne({ name: 'item3', tags: [] })
+    const itemId = await repo.insertOne({ name: 'item3', tags: [] })
+    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual([])
   })
 
   it('inserts and retrieves a null array column', async () => {
     const repo = db.repo(itemsTable)
-    const item = await repo.insertOne({ name: 'item4', tags: ['x'], scores: null })
+    const itemId = await repo.insertOne({ name: 'item4', tags: ['x'], scores: null })
+    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.scores).toBeNull()
   })
 
   it('handles strings with special characters', async () => {
     const repo = db.repo(itemsTable)
-    const item = await repo.insertOne({ name: 'item5', tags: ['hello world', 'foo,bar', 'say "hi"'] })
+    const itemId = await repo.insertOne({ name: 'item5', tags: ['hello world', 'foo,bar', 'say "hi"'] })
+    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual(['hello world', 'foo,bar', 'say "hi"'])
   })

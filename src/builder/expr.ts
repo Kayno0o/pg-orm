@@ -1,6 +1,12 @@
-import type { AnyColumns } from '../types/index'
+import type { AnyColumnDef, AnyColumns } from '../types/index'
 import { validateTsLanguage } from '../schema/validate'
 import { quote, quotePath } from '../sql/utils'
+
+// Branded aggregate result — carries the resolved type at the type level
+export type AggResult<T> = string & { readonly __aggType: T }
+
+type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
+  = TColumns[K] extends AnyColumnDef ? TColumns[K]['_type'] : unknown
 
 // --- Expression Tape (flat instruction array, no heap-allocated tree) ---
 const PARAM_RE = /\?/g
@@ -139,18 +145,18 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   arrayContains: <K extends keyof TColumns & string>(col: K | ExprTape, val: unknown) => ExprTape
   arrayOverlap: <K extends keyof TColumns & string>(col: K | ExprTape, vals: unknown[]) => ExprTape
 
-  // Aggregate expressions — return raw SQL strings for use in computed columns
-  sum: <K extends keyof TColumns & string>(col: K) => string
-  avg: <K extends keyof TColumns & string>(col: K) => string
-  min: <K extends keyof TColumns & string>(col: K) => string
-  max: <K extends keyof TColumns & string>(col: K) => string
-  countCol: <K extends keyof TColumns & string>(col?: K) => string
+  // Aggregate expressions — return branded strings carrying the resolved result type
+  sum: <K extends keyof TColumns & string>(col: K) => AggResult<number>
+  avg: <K extends keyof TColumns & string>(col: K) => AggResult<number>
+  min: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>>
+  max: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>>
+  countCol: <K extends keyof TColumns & string>(col?: K) => AggResult<number>
 
   // JSON/Array aggregate expressions
-  jsonAgg: <K extends keyof TColumns & string>(col: K) => string
-  jsonbAgg: <K extends keyof TColumns & string>(col: K) => string
-  arrayAgg: <K extends keyof TColumns & string>(col: K) => string
-  stringAgg: <K extends keyof TColumns & string>(col: K, delimiter: string) => string
+  jsonAgg: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>[]>
+  jsonbAgg: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>[]>
+  arrayAgg: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>[]>
+  stringAgg: <K extends keyof TColumns & string>(col: K, delimiter: string) => AggResult<string>
 }
 
 const STRING_AGG_RE = /^[\w\s.,;:|\-/]+$/
@@ -222,22 +228,22 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string | ExprTape, val }],
   arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],
 
-  // Aggregate functions — return raw SQL strings
-  sum: col => `SUM(${quote(col as string)})`,
-  avg: col => `AVG(${quote(col as string)})`,
-  min: col => `MIN(${quote(col as string)})`,
-  max: col => `MAX(${quote(col as string)})`,
-  countCol: col => col !== undefined ? `COUNT(${quote(col as string)})` : 'COUNT(*)',
+  // Aggregate functions — return raw SQL strings (cast to AggResult for type-level branding)
+  sum: col => `SUM(${quote(col as string)})` as AggResult<number>,
+  avg: col => `AVG(${quote(col as string)})` as AggResult<number>,
+  min: col => `MIN(${quote(col as string)})` as AggResult<unknown>,
+  max: col => `MAX(${quote(col as string)})` as AggResult<unknown>,
+  countCol: col => (col !== undefined ? `COUNT(${quote(col as string)})` : 'COUNT(*)') as AggResult<number>,
 
   // JSON/Array aggregate functions
-  jsonAgg: col => `json_agg(${quote(col as string)})`,
-  jsonbAgg: col => `jsonb_agg(${quote(col as string)})`,
-  arrayAgg: col => `array_agg(${quote(col as string)})`,
+  jsonAgg: col => `json_agg(${quote(col as string)})` as AggResult<unknown[]>,
+  jsonbAgg: col => `jsonb_agg(${quote(col as string)})` as AggResult<unknown[]>,
+  arrayAgg: col => `array_agg(${quote(col as string)})` as AggResult<unknown[]>,
   stringAgg: (col, delimiter) => {
     if (!STRING_AGG_RE.test(delimiter))
       throw new Error(`stringAgg: unsafe delimiter characters: "${delimiter}"`)
 
-    return `string_agg(${quote(col as string)}, '${delimiter.replace(SINGLE_QUOTE_RE, '\'\'')}')`
+    return `string_agg(${quote(col as string)}, '${delimiter.replace(SINGLE_QUOTE_RE, '\'\'')}')` as AggResult<string>
   },
 }
 

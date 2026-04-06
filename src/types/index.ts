@@ -188,6 +188,14 @@ type IsColumnWithDefault<C extends AnyColumnDef> = C['_default'] extends HasDefa
 type IsColumnPrimaryKey<C extends AnyColumnDef> = C['_primary'] extends IsPrimaryKey ? true : false
 type IsColumnGenerated<C extends AnyColumnDef> = C['_generated'] extends IsGenerated ? true : false
 
+// InferPrimaryKey: extracts the type of the primary key column
+export type PrimaryKeyColumn<TColumns extends AnyColumns> = {
+  [K in keyof TColumns]: IsColumnPrimaryKey<TColumns[K]> extends true ? K : never
+}[keyof TColumns]
+
+export type InferPrimaryKey<TColumns extends AnyColumns>
+  = ExtractColumnType<TColumns[PrimaryKeyColumn<TColumns>]>
+
 // InferSelect: all columns, nullable columns get | null
 export type InferSelect<TColumns extends AnyColumns> = {
   [K in keyof TColumns]: IsColumnNullable<TColumns[K]> extends true
