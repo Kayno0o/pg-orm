@@ -1,6 +1,7 @@
 import type { AnyColumnDef, AnyColumns } from '../types/index'
 import { validateTsLanguage } from '../schema/validate'
 import { quote, quotePath } from '../sql/utils'
+import { SINGLE_QUOTE_RE } from '../utils/regex'
 
 // Branded aggregate result — carries the resolved type at the type level
 export type AggResult<T> = string & { readonly __aggType: T }
@@ -160,7 +161,6 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
 }
 
 const STRING_AGG_RE = /^[\w\s.,;:|\-/]+$/
-const SINGLE_QUOTE_RE = /'/g
 
 // Singleton expression builder — stateless, so one instance serves all callers
 const _singletonExprBuilder: ExprBuilder<any> = {

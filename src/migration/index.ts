@@ -1,10 +1,25 @@
 import type { Executable } from '../sql/executor'
 import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint, IndexDef } from '../types/index'
 import { DestructiveOpError, MigrationError } from '../errors/index'
+import { QUOTED_IDENT_RE, RENAME_COLUMN_RE, SINGLE_QUOTE_RE, TIMESTAMP_DELIM_RE } from '../utils/regex'
+import {
+  ARRAY_UDT_PREFIX_RE,
+  BIGSERIAL_RE,
+  BOOL_RE,
+  FLOAT4_RE,
+  FLOAT8_RE,
+  INT2_RE,
+  INT4_RE,
+  INT8_RE,
+  SERIAL_RE,
+  SPACE_RE,
+  TIMESTAMPTZ_RE,
+  TIMETZ_RE,
+  WHERE_RE,
+} from './regex'
 
 // Internal migration tracking table name
 const MIGRATION_TABLE = '_pgorm_migrations'
-const SPACE_RE = / /g
 
 // Typed Object.entries for column maps
 function columnEntries(columns: AnyColumns): [string, AnyColumnDef][] {
@@ -218,7 +233,7 @@ function resolveDataType(row: Record<string, unknown>): string {
 
   // Handle array types
   if (dataType === 'ARRAY')
-    return `${udtName.replace(/^_/, '')}[]`
+    return `${udtName.replace(ARRAY_UDT_PREFIX_RE, '')}[]`
 
   // Handle user-defined types (enums, etc)
   if (dataType === 'USER-DEFINED')
@@ -701,8 +716,6 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
   return result
 }
 
-const WHERE_RE = /\bWHERE\b/i
-
 function indexChanged(liveIdx: LiveIndex, tableName: string, idx: IndexDef): boolean {
   const desiredMethod = idx.method ?? 'btree'
 
@@ -866,11 +879,11 @@ function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
     checks.push(`length("${name}") <= ${def._maxLength}`)
 
   if (def._pattern != null)
-    checks.push(`"${name}" ~ '${(def._pattern as string).replace(/'/g, '\'\'')}'`)
+    checks.push(`"${name}" ~ '${(def._pattern as string).replace(SINGLE_QUOTE_RE, '\'\'')}'`)
 
   if (def._oneOf != null) {
     const vals = (def._oneOf as (string | number)[]).map(v =>
-      typeof v === 'string' ? `'${v.replace(/'/g, '\'\'')}'` : String(v),
+      typeof v === 'string' ? `'${v.replace(SINGLE_QUOTE_RE, '\'\'')}'` : String(v),
     ).join(', ')
 
     checks.push(`"${name}" IN (${vals})`)
@@ -886,21 +899,21 @@ function normalizeType(pgType: string): string {
   // Normalize common type aliases and pseudo-types
   return pgType
     .toLowerCase()
-    .replace(/^serial$/, 'integer')
-    .replace(/^bigserial$/, 'bigint')
-    .replace(/^int4$/, 'integer')
-    .replace(/^int2$/, 'smallint')
-    .replace(/^int8$/, 'bigint')
-    .replace(/^float4$/, 'real')
-    .replace(/^float8$/, 'double precision')
-    .replace(/^bool$/, 'boolean')
-    .replace(/^timestamptz$/, 'timestamp with time zone')
-    .replace(/^timetz$/, 'time with time zone')
+    .replace(SERIAL_RE, 'integer')
+    .replace(BIGSERIAL_RE, 'bigint')
+    .replace(INT4_RE, 'integer')
+    .replace(INT2_RE, 'smallint')
+    .replace(INT8_RE, 'bigint')
+    .replace(FLOAT4_RE, 'real')
+    .replace(FLOAT8_RE, 'double precision')
+    .replace(BOOL_RE, 'boolean')
+    .replace(TIMESTAMPTZ_RE, 'timestamp with time zone')
+    .replace(TIMETZ_RE, 'time with time zone')
 }
 
 // Escape single quotes in enum values for safe DDL embedding
 function escapeEnumValue(val: string): string {
-  return val.replace(/'/g, '\'\'')
+  return val.replace(SINGLE_QUOTE_RE, '\'\'')
 }
 
 function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
@@ -943,7 +956,7 @@ export async function generateMigration(
     )
   }
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
   const upSql = ops.map(o => `${o.sql};`).join('\n\n')
   const downSql = ops.reverse().map(o => generateReverseOp(o)).filter(Boolean).join('\n\n')
 
@@ -960,13 +973,13 @@ function generateReverseOp(op: MigrationOp): string {
     case 'drop_table': return `-- Cannot reverse DROP TABLE "${op.table}" without original schema`
     case 'add_column': return `ALTER TABLE "${op.table}" DROP COLUMN IF EXISTS "${op.column}";`
     case 'drop_column': return `-- Cannot reverse DROP COLUMN "${op.table}"."${op.column}" without original type`
-    case 'create_enum': return `DROP TYPE IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
-    case 'create_index': return `DROP INDEX IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
+    case 'create_enum': return `DROP TYPE IF EXISTS ${op.sql.match(QUOTED_IDENT_RE)?.[0] ?? 'unknown'};`
+    case 'create_index': return `DROP INDEX IF EXISTS ${op.sql.match(QUOTED_IDENT_RE)?.[0] ?? 'unknown'};`
     case 'drop_index': return `-- Cannot reverse DROP INDEX without original definition`
     case 'add_fk': return `ALTER TABLE "${op.table}" DROP CONSTRAINT IF EXISTS "${op.table}_${op.column}_fkey";`
     case 'rename_column': {
       // Extract old and new column names from the SQL
-      const match = op.sql.match(/RENAME COLUMN "(\w+)" TO "(\w+)"/)
+      const match = op.sql.match(RENAME_COLUMN_RE)
 
       return match ? `ALTER TABLE "${op.table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";` : `-- Cannot reverse: ${op.description}`
     }

@@ -241,8 +241,10 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   }
 }
 
+const TABLE_NAME_RE = /table "(\w+)"/
+
 function extractReferencedTable(detail: string): string {
-  const match = detail.match(/table "(\w+)"/)
+  const match = detail.match(TABLE_NAME_RE)
 
   return match?.[1] ?? ''
 }

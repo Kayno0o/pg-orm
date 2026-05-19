@@ -12,8 +12,7 @@ import type {
   NotNullable,
   NotPrimaryKey,
 } from '../types/index'
-
-const SINGLE_QUOTE_RE = /'/g
+import { SINGLE_QUOTE_RE } from '../utils/regex'
 
 /** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
 function toSQLDefault(value: unknown, pgType: string): string {

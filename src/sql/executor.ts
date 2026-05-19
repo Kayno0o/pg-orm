@@ -7,6 +7,7 @@ import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, wra
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
+import { BACKSLASH_RE, DOUBLE_QUOTE_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE, TIMESTAMP_DELIM_RE } from '../utils/regex'
 
 // --- Interactive confirmation for sync ---
 
@@ -123,9 +124,6 @@ const VALID_ACCESS_MODES = new Set([
 
 interface UnsafeSql { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }
 
-const BACKSLASH_RE = /\\/g
-const QUOTE_RE = /"/g
-
 /**
  * Serialize a JS array to a PostgreSQL array literal string, e.g.:
  *   ['a', 'b'] → '{"a","b"}'
@@ -143,7 +141,7 @@ export function serializePgArray(val: unknown[]): string {
       return serializePgArray(item)
 
     if (typeof item === 'string')
-      return `"${item.replace(BACKSLASH_RE, '\\\\').replace(QUOTE_RE, '\\"')}"`
+      return `"${item.replace(BACKSLASH_RE, '\\\\').replace(DOUBLE_QUOTE_RE, '\\"')}"`
 
     if (typeof item === 'boolean')
       return item ? 'true' : 'false'
@@ -320,11 +318,6 @@ abstract class BaseExecutor implements Executable {
     }
   }
 }
-
-const RENAME_COLUMN_RE = /RENAME COLUMN "(\w+)" TO "(\w+)"/
-const TIMESTAMP_RE = /[:.]/g
-
-const QUOTED_WORD_RE = /"(\w+)"/
 
 /**
  * Main database connection class. Manages the connection pool, table registry,
@@ -548,14 +541,14 @@ export class Database extends BaseExecutor {
 
         // Record migration in history table
         await ensureMigrationTable(txExecutor)
-        const timestamp = new Date().toISOString().replace(TIMESTAMP_RE, '-').slice(0, 19)
+        const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
         const downSql = ops.slice().reverse().map((o) => {
           // Inline reverse op generation for sync history
           switch (o.type) {
             case 'create_table': return `DROP TABLE IF EXISTS "${o.table}";`
             case 'add_column': return `ALTER TABLE "${o.table}" DROP COLUMN IF EXISTS "${o.column}";`
             case 'add_fk': return `ALTER TABLE "${o.table}" DROP CONSTRAINT IF EXISTS "${o.table}_${o.column}_fkey";`
-            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(QUOTED_WORD_RE)?.[0] ?? 'unknown'};`
+            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(QUOTED_IDENT_RE)?.[0] ?? 'unknown'};`
             case 'rename_column': {
               const match = o.sql.match(RENAME_COLUMN_RE)
 

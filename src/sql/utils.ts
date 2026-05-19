@@ -1,4 +1,4 @@
-const QUOTE_RE = /"/g
+import { DOUBLE_QUOTE_RE } from '../utils/regex'
 
 /**
  * Safely quote a PostgreSQL identifier (table, column, etc.)
@@ -8,7 +8,7 @@ export function quote(name: string): string {
   if (name === '*')
     return '*'
 
-  return `"${name.replace(QUOTE_RE, '""')}"`
+  return `"${name.replace(DOUBLE_QUOTE_RE, '""')}"`
 }
 
 /**
