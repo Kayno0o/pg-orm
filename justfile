@@ -1,4 +1,4 @@
-check:
+fix:
   bun run circular
   bun run check
   bun run lint:fix
