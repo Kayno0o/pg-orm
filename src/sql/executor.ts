@@ -323,7 +323,7 @@ abstract class BaseExecutor implements Executable {
 
 const RENAME_COLUMN_RE = /RENAME COLUMN "(\w+)" TO "(\w+)"/
 const TIMESTAMP_RE = /[:.]/g
-// eslint-disable-next-line regexp/no-unused-capturing-group
+
 const QUOTED_WORD_RE = /"(\w+)"/
 
 /**

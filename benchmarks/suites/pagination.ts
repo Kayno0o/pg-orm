@@ -20,7 +20,8 @@ export function paginationSuite(db: Database) {
       if (page1.nextCursor != null) {
         await repo.paginateCursor({
           take: 20,
-          column: 'id', cursor: page1.nextCursor,
+          column: 'id',
+          cursor: page1.nextCursor,
         })
       }
     }),

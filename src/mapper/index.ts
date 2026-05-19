@@ -48,7 +48,7 @@ export function compileMapper<TColumns extends AnyColumns>(
 
   // JIT mapper: column names are validated at defineTable() time (not user input).
   // Compiled once per unique column shape, cached, and reused across all queries.
-  // eslint-disable-next-line no-new-func, ts/no-implied-eval -- JIT row mapper: source is built from schema-validated column names, not user input
+  // eslint-disable-next-line no-new-func -- JIT row mapper: source is built from schema-validated column names, not user input
   return new Function('r', body) as RowMapper<Record<string, unknown>>
 }
 

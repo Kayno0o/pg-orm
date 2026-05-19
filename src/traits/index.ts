@@ -71,7 +71,6 @@ export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedA
   return {
     columns: t => ({ [column]: t.timestamptz().nullable() }),
     virtuals: {
-      // eslint-disable-next-line ts/no-unsafe-member-access
       isDeleted: (row: any) => row[column] != null,
     },
     meta: { softDelete: { column } },

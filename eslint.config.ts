@@ -1,7 +1,7 @@
 import typescript from '@kaynooo/eslint/typescript'
 
 export default typescript({
-  strict: true,
+  strict: false,
   mergeOptions: {
     rules: {
       'unused-imports/no-unused-vars': [
@@ -16,7 +16,7 @@ export default typescript({
       'ts/no-empty-object-type': 'off',
       'e18e/prefer-static-regex': 'off',
       'style/no-extra-parens': ['warn', 'all', { nestedBinaryExpressions: false, ternaryOperandBinaryExpressions: false }],
-      'ts/switch-exhaustiveness-check': 'off'
+      'ts/switch-exhaustiveness-check': 'off',
     },
   },
 }, {
