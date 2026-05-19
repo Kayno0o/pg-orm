@@ -187,6 +187,48 @@ describe('Migration Sync', () => {
     }
   })
 
+  it('syncs tables declared in FK-violating order on empty DB', async () => {
+    // Reproduction: child table declared BEFORE parent. Under inline-FK CREATE TABLE
+    // this failed with: relation "sync_fk_parent" does not exist.
+    const parentRef: { ref?: ReturnType<typeof defineTable> } = {}
+    const child = defineTable('sync_fk_child', t => ({
+      id: t.serial().primaryKey(),
+      parentId: t.integer().notNull().references(() => parentRef.ref!, 'id'),
+    }))
+    const parent = defineTable('sync_fk_parent', t => ({
+      id: t.serial().primaryKey(),
+    }))
+
+    parentRef.ref = parent as never
+
+    const db = createSyncDb([child, parent])
+
+    try {
+      await db.raw('DROP TABLE IF EXISTS "sync_fk_child"', [])
+      await db.raw('DROP TABLE IF EXISTS "sync_fk_parent"', [])
+
+      const result = await db.sync({ allowDestructive: true })
+
+      expect(result.ops.some(o => o.type === 'create_table' && o.table === 'sync_fk_child')).toBe(true)
+      expect(result.ops.some(o => o.type === 'create_table' && o.table === 'sync_fk_parent')).toBe(true)
+      expect(result.ops.some(o => o.type === 'add_fk' && o.table === 'sync_fk_child')).toBe(true)
+
+      // Verify the FK was actually applied
+      const fks = await db.raw<{ count: string }>(`
+        SELECT count(*)::text AS count
+        FROM information_schema.table_constraints
+        WHERE table_name = 'sync_fk_child' AND constraint_type = 'FOREIGN KEY'
+      `, [])
+
+      expect(Number(fks[0]!.count)).toBe(1)
+    }
+    finally {
+      await db.raw('DROP TABLE IF EXISTS "sync_fk_child"', [])
+      await db.raw('DROP TABLE IF EXISTS "sync_fk_parent"', [])
+      await db.close({ timeout: 5000 })
+    }
+  })
+
   it('getTablesRegistry returns registered tables', async () => {
     const table = defineTable('sync_test_reg', t => ({
       id: t.serial().primaryKey(),

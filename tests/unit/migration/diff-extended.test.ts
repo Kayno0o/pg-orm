@@ -384,7 +384,7 @@ describe('diffSchema — extended migration tests', () => {
 
   // --- DDL generation ---
 
-  it('generates CREATE TABLE with FK constraints', () => {
+  it('emits FK as separate add_fk op after CREATE TABLEs', () => {
     const users = defineTable('users', t => ({
       id: t.serial().primaryKey(),
     }))
@@ -397,8 +397,43 @@ describe('diffSchema — extended migration tests', () => {
     const createPosts = ops.find(o => o.type === 'create_table' && o.table === 'posts')
 
     expect(createPosts).toBeDefined()
-    expect(createPosts!.sql).toContain('FOREIGN KEY ("authorId") REFERENCES "users" ("id")')
-    expect(createPosts!.sql).toContain('ON DELETE CASCADE')
+    expect(createPosts!.sql).not.toContain('FOREIGN KEY')
+
+    const addFk = ops.find(o => o.type === 'add_fk' && o.table === 'posts' && o.column === 'authorId')
+
+    expect(addFk).toBeDefined()
+    expect(addFk!.sql).toContain('FOREIGN KEY ("authorId") REFERENCES "users" ("id")')
+    expect(addFk!.sql).toContain('ON DELETE CASCADE')
+
+    const createIdx = ops.findIndex(o => o.type === 'create_table' && o.table === 'posts')
+    const fkIdx = ops.findIndex(o => o.type === 'add_fk' && o.table === 'posts')
+
+    expect(fkIdx).toBeGreaterThan(createIdx)
+  })
+
+  it('handles FK-violating declaration order on empty DB', () => {
+    // posts declared BEFORE users — would fail under inline-FK CREATE TABLE
+    const usersRef: { ref?: ReturnType<typeof defineTable> } = {}
+    const posts = defineTable('posts', t => ({
+      id: t.serial().primaryKey(),
+      authorId: t.integer().notNull().references(() => usersRef.ref!, 'id'),
+    }))
+    const users = defineTable('users', t => ({
+      id: t.serial().primaryKey(),
+    }))
+
+    usersRef.ref = users as never
+
+    const ops = diffSchema(live([]), registry(posts, users))
+    const createPosts = ops.findIndex(o => o.type === 'create_table' && o.table === 'posts')
+    const createUsers = ops.findIndex(o => o.type === 'create_table' && o.table === 'users')
+    const addFk = ops.findIndex(o => o.type === 'add_fk' && o.table === 'posts')
+
+    expect(createPosts).toBeGreaterThanOrEqual(0)
+    expect(createUsers).toBeGreaterThanOrEqual(0)
+    // FK is added after both tables exist
+    expect(addFk).toBeGreaterThan(createPosts)
+    expect(addFk).toBeGreaterThan(createUsers)
   })
 
   it('generates CREATE TABLE with check constraint', () => {

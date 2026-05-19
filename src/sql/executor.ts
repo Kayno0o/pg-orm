@@ -554,6 +554,7 @@ export class Database extends BaseExecutor {
           switch (o.type) {
             case 'create_table': return `DROP TABLE IF EXISTS "${o.table}";`
             case 'add_column': return `ALTER TABLE "${o.table}" DROP COLUMN IF EXISTS "${o.column}";`
+            case 'add_fk': return `ALTER TABLE "${o.table}" DROP CONSTRAINT IF EXISTS "${o.table}_${o.column}_fkey";`
             case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(QUOTED_WORD_RE)?.[0] ?? 'unknown'};`
             case 'rename_column': {
               const match = o.sql.match(RENAME_COLUMN_RE)

@@ -300,10 +300,9 @@ export function diffSchema(
 
   diffEnums(ops, neededEnums, enumUsages, liveEnumMap)
 
-  // Diff FK constraints for existing tables (new tables already include FKs in CREATE TABLE)
-  if (live.foreignKeys) {
-    diffForeignKeys(ops, desired, live.foreignKeys)
-  }
+  // Diff FK constraints — emits add_fk ops for both new and existing tables.
+  // Runs unconditionally so new-table FKs are still added when callers omit `foreignKeys`.
+  diffForeignKeys(ops, desired, live.foreignKeys ?? [])
 
   // Diff indexes
   diffIndexes(ops, desired, live.indexes ?? [])
@@ -604,9 +603,6 @@ function diffForeignKeys(
   }
 
   for (const [tableName, tableDef] of desired) {
-    if (ops.some(o => o.type === 'create_table' && o.table === tableName))
-      continue
-
     for (const [colName, colDef] of columnEntries(tableDef.columns)) {
       const key = `${tableName}.${colName}`
       const liveFk = liveFkMap.get(key)
@@ -824,22 +820,8 @@ function generateCreateTable(name: string, table: AnyTableDef): string {
     constraints.push(`  UNIQUE ("${col}")`)
   }
 
-  // Foreign key constraints
-  for (const [colName, colDef] of columnEntries(table.columns)) {
-    if (colDef.references) {
-      const ref = colDef.references
-      const targetTable = ref.table()
-      let fkSql = `  FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
-
-      if (ref.onDelete)
-        fkSql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
-
-      if (ref.onUpdate)
-        fkSql += ` ON UPDATE ${ref.onUpdate.toUpperCase()}`
-
-      constraints.push(fkSql)
-    }
-  }
+  // FK constraints are emitted as separate `add_fk` ops after all CREATE TABLEs,
+  // so cross-table FK ordering is not constrained by declaration order.
 
   const all = [...colDefs, ...constraints].join(',\n')
 
@@ -981,6 +963,7 @@ function generateReverseOp(op: MigrationOp): string {
     case 'create_enum': return `DROP TYPE IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
     case 'create_index': return `DROP INDEX IF EXISTS ${op.sql.match(/"(\w+)"/)?.[0] ?? 'unknown'};`
     case 'drop_index': return `-- Cannot reverse DROP INDEX without original definition`
+    case 'add_fk': return `ALTER TABLE "${op.table}" DROP CONSTRAINT IF EXISTS "${op.table}_${op.column}_fkey";`
     case 'rename_column': {
       // Extract old and new column names from the SQL
       const match = op.sql.match(/RENAME COLUMN "(\w+)" TO "(\w+)"/)
