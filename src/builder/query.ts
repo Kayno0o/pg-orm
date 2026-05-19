@@ -301,15 +301,14 @@ class QueryAssembler {
 
     const cteParts = this.state.ctes.map((c) => {
       const mat = c.materialized === true ? 'MATERIALIZED ' : c.materialized === false ? 'NOT MATERIALIZED ' : ''
-      let paramIdx = 0
-      const cteParams = c.params
-      const cteSql = c.sql.replace(PLACEHOLDER_RE, () => {
-        if (paramIdx < cteParams.length) {
-          return this.pushParam(cteParams[paramIdx++])
-        }
+      // Renumber $N placeholders by captured index + current offset, then push params.
+      // This preserves duplicate references (`$1 ... $1`) and out-of-order references
+      // (`$2 ... $1`) — both are silently miscompiled by occurrence-based mapping.
+      const offset = this.pidx - 1
+      const cteSql = c.sql.replace(PLACEHOLDER_RE, (_, n) => `$${Number(n) + offset}`)
 
-        return `$${this.pidx}`
-      })
+      this.params.push(...c.params)
+      this.pidx += c.params.length
 
       return `${quote(c.name)} AS (${mat}${cteSql})`
     })
@@ -545,11 +544,11 @@ class QueryAssembler {
     const params = this.state.rawParams
 
     rawSql = rawSql.replace(/\?/g, () => {
-      if (paramIdx < params.length) {
-        return this.pushParam(params[paramIdx++])
+      if (paramIdx >= params.length) {
+        throw new Error(`raw SQL has more "?" placeholders than parameters (${params.length} provided)`)
       }
 
-      return '?'
+      return this.pushParam(params[paramIdx++])
     })
     this.parts.push(rawSql)
   }

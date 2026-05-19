@@ -424,11 +424,11 @@ class ExprAssembler {
         const params = op.params
 
         rawSql = rawSql.replace(PARAM_RE, () => {
-          if (paramIdx < params.length) {
-            return this.nextParam(params[paramIdx++])
+          if (paramIdx >= params.length) {
+            throw new Error(`e.raw() SQL has more "?" placeholders than parameters (${params.length} provided)`)
           }
 
-          return '?'
+          return this.nextParam(params[paramIdx++])
         })
 
         return { sql: rawSql, next: pos + 1 }

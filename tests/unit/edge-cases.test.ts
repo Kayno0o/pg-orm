@@ -131,7 +131,6 @@ describe('Edge Cases — Unit', () => {
           { title: 'Post 1', body: 'Body 1', authorId: 1 },
           { title: 'Post 2', body: 'Body 2', authorId: 1 },
         ],
-        [],
         ['title'],
       )
 
@@ -152,7 +151,6 @@ describe('Edge Cases — Unit', () => {
 
       await repo.upsertMany(
         [{ title: 'Post 1', body: 'Body 1', authorId: 1 }],
-        [],
         ['title'],
       )
 
