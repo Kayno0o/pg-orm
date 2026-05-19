@@ -2,7 +2,7 @@ import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
-import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DeleteBuilder, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
@@ -114,7 +114,7 @@ export class Repository<
   private _applySoftDeleteFilter(builder: SelectBuilder<TColumns, TRelations, any>): void {
     const col = this._getSoftDeleteColumn()
 
-    if (col && !getBuilderState(builder).withTrashed) {
+    if (col && !builder.getState().withTrashed) {
       builder.andWhere(e => e.isNull(col))
     }
   }
@@ -142,7 +142,7 @@ export class Repository<
     this._applySoftDeleteFilter(finalBuilder)
 
     // Apply default limit if no explicit limit was set
-    const state = getBuilderState(finalBuilder)
+    const state = finalBuilder.getState()
 
     if (this._defaultLimit != null && state.limit == null) {
       state.limit = this._defaultLimit
@@ -261,7 +261,7 @@ export class Repository<
 
     // Auto-increment version column for optimistic locking (after validation)
     if (lockCol !== null) {
-      getBuilderState(b).setValues![lockCol] = rawSql(`${quote(lockCol)} + 1`)
+      b.getState().setValues![lockCol] = rawSql(`${quote(lockCol)} + 1`)
     }
 
     const { sql, params } = b.toSQL()
@@ -353,7 +353,7 @@ export class Repository<
 
     this._applySoftDeleteFilter(builder)
 
-    const existsState = getBuilderState(builder)
+    const existsState = builder.getState()
 
     existsState.columns = []
     existsState.computedColumns = [{ expr: '1', alias: '_exists' }]
@@ -602,7 +602,7 @@ export class Repository<
     while (true) {
       const chunkBuilder = finalBuilder.clone()
 
-      const chunkState = getBuilderState(chunkBuilder)
+      const chunkState = chunkBuilder.getState()
 
       chunkState.limit = chunkSize
       chunkState.offset = offset
@@ -715,7 +715,7 @@ export class Repository<
 
   // Get or compile mapper from a select builder's state
   private _getMapper(builder: SelectBuilder<TColumns, TRelations, any>) {
-    const s = getBuilderState(builder)
+    const s = builder.getState()
 
     return getOrCompileMapper(
       this._table.name,

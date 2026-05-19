@@ -11,6 +11,7 @@ export {
 
 export {
   assembleQuery,
+  type BuilderState,
   DeleteBuilder,
   InsertBuilder,
   MergeBuilder,

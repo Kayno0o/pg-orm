@@ -53,7 +53,7 @@ export interface IncludeEntry {
   callback?: IncludeCallback
 }
 
-interface QueryState {
+export interface BuilderState {
   op: QueryOp
   table: string
   alias?: string
@@ -104,7 +104,7 @@ interface QueryState {
   withTrashed: boolean
 }
 
-function createState(op: QueryOp, table: string): QueryState {
+function createState(op: QueryOp, table: string): BuilderState {
   return {
     op,
     table,
@@ -140,7 +140,7 @@ function createState(op: QueryOp, table: string): QueryState {
   }
 }
 
-function cloneState(s: QueryState): QueryState {
+function cloneState(s: BuilderState): BuilderState {
   return {
     ...s,
     omitColumns: [...s.omitColumns],
@@ -215,16 +215,16 @@ function validateValues(vals: Record<string, unknown>, context: string): void {
   }
 }
 
-// --- SQL Assembly from QueryState ---
+// --- SQL Assembly from BuilderState ---
 // Uses QueryAssembler class to keep each method under the line limit.
 
 class QueryAssembler {
   private params: unknown[] = []
   private pidx = 1
   private parts: string[] = []
-  private state: QueryState
+  private state: BuilderState
 
-  constructor(state: QueryState) {
+  constructor(state: BuilderState) {
     this.state = state
   }
 
@@ -577,16 +577,11 @@ class QueryAssembler {
   }
 }
 
-export function assembleQuery(state: QueryState): { sql: string, params: unknown[] } {
+export function assembleQuery(state: BuilderState): { sql: string, params: unknown[] } {
   return new QueryAssembler(state).assemble()
 }
 
-/** @internal */
-export function getBuilderState(builder: { _state: QueryState }): QueryState {
-  return builder._state
-}
-
-function buildSelectColumns(state: QueryState): string {
+function buildSelectColumns(state: BuilderState): string {
   const cols: string[] = state.columns
     ? state.columns.filter(c => !state.omitColumns.includes(c)).map(quote)
     : ['*']
@@ -601,10 +596,22 @@ function buildSelectColumns(state: QueryState): string {
 // --- Base Builder Classes (hierarchy eliminates duplication) ---
 
 abstract class BaseBuilder {
-  /** @internal */ _state: QueryState
+  /** @internal */ _state: BuilderState
 
   constructor(op: QueryOp, table: string) {
     this._state = createState(op, table)
+  }
+
+  getState(): BuilderState {
+    return this._state
+  }
+
+  clone(): this {
+    const copy = Object.create(Object.getPrototypeOf(this)) as this
+
+    copy._state = cloneState(this._state)
+
+    return copy
   }
 
   toSQL(): { sql: string, params: unknown[] } {
@@ -620,7 +627,12 @@ abstract class BaseBuilder {
 }
 
 abstract class MutationBuilder extends BaseBuilder {
-  // returning() is implemented per-subclass for proper return types
+  // returning() typed overloads stay per-subclass; bodies delegate here.
+  protected _setReturning(cols: string[]): this {
+    this._state.returning = cols.length ? cols : []
+
+    return this
+  }
 }
 
 abstract class WhereableMutationBuilder extends MutationBuilder {
@@ -642,14 +654,6 @@ export class SelectBuilder<
 > extends BaseBuilder {
   constructor(table: string) {
     super('select', table)
-  }
-
-  clone(): SelectBuilder<TColumns, TRelations, TResult> {
-    const b = new SelectBuilder<TColumns, TRelations, TResult>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
   }
 
   /** Select only the specified columns. */
@@ -933,14 +937,6 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
     super('insert', table)
   }
 
-  clone(): InsertBuilder<TColumns, TResult> {
-    const b = new InsertBuilder<TColumns, TResult>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
-  }
-
   values(vals: InferInsert<TColumns>): this {
     validateValues(vals as Record<string, unknown>, 'InsertBuilder.values()')
     this._state.insertValues = vals as Record<string, unknown>
@@ -967,9 +963,7 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
   returning(): InsertBuilder<TColumns, InferSelect<TColumns>>
   returning<K extends (keyof TColumns & string)[]>(...cols: K): InsertBuilder<TColumns, Pick<InferSelect<TColumns>, K[number]>>
   returning(...cols: string[]): InsertBuilder<TColumns, unknown> {
-    this._state.returning = cols.length ? cols : []
-
-    return this as never
+    return this._setReturning(cols) as never
   }
 }
 
@@ -995,14 +989,6 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends
     super('update', table)
   }
 
-  clone(): UpdateBuilder<TColumns, _TResult> {
-    const b = new UpdateBuilder<TColumns, _TResult>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
-  }
-
   set(vals: InferUpdate<TColumns>): this {
     validateValues(vals as Record<string, unknown>, 'UpdateBuilder.set()')
     this._state.setValues = vals as Record<string, unknown>
@@ -1021,23 +1007,13 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends
   returning(): UpdateBuilder<TColumns, InferSelect<TColumns>>
   returning<K extends (keyof TColumns & string)[]>(...cols: K): UpdateBuilder<TColumns, Pick<InferSelect<TColumns>, K[number]>>
   returning(...cols: string[]): UpdateBuilder<TColumns, unknown> {
-    this._state.returning = cols.length ? cols : []
-
-    return this as never
+    return this._setReturning(cols) as never
   }
 }
 
 export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
   constructor(table: string) {
     super('delete', table)
-  }
-
-  clone(): DeleteBuilder<TColumns, _TResult> {
-    const b = new DeleteBuilder<TColumns, _TResult>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
   }
 
   override where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
@@ -1051,23 +1027,13 @@ export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> extends
   returning(): DeleteBuilder<TColumns, InferSelect<TColumns>>
   returning<K extends (keyof TColumns & string)[]>(...cols: K): DeleteBuilder<TColumns, Pick<InferSelect<TColumns>, K[number]>>
   returning(...cols: string[]): DeleteBuilder<TColumns, unknown> {
-    this._state.returning = cols.length ? cols : []
-
-    return this as never
+    return this._setReturning(cols) as never
   }
 }
 
 export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   constructor(table: string) {
     super('merge', table)
-  }
-
-  clone(): MergeBuilder<TColumns> {
-    const b = new MergeBuilder<TColumns>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
   }
 
   using(sourceTable: string, alias: string): this {
@@ -1156,23 +1122,13 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   returning(): MergeBuilder<TColumns>
   returning<K extends (keyof TColumns & string)[]>(...cols: K): MergeBuilder<TColumns>
   returning(...cols: string[]): MergeBuilder<TColumns> {
-    this._state.returning = cols.length ? cols : []
-
-    return this as never
+    return this._setReturning(cols) as never
   }
 }
 
 export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> extends MutationBuilder {
   constructor(table: string) {
     super('upsert', table)
-  }
-
-  clone(): UpsertBuilder<TColumns, _TResult> {
-    const b = new UpsertBuilder<TColumns, _TResult>(this._state.table)
-
-    b._state = cloneState(this._state)
-
-    return b
   }
 
   values(vals: InferInsert<TColumns>): this {
@@ -1197,9 +1153,7 @@ export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> extends
   returning(): UpsertBuilder<TColumns, InferSelect<TColumns>>
   returning<K extends (keyof TColumns & string)[]>(...cols: K): UpsertBuilder<TColumns, Pick<InferSelect<TColumns>, K[number]>>
   returning(...cols: string[]): UpsertBuilder<TColumns, unknown> {
-    this._state.returning = cols.length ? cols : []
-
-    return this as never
+    return this._setReturning(cols) as never
   }
 }
 
