@@ -99,7 +99,7 @@ describe('Complex query builder', () => {
     it('computed column with window reference', () => {
       const { sql } = select()
         .window('w', { partitionBy: ['department'], orderBy: [{ col: 'salary', dir: 'desc' }] })
-        .computed('ROW_NUMBER() OVER w', 'rank')
+        .computedRaw('ROW_NUMBER() OVER w', 'rank')
         .toSQL()
 
       expect(sql).toContain('ROW_NUMBER() OVER w AS "rank"')

@@ -392,7 +392,7 @@ describe('NULL handling in aggregates', () => {
     await repo.insertOne({ name: 'Bob', email: 'nullagg-b@test.com', age: null })
 
     const rows = await repo.findMany(q =>
-      q.pick().computed('SUM("age")', 'total'),
+      q.pick().computed(e => e.sum('age'), 'total'),
     )
 
     expect(rows[0]!.total).toBeNull()

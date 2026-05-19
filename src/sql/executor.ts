@@ -3,7 +3,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } fro
 import { createInterface } from 'node:readline'
 import { colors } from '@kaynooo/utils'
 import { SQL } from 'bun'
-import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, wrapPgError } from '../errors/index'
+import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, setParamRedactor, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
@@ -243,6 +243,13 @@ export interface DbConfig {
   /** Called when ping() fails — useful for logging connection issues */
   onPingError?: (error: unknown) => void
   /**
+   * Scrub sensitive values from `QueryError.params` even outside production.
+   * Receives the positional param array and returns the redacted copy.
+   * Called for every QueryError-derived error. Throwing inside the function
+   * causes params to be dropped entirely (empty array).
+   */
+  redactParams?: (params: unknown[]) => unknown[]
+  /**
    * Default LIMIT applied to findMany() when no explicit .limit() is set.
    * Disabled by default (no limit). Set to a positive number to enable.
    */
@@ -350,12 +357,15 @@ export class Database extends BaseExecutor {
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, redactParams, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
     this._onSlowQuery = onSlowQuery
     this._onError = onError
+
+    if (redactParams)
+      setParamRedactor(redactParams)
 
     if (slowQueryThreshold != null)
       this._slowQueryThreshold = slowQueryThreshold

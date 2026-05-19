@@ -7,7 +7,7 @@ import type { QueryError } from '../../src/errors/index'
  */
 import { describe, expect, it } from 'bun:test'
 import { assembleExpr, createExprBuilder } from '../../src/builder/expr'
-import { assembleQuery, DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder } from '../../src/builder/query'
+import { assembleQuery, DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder } from '../../src/builder/query'
 import { UniqueError, wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
@@ -761,5 +761,80 @@ describe('Security: Compound attack vectors', () => {
     expect(result.sql).toBe('"name" = $1')
     expect(result.params).toEqual([longPayload])
     expect(result.sql).not.toContain('DROP')
+  })
+})
+
+// ─── P0 Regression Guards ────────────────────────────────────────────────────
+
+describe('Security P0: MERGE values reject __raw', () => {
+  it('whenMatched(update, values) rejects __raw', () => {
+    const b = new MergeBuilder<any>('users')
+
+    expect(() => b.whenMatched('update', { name: { __raw: '\'evil\'' } })).toThrow(/__raw/)
+  })
+
+  it('whenNotMatched(insert, values) rejects __raw', () => {
+    const b = new MergeBuilder<any>('users')
+
+    expect(() => b.whenNotMatched('insert', { name: { __raw: '\'evil\'' } })).toThrow(/__raw/)
+  })
+
+  it('whenNotMatchedBySource(update, values) rejects __raw', () => {
+    const b = new MergeBuilder<any>('users')
+
+    expect(() => b.whenNotMatchedBySource('update', { name: { __raw: '\'evil\'' } })).toThrow(/__raw/)
+  })
+})
+
+describe('Security P0: computedRaw() requires valid identifier alias', () => {
+  it('computedRaw rejects alias containing whitespace', () => {
+    const b = new SelectBuilder<any>('users')
+
+    expect(() => b.computedRaw('1', 'foo bar')).toThrow(/Invalid/)
+  })
+
+  it('computedRaw rejects empty alias', () => {
+    const b = new SelectBuilder<any>('users')
+
+    expect(() => b.computedRaw('1', '')).toThrow(/Invalid/)
+  })
+
+  it('computedRaw accepts a valid alias', () => {
+    const b = new SelectBuilder<any>('users')
+
+    expect(() => b.computedRaw('1 + 1', 'two')).not.toThrow()
+  })
+})
+
+describe('Security P0: identifier 63-byte limit', () => {
+  it('rejects identifiers exceeding 63 bytes', () => {
+    const tooLong = 'a'.repeat(64)
+
+    expect(() => validateIdentifier(tooLong, 'column')).toThrow(/63-byte/)
+  })
+
+  it('accepts identifiers exactly 63 bytes', () => {
+    const exactly = 'a'.repeat(63)
+
+    expect(() => validateIdentifier(exactly, 'column')).not.toThrow()
+  })
+
+  it('rejects multi-byte UTF-8 that exceeds 63 bytes', () => {
+    // 'é' = 2 bytes in UTF-8; 32 of them = 64 bytes. Regex would already reject
+    // non-ASCII, so verify the regex catches it first.
+    expect(() => validateIdentifier('é'.repeat(32), 'column')).toThrow()
+  })
+})
+
+describe('Security P0: unbranded __raw objects do not bypass parameterization', () => {
+  it('plain { __raw } object is parameterized, not interpolated', () => {
+    const b = new UpdateBuilder<any>('users')
+
+    b._state.setValues = { name: { __raw: '\'; DROP TABLE users; --' } as never }
+    b._state.whereTape = null
+    const { sql: out } = b.toSQL()
+
+    expect(out).not.toContain('DROP')
+    expect(out).toContain('"name" = $1')
   })
 })

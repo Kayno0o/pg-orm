@@ -2,7 +2,7 @@ import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
-import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DeleteBuilder, getBuilderState, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
@@ -261,7 +261,7 @@ export class Repository<
 
     // Auto-increment version column for optimistic locking (after validation)
     if (lockCol !== null) {
-      getBuilderState(b).setValues![lockCol] = { __raw: `${quote(lockCol)} + 1` }
+      getBuilderState(b).setValues![lockCol] = rawSql(`${quote(lockCol)} + 1`)
     }
 
     const { sql, params } = b.toSQL()

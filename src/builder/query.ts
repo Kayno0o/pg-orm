@@ -1,5 +1,6 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, InferInsert, InferRelationResult, InferSelect, InferUpdate, RelationDef } from '../types/index'
 import type { AggResult, ExprBuilder, ExprOp, ExprTape } from './expr'
+import { validateIdentifier } from '../schema/validate'
 import { quote } from '../sql/utils'
 import { assembleExpr, createExprBuilder, OP_AND } from './expr'
 
@@ -173,6 +174,28 @@ function quoteCols(cols: string[]): string {
 
 function formatOrderBy(entries: OrderEntry[]): string {
   return entries.map(o => `${quote(o.col)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+}
+
+/**
+ * Brand symbol for `RawSql` values. Module-private — only `rawSql()` can produce
+ * a branded value. Plain `{ __raw: "..." }` objects fail the brand check at the
+ * assembler and are rejected, so user-supplied payloads cannot smuggle raw SQL
+ * through validation gaps.
+ */
+const RAW_SQL_BRAND: unique symbol = Symbol('pg-orm.RawSql')
+
+export interface RawSql {
+  readonly __raw: string
+  readonly [RAW_SQL_BRAND]: true
+}
+
+/** Internal-only factory for `RawSql`. Used by the optimistic-lock builder. */
+export function rawSql(sql: string): RawSql {
+  return { __raw: sql, [RAW_SQL_BRAND]: true }
+}
+
+function isRawSql(val: unknown): val is RawSql {
+  return typeof val === 'object' && val !== null && (val as Record<symbol, unknown>)[RAW_SQL_BRAND] === true
 }
 
 // Validate values for INSERT/UPDATE — reject undefined, non-finite numbers, and __raw objects
@@ -414,8 +437,8 @@ class QueryAssembler {
   private assembleUpdate(): void {
     const vals = this.state.setValues!
     const setClauses = Object.entries(vals).map(([k, v]) => {
-      if (typeof v === 'object' && v !== null && '__raw' in v) {
-        return `${quote(k)} = ${(v as { __raw: string }).__raw}`
+      if (isRawSql(v)) {
+        return `${quote(k)} = ${v.__raw}`
       }
 
       return `${quote(k)} = ${this.pushParam(v)}`
@@ -463,8 +486,8 @@ class QueryAssembler {
     if (when.type === 'matched') {
       if (when.action === 'update' && when.values) {
         const setClauses = Object.entries(when.values).map(([k, v]) => {
-          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v)
-            return `${quote(k)} = ${(v as { __raw: string }).__raw}`
+          if (isRawSql(v))
+            return `${quote(k)} = ${v.__raw}`
 
           return `${quote(k)} = ${this.pushParam(v)}`
         }).join(', ')
@@ -485,8 +508,8 @@ class QueryAssembler {
         const vals = keys.map((k) => {
           const v = when.values![k]
 
-          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v) {
-            return (v as { __raw: string }).__raw
+          if (isRawSql(v)) {
+            return v.__raw
           }
 
           return this.pushParam(v)
@@ -501,8 +524,8 @@ class QueryAssembler {
     else if (when.type === 'not_matched_by_source') {
       if (when.action === 'update' && when.values) {
         const setClauses = Object.entries(when.values).map(([k, v]) => {
-          if (v !== undefined && v !== null && typeof v === 'object' && '__raw' in v) {
-            return `${quote(k)} = ${(v as { __raw: string }).__raw}`
+          if (isRawSql(v)) {
+            return `${quote(k)} = ${v.__raw}`
           }
 
           return `${quote(k)} = ${this.pushParam(v)}`
@@ -643,8 +666,35 @@ export class SelectBuilder<
     return this as never
   }
 
-  /** Add a computed SQL expression as a column in the result. */
-  computed<TComputed = unknown>(expr: string, alias: string): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
+  /**
+   * Add a computed column built from the safe `ExprBuilder` aggregate API.
+   * Example: `.computed(e => e.countCol(), 'total')`
+   */
+  computed<T>(
+    fn: (e: ExprBuilder<TColumns>) => AggResult<T>,
+    alias: string,
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, T>> {
+    validateIdentifier(alias, 'computed alias')
+
+    const builder = createExprBuilder<TColumns>()
+    const expr = fn(builder)
+
+    this._state.computedColumns.push({ expr, alias })
+
+    return this as never
+  }
+
+  /**
+   * Add a computed column from a raw SQL expression string. The string is
+   * interpolated unparameterized; the caller is responsible for ensuring it
+   * contains only trusted SQL (no user input). Prefer `computed()` with the
+   * `ExprBuilder` callback whenever possible.
+   */
+  computedRaw<TComputed = unknown>(
+    expr: string,
+    alias: string,
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
+    validateIdentifier(alias, 'computed alias')
     this._state.computedColumns.push({ expr, alias })
 
     return this as never
@@ -1035,6 +1085,8 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenMatched(action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateValues(values, 'MergeBuilder.whenMatched()')
+
     const builder = createExprBuilder<TColumns>()
 
     this._state.mergeWhen.push({
@@ -1060,6 +1112,8 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenNotMatched(action: 'insert', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateValues(values, 'MergeBuilder.whenNotMatched()')
+
     const builder = createExprBuilder<TColumns>()
 
     this._state.mergeWhen.push({
@@ -1073,6 +1127,8 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenNotMatchedBySource(action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateValues(values, 'MergeBuilder.whenNotMatchedBySource()')
+
     const builder = createExprBuilder<TColumns>()
 
     this._state.mergeWhen.push({

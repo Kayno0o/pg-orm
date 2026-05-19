@@ -154,7 +154,7 @@ async function main() {
       count: e.countCol(),
       avgPrice: e.avg('price'),
     }))
-      .computed<string>('"category"', 'category')
+      .computedRaw<string>('"category"', 'category')
       .groupBy('category'),
   )
 
@@ -168,7 +168,7 @@ async function main() {
     q.aggregate(e => ({
       skus: e.arrayAgg('sku'),
     }))
-      .computed<string>('"category"', 'category')
+      .computedRaw<string>('"category"', 'category')
       .groupBy('category'),
   )
 
@@ -198,7 +198,7 @@ async function main() {
   // --- NEW: Typed computed columns ---
   console.log('\n--- Typed Computed Columns ---')
   const withDiscount = await ProductRepo.findMany(q =>
-    q.computed<number>('"price"::numeric * 0.9', 'discountedPrice'),
+    q.computedRaw<number>('"price"::numeric * 0.9', 'discountedPrice'),
   )
 
   for (const p of withDiscount) {

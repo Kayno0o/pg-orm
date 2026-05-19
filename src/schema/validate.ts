@@ -1,13 +1,23 @@
+import { Buffer } from 'node:buffer'
+
 // Column and table name validation — prevents SQL injection via schema definitions
 // and ensures safety when names are embedded in JIT-compiled Function() sources.
 
 const IDENTIFIER_RE = /^[a-z_]\w*$/i
+const MAX_IDENTIFIER_BYTES = 63
 
 export function validateIdentifier(name: string, context: string): void {
   if (!IDENTIFIER_RE.test(name)) {
     throw new Error(
       `Invalid ${context} name: "${name}". `
       + 'Identifiers must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.',
+    )
+  }
+
+  if (Buffer.byteLength(name, 'utf8') > MAX_IDENTIFIER_BYTES) {
+    throw new Error(
+      `Invalid ${context} name: "${name}" exceeds PostgreSQL's ${MAX_IDENTIFIER_BYTES}-byte identifier limit. `
+      + 'Longer names are silently truncated by PostgreSQL and may collide with other identifiers.',
     )
   }
 }

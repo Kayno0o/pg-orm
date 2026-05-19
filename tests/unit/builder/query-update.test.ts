@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { UpdateBuilder } from '../../../src/builder/query'
+import { rawSql, UpdateBuilder } from '../../../src/builder/query'
 
 interface Cols { id: any, name: any, age: any, [key: string]: any }
 
@@ -39,15 +39,29 @@ describe('UpdateBuilder', () => {
     expect(sql).toContain('RETURNING "id", "name"')
   })
 
-  it('__raw is handled in assembly (internal use)', () => {
-    // Simulate internal optimistic lock usage where __raw is set after validation
+  it('branded rawSql is handled in assembly (internal use)', () => {
+    // Simulate internal optimistic lock usage where rawSql() is set after validation
     const b = update()
 
-    b._state.setValues = { version: { __raw: '"version" + 1' } }
+    b._state.setValues = { version: rawSql('"version" + 1') }
     b._state.whereTape = null
     const { sql } = b.toSQL()
 
     expect(sql).toContain('"version" = "version" + 1')
+  })
+
+  it('unbranded {__raw} object is treated as a regular value (not raw SQL)', () => {
+    // Security: structurally-shaped objects that skip the brand check must NOT
+    // be interpolated. They get parameterized like any other value.
+    const b = update()
+
+    b._state.setValues = { name: { __raw: 'evil' } as never }
+    b._state.whereTape = null
+    const { sql, params } = b.toSQL()
+
+    expect(sql).not.toContain('evil')
+    expect(sql).toContain('"name" = $1')
+    expect(params[0]).toEqual({ __raw: 'evil' })
   })
 
   it('validateValues rejects undefined', () => {

@@ -11,6 +11,18 @@ export class OrmError extends Error {
   }
 }
 
+/**
+ * Optional global param redactor. Set via `setParamRedactor()` (typically wired
+ * from `DbConfig.redactParam`) to scrub sensitive values from `QueryError.params`
+ * even outside production. Receives the raw param array and returns the scrubbed copy.
+ */
+type ParamRedactor = (params: unknown[]) => unknown[]
+let paramRedactor: ParamRedactor | undefined
+
+export function setParamRedactor(fn: ParamRedactor | undefined): void {
+  paramRedactor = fn
+}
+
 /** Query execution error. Contains the SQL and params (redacted in production). */
 export class QueryError extends OrmError {
   readonly query: string
@@ -19,7 +31,21 @@ export class QueryError extends OrmError {
     super(sanitizeMessage(message), cause)
     this.name = 'QueryError'
     this.query = shouldRedact() ? '[REDACTED]' : query
-    this.params = shouldRedact() ? [] : params
+
+    if (shouldRedact()) {
+      this.params = []
+    }
+    else if (paramRedactor) {
+      try {
+        this.params = paramRedactor(params)
+      }
+      catch {
+        this.params = []
+      }
+    }
+    else {
+      this.params = params
+    }
   }
 }
 
@@ -93,11 +119,57 @@ export class CheckError extends ConstraintError {
   }
 }
 
+/**
+ * Marker interface for errors that callers can safely retry after backoff
+ * (deadlocks, serialization failures). Use `isRetryable(err)` to test.
+ */
+export interface RetryableError {
+  readonly retryable: true
+}
+
+export function isRetryable(err: unknown): err is RetryableError {
+  return typeof err === 'object' && err !== null && (err as RetryableError).retryable === true
+}
+
 /** Deadlock detected (PG code 40P01). Can be retried. */
-export class DeadlockError extends QueryError {
+export class DeadlockError extends QueryError implements RetryableError {
+  readonly retryable = true as const
   constructor(message: string, query: string, params: unknown[], cause?: unknown) {
     super(message, query, params, cause)
     this.name = 'DeadlockError'
+  }
+}
+
+/** Serialization failure (PG code 40001). Common in SERIALIZABLE transactions; safe to retry. */
+export class SerializationError extends QueryError implements RetryableError {
+  readonly retryable = true as const
+  constructor(message: string, query: string, params: unknown[], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'SerializationError'
+  }
+}
+
+/**
+ * Server resource exhaustion (PG codes 53xxx: too_many_connections,
+ * configuration_limit_exceeded, etc.). Retry only after backoff and only if
+ * the limit is expected to clear.
+ */
+export class ResourceError extends OrmError {
+  readonly code: string
+  constructor(message: string, code: string, cause?: unknown) {
+    super(sanitizeMessage(message), cause)
+    this.name = 'ResourceError'
+    this.code = code
+  }
+}
+
+/** Data type / encoding error (PG code 22xxx, e.g. invalid_text_representation). */
+export class DataError extends QueryError {
+  readonly code: string
+  constructor(message: string, code: string, query: string, params: unknown[], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'DataError'
+    this.code = code
   }
 }
 
@@ -228,6 +300,8 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
       return new CheckError(pgErr.message, query, params, { constraint, table }, err)
     case '40P01': // deadlock_detected
       return new DeadlockError(pgErr.message, query, params, err)
+    case '40001': // serialization_failure
+      return new SerializationError(pgErr.message, query, params, err)
     default:
       if (code?.startsWith('08') || code === '57P01') {
         return new ConnectionError(pgErr.message, err)
@@ -235,6 +309,14 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
 
       if (code === '57014') {
         return new TimeoutError(pgErr.message, err)
+      }
+
+      if (code?.startsWith('53')) {
+        return new ResourceError(pgErr.message, code, err)
+      }
+
+      if (code?.startsWith('22')) {
+        return new DataError(pgErr.message, code, query, params, err)
       }
 
       return new QueryError(pgErr.message, query, params, err)

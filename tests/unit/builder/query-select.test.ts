@@ -150,8 +150,8 @@ describe('SelectBuilder', () => {
     expect(sql).toContain('FULL JOIN')
   })
 
-  it('computed adds computed column', () => {
-    const { sql } = select().computed('1 + 1', 'two').toSQL()
+  it('computedRaw adds computed column', () => {
+    const { sql } = select().computedRaw('1 + 1', 'two').toSQL()
 
     expect(sql).toContain('1 + 1 AS "two"')
   })
