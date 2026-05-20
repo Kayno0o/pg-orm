@@ -1,5 +1,6 @@
 import type { ColumnTypes } from '../schema/columns'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, VirtualDef } from '../types/index'
+import { OrmError } from '../errors/index'
 import { ColumnBuilder, createColumnTypes } from '../schema/columns'
 import { validateIdentifier } from '../schema/validate'
 
@@ -9,6 +10,11 @@ import { validateIdentifier } from '../schema/validate'
  * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`.
  */
 export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}> {
+  /**
+   * Identifier used to detect duplicate applications. When set, `applyTrait`
+   * tracks it in `table.meta._appliedTraits` and throws on re-apply.
+   */
+  readonly name?: string
   readonly _cols?: TCols
   readonly _virts?: TVirts
   columns?: (t: ColumnTypes) => Record<string, ColumnBuilder<any, any, any, any, any>>
@@ -17,8 +23,24 @@ export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals
   meta?: Record<string, unknown>
 }
 
+const APPLIED_TRAITS_KEY = '_appliedTraits'
+
 // Apply a trait to a table definition (mutates the table)
 export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
+  if (trait.name) {
+    const meta = table.meta as Record<string, unknown>
+    const applied = (meta[APPLIED_TRAITS_KEY] ??= new Set<string>()) as Set<string>
+
+    if (applied.has(trait.name)) {
+      throw new OrmError(
+        `Trait "${trait.name}" already applied to table "${table.name}". `
+        + `Traits are not idempotent — apply each trait at most once per table.`,
+      )
+    }
+
+    applied.add(trait.name)
+  }
+
   // Merge columns
   if (trait.columns) {
     const t = createColumnTypes()
@@ -69,6 +91,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
  */
 export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedAt' as C): Trait<Record<C, ColumnDef<Date, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>, { isDeleted: VirtualDef<any, boolean> }> {
   return {
+    name: 'softDelete',
     columns: t => ({ [column]: t.timestamptz().nullable() }),
     virtuals: {
       isDeleted: (row: any) => row[column] != null,
@@ -84,6 +107,7 @@ export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedA
  */
 export function optimisticLock<C extends string = 'version'>(column: C = 'version' as C): Trait<Record<C, ColumnDef<number, NotNullable, HasDefault, NotPrimaryKey, NotGenerated>>> {
   return {
+    name: 'optimisticLock',
     columns: t => ({ [column]: t.int4().notNull().default(1) }),
     meta: { optimisticLock: { column } },
   }
@@ -98,6 +122,7 @@ export function timestamps<C extends string = 'createdAt', U extends string = 'u
   const updatedAt = (opts?.updatedAt ?? 'updatedAt') as U
 
   return {
+    name: 'timestamps',
     columns: t => ({
       [createdAt]: t.timestamptz().notNull().defaultRaw('now()'),
       [updatedAt]: t.timestamptz().notNull().defaultRaw('now()'),

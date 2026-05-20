@@ -249,7 +249,7 @@ export class SelectBuilder<
   }>
   include(
     relation: string,
-    table?: AnyTableDef,
+    _table?: AnyTableDef,
     callback?: IncludeCallback,
   ): SelectBuilder<TColumns, TRelations, any> {
     this._state.includes.push({ relation, strategy: 'batch', callback })

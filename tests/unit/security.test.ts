@@ -12,7 +12,7 @@ import { UniqueError, wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
 import { sanitizeMigrationName, validateIdentifier } from '../../src/schema/validate'
-import { quote, quotePath } from '../../src/sql/utils'
+import { escapeLiteralBody, quote, quoteLiteral, quotePath } from '../../src/sql/utils'
 
 const e = createExprBuilder<any>()
 
@@ -836,5 +836,31 @@ describe('Security P0: unbranded __raw objects do not bypass parameterization', 
 
     expect(out).not.toContain('DROP')
     expect(out).toContain('"name" = $1')
+  })
+})
+
+describe('Security: literal escaping helpers', () => {
+  it('quoteLiteral doubles single quotes and wraps in apostrophes', () => {
+    expect(quoteLiteral('hello')).toBe('\'hello\'')
+    expect(quoteLiteral('O\'Brien')).toBe('\'O\'\'Brien\'')
+    expect(quoteLiteral('\'; DROP TABLE x; --')).toBe('\'\'\'; DROP TABLE x; --\'')
+  })
+
+  it('escapeLiteralBody escapes but does not add wrapping quotes', () => {
+    expect(escapeLiteralBody('hello')).toBe('hello')
+    expect(escapeLiteralBody('O\'Brien')).toBe('O\'\'Brien')
+  })
+
+  it('quoteLiteral output is safe to embed directly in DDL', () => {
+    const malicious = '\'; DROP TABLE users; SELECT \''
+    const quoted = quoteLiteral(malicious)
+
+    // Every embedded ' became '', so the closing wrapper is unambiguous.
+    expect(quoted.startsWith('\'')).toBe(true)
+    expect(quoted.endsWith('\'')).toBe(true)
+    // No bare single quotes anywhere except the outer pair
+    const inner = quoted.slice(1, -1)
+
+    expect(inner.match(/(?<!')'(?!')/)).toBeNull()
   })
 })

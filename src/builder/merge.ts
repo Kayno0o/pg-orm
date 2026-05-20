@@ -23,7 +23,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     return this
   }
 
-  whenMatched(action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+  whenMatched(_action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
     validateValues(values, 'MergeBuilder.whenMatched()')
 
     const builder = createExprBuilder<TColumns>()
@@ -50,7 +50,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     return this
   }
 
-  whenNotMatched(action: 'insert', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+  whenNotMatched(_action: 'insert', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
     validateValues(values, 'MergeBuilder.whenNotMatched()')
 
     const builder = createExprBuilder<TColumns>()
@@ -65,7 +65,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     return this
   }
 
-  whenNotMatchedBySource(action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
+  whenNotMatchedBySource(_action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
     validateValues(values, 'MergeBuilder.whenNotMatchedBySource()')
 
     const builder = createExprBuilder<TColumns>()

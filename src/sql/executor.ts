@@ -1,190 +1,33 @@
 import type { BaseBuilder } from '../builder/base'
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
-import { createInterface } from 'node:readline'
-import { colors } from '@kaynooo/utils'
 import { SQL } from 'bun'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
-import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, setParamRedactor, wrapPgError } from '../errors/index'
+import { ConnectionError, DeadlockError, setParamRedactor } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
-import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
+import { rollbackMigrations, syncSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
-import { BACKSLASH_RE, DOUBLE_QUOTE_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE, TIMESTAMP_DELIM_RE } from '../utils/regex'
+import { asDriver, unsafeQuery } from './adapter'
+import { registerInstance, unregisterInstance } from './cleanup'
 
-// --- Interactive confirmation for sync ---
+// --- Transaction isolation: static SQL mapping ---
+// Composing SQL only from fixed strings (not user input + toUpperCase) eliminates
+// any chance of injection even under future code changes.
 
-async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp[]): Promise<boolean> {
-  const safeOps = ops.filter(o => !o.destructive)
+const ISOLATION_SQL = {
+  'read uncommitted': 'READ UNCOMMITTED',
+  'read committed': 'READ COMMITTED',
+  'repeatable read': 'REPEATABLE READ',
+  'serializable': 'SERIALIZABLE',
+} as const
 
-  console.log(`\n${colors.bold.cyan('── Database Sync Preview ──')}\n`)
+const ACCESS_MODE_SQL = {
+  'read write': 'READ WRITE',
+  'read only': 'READ ONLY',
+} as const
 
-  if (safeOps.length > 0) {
-    console.log(colors.bold.green(`${safeOps.length} safe operation(s):`))
-
-    for (const op of safeOps)
-      console.log(`  ${colors.green('+')} ${op.description}`)
-
-    console.log()
-  }
-
-  if (destructiveOps.length > 0) {
-    console.log(colors.bold.red(`${destructiveOps.length} destructive operation(s):`))
-
-    for (const op of destructiveOps)
-      console.log(`  ${colors.red('✗')} ${op.description}`)
-
-    console.log()
-  }
-
-  console.log(colors.dim('SQL to execute:'))
-  console.log(`${colors.dim(ops.map(o => `  ${o.sql};`).join('\n'))}\n`)
-
-  const answer = await new Promise<string>((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-
-    rl.question(
-      destructiveOps.length > 0
-        ? `${colors.bold.yellow(`Apply ${ops.length} operation(s) (${destructiveOps.length} destructive)? [y/N]`)} `
-        : `${colors.bold(`Apply ${ops.length} operation(s)? [Y/n]`)} `,
-      (ans: string) => {
-        rl.close()
-        resolve(ans.trim().toLowerCase())
-      },
-    )
-  })
-
-  const defaultYes = destructiveOps.length === 0
-
-  if (answer === 'y' || answer === 'yes' || (defaultYes && answer === ''))
-    return true
-
-  console.log(`${colors.dim('Sync cancelled.')}\n`)
-
-  return false
-}
-
-// --- Process cleanup for unclosed connections ---
-
-const activeInstances = new Set<WeakRef<{ sql: InstanceType<typeof SQL> }>>()
-let cleanupRegistered = false
-
-function closeInstance(instance: { sql: InstanceType<typeof SQL> }): void {
-  try {
-    const closer = instance.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }
-
-    // Fire-and-forget — process is exiting, we just need to initiate the close
-    void closer.close({ timeout: 1000 })
-  }
-  catch {
-    // best-effort — connection may already be closed
-  }
-}
-
-function cleanup(): void {
-  for (const ref of activeInstances) {
-    const instance = ref.deref()
-
-    if (instance)
-      closeInstance(instance)
-  }
-
-  activeInstances.clear()
-}
-
-function registerCleanupHandlers(): void {
-  if (cleanupRegistered)
-    return
-
-  cleanupRegistered = true
-
-  process.on('SIGINT', () => {
-    cleanup()
-    process.exit(130)
-  })
-  process.on('SIGTERM', () => {
-    cleanup()
-    process.exit(143)
-  })
-  process.on('beforeExit', cleanup)
-}
-
-// --- Transaction isolation validation ---
-
-const VALID_ISOLATION_LEVELS = new Set([
-  'read uncommitted',
-  'read committed',
-  'repeatable read',
-  'serializable',
-])
-
-const VALID_ACCESS_MODES = new Set([
-  'read write',
-  'read only',
-])
-
-// --- Typed unsafe query helper ---
-
-interface UnsafeSql { unsafe: (q: string, p: unknown[]) => Promise<unknown[]> }
-
-/**
- * Serialize a JS array to a PostgreSQL array literal string, e.g.:
- *   ['a', 'b'] → '{"a","b"}'
- *   [1, 2, 3]  → '{1,2,3}'
- *
- * bun:sql's unsafe() does not natively serialize JS arrays to PG array literals —
- * it joins them with commas, producing malformed input like "a,b,c" instead of {"a","b","c"}.
- */
-export function serializePgArray(val: unknown[]): string {
-  const items = val.map((item) => {
-    if (item === null || item === undefined)
-      return 'NULL'
-
-    if (Array.isArray(item))
-      return serializePgArray(item)
-
-    if (typeof item === 'string')
-      return `"${item.replace(BACKSLASH_RE, '\\\\').replace(DOUBLE_QUOTE_RE, '\\"')}"`
-
-    if (typeof item === 'boolean')
-      return item ? 'true' : 'false'
-
-    return String(item)
-  })
-
-  return `{${items.join(',')}}`
-}
-
-function serializeParams(params: unknown[]): unknown[] {
-  return params.map(p => Array.isArray(p) ? serializePgArray(p) : p)
-}
-
-/**
- * bun:sql returns TypedArrays (Int32Array, Float64Array, etc.) for numeric array columns.
- * Normalize them to plain JS arrays so callers always get Array, never TypedArray.
- */
-function normalizeRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      const val = row[key]
-
-      if (ArrayBuffer.isView(val) && !(val instanceof DataView))
-        row[key] = Array.from(val as unknown as ArrayLike<unknown>)
-    }
-  }
-
-  return rows
-}
-
-async function unsafeQuery(sql: InstanceType<typeof SQL>, sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-  try {
-    const rows = await (sql as unknown as UnsafeSql).unsafe(sqlStr, serializeParams(params)) as Record<string, unknown>[]
-
-    return normalizeRows(rows)
-  }
-  catch (err) {
-    throw wrapPgError(err, sqlStr, params)
-  }
-}
+type IsolationLevel = keyof typeof ISOLATION_SQL
+type AccessMode = keyof typeof ACCESS_MODE_SQL
 
 // --- Query logging ---
 
@@ -358,7 +201,8 @@ export class Database extends BaseExecutor {
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
-  private _instanceRef: WeakRef<Database>
+  private _instanceRef: ReturnType<typeof registerInstance>
+  private _draining = false
 
   constructor(config: DbConfig = {}) {
     super()
@@ -410,7 +254,6 @@ export class Database extends BaseExecutor {
 
     this.sql = new SQL(sqlOpts as ConstructorParameters<typeof SQL>[0])
 
-    // Register tables
     this._tables = new Map()
 
     if (tables) {
@@ -419,10 +262,7 @@ export class Database extends BaseExecutor {
       }
     }
 
-    // Track instance for process cleanup
-    this._instanceRef = new WeakRef(this)
-    activeInstances.add(this._instanceRef)
-    registerCleanupHandlers()
+    this._instanceRef = registerInstance(this)
   }
 
   override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
@@ -459,9 +299,13 @@ export class Database extends BaseExecutor {
     throw lastError
   }
 
-  // Get the configured schema name
   get schema(): string {
     return this._schema
+  }
+
+  /** Returns true if the database is draining (no new queries accepted). */
+  get draining(): boolean {
+    return this._draining
   }
 
   /** Create a typed Repository for a table definition. */
@@ -478,192 +322,22 @@ export class Database extends BaseExecutor {
 
   /**
    * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
-   * Uses `pg_advisory_xact_lock` to prevent concurrent sync() calls.
-   *
-   * Pass `{ dryRun: true }` to preview changes without applying.
-   * Pass `{ allowDestructive: true }` to allow DROP/RENAME operations.
-   * Pass `{ confirm: true }` to show SQL and prompt for confirmation before applying.
+   * Pass `{ dryRun: true }` to preview changes; `{ allowDestructive: true }` to allow DROP/RENAME;
+   * `{ confirm: true }` to show SQL and prompt for confirmation.
    */
   async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean, confirm?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
-    // Advisory lock key — consistent hash for "pg-orm-sync"
-    const LOCK_KEY = 741953258
-
-    // Phase 1: Run a preliminary diff on the pool to find enum ADD VALUE ops.
-    // These can't run inside a transaction in PG < 16, so execute them first.
-    // If they succeed but the main transaction fails, the enum values persist
-    // harmlessly (skipped on retry via IF NOT EXISTS).
-    if (!opts?.dryRun) {
-      const preLive = await introspectLiveSchema(this, this._schema)
-      const preOps = diffSchema(preLive, this._tables)
-      const enumAddOps = preOps.filter(o => o.type === 'alter_enum_add')
-
-      for (const op of enumAddOps) {
-        await this.query(`${op.sql};`, [])
-      }
-    }
-
-    // Phase 2: Acquire advisory lock + introspect + diff + apply DDL inside a
-    // single transaction. The lock is transaction-scoped and auto-released on commit.
-    return (this.sql as unknown as {
-      begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
-    }).begin(async (sqlTx) => {
-      const txUnsafe = sqlTx as UnsafeSql
-
-      // Acquire transaction-scoped advisory lock (auto-released on COMMIT/ROLLBACK).
-      // pg_advisory_xact_lock is transaction-scoped — unlike pg_advisory_lock which
-      // is session-scoped even when called inside a transaction.
-      await txUnsafe.unsafe('SELECT pg_advisory_xact_lock($1)', [LOCK_KEY])
-
-      // Create a lightweight executor adapter for introspection queries
-      const txExecutor: Executable = {
-        query: async (sqlStr: string, params: unknown[]) => {
-          return await txUnsafe.unsafe(sqlStr, params) as Record<string, unknown>[]
-        },
-        sql: sqlTx as InstanceType<typeof SQL>,
-      }
-
-      const live = await introspectLiveSchema(txExecutor, this._schema)
-      const ops = diffSchema(live, this._tables)
-
-      if (ops.length === 0)
-        return { sql: '', ops: [] }
-
-      const destructiveOps = ops.filter(o => o.destructive)
-
-      if (destructiveOps.length && !opts?.allowDestructive && !opts?.confirm) {
-        throw new DestructiveOpError(
-          `Sync contains ${destructiveOps.length} destructive operation(s). Use { allowDestructive: true } or { confirm: true } to proceed.`,
-          'diff',
-          destructiveOps.map(o => o.description),
-        )
-      }
-
-      const sqlStr = ops.map(o => `${o.sql};`).join('\n')
-
-      if (opts?.confirm) {
-        const confirmed = await promptSync(ops, destructiveOps)
-
-        if (!confirmed)
-          return { sql: sqlStr, ops: [] }
-      }
-
-      if (!opts?.dryRun) {
-        // Filter out enum ADD VALUE ops (already applied in Phase 1)
-        const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
-
-        for (const op of otherOps) {
-          await txUnsafe.unsafe(`${op.sql};`, [])
-        }
-
-        // Record migration in history table
-        await ensureMigrationTable(txExecutor)
-        const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
-        const downSql = ops.slice().reverse().map((o) => {
-          // Inline reverse op generation for sync history
-          switch (o.type) {
-            case 'create_table': return `DROP TABLE IF EXISTS "${o.table}";`
-            case 'add_column': return `ALTER TABLE "${o.table}" DROP COLUMN IF EXISTS "${o.column}";`
-            case 'add_fk': return `ALTER TABLE "${o.table}" DROP CONSTRAINT IF EXISTS "${o.table}_${o.column}_fkey";`
-            case 'create_index': return `DROP INDEX IF EXISTS ${o.sql.match(QUOTED_IDENT_RE)?.[0] ?? 'unknown'};`
-            case 'rename_column': {
-              const match = o.sql.match(RENAME_COLUMN_RE)
-
-              return match ? `ALTER TABLE "${o.table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";` : ''
-            }
-            default: return `-- Cannot reverse: ${o.description}`
-          }
-        }).filter(Boolean).join('\n')
-        // Simple djb2 hash
-        let hash = 5381
-
-        for (let i = 0; i < sqlStr.length; i++) {
-          hash = (hash << 5) + hash + sqlStr.charCodeAt(i) | 0
-        }
-
-        await recordMigration(txExecutor, {
-          name: `${timestamp}_sync`,
-          sqlHash: (hash >>> 0).toString(36),
-          upSql: sqlStr,
-          downSql,
-        })
-      }
-
-      return { sql: sqlStr, ops }
-    })
-    // Advisory lock auto-released on transaction commit/rollback
+    return syncSchema(
+      { query: (s, p) => this.query(s, p), sql: this.sql, schema: this._schema, tables: this._tables },
+      opts,
+    )
   }
 
-  /**
-   * Rollback the last N migrations by executing their down SQL.
-   * Reads from the `_pgorm_migrations` history table.
-   */
+  /** Rollback the last N migrations by executing their down SQL. */
   async rollback(count = 1): Promise<{ rolledBack: string[], sql: string }> {
-    const history = await getMigrationHistory(this)
-
-    // Get the last N 'up' migrations that haven't been rolled back
-    const upMigrations = history.filter(m => m.direction === 'up')
-    const downIds = new Set(
-      history.filter(m => m.direction === 'down').map(m => m.name),
+    return rollbackMigrations(
+      { query: (s, p) => this.query(s, p), sql: this.sql },
+      count,
     )
-    const pendingRollbacks = upMigrations
-      .filter(m => !downIds.has(m.name))
-      .slice(-count)
-      .reverse()
-
-    if (pendingRollbacks.length === 0) {
-      return { rolledBack: [], sql: '' }
-    }
-
-    const rolledBack: string[] = []
-    const sqlParts: string[] = []
-
-    return (this.sql as unknown as {
-      begin: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>
-    }).begin(async (sqlTx) => {
-      const txUnsafe = sqlTx as UnsafeSql
-      const txExecutor: Executable = {
-        query: async (sqlStr: string, params: unknown[]) => {
-          return await txUnsafe.unsafe(sqlStr, params) as Record<string, unknown>[]
-        },
-        sql: sqlTx as InstanceType<typeof SQL>,
-      }
-
-      for (const migration of pendingRollbacks) {
-        if (!migration.downSql || migration.downSql.trim() === '') {
-          throw new MigrationError(
-            `Cannot rollback migration "${migration.name}": no down SQL recorded`,
-            'apply',
-            migration.name,
-          )
-        }
-
-        // Execute the entire down SQL as a single call (avoids naive `;` splitting
-        // which breaks on semicolons inside string literals or dollar-quoted blocks)
-        await txUnsafe.unsafe(migration.downSql, [])
-
-        // Record the rollback
-        // Simple djb2 hash
-        let hash = 5381
-        const downSql = migration.downSql
-
-        for (let i = 0; i < downSql.length; i++) {
-          hash = (hash << 5) + hash + downSql.charCodeAt(i) | 0
-        }
-
-        await recordMigration(txExecutor, {
-          name: migration.name,
-          sqlHash: (hash >>> 0).toString(36),
-          upSql: migration.upSql,
-          downSql: migration.downSql,
-          direction: 'down',
-        })
-
-        rolledBack.push(migration.name)
-        sqlParts.push(migration.downSql)
-      }
-
-      return { rolledBack, sql: sqlParts.join('\n\n') }
-    })
   }
 
   // Get the internal tables registry
@@ -721,35 +395,41 @@ export class Database extends BaseExecutor {
     const fn = typeof fnOrOpts === 'function' ? fnOrOpts : maybeFn!
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
 
-    // Use bun:sql's native transaction support
     let txRef: TransactionClient | undefined
 
     try {
-      const result = await (this.sql as unknown as {
-        begin: (fn: (tx: unknown) => Promise<T>) => Promise<T>
-      }).begin(async (sqlTx) => {
+      const result = await asDriver(this.sql).begin<T>(async (sqlTx) => {
         if (opts?.isolation) {
-          if (!VALID_ISOLATION_LEVELS.has(opts.isolation))
+          const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
+
+          if (!isolationSql)
             throw new Error(`Invalid isolation level: "${opts.isolation}"`)
 
-          if (opts.accessMode && !VALID_ACCESS_MODES.has(opts.accessMode))
-            throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+          let stmt = `SET TRANSACTION ISOLATION LEVEL ${isolationSql}`
 
-          await (sqlTx as UnsafeSql).unsafe(
-            `SET TRANSACTION ISOLATION LEVEL ${opts.isolation.toUpperCase()}${opts.accessMode ? ` ${opts.accessMode.toUpperCase().replace('_', ' ')}` : ''}`,
-            [],
-          )
+          if (opts.accessMode) {
+            const accessSql = ACCESS_MODE_SQL[opts.accessMode as AccessMode]
+
+            if (!accessSql)
+              throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+
+            stmt += ` ${accessSql}`
+          }
+
+          await asDriver(sqlTx).unsafe(stmt, [])
         }
 
-        // Apply statement timeout if configured
         if (this._statementTimeout !== undefined) {
-          await (sqlTx as UnsafeSql).unsafe(
-            `SET statement_timeout = ${Math.floor(this._statementTimeout)}`,
-            [],
+          // set_config('statement_timeout', ..., true) is the transaction-local
+          // equivalent of `SET LOCAL` — but it accepts a bound param, so timeout
+          // can never be injected as SQL text.
+          await asDriver(sqlTx).unsafe(
+            'SELECT set_config($1, $2, true)',
+            ['statement_timeout', String(Math.floor(this._statementTimeout))],
           )
         }
 
-        const tx = new TransactionClient(sqlTx as InstanceType<typeof SQL>, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
+        const tx = new TransactionClient(sqlTx, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
 
         if (opts?.context)
           tx._context = opts.context
@@ -801,21 +481,8 @@ export class Database extends BaseExecutor {
   }
 
   /**
-   * Query PostgreSQL for connection pool statistics.
-   * Returns the number of active connections for the current database.
-   *
-   * Note: This queries `pg_stat_activity`, which shows server-side connection state.
-   * Client-side pool metrics depend on the `bun:sql` driver internals.
-   */
-  /**
    * Run EXPLAIN (FORMAT JSON) on a query builder and return the parsed plan
    * along with the rendered SQL and params (useful for logging and tooling).
-   *
-   * @example
-   * ```ts
-   * const q = db.repo(usersTable).select().where(e => e.eq('id', 1))
-   * const { sql, plan } = await db.explain(q, { analyze: true })
-   * ```
    */
   async explain(
     builder: BaseBuilder,
@@ -828,6 +495,10 @@ export class Database extends BaseExecutor {
     return { sql, params, plan }
   }
 
+  /**
+   * Query PostgreSQL for connection pool statistics from `pg_stat_activity`.
+   * Note: this is server-side state; client-side bun:sql metrics are not exposed.
+   */
   async getPoolStats(): Promise<{ active: number, idle: number, total: number, maxConnections: number }> {
     const rows = await this.query(`
       SELECT
@@ -859,28 +530,13 @@ export class Database extends BaseExecutor {
       this._draining = true
     }
 
-    activeInstances.delete(this._instanceRef)
-    await (this.sql as unknown as { close: (opts?: { timeout?: number }) => Promise<void> }).close({ timeout: opts?.timeout })
-  }
-
-  private _draining = false
-
-  /** Returns true if the database is draining (no new queries accepted). */
-  get draining(): boolean {
-    return this._draining
+    unregisterInstance(this._instanceRef)
+    await asDriver(this.sql).close({ timeout: opts?.timeout })
   }
 
   /**
    * Create a scoped database instance that attaches context to all query events.
    * Useful for correlating queries to HTTP requests, trace IDs, etc.
-   *
-   * @example
-   * ```ts
-   * app.use((req, res, next) => {
-   *   req.db = db.withContext({ requestId: req.id, userId: req.user?.id })
-   *   next()
-   * })
-   * ```
    */
   withContext(ctx: Record<string, unknown>): Database {
     const scoped = Object.create(this) as Database
@@ -892,7 +548,6 @@ export class Database extends BaseExecutor {
 }
 
 // --- Transaction Client ---
-// Same interface as Database — repos don't distinguish.
 
 export interface TransactionOptions {
   isolation?: 'read uncommitted' | 'read committed' | 'repeatable read' | 'serializable'
@@ -933,10 +588,8 @@ export class TransactionClient extends BaseExecutor {
   async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {
     const name = `sp_${++this._savepointCounter}`
 
-    return (this.sql as unknown as {
-      savepoint: (fn: (sp: unknown) => Promise<T>) => Promise<T>
-    }).savepoint(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp as InstanceType<typeof SQL>, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
+    return asDriver(this.sql).savepoint<T>(async (sqlSp) => {
+      const sp = new SavepointClient(sqlSp, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError)
 
       return fn(sp)
     })
@@ -971,3 +624,6 @@ export class SavepointRollback extends Error {
     this.name = 'SavepointRollback'
   }
 }
+
+// Re-export for the array-serializer unit test.
+export { serializePgArray } from './adapter'

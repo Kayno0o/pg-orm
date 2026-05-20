@@ -27,19 +27,11 @@ export class RelationLoader {
     depth = 0,
     visited?: Set<string>,
   ): Promise<any[]> {
-    if (depth > this.maxIncludeDepth) {
-      throw new OrmError(
-        `Maximum include depth of ${this.maxIncludeDepth} exceeded. Check for circular includes or increase maxIncludeDepth.`,
-      )
-    }
-
-    const relations = this.table.relations
-
-    if (!relations)
-      return parentRows
-
     const seen = visited ?? new Set<string>()
 
+    // Check cycles before depth: a true cycle is a hard error regardless of how
+    // deep we are, and it's the more informative diagnostic. Depth is a fallback
+    // for accidental fan-out that doesn't manifest as a labeled cycle.
     for (const inc of includes) {
       const key = `${this.table.name}.${inc.relation}`
 
@@ -50,6 +42,17 @@ export class RelationLoader {
         )
       }
     }
+
+    if (depth > this.maxIncludeDepth) {
+      throw new OrmError(
+        `Maximum include depth of ${this.maxIncludeDepth} exceeded. Check for circular includes or increase maxIncludeDepth.`,
+      )
+    }
+
+    const relations = this.table.relations
+
+    if (!relations)
+      return parentRows
 
     const tasks: Promise<void>[] = []
 

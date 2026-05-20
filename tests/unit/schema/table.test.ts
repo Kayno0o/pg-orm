@@ -105,8 +105,6 @@ describe('defineTable', () => {
       name: t.text(),
     }))
 
-    const _hookCalled = false
-
     table.hook('beforeInsert', () => {
       /* noop */
     })

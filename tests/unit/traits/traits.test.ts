@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { defineTable, optimisticLock, softDelete, timestamps } from '../../../src/index'
+import { defineTable, optimisticLock, OrmError, softDelete, timestamps } from '../../../src/index'
 
 describe('softDelete trait', () => {
   it('adds deletedAt column', () => {
@@ -108,5 +108,30 @@ describe('timestamps trait', () => {
     expect(table.columns.created).toBeDefined()
     expect(table.columns.updated).toBeDefined()
     expect(table.meta.timestamps).toEqual({ createdAt: 'created', updatedAt: 'updated' })
+  })
+})
+
+describe('trait double-application guard', () => {
+  it('throws when the same named trait is applied twice', () => {
+    const table = defineTable('test', t => ({ id: t.serial().primaryKey() }))
+      .withTrait(softDelete())
+
+    expect(() => table.withTrait(softDelete())).toThrow(OrmError)
+  })
+
+  it('allows different traits on the same table', () => {
+    expect(() =>
+      defineTable('test', t => ({ id: t.serial().primaryKey() }))
+        .withTrait(softDelete())
+        .withTrait(timestamps())
+        .withTrait(optimisticLock()),
+    ).not.toThrow()
+  })
+
+  it('mentions the trait and table name in the error', () => {
+    const table = defineTable('users', t => ({ id: t.serial().primaryKey() }))
+      .withTrait(timestamps())
+
+    expect(() => table.withTrait(timestamps())).toThrow(/timestamps.*users/)
   })
 })

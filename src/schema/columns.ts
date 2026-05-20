@@ -12,7 +12,8 @@ import type {
   NotNullable,
   NotPrimaryKey,
 } from '../types/index'
-import { SINGLE_QUOTE_RE } from '../utils/regex'
+import { escapeLiteralBody, quoteLiteral } from '../sql/utils'
+import { phantom } from '../types/index'
 
 /** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
 function toSQLDefault(value: unknown, pgType: string): string {
@@ -33,17 +34,17 @@ function toSQLDefault(value: unknown, pgType: string): string {
       return `ARRAY[]::${pgType}`
 
     const items = value.map(v =>
-      typeof v === 'string' ? `'${v.replace(SINGLE_QUOTE_RE, '\'\'')}'` : String(v),
+      typeof v === 'string' ? quoteLiteral(v) : String(v),
     ).join(',')
 
     return `ARRAY[${items}]::${pgType}`
   }
 
   if (typeof value === 'object')
-    return `'${JSON.stringify(value).replace(SINGLE_QUOTE_RE, '\'\'')}'::${pgType}`
+    return `'${escapeLiteralBody(JSON.stringify(value))}'::${pgType}`
 
   if (typeof value === 'string')
-    return `'${value.replace(SINGLE_QUOTE_RE, '\'\'')}'`
+    return quoteLiteral(value)
 
   return String(value)
 }
@@ -221,11 +222,11 @@ export class ColumnBuilder<
   _build(): ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated> {
     const def: Record<string, unknown> = {
       _kind: 'column' as const,
-      _type: undefined as unknown as TType,
-      _nullable: undefined as unknown as TNullable,
-      _default: undefined as unknown as TDefault,
-      _primary: undefined as unknown as TPrimary,
-      _generated: undefined as unknown as TGenerated,
+      _type: phantom<TType>(),
+      _nullable: phantom<TNullable>(),
+      _default: phantom<TDefault>(),
+      _primary: phantom<TPrimary>(),
+      _generated: phantom<TGenerated>(),
       pgType: this._pgType,
       constraints: Object.freeze(this._constraints) as ColumnConstraint[],
       references: this._references,

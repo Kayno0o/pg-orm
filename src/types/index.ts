@@ -6,6 +6,16 @@ type Brand<T, B extends string> = T & { readonly [__brand]: B }
 
 export type SQLIdentifier = Brand<string, 'SQLIdentifier'>
 
+/**
+ * Phantom value: typed as `T` but always `undefined` at runtime. Used for
+ * type-only fields on definition objects (e.g. `_type`, `_nullable`) that
+ * exist only to drive TypeScript inference. Centralizes a previously-inline
+ * `undefined as unknown as T` pattern.
+ */
+export function phantom<T>(): T {
+  return undefined as T
+}
+
 // Column nullability / default tracking at the type level
 export interface HasDefault { readonly hasDefault: true }
 export interface NoDefault { readonly hasDefault: false }

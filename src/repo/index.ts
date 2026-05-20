@@ -1,33 +1,18 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
-import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
+import { NotFoundError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
+import { HookOrchestrator } from './hooks'
 import { RelationLoader } from './relation-loader'
+import { applySoftDeleteFilter, getOptimisticLockColumn, getSoftDeleteColumn, requireSoftDeleteColumn } from './traits'
+import { applyVirtuals, clearVirtualEntriesCache } from './virtuals'
 
-// Cache virtual entries per table to avoid Object.entries on every call
-let _virtualEntriesCache = new WeakMap<AnyTableDef, [string, { compute: (r: unknown) => unknown }][]>()
-
-export function clearVirtualEntriesCache(): void {
-  _virtualEntriesCache = new WeakMap()
-}
-
-function getVirtualEntries(table: AnyTableDef): [string, { compute: (r: unknown) => unknown }][] {
-  let entries = _virtualEntriesCache.get(table)
-
-  if (!entries) {
-    const virtuals = table.virtuals
-
-    entries = virtuals ? Object.entries(virtuals) : []
-    _virtualEntriesCache.set(table, entries)
-  }
-
-  return entries
-}
+export { clearVirtualEntriesCache }
 
 /**
  * Type-safe repository for a table definition.
@@ -57,6 +42,7 @@ export class Repository<
   private _batchChunkSize: number
   private _defaultLimit?: number
   private _relationLoader: RelationLoader
+  private _hooks: HookOrchestrator
 
   constructor(
     table: AnyTableDef,
@@ -73,71 +59,17 @@ export class Repository<
     this._batchChunkSize = batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = defaultLimit
     this._relationLoader = new RelationLoader(table, executor, this._maxIncludeDepth, this._batchChunkSize, tableRegistry)
+    this._hooks = new HookOrchestrator(table)
   }
 
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
     return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth, this._defaultLimit, this._batchChunkSize)
   }
 
-  // --- Hook helpers ---
-
-  private async _runBefore<T>(event: HookEvent, value: T): Promise<T> {
-    if (hasHooks(this._table, event)) {
-      return runHooksAsync(this._table, event, value)
-    }
-
-    return value
-  }
-
-  private async _runAfter(event: HookEvent, rows?: unknown[]): Promise<void> {
-    if (hasHooks(this._table, event)) {
-      try {
-        await runHooksAsync(this._table, event, rows)
-      }
-      catch (err) {
-        throw new AfterHookError(this._table.name, event, err)
-      }
-    }
-  }
-
-  // --- Optimistic lock helpers ---
-
-  private _getOptimisticLockColumn(): string | null {
-    const ol = this._table.meta?.optimisticLock as { column: string } | undefined
-
-    return ol?.column ?? null
-  }
-
-  // --- Soft-delete helpers ---
-
-  private _getSoftDeleteColumn(): string | null {
-    const sd = this._table.meta?.softDelete as { column: string } | undefined
-
-    return sd?.column ?? null
-  }
-
-  private _requireSoftDelete(operation: string): string {
-    const col = this._getSoftDeleteColumn()
-
-    if (col === null) {
-      throw new OrmError(`${operation} requires softDelete trait on table`)
-    }
-
-    return col
-  }
-
   // --- Primary key helper ---
 
   private _getPrimaryKey(): string {
     return this._table.primaryKey ?? DEFAULT_PRIMARY_KEY
-  }
-
-  private _applySoftDeleteFilter(builder: SelectBuilder<TColumns, TRelations, any>): void {
-    const col = this._getSoftDeleteColumn()
-
-    if (col && !builder.getState().withTrashed) {
-      builder.andWhere(e => e.isNull(col))
-    }
   }
 
   // --- Query methods (callback-style) ---
@@ -160,7 +92,7 @@ export class Repository<
     const finalBuilder = cb ? cb(builder) : builder
 
     // Auto-filter soft-deleted rows
-    this._applySoftDeleteFilter(finalBuilder)
+    applySoftDeleteFilter(this._table, finalBuilder)
 
     // Apply default limit if no explicit limit was set
     const state = finalBuilder.getState()
@@ -182,7 +114,7 @@ export class Repository<
     }
 
     // Apply virtuals
-    mapped = this._applyVirtuals(mapped)
+    mapped = applyVirtuals(this._table, mapped)
 
     // Handle .include() — batched relation loading (no N+1)
     if (state.includes.length > 0) {
@@ -230,7 +162,7 @@ export class Repository<
 
   /** Insert a single row and return the primary key of the inserted record. */
   async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
-    const v = await this._runBefore('beforeInsert', values)
+    const v = await this._hooks.runBefore('beforeInsert', values)
 
     const pk = this._getPrimaryKey()
     const b = new InsertBuilder<TColumns>(this._table.name)
@@ -239,7 +171,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterInsert', rows)
+    await this._hooks.runAfter('afterInsert', rows)
 
     return rows[0]![pk] as InferPrimaryKey<TColumns>
   }
@@ -249,11 +181,7 @@ export class Repository<
     if (values.length === 0)
       return []
 
-    let v = values
-
-    if (hasHooks(this._table, 'beforeInsert')) {
-      v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeInsert', row)))
-    }
+    const v = await this._hooks.runBeforeMany('beforeInsert', values)
 
     const pk = this._getPrimaryKey()
     const b = new InsertBuilder<TColumns>(this._table.name)
@@ -262,7 +190,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterInsert', rows)
+    await this._hooks.runAfter('afterInsert', rows)
 
     return rows.map(r => r[pk]) as InferPrimaryKey<TColumns>[]
   }
@@ -272,8 +200,8 @@ export class Repository<
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const s = await this._runBefore('beforeUpdate', set)
-    const lockCol = this._getOptimisticLockColumn()
+    const s = await this._hooks.runBefore('beforeUpdate', set)
+    const lockCol = getOptimisticLockColumn(this._table)
 
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
@@ -288,7 +216,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterUpdate', rows)
+    await this._hooks.runAfter('afterUpdate', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -298,10 +226,10 @@ export class Repository<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     // Soft-delete: convert DELETE to UPDATE but fire delete hooks
-    const sdCol = this._getSoftDeleteColumn()
+    const sdCol = getSoftDeleteColumn(this._table)
 
     if (sdCol) {
-      await this._runBefore('beforeDelete', undefined)
+      await this._hooks.runBefore('beforeDelete', undefined)
 
       const b = new UpdateBuilder<TColumns>(this._table.name)
         .set({ [sdCol]: new Date() } as InferUpdate<TColumns>)
@@ -310,12 +238,12 @@ export class Repository<
       const { sql, params } = b.toSQL()
       const rows = await this._query(sql, params)
 
-      await this._runAfter('afterDelete', rows)
+      await this._hooks.runAfter('afterDelete', rows)
 
       return rows as WithVirtuals<TColumns, TVirtuals>[]
     }
 
-    await this._runBefore('beforeDelete', undefined)
+    await this._hooks.runBefore('beforeDelete', undefined)
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
       .where(where)
@@ -323,7 +251,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterDelete', rows)
+    await this._hooks.runAfter('afterDelete', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -358,7 +286,7 @@ export class Repository<
       builder.where(where)
     }
 
-    this._applySoftDeleteFilter(builder)
+    applySoftDeleteFilter(this._table, builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._query(sql, params)
@@ -372,7 +300,7 @@ export class Repository<
       .where(where)
       .limit(1)
 
-    this._applySoftDeleteFilter(builder)
+    applySoftDeleteFilter(this._table, builder)
 
     const existsState = builder.getState()
 
@@ -400,7 +328,7 @@ export class Repository<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
     currentVersion: number,
   ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const lockCol = this._getOptimisticLockColumn()
+    const lockCol = getOptimisticLockColumn(this._table)
 
     if (!lockCol) {
       throw new Error('updateWithLock requires optimisticLock trait on table')
@@ -434,11 +362,7 @@ export class Repository<
     if (values.length === 0)
       return []
 
-    let v = values
-
-    if (hasHooks(this._table, 'beforeUpsert')) {
-      v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeUpsert', row)))
-    }
+    const v = await this._hooks.runBeforeMany('beforeUpsert', values)
 
     const ib = new InsertBuilder<TColumns>(this._table.name).many(v)
     const conflict = ib.onConflict(conflictTarget)
@@ -447,10 +371,10 @@ export class Repository<
     const { sql, params } = final.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterInsert', rows)
+    await this._hooks.runAfter('afterInsert', rows)
 
     // Apply virtuals
-    this._applyVirtuals(rows)
+    applyVirtuals(this._table, rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -460,7 +384,7 @@ export class Repository<
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
   ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const v = await this._runBefore('beforeUpsert', values)
+    const v = await this._hooks.runBefore('beforeUpsert', values)
 
     // Use ON CONFLICT DO UPDATE with a no-op SET so RETURNING always returns the row
     const pk = this._getPrimaryKey()
@@ -472,7 +396,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterInsert', rows)
+    await this._hooks.runAfter('afterInsert', rows)
 
     return rows[0] as WithVirtuals<TColumns, TVirtuals>
   }
@@ -552,9 +476,9 @@ export class Repository<
   async restore(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = this._requireSoftDelete('restore()')
+    const sdCol = requireSoftDeleteColumn(this._table, 'restore()')
 
-    const s = await this._runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
+    const s = await this._hooks.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
 
     const b = new UpdateBuilder<TColumns>(this._table.name)
       .set(s)
@@ -564,7 +488,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterUpdate', rows)
+    await this._hooks.runAfter('afterUpdate', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -573,7 +497,7 @@ export class Repository<
   async forceDelete(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._runBefore('beforeDelete', undefined)
+    await this._hooks.runBefore('beforeDelete', undefined)
 
     const b = new DeleteBuilder<TColumns>(this._table.name)
       .where(where)
@@ -581,7 +505,7 @@ export class Repository<
     const { sql, params } = b.toSQL()
     const rows = await this._query(sql, params)
 
-    await this._runAfter('afterDelete', rows)
+    await this._hooks.runAfter('afterDelete', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -614,7 +538,7 @@ export class Repository<
     let offset = 0
     const mapper = this._getMapper(finalBuilder)
 
-    this._applySoftDeleteFilter(finalBuilder)
+    applySoftDeleteFilter(this._table, finalBuilder)
 
     while (true) {
       const chunkBuilder = finalBuilder.branch()
@@ -635,7 +559,7 @@ export class Repository<
         mapped = await runHooksAsync(this._table, 'afterSelect', mapped)
       }
 
-      mapped = this._applyVirtuals(mapped)
+      mapped = applyVirtuals(this._table, mapped)
 
       for (const row of mapped) {
         yield row
@@ -699,7 +623,7 @@ export class Repository<
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
 
     // Auto-apply soft-delete filter (use .withTrashed() to bypass)
-    this._applySoftDeleteFilter(builder)
+    applySoftDeleteFilter(this._table, builder)
 
     return builder
   }
@@ -740,44 +664,5 @@ export class Repository<
       s.columns ?? undefined,
       s.omitColumns.length ? s.omitColumns : undefined,
     )
-  }
-
-  // Apply virtual fields to mapped rows — lazy evaluation via getters
-  private _applyVirtuals<T extends Record<string, unknown>>(rows: T[]): T[] {
-    const entries = getVirtualEntries(this._table)
-
-    if (entries.length === 0)
-      return rows
-
-    const tableName = this._table.name
-
-    for (const row of rows) {
-      for (const [key, virt] of entries) {
-        Object.defineProperty(row, key, {
-          get() {
-            let value: unknown
-
-            try {
-              value = virt.compute(row)
-            }
-            catch (err) {
-              throw new OrmError(
-                `Virtual field "${key}" on table "${tableName}" threw during computation: ${err instanceof Error ? err.message : String(err)}`,
-                err,
-              )
-            }
-
-            // Replace getter with computed value on first access
-            Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true })
-
-            return value
-          },
-          enumerable: true,
-          configurable: true,
-        })
-      }
-    }
-
-    return rows
   }
 }

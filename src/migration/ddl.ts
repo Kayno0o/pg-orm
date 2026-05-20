@@ -1,6 +1,7 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
 import type { MigrationOp } from './types'
-import { QUOTED_IDENT_RE, RENAME_COLUMN_RE, SINGLE_QUOTE_RE } from '../utils/regex'
+import { escapeLiteralBody } from '../sql/utils'
+import { QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 import { BIGSERIAL_RE, BOOL_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, SERIAL_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
 import { columnEntries } from './types'
 
@@ -73,11 +74,11 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
     checks.push(`length("${name}") <= ${def._maxLength}`)
 
   if (def._pattern != null)
-    checks.push(`"${name}" ~ '${(def._pattern as string).replace(SINGLE_QUOTE_RE, '\'\'')}'`)
+    checks.push(`"${name}" ~ '${escapeLiteralBody(def._pattern as string)}'`)
 
   if (def._oneOf != null) {
     const vals = (def._oneOf as (string | number)[]).map(v =>
-      typeof v === 'string' ? `'${v.replace(SINGLE_QUOTE_RE, '\'\'')}'` : String(v),
+      typeof v === 'string' ? `'${escapeLiteralBody(v)}'` : String(v),
     ).join(', ')
 
     checks.push(`"${name}" IN (${vals})`)

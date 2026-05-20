@@ -116,7 +116,7 @@ describe('getOrCompileMapper', () => {
 
 describe('clearMapperCache', () => {
   it('clears all cached mappers', () => {
-    const _m1 = getOrCompileMapper('clear_test', columns, ['id'])
+    getOrCompileMapper('clear_test', columns, ['id'])
 
     clearMapperCache()
     const m2 = getOrCompileMapper('clear_test', columns, ['id'])

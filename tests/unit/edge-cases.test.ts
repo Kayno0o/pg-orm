@@ -42,7 +42,8 @@ describe('Edge Cases — Unit', () => {
       tables.set('users', usersTable)
       tables.set('posts', postsTable)
 
-      const _repo = new Repository(postsTable, mock, tables)
+      // eslint-disable-next-line no-new
+      new Repository(postsTable, mock, tables)
 
       // Preset parent rows
       mock.preset([{ id: 1, title: 'Test', body: 'Body', authorId: 1, publishedAt: null }])

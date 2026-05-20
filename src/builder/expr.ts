@@ -182,22 +182,22 @@ const _singletonExprBuilder: ExprBuilder<any> = {
     return [{ op: OP_NOT }, ...expr]
   },
 
-  eq: (col, val) => [{ op: OP_EQ, col: col as string | ExprTape, val }],
-  neq: (col, val) => [{ op: OP_NEQ, col: col as string | ExprTape, val }],
-  gt: (col, val) => [{ op: OP_GT, col: col as string | ExprTape, val }],
-  gte: (col, val) => [{ op: OP_GTE, col: col as string | ExprTape, val }],
-  lt: (col, val) => [{ op: OP_LT, col: col as string | ExprTape, val }],
-  lte: (col, val) => [{ op: OP_LTE, col: col as string | ExprTape, val }],
-  in: (col, vals) => [{ op: OP_IN, col: col as string | ExprTape, vals: vals as unknown[] }],
-  notIn: (col, vals) => [{ op: OP_NOT_IN, col: col as string | ExprTape, vals: vals as unknown[] }],
+  eq: (col, val) => [{ op: OP_EQ, col, val }],
+  neq: (col, val) => [{ op: OP_NEQ, col, val }],
+  gt: (col, val) => [{ op: OP_GT, col, val }],
+  gte: (col, val) => [{ op: OP_GTE, col, val }],
+  lt: (col, val) => [{ op: OP_LT, col, val }],
+  lte: (col, val) => [{ op: OP_LTE, col, val }],
+  in: (col, vals) => [{ op: OP_IN, col, vals }],
+  notIn: (col, vals) => [{ op: OP_NOT_IN, col, vals }],
 
-  isNull: col => [{ op: OP_IS_NULL, col: col as string | ExprTape }],
-  isNotNull: col => [{ op: OP_IS_NOT_NULL, col: col as string | ExprTape }],
+  isNull: col => [{ op: OP_IS_NULL, col }],
+  isNotNull: col => [{ op: OP_IS_NOT_NULL, col }],
 
-  like: (col, pattern) => [{ op: OP_LIKE, col: col as string | ExprTape, pattern }],
-  ilike: (col, pattern) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern }],
+  like: (col, pattern) => [{ op: OP_LIKE, col, pattern }],
+  ilike: (col, pattern) => [{ op: OP_ILIKE, col, pattern }],
 
-  between: (col, lo, hi) => [{ op: OP_BETWEEN, col: col as string | ExprTape, lo, hi }],
+  between: (col, lo, hi) => [{ op: OP_BETWEEN, col, lo, hi }],
 
   exists: subquery => [{ op: OP_EXISTS, subquery }],
   notExists: subquery => [{ op: OP_NOT_EXISTS, subquery }],
