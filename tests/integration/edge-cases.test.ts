@@ -2,7 +2,7 @@ import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { OrmError } from '../../src/index'
 import { getMigrationHistory } from '../../src/migration/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, TEST_URL, truncateAll } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
 
 let db: Database
@@ -151,7 +151,7 @@ describe('Default query limit', () => {
   it('applies default limit via Database config', async () => {
     const { Database } = await import('../../src/index')
     const limitDb = new Database({
-      url: 'postgres://test:test@127.0.0.1:8532/orm_test',
+      url: TEST_URL,
       tables: [usersTable, postsTable],
       defaultLimit: 2,
     })
@@ -290,7 +290,7 @@ describe('Request context correlation', () => {
     const events: QueryEvent[] = []
     const { Database } = await import('../../src/index')
     const ctxDb = new Database({
-      url: 'postgres://test:test@127.0.0.1:8532/orm_test',
+      url: TEST_URL,
       tables: [usersTable, postsTable],
       onQuery: (event) => {
         events.push(event)
@@ -323,7 +323,7 @@ describe('Request context correlation', () => {
     const events: QueryEvent[] = []
     const { Database } = await import('../../src/index')
     const ctxDb = new Database({
-      url: 'postgres://test:test@127.0.0.1:8532/orm_test',
+      url: TEST_URL,
       tables: [usersTable, postsTable],
       onQuery: (event) => {
         events.push(event)

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { Database, defineTable, DestructiveOpError } from '../../src/index'
+import { TEST_URL } from '../helpers/db'
 import { allTables } from '../helpers/fixtures'
-
-const TEST_URL = 'postgres://test:test@127.0.0.1:8532/orm_test'
 
 // Helper: creates a Database with all fixture tables + extra test tables
 // This avoids sync() wanting to drop fixture tables that other tests created

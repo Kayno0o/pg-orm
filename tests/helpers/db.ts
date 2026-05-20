@@ -1,7 +1,7 @@
 import { Database } from '../../src/index'
 import { allTables } from './fixtures'
 
-const TEST_URL = process.env.database_url ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
+export const TEST_URL = process.env.database_url ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
 
 export function createTestDb(): Database {
   return new Database({

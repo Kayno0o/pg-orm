@@ -1,7 +1,7 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, TEST_URL, truncateAll } from '../helpers/db'
 import { allTables, usersTable } from '../helpers/fixtures'
 
 let db: Database
@@ -104,8 +104,6 @@ describe('SQL Injection E2E', () => {
 
 describe('Concurrent Sync', () => {
   it('handles concurrent sync() calls via advisory lock', async () => {
-    const TEST_URL = 'postgres://test:test@127.0.0.1:8532/orm_test'
-
     const table = defineTable('concurrent_sync_test', t => ({
       id: t.serial().primaryKey(),
       name: t.text().notNull(),
@@ -154,7 +152,6 @@ describe('Concurrent Sync', () => {
 
 describe('Database.withContext()', () => {
   it('attaches context to query events', async () => {
-    const TEST_URL = 'postgres://test:test@127.0.0.1:8532/orm_test'
     const events: { sql: string, context?: Record<string, unknown> }[] = []
 
     const contextDb = new (await import('../../src/index')).Database({
