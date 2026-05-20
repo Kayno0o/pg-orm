@@ -2,7 +2,7 @@ import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { OrmError } from '../../src/index'
 import { getMigrationHistory } from '../../src/migration/index'
-import { createTestDb, TEST_URL, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
 
 let db: Database
@@ -149,9 +149,7 @@ describe('upsertMany()', () => {
 // --- 1.3 Default query limit ---
 describe('Default query limit', () => {
   it('applies default limit via Database config', async () => {
-    const { Database } = await import('../../src/index')
-    const limitDb = new Database({
-      url: TEST_URL,
+    const limitDb = createTestDb({
       tables: [usersTable, postsTable],
       defaultLimit: 2,
     })
@@ -288,9 +286,7 @@ describe('Transaction hooks', () => {
 describe('Request context correlation', () => {
   it('propagates context to QueryEvent', async () => {
     const events: QueryEvent[] = []
-    const { Database } = await import('../../src/index')
-    const ctxDb = new Database({
-      url: TEST_URL,
+    const ctxDb = createTestDb({
       tables: [usersTable, postsTable],
       onQuery: (event) => {
         events.push(event)
@@ -321,9 +317,7 @@ describe('Request context correlation', () => {
 
   it('does not add context when not specified', async () => {
     const events: QueryEvent[] = []
-    const { Database } = await import('../../src/index')
-    const ctxDb = new Database({
-      url: TEST_URL,
+    const ctxDb = createTestDb({
       tables: [usersTable, postsTable],
       onQuery: (event) => {
         events.push(event)

@@ -1,7 +1,7 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { TEST_URL } from '../helpers/db'
+import { createTestDb } from '../helpers/db'
 
 // Use a separate table with hooks for isolation
 const hookedTable = defineTable('hooked_users', t => ({
@@ -43,10 +43,7 @@ beforeAll(async () => {
     return rows
   })
 
-  db = new (await import('../../src/index')).Database({
-    url: TEST_URL,
-    tables: [hookedTable],
-  })
+  db = createTestDb({ tables: [hookedTable] })
   await db.sync({ allowDestructive: true })
 })
 

@@ -1,9 +1,7 @@
-import type { QueryEvent } from '../../src/index'
+import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { Database } from '../../src/index'
-import { allTables, postsTable, usersTable } from '../helpers/fixtures'
-
-const TEST_URL = process.env.database_url ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
+import { createTestDb } from '../helpers/db'
+import { postsTable, usersTable } from '../helpers/fixtures'
 
 function inClauseQueryCount(events: QueryEvent[]): number {
   return events.filter(e => (/ IN \(/i).test(e.sql)).length
@@ -12,9 +10,7 @@ function inClauseQueryCount(events: QueryEvent[]): number {
 describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
   it('chunks IN queries when ids exceed batchChunkSize', async () => {
     const events: QueryEvent[] = []
-    const db = new Database({
-      url: TEST_URL,
-      tables: allTables,
+    const db = createTestDb({
       batchChunkSize: 100,
       onQuery: e => events.push(e),
     })
@@ -57,9 +53,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
 
   it('uses a single IN query when ids fit within batchChunkSize', async () => {
     const events: QueryEvent[] = []
-    const db = new Database({
-      url: TEST_URL,
-      tables: allTables,
+    const db = createTestDb({
       batchChunkSize: 100,
       onQuery: e => events.push(e),
     })
@@ -98,9 +92,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
 
   it('forces a second chunk one row over the boundary', async () => {
     const events: QueryEvent[] = []
-    const db = new Database({
-      url: TEST_URL,
-      tables: allTables,
+    const db = createTestDb({
       batchChunkSize: 100,
       onQuery: e => events.push(e),
     })
@@ -145,9 +137,7 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
   const events: QueryEvent[] = []
 
   beforeAll(async () => {
-    db = new Database({
-      url: TEST_URL,
-      tables: allTables,
+    db = createTestDb({
       onQuery: e => events.push(e),
     })
     await db.sync({ allowDestructive: true })

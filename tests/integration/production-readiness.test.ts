@@ -1,7 +1,7 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb, TEST_URL, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll } from '../helpers/db'
 import { allTables, usersTable } from '../helpers/fixtures'
 
 let db: Database
@@ -110,14 +110,8 @@ describe('Concurrent Sync', () => {
       extra: t.text().nullable(),
     }))
 
-    const db1 = new (await import('../../src/index')).Database({
-      url: TEST_URL,
-      tables: [...allTables, table],
-    })
-    const db2 = new (await import('../../src/index')).Database({
-      url: TEST_URL,
-      tables: [...allTables, table],
-    })
+    const db1 = createTestDb({ tables: [...allTables, table] })
+    const db2 = createTestDb({ tables: [...allTables, table] })
 
     try {
       await db1.raw('DROP TABLE IF EXISTS "concurrent_sync_test"', [])
@@ -154,9 +148,7 @@ describe('Database.withContext()', () => {
   it('attaches context to query events', async () => {
     const events: { sql: string, context?: Record<string, unknown> }[] = []
 
-    const contextDb = new (await import('../../src/index')).Database({
-      url: TEST_URL,
-      tables: allTables,
+    const contextDb = createTestDb({
       onQuery: (event) => {
         events.push({ sql: event.sql, context: event.context })
       },

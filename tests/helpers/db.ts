@@ -1,20 +1,29 @@
+import type { DbConfig } from '../../src/index'
 import { Database } from '../../src/index'
 import { allTables } from './fixtures'
 
 export const TEST_URL = process.env.database_url ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
 
-export function createTestDb(): Database {
+// CI's system-installed PG occasionally drops idle sockets between tests.
+// Retry transient ConnectionError so the suite is robust without masking real issues.
+const DEFAULT_RETRY: DbConfig['retry'] = { maxRetries: 2, baseDelayMs: 50, maxDelayMs: 500 }
+
+export function createTestDb(overrides: Partial<DbConfig> = {}): Database {
   return new Database({
     url: TEST_URL,
     tables: allTables,
-    // CI's system-installed PG occasionally drops idle sockets between tests.
-    // Retry transient ConnectionError so the suite is robust without masking real issues.
-    retry: { maxRetries: 2, baseDelayMs: 50, maxDelayMs: 500 },
+    retry: DEFAULT_RETRY,
+    ...overrides,
   })
 }
 
-export async function withTestDb(fn: (db: Database) => Promise<void>): Promise<void> {
-  const db = createTestDb()
+export async function withTestDb(
+  fnOrOverrides: ((db: Database) => Promise<void>) | Partial<DbConfig>,
+  maybeFn?: (db: Database) => Promise<void>,
+): Promise<void> {
+  const fn = typeof fnOrOverrides === 'function' ? fnOrOverrides : maybeFn!
+  const overrides = typeof fnOrOverrides === 'object' ? fnOrOverrides : undefined
+  const db = createTestDb(overrides)
 
   try {
     await db.sync({ allowDestructive: true })

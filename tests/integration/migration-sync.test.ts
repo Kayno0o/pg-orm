@@ -1,12 +1,13 @@
+import type { AnyTableDef } from '../../src/index'
 import { describe, expect, it } from 'bun:test'
-import { Database, defineTable, DestructiveOpError } from '../../src/index'
-import { TEST_URL } from '../helpers/db'
+import { defineTable, DestructiveOpError } from '../../src/index'
+import { createTestDb } from '../helpers/db'
 import { allTables } from '../helpers/fixtures'
 
-// Helper: creates a Database with all fixture tables + extra test tables
-// This avoids sync() wanting to drop fixture tables that other tests created
-function createSyncDb(extraTables: any[]) {
-  return new Database({ url: TEST_URL, tables: [...allTables, ...extraTables] })
+// Bundle fixture tables with extra test tables so sync() doesn't try to drop
+// fixtures other tests created.
+function createSyncDb(extraTables: AnyTableDef[]) {
+  return createTestDb({ tables: [...allTables, ...extraTables] })
 }
 
 describe('Migration Sync', () => {
@@ -232,7 +233,7 @@ describe('Migration Sync', () => {
     const table = defineTable('sync_test_reg', t => ({
       id: t.serial().primaryKey(),
     }))
-    const db = new Database({ url: TEST_URL, tables: [table] })
+    const db = createTestDb({ tables: [table] })
 
     try {
       const registry = db.getTablesRegistry()
