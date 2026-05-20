@@ -67,6 +67,24 @@ export const itemsTable = defineTable('items', t => ({
   scores: t.array(t.int4()).nullable(),
 }))
 
+export interface DocumentData {
+  name: string
+  tags: string[]
+  meta?: { author?: string, version?: number }
+}
+
+export const documentsTable = defineTable('documents', t => ({
+  id: t.serial().primaryKey(),
+  data: t.jsonb<DocumentData>().notNull(),
+  optional: t.jsonb<Record<string, unknown>>().nullable(),
+}))
+
+export const bigItemsTable = defineTable('big_items', t => ({
+  id: t.serial().primaryKey(),
+  big: t.bigint().notNull(),
+  bigNullable: t.bigint().nullable(),
+}))
+
 export const allTables = [
   usersTable,
   postsTable,
@@ -75,4 +93,6 @@ export const allTables = [
   postTagsTable,
   versionedItemsTable,
   itemsTable,
+  documentsTable,
+  bigItemsTable,
 ]

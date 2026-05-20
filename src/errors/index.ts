@@ -289,6 +289,14 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   const table = pgErr.table_name ?? pgErr.table ?? ''
   const column = pgErr.column_name ?? pgErr.column ?? ''
 
+  // bun:sql emits client-side error codes (string-prefixed) for transport-level
+  // failures. "ERR_POSTGRES_CONNECTION_CLOSED" is the dropped-connection case we
+  // hit in CI when the server-side PG closes idle sockets — surface it as a
+  // ConnectionError so the Database retry path catches it.
+  if (pgErr.code === 'ERR_POSTGRES_CONNECTION_CLOSED') {
+    return new ConnectionError(pgErr.message, err)
+  }
+
   switch (code) {
     case '23505': // unique_violation
       return new UniqueError(pgErr.message, query, params, { constraint, table, column }, err)

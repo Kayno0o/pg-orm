@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# /dev/tcp probe below is a bash feature, not POSIX sh.
+
+BUN_PATH=bun
+
+if [ -f ~/.bun/bin/bun ]; then
+  BUN_PATH=~/.bun/bin/bun
+elif [ -f /usr/local/bin/bun ]; then
+  BUN_PATH=/usr/local/bin/bun
+fi
+
+# Tests assume docker-compose Postgres on 127.0.0.1:8532. Start it if it isn't already.
+if ! (echo > /dev/tcp/127.0.0.1/8532) 2>/dev/null; then
+  echo "PG not reachable on 127.0.0.1:8532 — starting docker compose..."
+  docker compose up -d >/dev/null
+
+  for i in $(seq 1 30); do
+    (echo > /dev/tcp/127.0.0.1/8532) 2>/dev/null && break
+    sleep 1
+  done
+
+  if ! (echo > /dev/tcp/127.0.0.1/8532) 2>/dev/null; then
+    echo "Failed to bring up PG on 127.0.0.1:8532 — aborting push."
+    exit 1
+  fi
+fi
+
+$BUN_PATH test

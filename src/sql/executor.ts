@@ -1,3 +1,4 @@
+import type { BaseBuilder } from '../builder/base'
 import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { createInterface } from 'node:readline'
@@ -806,7 +807,28 @@ export class Database extends BaseExecutor {
    * Note: This queries `pg_stat_activity`, which shows server-side connection state.
    * Client-side pool metrics depend on the `bun:sql` driver internals.
    */
-  async poolStats(): Promise<{ active: number, idle: number, total: number, maxConnections: number }> {
+  /**
+   * Run EXPLAIN (FORMAT JSON) on a query builder and return the parsed plan
+   * along with the rendered SQL and params (useful for logging and tooling).
+   *
+   * @example
+   * ```ts
+   * const q = db.repo(usersTable).select().where(e => e.eq('id', 1))
+   * const { sql, plan } = await db.explain(q, { analyze: true })
+   * ```
+   */
+  async explain(
+    builder: BaseBuilder,
+    opts?: { analyze?: boolean },
+  ): Promise<{ sql: string, params: unknown[], plan: unknown }> {
+    const { sql, params } = builder.explain(opts)
+    const rows = await this.query(sql, params)
+    const plan = rows[0]?.['QUERY PLAN']
+
+    return { sql, params, plan }
+  }
+
+  async getPoolStats(): Promise<{ active: number, idle: number, total: number, maxConnections: number }> {
     const rows = await this.query(`
       SELECT
         count(*) FILTER (WHERE state = 'active') AS active,

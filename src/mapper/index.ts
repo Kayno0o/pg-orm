@@ -22,6 +22,18 @@ const _mapperCache = new Map<string, RowMapper<Record<string, unknown>>>()
 // bun:sql returns rows as objects (column_name -> value), so the mapper
 // remaps/validates the shape. For the simple case (no omit, no computed),
 // identity is fastest.
+// bun:sql returns int8/bigint columns as JS strings (since int64 exceeds Number.MAX_SAFE_INTEGER).
+// Schemas declare these as bigint, so the mapper coerces in the JIT body.
+function needsBigintCoercion(pgType: string): boolean {
+  return pgType === 'int8' || pgType === 'bigserial'
+}
+
+function bigintAccessor(col: string): string {
+  const key = JSON.stringify(col)
+
+  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'bigint' ? r[${key}] : BigInt(r[${key}]))`
+}
+
 export function compileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
@@ -29,20 +41,25 @@ export function compileMapper<TColumns extends AnyColumns>(
 ): RowMapper<Record<string, unknown>> {
   const colNames = pick ?? Object.keys(columns)
   const filteredCols = omit ? colNames.filter(c => !omit.includes(c)) : colNames
-
-  // Fast path: if all columns are selected and no omit, return identity
   const allKeys = Object.keys(columns)
+  const bigintCols = new Set(
+    allKeys.filter(c => needsBigintCoercion(columns[c]!.pgType)),
+  )
 
-  if (!pick && !omit && filteredCols.length === allKeys.length) {
+  // Fast path: full identity only when no bigint coercion is needed.
+  if (!pick && !omit && filteredCols.length === allKeys.length && bigintCols.size === 0) {
     return identityMapper
   }
 
-  // JIT: compile a function that picks exactly the needed fields.
-  // This avoids per-row property enumeration in the hot path.
+  // JIT: compile a function that picks the needed fields, coercing int8/bigint columns.
   // Column names are validated against /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable()
   // time, so they are safe to embed. JSON.stringify adds an additional escaping layer.
   const assignments = filteredCols
-    .map(c => `  ${JSON.stringify(c)}: r[${JSON.stringify(c)}]`)
+    .map((c) => {
+      const value = bigintCols.has(c) ? bigintAccessor(c) : `r[${JSON.stringify(c)}]`
+
+      return `  ${JSON.stringify(c)}: ${value}`
+    })
     .join(',\n')
   const body = `return {\n${assignments}\n}`
 
