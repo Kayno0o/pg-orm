@@ -32,9 +32,9 @@ describe('DeleteBuilder', () => {
     expect(sql).toBe('DELETE FROM "users"')
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = del().where(e => e.eq('id', 1))
-    const b = a.clone()
+    const b = a.branch()
 
     expect(b._state.whereTape).not.toBe(a._state.whereTape)
   })

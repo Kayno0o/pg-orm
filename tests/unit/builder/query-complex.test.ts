@@ -482,18 +482,18 @@ describe('Complex query builder', () => {
     })
   })
 
-  // --- Clone ---
+  // --- Branch ---
 
-  describe('Clone', () => {
-    it('cloned builder is independent', () => {
+  describe('Branch', () => {
+    it('branched builder is independent', () => {
       const original = select().where(e => e.eq('id', 1))
-      const cloned = original.clone().where(e => e.eq('name', 'Alice'))
+      const branched = original.branch().where(e => e.eq('name', 'Alice'))
 
       const { sql: originalSql } = original.toSQL()
-      const { sql: clonedSql } = cloned.toSQL()
+      const { sql: branchedSql } = branched.toSQL()
 
       expect(originalSql).not.toContain('name')
-      expect(clonedSql).toContain('name')
+      expect(branchedSql).toContain('name')
     })
   })
 

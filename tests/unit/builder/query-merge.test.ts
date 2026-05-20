@@ -90,9 +90,9 @@ describe('MergeBuilder', () => {
     expect(sql).toContain('WHEN MATCHED AND "value" > $')
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = merge().using('source', 's')
-    const b = a.clone()
+    const b = a.branch()
 
     b.on(e => e.ref('s.id'))
 

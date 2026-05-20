@@ -112,9 +112,9 @@ describe('InsertBuilder', () => {
     expect(() => insert().values({ name: 'ok', age: null })).not.toThrow()
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = insert().values({ name: 'Alice', email: 'a@b.com' })
-    const b = a.clone()
+    const b = a.branch()
 
     expect(b._state.insertValues).toEqual(a._state.insertValues)
     expect(b._state.insertValues).not.toBe(a._state.insertValues)

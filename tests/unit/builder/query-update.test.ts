@@ -76,9 +76,9 @@ describe('UpdateBuilder', () => {
     expect(() => update().set({ name: { __raw: 'evil' } })).toThrow(/__raw/)
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = update().set({ name: 'Alice' })
-    const b = a.clone()
+    const b = a.branch()
 
     b.where(e => e.eq('id', 1))
 

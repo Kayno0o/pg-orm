@@ -17,3 +17,18 @@ export function quote(name: string): string {
 export function quotePath(path: string): string {
   return path.split('.').map(quote).join('.')
 }
+
+/**
+ * Build a comma-separated list of positional placeholders: `$1, $2, $3`.
+ * Returns an empty string when `n` is 0.
+ */
+export function buildPlaceholders(n: number, startIndex = 1): string {
+  if (n === 0)
+    return ''
+
+  const parts: string[] = []
+
+  for (let i = 0; i < n; i++) parts.push(`$${startIndex + i}`)
+
+  return parts.join(', ')
+}

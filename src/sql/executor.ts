@@ -3,6 +3,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } fro
 import { createInterface } from 'node:readline'
 import { colors } from '@kaynooo/utils'
 import { SQL } from 'bun'
+import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { ConnectionError, DeadlockError, DestructiveOpError, MigrationError, setParamRedactor, wrapPgError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { diffSchema, ensureMigrationTable, getMigrationHistory, introspectLiveSchema, recordMigration } from '../migration/index'
@@ -230,6 +231,8 @@ export interface DbConfig {
   schema?: string
   /** Maximum depth for nested `.include()` relation loading (default: 5) */
   maxIncludeDepth?: number
+  /** Rows per IN (...) chunk in batched relation loading (default: 5000) */
+  batchChunkSize?: number
   /** Statement timeout in milliseconds — applied to each connection */
   statementTimeout?: number
   /** Query logging callback — called after every query */
@@ -352,12 +355,13 @@ export class Database extends BaseExecutor {
   private _retryBaseDelay: number
   private _retryMaxDelay: number
   private _maxIncludeDepth: number
+  private _batchChunkSize: number
   private _defaultLimit?: number
   private _instanceRef: WeakRef<Database>
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, defaultLimit, redactParams, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, batchChunkSize, defaultLimit, redactParams, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
@@ -380,7 +384,8 @@ export class Database extends BaseExecutor {
     this._retryMaxRetries = retry?.maxRetries ?? 0
     this._retryBaseDelay = retry?.baseDelayMs ?? 100
     this._retryMaxDelay = retry?.maxDelayMs ?? 5000
-    this._maxIncludeDepth = maxIncludeDepth ?? 5
+    this._maxIncludeDepth = maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
+    this._batchChunkSize = batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = defaultLimit
 
     for (const [key, val] of Object.entries(connOpts)) {
@@ -467,7 +472,7 @@ export class Database extends BaseExecutor {
   >(
     table: TableDef<TName, TColumns, TRelations, TVirtuals>,
   ): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth, this._defaultLimit)
+    return new Repository<TColumns, TRelations, TVirtuals>(table as AnyTableDef, this, this._tables, this._maxIncludeDepth, this._defaultLimit, this._batchChunkSize)
   }
 
   /**

@@ -228,9 +228,9 @@ describe('SelectBuilder', () => {
     expect(sql).toStartWith('EXPLAIN (ANALYZE, FORMAT JSON)')
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = select().where(e => e.eq('id', 1))
-    const b = a.clone()
+    const b = a.branch()
 
     b.limit(10)
 

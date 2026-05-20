@@ -2,11 +2,9 @@ import type { IncludeCallback, IncludeEntry } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyRelationDef, AnyTableDef } from '../types/index'
 import { SelectBuilder } from '../builder/query'
+import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { OrmError } from '../errors/index'
-import { quote } from '../sql/utils'
-
-// Chunk IDs to avoid exceeding PG parameter limits (65535 params)
-const BATCH_CHUNK_SIZE = 5000
+import { buildPlaceholders, quote } from '../sql/utils'
 
 /**
  * Batched relation loading — single query per relation, all relations in parallel.
@@ -19,6 +17,7 @@ export class RelationLoader {
     private table: AnyTableDef,
     private executor: Executable,
     private maxIncludeDepth: number,
+    private batchChunkSize: number,
     private tableRegistry?: ReadonlyMap<string, AnyTableDef>,
   ) {}
 
@@ -82,7 +81,7 @@ export class RelationLoader {
   }
 
   private _findPrimaryKey(table: AnyTableDef): string {
-    return table.primaryKey ?? 'id'
+    return table.primaryKey ?? DEFAULT_PRIMARY_KEY
   }
 
   private async _query(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
@@ -91,8 +90,8 @@ export class RelationLoader {
 
   // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
   private async _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    if (ids.length <= BATCH_CHUNK_SIZE) {
-      const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+    if (ids.length <= this.batchChunkSize) {
+      const placeholders = buildPlaceholders(ids.length)
 
       return this._query(
         `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
@@ -102,9 +101,9 @@ export class RelationLoader {
 
     const results: Record<string, unknown>[] = []
 
-    for (let i = 0; i < ids.length; i += BATCH_CHUNK_SIZE) {
-      const chunk = ids.slice(i, i + BATCH_CHUNK_SIZE)
-      const placeholders = chunk.map((_, j) => `$${j + 1}`).join(', ')
+    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
+      const chunk = ids.slice(i, i + this.batchChunkSize)
+      const placeholders = buildPlaceholders(chunk.length)
       const rows = await this._query(
         `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
         chunk,
@@ -118,7 +117,7 @@ export class RelationLoader {
 
   private async _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
     const buildSql = (chunk: unknown[]) => {
-      const placeholders = chunk.map((_, i) => `$${i + 1}`).join(', ')
+      const placeholders = buildPlaceholders(chunk.length)
 
       return `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
        FROM ${quote(rel.throughTable!)} j
@@ -126,14 +125,14 @@ export class RelationLoader {
        WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`
     }
 
-    if (ids.length <= BATCH_CHUNK_SIZE) {
+    if (ids.length <= this.batchChunkSize) {
       return this._query(buildSql(ids), ids)
     }
 
     const results: Record<string, unknown>[] = []
 
-    for (let i = 0; i < ids.length; i += BATCH_CHUNK_SIZE) {
-      const chunk = ids.slice(i, i + BATCH_CHUNK_SIZE)
+    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
+      const chunk = ids.slice(i, i + this.batchChunkSize)
 
       results.push(...await this._query(buildSql(chunk), chunk))
     }
@@ -197,7 +196,7 @@ export class RelationLoader {
       const childVisited = new Set(ctx.seen)
 
       childVisited.add(`${this.table.name}.${inc.relation}`)
-      const childLoader = new RelationLoader(targetTable, this.executor, this.maxIncludeDepth, this.tableRegistry)
+      const childLoader = new RelationLoader(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
 
       await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
     }
@@ -257,7 +256,7 @@ export class RelationLoader {
         const childVisited = new Set(ctx.seen)
 
         childVisited.add(`${this.table.name}.${inc.relation}`)
-        const childLoader = new RelationLoader(targetTableDef, this.executor, this.maxIncludeDepth, this.tableRegistry)
+        const childLoader = new RelationLoader(targetTableDef, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
 
         await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
       }

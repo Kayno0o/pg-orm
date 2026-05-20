@@ -75,11 +75,16 @@ export class ColumnBuilder<
     this._pgType = pgType
   }
 
+  // Narrow `this` to a builder with different phantom generics. Runtime object is unchanged.
+  private _narrow<T>(): T {
+    return this as unknown as T
+  }
+
   /** Mark column as NOT NULL. Required for insert unless it has a default. */
   notNull(): ColumnBuilder<TType, NotNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'not_null' })
 
-    return this as never
+    return this._narrow()
   }
 
   /** Mark column as nullable. The inferred type becomes `T | null`. */
@@ -87,21 +92,21 @@ export class ColumnBuilder<
     // Remove any existing not_null constraint
     this._constraints = this._constraints.filter(c => c.type !== 'not_null')
 
-    return this as never
+    return this._narrow()
   }
 
   /** Set a DEFAULT value using a native JS value. Auto-converts to SQL. */
   default(value: TType): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value: toSQLDefault(value, this._pgType) })
 
-    return this as never
+    return this._narrow()
   }
 
   /** Set a DEFAULT using a raw SQL expression (e.g. `'now()'`, `'uuid_generate_v4()'`). */
   defaultRaw(sql: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value: sql })
 
-    return this as never
+    return this._narrow()
   }
 
   /** Mark as primary key. Implies NOT NULL and optional on insert. */
@@ -109,14 +114,14 @@ export class ColumnBuilder<
     this._constraints.push({ type: 'primary_key' })
 
     // PK implies not null and has default (for type inference — PK is always optional on insert)
-    return this as never
+    return this._narrow()
   }
 
   /** Add a UNIQUE constraint on this column. */
   unique(): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'unique' })
 
-    return this as never
+    return this._narrow()
   }
 
   /**
@@ -126,49 +131,49 @@ export class ColumnBuilder<
   check(expr: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'check', value: expr })
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a minimum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
   min(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._min = value
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a maximum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
   max(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._max = value
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a minimum length CHECK constraint (for text/varchar). */
   minLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._minLength = value
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a maximum length CHECK constraint (for text/varchar). */
   maxLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._maxLength = value
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a regex pattern CHECK constraint (for text/varchar). Uses PostgreSQL `~` operator. */
   pattern(regex: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._pattern = regex
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a CHECK constraint restricting values to a set of allowed values. */
   oneOf<V extends TType>(values: readonly V[]): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._oneOf = values as readonly (string | number)[]
 
-    return this as never
+    return this._narrow()
   }
 
   /** Add a FOREIGN KEY reference to another table's column. */
@@ -185,7 +190,7 @@ export class ColumnBuilder<
     }
     this._constraints.push({ type: 'references' })
 
-    return this as never
+    return this._narrow()
   }
 
   /**
@@ -195,21 +200,21 @@ export class ColumnBuilder<
   generated(expr: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, IsGenerated> {
     this._constraints.push({ type: 'generated', value: expr })
 
-    return this as never
+    return this._narrow()
   }
 
   /** Create a B-tree index on this column (or specify method/partial filter). */
   index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._index = { method: opts?.method, where: opts?.where }
 
-    return this as never
+    return this._narrow()
   }
 
   /** Mark this column as renamed from a previous name to avoid DROP+ADD data loss. */
   renamedFrom(oldName: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._renamedFrom = oldName
 
-    return this as never
+    return this._narrow()
   }
 
   // Finalize — freeze and return ColumnDef. Called internally by defineTable.
@@ -372,8 +377,8 @@ export function createColumnTypes(): ColumnTypes {
     real: () => new ColumnBuilder('float4'),
     doublePrecision: () => new ColumnBuilder('float8'),
     numeric: (p, s) => new ColumnBuilder(p != null ? s != null ? `numeric(${p},${s})` : `numeric(${p})` : 'numeric'),
-    serial: () => new ColumnBuilder('serial') as never,
-    bigserial: () => new ColumnBuilder('bigserial') as never,
+    serial: () => new ColumnBuilder<number>('serial') as unknown as ColumnBuilder<number, NotNullable, HasDefault>,
+    bigserial: () => new ColumnBuilder<bigint>('bigserial') as unknown as ColumnBuilder<bigint, NotNullable, HasDefault>,
 
     bool: () => new ColumnBuilder('bool'),
     boolean: () => new ColumnBuilder('bool'),
@@ -390,20 +395,20 @@ export function createColumnTypes(): ColumnTypes {
 
     bytea: () => new ColumnBuilder('bytea'),
 
-    enum: (name, _values) => {
-      const b = new ColumnBuilder(name)
+    enum: <const TValues extends readonly string[]>(name: string, _values: TValues) => {
+      const b = new ColumnBuilder<string>(name)
 
       // Store enum values for migration DDL (preserved through _build())
       b._enumName = name
       b._enumValues = _values
 
-      return b as never
+      return b as unknown as ColumnBuilder<TValues[number]>
     },
 
-    array: (inner) => {
+    array: <T>(inner: ColumnBuilder<T>) => {
       const pgType = (inner as unknown as { _pgType: string })._pgType
 
-      return new ColumnBuilder(`${pgType}[]`) as never
+      return new ColumnBuilder<T[]>(`${pgType}[]`) as unknown as ColumnBuilder<T[]>
     },
 
     vector: n => new ColumnBuilder(`vector(${n})`),

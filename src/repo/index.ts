@@ -2,6 +2,7 @@ import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookEvent, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { AfterHookError, NotFoundError, OrmError, StaleRecordError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
@@ -47,13 +48,13 @@ export class Repository<
   TRelations extends AnyRelations = {},
   TVirtuals extends AnyVirtuals = {},
 > {
-  static MAX_INCLUDE_DEPTH = 5
   private static _streamWarned = false
 
   private _table: AnyTableDef
   private _executor: Executable
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
   private _maxIncludeDepth: number
+  private _batchChunkSize: number
   private _defaultLimit?: number
   private _relationLoader: RelationLoader
 
@@ -63,17 +64,19 @@ export class Repository<
     tableRegistry?: ReadonlyMap<string, AnyTableDef>,
     maxIncludeDepth?: number,
     defaultLimit?: number,
+    batchChunkSize?: number,
   ) {
     this._table = table
     this._executor = executor
     this._tableRegistry = tableRegistry
-    this._maxIncludeDepth = maxIncludeDepth ?? Repository.MAX_INCLUDE_DEPTH
+    this._maxIncludeDepth = maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
+    this._batchChunkSize = batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = defaultLimit
-    this._relationLoader = new RelationLoader(table, executor, this._maxIncludeDepth, tableRegistry)
+    this._relationLoader = new RelationLoader(table, executor, this._maxIncludeDepth, this._batchChunkSize, tableRegistry)
   }
 
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth, this._defaultLimit)
+    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth, this._defaultLimit, this._batchChunkSize)
   }
 
   // --- Hook helpers ---
@@ -111,6 +114,22 @@ export class Repository<
     const sd = this._table.meta?.softDelete as { column: string } | undefined
 
     return sd?.column ?? null
+  }
+
+  private _requireSoftDelete(operation: string): string {
+    const col = this._getSoftDeleteColumn()
+
+    if (col === null) {
+      throw new OrmError(`${operation} requires softDelete trait on table`)
+    }
+
+    return col
+  }
+
+  // --- Primary key helper ---
+
+  private _getPrimaryKey(): string {
+    return this._table.primaryKey ?? DEFAULT_PRIMARY_KEY
   }
 
   private _applySoftDeleteFilter(builder: SelectBuilder<TColumns, TRelations, any>): void {
@@ -213,7 +232,7 @@ export class Repository<
   async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
     const v = await this._runBefore('beforeInsert', values)
 
-    const pk = this._table.primaryKey ?? 'id'
+    const pk = this._getPrimaryKey()
     const b = new InsertBuilder<TColumns>(this._table.name)
       .values(v)
       .returning(pk)
@@ -236,7 +255,7 @@ export class Repository<
       v = await Promise.all(v.map(async row => runHooksAsync(this._table, 'beforeInsert', row)))
     }
 
-    const pk = this._table.primaryKey ?? 'id'
+    const pk = this._getPrimaryKey()
     const b = new InsertBuilder<TColumns>(this._table.name)
       .many(v)
       .returning(pk)
@@ -313,7 +332,7 @@ export class Repository<
 
   /** Find a row by primary key. Supports composite PKs when `id` is an object. */
   async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const pk = this._table.primaryKey ?? 'id'
+    const pk = this._getPrimaryKey()
 
     // Composite primary key: pk is comma-separated, id should be an object
     if (pk.includes(',')) {
@@ -444,7 +463,7 @@ export class Repository<
     const v = await this._runBefore('beforeUpsert', values)
 
     // Use ON CONFLICT DO UPDATE with a no-op SET so RETURNING always returns the row
-    const pk = this._table.primaryKey ?? 'id'
+    const pk = this._getPrimaryKey()
     const b = new InsertBuilder<TColumns>(this._table.name)
       .values(v)
       .onConflict(conflictTarget)
@@ -496,7 +515,7 @@ export class Repository<
     where?: (e: ExprBuilder<TColumns>) => ExprTape
   }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
     const { take, cursor, direction = 'forward', where: whereFn } = opts
-    const col = (opts.column ?? this._table.primaryKey ?? 'id') as keyof TColumns & string
+    const col = (opts.column ?? this._getPrimaryKey()) as keyof TColumns & string
     const isForward = direction === 'forward'
 
     const data = await this.findMany((q) => {
@@ -533,11 +552,7 @@ export class Repository<
   async restore(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = this._getSoftDeleteColumn()
-
-    if (sdCol === null) {
-      throw new OrmError('restore() requires softDelete trait on table')
-    }
+    const sdCol = this._requireSoftDelete('restore()')
 
     const s = await this._runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
 
@@ -595,14 +610,14 @@ export class Repository<
 
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
     const finalBuilder = cb ? cb(builder) : builder
-    const chunkSize = opts.chunkSize ?? 500
+    const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     let offset = 0
     const mapper = this._getMapper(finalBuilder)
 
     this._applySoftDeleteFilter(finalBuilder)
 
     while (true) {
-      const chunkBuilder = finalBuilder.clone()
+      const chunkBuilder = finalBuilder.branch()
 
       const chunkState = chunkBuilder.getState()
 
@@ -654,8 +669,8 @@ export class Repository<
       where?: (e: ExprBuilder<TColumns>) => ExprTape
     } = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    const chunkSize = opts.chunkSize ?? 500
-    const col = opts.column ?? (this._table.primaryKey ?? 'id') as keyof TColumns & string
+    const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
+    const col = opts.column ?? (this._getPrimaryKey() as keyof TColumns & string)
     const direction = opts.direction ?? 'forward'
     let cursor: unknown
 

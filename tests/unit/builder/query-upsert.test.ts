@@ -49,9 +49,9 @@ describe('UpsertBuilder', () => {
     expect(() => upsert().values({ name: { __raw: 'evil' } })).toThrow(/__raw/)
   })
 
-  it('clone produces independent copy', () => {
+  it('branch produces independent copy', () => {
     const a = upsert().values({ name: 'Alice', email: 'a@b.com' })
-    const b = a.clone()
+    const b = a.branch()
 
     b.onConflict('email')
 

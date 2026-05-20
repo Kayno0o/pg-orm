@@ -15,7 +15,8 @@ export abstract class BaseBuilder {
     return this._state
   }
 
-  clone(): this {
+  /** Create an independent copy of this builder; further chaining doesn't affect the original. */
+  branch(): this {
     const copy = Object.create(Object.getPrototypeOf(this)) as this
 
     copy._state = cloneState(this._state)
