@@ -247,7 +247,7 @@ describe('ExprBuilder - Full-text search', () => {
 
     expect(result.sql).toContain('@@')
     expect(result.sql).toContain('plainto_tsquery')
-    expect(result.params).toEqual(['hello world'])
+    expect(result.params).toEqual(['english', 'hello world'])
   })
 
   it('tsQuery rejects invalid language', () => {

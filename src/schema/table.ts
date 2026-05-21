@@ -3,9 +3,9 @@ import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtua
 import type { ColumnTypes } from './columns'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
-import { ColumnBuilder, createColumnTypes } from './columns'
+import { ColumnBuilder, createColumnTypes, getColumnIndex } from './columns'
 import { createRelationTypes } from './relations'
-import { validateIdentifier } from './validate'
+import { validateIdentifier, validateRawSqlFragment } from './validate'
 
 // Type-level: extract column definitions from the builder callback return type
 type ExtractColumns<T extends Record<string, ColumnBuilder>> = {
@@ -42,8 +42,11 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
     if (b instanceof ColumnBuilder) {
       columns[key] = b._build()
 
-      if ((b as unknown as { _index?: object })._index) {
-        const idx = (b as unknown as { _index: { method?: IndexDef['method'], where?: string } })._index
+      const idx = getColumnIndex(b)
+
+      if (idx) {
+        if (idx.where !== undefined)
+          validateRawSqlFragment(idx.where, `index on "${key}"`)
 
         indexes.push({ columns: [key], unique: false, method: idx.method, where: idx.where })
       }
@@ -166,6 +169,10 @@ export function defineTable(
 
     // Add composite or multi-column indexes
     withIndexes(idxDefs: IndexDef[]) {
+      for (const idx of idxDefs) {
+        if (idx.where !== undefined)
+          validateRawSqlFragment(idx.where, `index "${idx.name ?? idx.columns.join('_')}"`)
+      }
       ;(table.indexes as IndexDef[]).push(...idxDefs)
 
       return table

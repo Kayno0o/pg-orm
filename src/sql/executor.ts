@@ -3,7 +3,7 @@ import type { MigrationOp } from '../migration/index'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import { SQL } from 'bun'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
-import { ConnectionError, DeadlockError, setParamRedactor } from '../errors/index'
+import { ConnectionError, DeadlockError, setParamRedactor, ValidationError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { rollbackMigrations, syncSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
@@ -79,6 +79,19 @@ export interface DbConfig {
   batchChunkSize?: number
   /** Statement timeout in milliseconds — applied to each connection */
   statementTimeout?: number
+  /**
+   * `idle_in_transaction_session_timeout` in milliseconds. Applied transaction-locally
+   * via `SET LOCAL` at the start of each `transaction()` call. Kills server-side
+   * connections that hold a transaction open without activity past the timeout —
+   * the prod safety net for forgotten `await`s inside a `tx => ...` callback.
+   */
+  idleInTransactionTimeout?: number
+  /**
+   * Sent as the connection's `application_name`. Visible in `pg_stat_activity`
+   * and PG server logs, which makes filtering and incident attribution far easier
+   * when multiple apps share a database.
+   */
+  application_name?: string
   /** Query logging callback — called after every query */
   onQuery?: (event: QueryEvent) => void
   /** Slow query callback — called when a query exceeds the threshold */
@@ -89,6 +102,14 @@ export interface DbConfig {
   onError?: (event: QueryErrorEvent) => void
   /** Called when ping() fails — useful for logging connection issues */
   onPingError?: (error: unknown) => void
+  /**
+   * Called when a transaction onCommit/onRollback callback or a stream safety
+   * warning surfaces an error that the ORM would otherwise have to swallow
+   * (the transaction has already committed or rolled back, so re-throwing
+   * would change observable semantics). If unset, errors are silently dropped
+   * (and the stream warning falls back to `console.warn`).
+   */
+  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning', error: unknown }) => void
   /**
    * Scrub sensitive values from `QueryError.params` even outside production.
    * Receives the positional param array and returns the redacted copy.
@@ -194,7 +215,9 @@ export class Database extends BaseExecutor {
   private _tables: Map<string, AnyTableDef>
   private _schema: string
   private _statementTimeout?: number
+  private _idleInTransactionTimeout?: number
   private _pingErrorHandler?: (error: unknown) => void
+  _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning', error: unknown }) => void
   private _retryMaxRetries: number
   private _retryBaseDelay: number
   private _retryMaxDelay: number
@@ -203,10 +226,12 @@ export class Database extends BaseExecutor {
   private _defaultLimit?: number
   private _instanceRef: ReturnType<typeof registerInstance>
   private _draining = false
+  private _inFlight = 0
+  private _drainResolvers: (() => void)[] = []
 
   constructor(config: DbConfig = {}) {
     super()
-    const { pool, tables, cacheSize: _, schema, statementTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, retry, maxIncludeDepth, batchChunkSize, defaultLimit, redactParams, ...connOpts } = config
+    const { pool, tables, cacheSize: _, schema, statementTimeout, idleInTransactionTimeout, onQuery, onSlowQuery, onError, slowQueryThreshold, onPingError, onCallbackError, retry, maxIncludeDepth, batchChunkSize, defaultLimit, redactParams, ...connOpts } = config
     const sqlOpts: Record<string, unknown> = {}
 
     this._onQuery = onQuery
@@ -221,11 +246,26 @@ export class Database extends BaseExecutor {
 
     this._schema = schema ?? 'public'
 
-    if (statementTimeout !== undefined && (!Number.isFinite(statementTimeout) || statementTimeout < 0))
-      throw new TypeError('statementTimeout must be a non-negative finite number')
+    if (statementTimeout !== undefined && (!Number.isFinite(statementTimeout) || statementTimeout < 0)) {
+      throw new ValidationError(
+        'statementTimeout must be a non-negative finite number',
+        'DbConfig.statementTimeout',
+        { value: statementTimeout },
+      )
+    }
+
+    if (idleInTransactionTimeout !== undefined && (!Number.isFinite(idleInTransactionTimeout) || idleInTransactionTimeout < 0)) {
+      throw new ValidationError(
+        'idleInTransactionTimeout must be a non-negative finite number',
+        'DbConfig.idleInTransactionTimeout',
+        { value: idleInTransactionTimeout },
+      )
+    }
 
     this._statementTimeout = statementTimeout
+    this._idleInTransactionTimeout = idleInTransactionTimeout
     this._pingErrorHandler = onPingError
+    this._onCallbackError = onCallbackError
     this._retryMaxRetries = retry?.maxRetries ?? 0
     this._retryBaseDelay = retry?.baseDelayMs ?? 100
     this._retryMaxDelay = retry?.maxDelayMs ?? 5000
@@ -270,33 +310,46 @@ export class Database extends BaseExecutor {
       throw new ConnectionError('Database is draining — no new queries accepted')
     }
 
-    if (this._retryMaxRetries <= 0) {
-      return super.query(sqlStr, params)
-    }
+    this._inFlight++
 
-    let lastError: unknown
-
-    for (let attempt = 0; attempt <= this._retryMaxRetries; attempt++) {
-      try {
+    try {
+      if (this._retryMaxRetries <= 0) {
         return await super.query(sqlStr, params)
       }
-      catch (err) {
-        lastError = err
 
-        if (attempt < this._retryMaxRetries && (err instanceof ConnectionError || err instanceof DeadlockError)) {
-          const baseDelay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
-          const delay = baseDelay * (0.5 + Math.random() * 0.5)
+      let lastError: unknown
 
-          await new Promise(resolve => setTimeout(resolve, delay))
-
-          continue
+      for (let attempt = 0; attempt <= this._retryMaxRetries; attempt++) {
+        try {
+          return await super.query(sqlStr, params)
         }
+        catch (err) {
+          lastError = err
 
-        throw err
+          if (attempt < this._retryMaxRetries && (err instanceof ConnectionError || err instanceof DeadlockError)) {
+            const baseDelay = Math.min(this._retryBaseDelay * 2 ** attempt, this._retryMaxDelay)
+            const delay = baseDelay * (0.5 + Math.random() * 0.5)
+
+            await new Promise(resolve => setTimeout(resolve, delay))
+
+            continue
+          }
+
+          throw err
+        }
+      }
+
+      throw lastError
+    }
+    finally {
+      this._inFlight--
+
+      if (this._inFlight === 0 && this._drainResolvers.length > 0) {
+        const resolvers = this._drainResolvers.splice(0)
+
+        for (const resolve of resolvers) resolve()
       }
     }
-
-    throw lastError
   }
 
   get schema(): string {
@@ -347,6 +400,11 @@ export class Database extends BaseExecutor {
 
   /**
    * Execute raw SQL. Supports tagged template literals or plain strings with params.
+   *
+   * @trusted The SQL string is sent verbatim to the driver. Tagged-template usage
+   * automatically parameterizes interpolated values, but the SQL skeleton itself
+   * must be developer-authored — never assemble it from user input. See README
+   * "Security model".
    * @example
    * ```ts
    * const rows = await db.raw`SELECT * FROM users WHERE id = ${id}`
@@ -402,16 +460,26 @@ export class Database extends BaseExecutor {
         if (opts?.isolation) {
           const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
 
-          if (!isolationSql)
-            throw new Error(`Invalid isolation level: "${opts.isolation}"`)
+          if (!isolationSql) {
+            throw new ValidationError(
+              `Invalid isolation level: "${opts.isolation}"`,
+              'transaction.isolation',
+              { value: opts.isolation },
+            )
+          }
 
           let stmt = `SET TRANSACTION ISOLATION LEVEL ${isolationSql}`
 
           if (opts.accessMode) {
             const accessSql = ACCESS_MODE_SQL[opts.accessMode as AccessMode]
 
-            if (!accessSql)
-              throw new Error(`Invalid access mode: "${opts.accessMode}"`)
+            if (!accessSql) {
+              throw new ValidationError(
+                `Invalid access mode: "${opts.accessMode}"`,
+                'transaction.accessMode',
+                { value: opts.accessMode },
+              )
+            }
 
             stmt += ` ${accessSql}`
           }
@@ -426,6 +494,13 @@ export class Database extends BaseExecutor {
           await asDriver(sqlTx).unsafe(
             'SELECT set_config($1, $2, true)',
             ['statement_timeout', String(Math.floor(this._statementTimeout))],
+          )
+        }
+
+        if (this._idleInTransactionTimeout !== undefined) {
+          await asDriver(sqlTx).unsafe(
+            'SELECT set_config($1, $2, true)',
+            ['idle_in_transaction_session_timeout', String(Math.floor(this._idleInTransactionTimeout))],
           )
         }
 
@@ -445,7 +520,11 @@ export class Database extends BaseExecutor {
           try {
             await cb()
           }
-          catch { /* best-effort — commit already happened */ }
+          catch (callbackErr) {
+            // The commit already happened — re-throwing would change observed
+            // semantics. Surface to onCallbackError or drop.
+            this._onCallbackError?.({ kind: 'onCommit', error: callbackErr })
+          }
         }
       }
 
@@ -458,7 +537,9 @@ export class Database extends BaseExecutor {
           try {
             await cb(err)
           }
-          catch { /* best-effort */ }
+          catch (callbackErr) {
+            this._onCallbackError?.({ kind: 'onRollback', error: callbackErr })
+          }
         }
       }
 
@@ -524,10 +605,35 @@ export class Database extends BaseExecutor {
     clearVirtualEntriesCache()
   }
 
-  /** Close the database connection pool. Pass `drain: true` to reject new queries before closing. */
+  /**
+   * Close the database connection pool.
+   *
+   * - `drain: true` rejects *new* queries (with `ConnectionError`) and waits for
+   *   in-flight queries to settle before invoking the driver close.
+   * - `timeout` (ms) acts as a hard ceiling on the drain wait. If the timeout
+   *   fires before the in-flight count reaches zero, the driver close is invoked
+   *   anyway with the same `timeout` forwarded.
+   */
   async close(opts?: { timeout?: number, drain?: boolean }): Promise<void> {
     if (opts?.drain) {
       this._draining = true
+
+      if (this._inFlight > 0) {
+        await new Promise<void>((resolve) => {
+          this._drainResolvers.push(resolve)
+
+          if (opts.timeout !== undefined && Number.isFinite(opts.timeout)) {
+            setTimeout(() => {
+              const idx = this._drainResolvers.indexOf(resolve)
+
+              if (idx >= 0) {
+                this._drainResolvers.splice(idx, 1)
+                resolve()
+              }
+            }, opts.timeout)
+          }
+        })
+      }
     }
 
     unregisterInstance(this._instanceRef)

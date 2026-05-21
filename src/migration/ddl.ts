@@ -1,5 +1,6 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
 import type { MigrationOp } from './types'
+import { getColumnMeta } from '../schema/columns'
 import { escapeLiteralBody } from '../sql/utils'
 import { QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 import { BIGSERIAL_RE, BOOL_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, SERIAL_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
@@ -58,26 +59,26 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
     }
   }
 
-  const def = colDef as unknown as Record<string, unknown>
+  const meta = getColumnMeta(colDef)
   const checks: string[] = []
 
-  if (def._min != null)
-    checks.push(`"${name}" >= ${def._min}`)
+  if (meta.min != null)
+    checks.push(`"${name}" >= ${meta.min}`)
 
-  if (def._max != null)
-    checks.push(`"${name}" <= ${def._max}`)
+  if (meta.max != null)
+    checks.push(`"${name}" <= ${meta.max}`)
 
-  if (def._minLength != null)
-    checks.push(`length("${name}") >= ${def._minLength}`)
+  if (meta.minLength != null)
+    checks.push(`length("${name}") >= ${meta.minLength}`)
 
-  if (def._maxLength != null)
-    checks.push(`length("${name}") <= ${def._maxLength}`)
+  if (meta.maxLength != null)
+    checks.push(`length("${name}") <= ${meta.maxLength}`)
 
-  if (def._pattern != null)
-    checks.push(`"${name}" ~ '${escapeLiteralBody(def._pattern as string)}'`)
+  if (meta.pattern != null)
+    checks.push(`"${name}" ~ '${escapeLiteralBody(meta.pattern)}'`)
 
-  if (def._oneOf != null) {
-    const vals = (def._oneOf as (string | number)[]).map(v =>
+  if (meta.oneOf != null) {
+    const vals = meta.oneOf.map(v =>
       typeof v === 'string' ? `'${escapeLiteralBody(v)}'` : String(v),
     ).join(', ')
 

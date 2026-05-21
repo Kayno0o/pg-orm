@@ -45,6 +45,7 @@ export {
   StaleRecordError,
   TimeoutError,
   UniqueError,
+  ValidationError,
 } from './errors/index'
 // Hooks
 export { hasHooks, runHooks, runHooksAsync } from './hooks/index'

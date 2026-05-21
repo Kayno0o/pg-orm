@@ -1,5 +1,6 @@
 import type { ExprTape } from './expr'
 import type { BuilderState, MergeWhen } from './state'
+import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { assembleExpr } from './expr'
 import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols } from './state'
@@ -351,7 +352,10 @@ class QueryAssembler {
 
     rawSql = rawSql.replace(/\?/g, () => {
       if (paramIdx >= params.length) {
-        throw new Error(`raw SQL has more "?" placeholders than parameters (${params.length} provided)`)
+        throw new ValidationError(
+          `raw SQL has more "?" placeholders than parameters (${params.length} provided)`,
+          'raw',
+        )
       }
 
       return this.pushParam(params[paramIdx++])

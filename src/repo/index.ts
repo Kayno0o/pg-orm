@@ -3,7 +3,7 @@ import type { Database, Executable, SavepointClient, TransactionClient } from '.
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
-import { NotFoundError, StaleRecordError } from '../errors/index'
+import { NotFoundError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { getOrCompileMapper, mapChunk } from '../mapper/index'
 import { quote } from '../sql/utils'
@@ -208,7 +208,10 @@ export class Repository<
       .where(where)
       .returning()
 
-    // Auto-increment version column for optimistic locking (after validation)
+    // `validateValues` (inside `.set()`) rejects `__raw` objects to prevent user
+    // payloads from smuggling raw SQL through. The optimistic-lock increment is
+    // ORM-internal and must be applied AFTER that check, by writing the rawSql
+    // directly into the builder state — do not move this above `.set()`.
     if (lockCol !== null) {
       b.getState().setValues![lockCol] = rawSql(`${quote(lockCol)} + 1`)
     }
@@ -218,7 +221,9 @@ export class Repository<
 
     await this._hooks.runAfter('afterUpdate', rows)
 
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+    const withVirtuals = applyVirtuals(this._table, rows)
+
+    return withVirtuals as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Delete all rows matching `where`. Uses soft-delete if the trait is applied. Returns deleted records. */
@@ -240,7 +245,7 @@ export class Repository<
 
       await this._hooks.runAfter('afterDelete', rows)
 
-      return rows as WithVirtuals<TColumns, TVirtuals>[]
+      return applyVirtuals(this._table, rows) as WithVirtuals<TColumns, TVirtuals>[]
     }
 
     await this._hooks.runBefore('beforeDelete', undefined)
@@ -253,7 +258,7 @@ export class Repository<
 
     await this._hooks.runAfter('afterDelete', rows)
 
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+    return applyVirtuals(this._table, rows) as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   // --- Convenience methods ---
@@ -331,7 +336,11 @@ export class Repository<
     const lockCol = getOptimisticLockColumn(this._table)
 
     if (!lockCol) {
-      throw new Error('updateWithLock requires optimisticLock trait on table')
+      throw new ValidationError(
+        'updateWithLock requires optimisticLock trait on table',
+        'updateWithLock',
+        { field: this._table.name },
+      )
     }
 
     const rows = await this.updateMany(set, e =>
@@ -398,7 +407,7 @@ export class Repository<
 
     await this._hooks.runAfter('afterInsert', rows)
 
-    return rows[0] as WithVirtuals<TColumns, TVirtuals>
+    return applyVirtuals(this._table, rows)[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Offset-based pagination with total count. Returns `{ data, total, page, perPage, totalPages }`. */
@@ -525,11 +534,17 @@ export class Repository<
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     if (!opts.unsafe && !Repository._streamWarned) {
       Repository._streamWarned = true
-      console.warn(
-        '[pg-orm] stream() uses LIMIT/OFFSET chunking — rows may be skipped or duplicated if data changes during iteration. '
+      const msg = '[pg-orm] stream() uses LIMIT/OFFSET chunking — rows may be skipped or duplicated if data changes during iteration. '
         + 'Use paginateCursor() or a REPEATABLE READ transaction for correctness. '
-        + 'Pass { unsafe: true } to suppress this warning.',
-      )
+        + 'Pass { unsafe: true } to suppress this warning.'
+      const exec = this._executor as { _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
+
+      if (exec._onCallbackError) {
+        exec._onCallbackError({ kind: 'streamWarning', error: new Error(msg) })
+      }
+      else {
+        console.warn(msg)
+      }
     }
 
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)

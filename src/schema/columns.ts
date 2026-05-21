@@ -1,4 +1,5 @@
 import type {
+  AnyColumnDef,
   AnyTableDef,
   ColumnConstraint,
   ColumnDef,
@@ -14,6 +15,65 @@ import type {
 } from '../types/index'
 import { escapeLiteralBody, quoteLiteral } from '../sql/utils'
 import { phantom } from '../types/index'
+
+/**
+ * Underscore-prefixed metadata attached to a frozen `ColumnDef`. These fields
+ * are preserved through `ColumnBuilder._build()` so that the migration diff
+ * and DDL layer can read them, but they are intentionally not part of the
+ * exposed `ColumnDef` type to keep that surface narrow. Read them via
+ * `getColumnMeta()` rather than re-casting.
+ */
+export interface ColumnDefMeta {
+  enumName?: string
+  enumValues?: readonly string[]
+  index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  renamedFrom?: string
+  min?: number
+  max?: number
+  minLength?: number
+  maxLength?: number
+  pattern?: string
+  oneOf?: readonly (string | number)[]
+}
+
+interface DefWithMeta {
+  _enumName?: string
+  _enumValues?: readonly string[]
+  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  _renamedFrom?: string
+  _min?: number
+  _max?: number
+  _minLength?: number
+  _maxLength?: number
+  _pattern?: string
+  _oneOf?: readonly (string | number)[]
+}
+
+export function getColumnMeta(def: AnyColumnDef): ColumnDefMeta {
+  const d = def as AnyColumnDef & DefWithMeta
+
+  return {
+    enumName: d._enumName,
+    enumValues: d._enumValues,
+    index: d._index,
+    renamedFrom: d._renamedFrom,
+    min: d._min,
+    max: d._max,
+    minLength: d._minLength,
+    maxLength: d._maxLength,
+    pattern: d._pattern,
+    oneOf: d._oneOf,
+  }
+}
+
+/** Read the `_index` metadata off a builder before `_build()` finalizes it. */
+export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string } | undefined {
+  return b._index
+}
+
+function getColumnBuilderPgType(b: ColumnBuilder): string {
+  return b._pgType
+}
 
 /** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
 function toSQLDefault(value: unknown, pgType: string): string {
@@ -58,7 +118,7 @@ export class ColumnBuilder<
   TPrimary extends IsPrimaryKey | NotPrimaryKey = NotPrimaryKey,
   TGenerated extends IsGenerated | NotGenerated = NotGenerated,
 > {
-  private _pgType: string
+  readonly _pgType: string
   private _constraints: ColumnConstraint[] = []
   private _references?: ForeignKeyRef
   _enumName?: string
@@ -103,7 +163,12 @@ export class ColumnBuilder<
     return this._narrow()
   }
 
-  /** Set a DEFAULT using a raw SQL expression (e.g. `'now()'`, `'uuid_generate_v4()'`). */
+  /**
+   * Set a DEFAULT using a raw SQL expression (e.g. `'now()'`, `'uuid_generate_v4()'`).
+   *
+   * @trusted The argument is embedded directly into DDL without parameterization.
+   * Pass only developer-authored SQL — never user input. See README "Security model".
+   */
   defaultRaw(sql: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value: sql })
 
@@ -127,7 +192,9 @@ export class ColumnBuilder<
 
   /**
    * Add a CHECK constraint with a raw SQL expression.
-   * @remarks The expression is embedded directly into DDL — never pass user input.
+   *
+   * @trusted The expression is embedded directly into DDL without parameterization.
+   * Pass only developer-authored SQL — never user input. See README "Security model".
    */
   check(expr: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'check', value: expr })
@@ -196,7 +263,9 @@ export class ColumnBuilder<
 
   /**
    * Mark as a GENERATED ALWAYS AS (expr) STORED column.
-   * @remarks The expression is embedded directly into DDL — never pass user input.
+   *
+   * @trusted The expression is embedded directly into DDL without parameterization.
+   * Pass only developer-authored SQL — never user input. See README "Security model".
    */
   generated(expr: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, IsGenerated> {
     this._constraints.push({ type: 'generated', value: expr })
@@ -407,7 +476,7 @@ export function createColumnTypes(): ColumnTypes {
     },
 
     array: <T>(inner: ColumnBuilder<T>) => {
-      const pgType = (inner as unknown as { _pgType: string })._pgType
+      const pgType = getColumnBuilderPgType(inner)
 
       return new ColumnBuilder<T[]>(`${pgType}[]`) as unknown as ColumnBuilder<T[]>
     },

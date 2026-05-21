@@ -332,8 +332,8 @@ describe('Complex query builder', () => {
         .where(e => e.tsMatch('searchVector', e.tsQuery('english', 'hello world')))
         .toSQL()
 
-      expect(sql).toContain('"searchVector" @@ plainto_tsquery(\'english\', $1)')
-      expect(params).toEqual(['hello world'])
+      expect(sql).toContain('"searchVector" @@ plainto_tsquery($1, $2)')
+      expect(params).toEqual(['english', 'hello world'])
     })
   })
 

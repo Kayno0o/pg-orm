@@ -1,5 +1,6 @@
 import type { AnyColumnDef, AnyTableDef } from '../../types/index'
 import type { LiveEnum, MigrationOp } from '../types'
+import { getColumnMeta } from '../../schema/columns'
 import { escapeLiteralBody } from '../../sql/utils'
 import { columnEntries } from '../types'
 
@@ -8,10 +9,10 @@ export function escapeEnumValue(val: string): string {
 }
 
 export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
-  const col = colDef as unknown as { _enumName?: string, _enumValues?: string[] }
+  const { enumName, enumValues } = getColumnMeta(colDef)
 
-  if (col._enumName && col._enumValues) {
-    return { name: col._enumName, values: col._enumValues }
+  if (enumName && enumValues) {
+    return { name: enumName, values: [...enumValues] }
   }
 
   return null

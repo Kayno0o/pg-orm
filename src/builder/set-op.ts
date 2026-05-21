@@ -1,4 +1,5 @@
 import type { OrderDir, OrderEntry } from './state'
+import { ValidationError } from '../errors/index'
 import { formatOrderBy, PLACEHOLDER_RE } from './state'
 
 type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 'EXCEPT ALL'
@@ -83,7 +84,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
 
   limit(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new TypeError(`limit() requires a non-negative integer, got ${n}`)
+      throw new ValidationError(`limit() requires a non-negative integer, got ${n}`, 'limit', { value: n })
     }
 
     this._limit = n
@@ -93,7 +94,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
 
   offset(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new TypeError(`offset() requires a non-negative integer, got ${n}`)
+      throw new ValidationError(`offset() requires a non-negative integer, got ${n}`, 'offset', { value: n })
     }
 
     this._offset = n

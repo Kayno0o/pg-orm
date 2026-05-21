@@ -114,4 +114,19 @@ describe('Soft Delete', () => {
     expect(result).not.toBeNull()
     expect(result!.deletedAt).not.toBeNull()
   })
+
+  it('isDeleted virtual is applied on mutation return rows', async () => {
+    const repo = db.repo(usersTable)
+    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+
+    // updateMany should apply virtuals on returned rows (was missing before fix)
+    const updated = await repo.updateMany({ name: 'Alice2' }, e => e.eq('id', userId))
+
+    expect(updated[0]!.isDeleted).toBe(false)
+
+    // deleteMany (soft path) should apply virtuals on returned rows
+    const deleted = await repo.deleteMany(e => e.eq('id', userId))
+
+    expect(deleted[0]!.isDeleted).toBe(true)
+  })
 })

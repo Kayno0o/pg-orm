@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { SelectBuilder, SetOperationBuilder } from '../../../src/builder/query'
+import { ValidationError } from '../../../src/errors/index'
 
 interface Cols {
   id: any
@@ -71,9 +72,9 @@ describe('SelectBuilder', () => {
   })
 
   it('limit validates non-negative integer', () => {
-    expect(() => select().limit(-1)).toThrow(TypeError)
-    expect(() => select().limit(1.5)).toThrow(TypeError)
-    expect(() => select().limit(Number.NaN)).toThrow(TypeError)
+    expect(() => select().limit(-1)).toThrow(ValidationError)
+    expect(() => select().limit(1.5)).toThrow(ValidationError)
+    expect(() => select().limit(Number.NaN)).toThrow(ValidationError)
   })
 
   it('limit accepts 0', () => {
@@ -91,8 +92,8 @@ describe('SelectBuilder', () => {
   })
 
   it('offset validates non-negative integer', () => {
-    expect(() => select().offset(-5)).toThrow(TypeError)
-    expect(() => select().offset(2.5)).toThrow(TypeError)
+    expect(() => select().offset(-5)).toThrow(ValidationError)
+    expect(() => select().offset(2.5)).toThrow(ValidationError)
   })
 
   it('offset accepts 0', () => {
@@ -311,14 +312,14 @@ describe('SetOperationBuilder', () => {
     const q1 = select()
     const q2 = select()
 
-    expect(() => SetOperationBuilder.union(q1, q2).limit(-1)).toThrow(TypeError)
+    expect(() => SetOperationBuilder.union(q1, q2).limit(-1)).toThrow(ValidationError)
   })
 
   it('offset validates on set operations', () => {
     const q1 = select()
     const q2 = select()
 
-    expect(() => SetOperationBuilder.union(q1, q2).offset(-1)).toThrow(TypeError)
+    expect(() => SetOperationBuilder.union(q1, q2).offset(-1)).toThrow(ValidationError)
   })
 
   it('orderBy works on set operations', () => {

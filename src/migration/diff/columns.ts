@@ -1,5 +1,6 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../../types/index'
 import type { LiveColumn, LiveTable, MigrationOp } from '../types'
+import { getColumnMeta } from '../../schema/columns'
 import { generateColumnDDL, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 
@@ -9,7 +10,7 @@ export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef
   const renameMap = new Map<string, string>()
 
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
-    const renamedFrom = (colDef as unknown as { _renamedFrom?: string })._renamedFrom
+    const { renamedFrom } = getColumnMeta(colDef)
 
     if (renamedFrom) {
       renameMap.set(renamedFrom, colName)
@@ -20,7 +21,7 @@ export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef
     const liveCol = liveColMap.get(colName)
 
     if (!liveCol) {
-      const renamedFrom = (colDef as unknown as { _renamedFrom?: string })._renamedFrom
+      const { renamedFrom } = getColumnMeta(colDef)
       const renamedLiveCol = renamedFrom ? liveColMap.get(renamedFrom) : undefined
 
       if (renamedFrom && renamedLiveCol) {

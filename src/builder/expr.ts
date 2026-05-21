@@ -1,4 +1,5 @@
 import type { AnyColumnDef, AnyColumns } from '../types/index'
+import { ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { quote, quotePath } from '../sql/utils'
 import { SINGLE_QUOTE_RE } from '../utils/regex'
@@ -118,7 +119,13 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   notExists: (subquery: SubqueryRef) => ExprTape
   scalar: (subquery: SubqueryRef) => ExprTape
 
-  // Raw SQL fragment
+  /**
+   * Raw SQL fragment with positional `?` placeholders for parameter binding.
+   *
+   * @trusted The SQL string is interpolated unparameterized (only `?` markers
+   * are replaced with bound params). Pass only developer-authored SQL — never
+   * user input. See README "Security model".
+   */
   raw: (sql: string, ...params: unknown[]) => ExprTape
 
   // JSONB
@@ -241,7 +248,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   arrayAgg: col => `array_agg(${quote(col as string)})` as AggResult<unknown[]>,
   stringAgg: (col, delimiter) => {
     if (!STRING_AGG_RE.test(delimiter))
-      throw new Error(`stringAgg: unsafe delimiter characters: "${delimiter}"`)
+      throw new ValidationError(`stringAgg: unsafe delimiter characters: "${delimiter}"`, 'stringAgg', { value: delimiter })
 
     return `string_agg(${quote(col as string)}, '${delimiter.replace(SINGLE_QUOTE_RE, '\'\'')}')` as AggResult<string>
   },
@@ -425,7 +432,10 @@ class ExprAssembler {
 
         rawSql = rawSql.replace(PARAM_RE, () => {
           if (paramIdx >= params.length) {
-            throw new Error(`e.raw() SQL has more "?" placeholders than parameters (${params.length} provided)`)
+            throw new ValidationError(
+              `e.raw() SQL has more "?" placeholders than parameters (${params.length} provided)`,
+              'e.raw',
+            )
           }
 
           return this.nextParam(params[paramIdx++])
@@ -446,9 +456,10 @@ class ExprAssembler {
       }
       case OP_TS_MATCH: {
         validateTsLanguage(op.query.language)
+        const lang = this.nextParam(op.query.language)
         const p = this.nextParam(op.query.query)
 
-        return { sql: `${this.walkCol(op.col)} @@ plainto_tsquery('${op.query.language}', ${p})`, next: pos + 1 }
+        return { sql: `${this.walkCol(op.col)} @@ plainto_tsquery(${lang}, ${p})`, next: pos + 1 }
       }
       case OP_VEC_DISTANCE: {
         const p = this.nextParam(op.vec)

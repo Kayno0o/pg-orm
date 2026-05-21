@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Breaking changes — production-readiness sweep (P4)
+
+- `ValidationError extends OrmError` is the new error class for all ORM-side input validation. Sites previously throwing plain `Error` / `TypeError` now throw `ValidationError`:
+  - `validateValues` (undefined / non-finite / `__raw` smuggling) in `src/builder/state.ts`
+  - `.limit()` / `.offset()` on SelectBuilder and SetOperationBuilder
+  - `e.raw()` placeholder/param-count mismatch
+  - `e.stringAgg()` unsafe delimiter
+  - raw-SQL `?` placeholder mismatch in `assembler.assembleRaw`
+  - `validateIdentifier`, `validateTsLanguage`, new `validateRawSqlFragment` in `schema/validate.ts`
+  - `Database` constructor (`statementTimeout`, new `idleInTransactionTimeout`)
+  - `Database.transaction()` invalid `isolation` / `accessMode`
+  - `Repository.updateWithLock()` without optimisticLock trait
+
+  Code that catches `TypeError` / `Error` from invalid input must switch to `ValidationError` or its base `OrmError`.
+
+- `Database.close({ drain: true })` now **awaits in-flight queries** before invoking the driver close. `opts.timeout` (ms) is honored as a hard ceiling. New queries during drain reject with `ConnectionError` (unchanged).
+
+### Security
+
+- **Full-text search**: `plainto_tsquery(language, query)` now binds the language as a parameter instead of interpolating it. The whitelist on `validateTsLanguage` is preserved as defense-in-depth.
+- **Partial-index `where` fragments**: `validateRawSqlFragment` rejects `;`, `--`, and `/*` outside string literals when an index is built (column-level `.index({ where })` and table-level `.withIndexes()`). String-literal-aware so legitimate predicates like `body ILIKE '%foo;%'` are accepted. Throws `ValidationError` at `defineTable()` time, before any DB call.
+- Raw-SQL escape hatches (`.check`, `.generated`, `.defaultRaw`, `computedRaw`, `e.raw`, `db.raw`) are now JSDoc-tagged `@trusted` and documented in the README "Security model" section.
+
+### Correctness
+
+- **Virtuals on mutation returns**: `updateMany`, `updateOne`, `updateWithLock`, `deleteMany`, `deleteOne` (both soft and hard paths), and `findOrCreate` now apply virtual getters on returned rows, matching `findMany` and `upsertMany`. Previously these mutation paths returned plain rows even though their return type was `WithVirtuals<...>`.
+
+### Production-readiness — new `DbConfig` knobs
+
+- `application_name?: string` — forwarded as the PG connection's `application_name`. Visible in `pg_stat_activity` and PG logs for incident attribution.
+- `idleInTransactionTimeout?: number` — applied via transaction-local `set_config('idle_in_transaction_session_timeout', $1, true)`. The prod safety net for forgotten `await`s inside a `tx => …` callback.
+- `onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning', error }) => void` — surfaces errors that the ORM previously swallowed silently: transaction onCommit/onRollback callback throws, and the stream-safety warning (was `console.warn`).
+
+### Type-safety cleanup
+
+- New `getColumnMeta(def)` and `getColumnIndex(builder)` accessors in `src/schema/columns.ts` expose the underscore-prefixed metadata fields (`_renamedFrom`, `_enumName`, `_enumValues`, `_min`/`_max`/etc., `_index`) through a typed surface. Removed 6 `as unknown as { _x }` casts in `migration/diff/columns.ts`, `migration/diff/enums.ts`, `migration/ddl.ts`, and `schema/table.ts`.
+- `ColumnBuilder._pgType` is now `readonly` (was `private`), removing one more cast in `array()`.
+
 ### Internal — Phase A architecture decomposition
 
 - Extracted bun:sql interop into `src/sql/adapter.ts` (`BunSqlDriver`, `asDriver()`, `serializePgArray`, `serializeParams`, `normalizeRows`, `unsafeQuery`) — replaces the 8 inline `as unknown as { begin/savepoint/close/unsafe }` cast sites in `executor.ts`.

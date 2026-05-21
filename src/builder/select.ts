@@ -1,6 +1,7 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, InferRelationResult, InferSelect, RelationDef } from '../types/index'
 import type { AggResult, ExprBuilder, ExprOp, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
+import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
 import { BaseBuilder } from './base'
 import { createExprBuilder, OP_AND } from './expr'
@@ -47,10 +48,11 @@ export class SelectBuilder<
   }
 
   /**
-   * Add a computed column from a raw SQL expression string. The string is
-   * interpolated unparameterized; the caller is responsible for ensuring it
-   * contains only trusted SQL (no user input). Prefer `computed()` with the
-   * `ExprBuilder` callback whenever possible.
+   * Add a computed column from a raw SQL expression string.
+   *
+   * @trusted The expression is interpolated unparameterized. Pass only
+   * developer-authored SQL — never user input. Prefer `computed()` with the
+   * `ExprBuilder` callback for safer composition. See README "Security model".
    */
   computedRaw<TComputed = unknown>(
     expr: string,
@@ -146,7 +148,7 @@ export class SelectBuilder<
   /** Limit the number of returned rows. */
   limit(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new TypeError(`limit() requires a non-negative integer, got ${n}`)
+      throw new ValidationError(`limit() requires a non-negative integer, got ${n}`, 'limit', { value: n })
     }
 
     this._state.limit = n
@@ -157,7 +159,7 @@ export class SelectBuilder<
   /** Skip the first N rows. */
   offset(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new TypeError(`offset() requires a non-negative integer, got ${n}`)
+      throw new ValidationError(`offset() requires a non-negative integer, got ${n}`, 'offset', { value: n })
     }
 
     this._state.offset = n

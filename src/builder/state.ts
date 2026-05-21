@@ -1,5 +1,6 @@
 import type { ExprTape } from './expr'
 import type { SelectBuilder } from './select'
+import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 
 // --- Placeholder pattern (used by assembler + set-op for renumbering) ---
@@ -205,15 +206,27 @@ export function isRawSql(val: unknown): val is RawSql {
 export function validateValues(vals: Record<string, unknown>, context: string): void {
   for (const [key, val] of Object.entries(vals)) {
     if (val === undefined) {
-      throw new Error(`${context}: column "${key}" has value undefined. Use null for nullable columns.`)
+      throw new ValidationError(
+        `${context}: column "${key}" has value undefined. Use null for nullable columns.`,
+        context,
+        { field: key, value: val },
+      )
     }
 
     if (typeof val === 'number' && !Number.isFinite(val)) {
-      throw new TypeError(`${context}: column "${key}" has non-finite value ${val}. NaN and Infinity are not valid SQL values.`)
+      throw new ValidationError(
+        `${context}: column "${key}" has non-finite value ${val}. NaN and Infinity are not valid SQL values.`,
+        context,
+        { field: key, value: val },
+      )
     }
 
     if (val !== null && typeof val === 'object' && '__raw' in val) {
-      throw new TypeError(`${context}: column "${key}" contains a __raw object. Raw SQL expressions are not allowed in user-facing APIs.`)
+      throw new ValidationError(
+        `${context}: column "${key}" contains a __raw object. Raw SQL expressions are not allowed in user-facing APIs.`,
+        context,
+        { field: key, value: val },
+      )
     }
   }
 }

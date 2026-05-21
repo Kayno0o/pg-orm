@@ -11,7 +11,7 @@ import { assembleQuery, DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilde
 import { UniqueError, wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
-import { sanitizeMigrationName, validateIdentifier } from '../../src/schema/validate'
+import { sanitizeMigrationName, validateIdentifier, validateRawSqlFragment } from '../../src/schema/validate'
 import { escapeLiteralBody, quote, quoteLiteral, quotePath } from '../../src/sql/utils'
 
 const e = createExprBuilder<any>()
@@ -209,12 +209,13 @@ describe('Security: Query values are always parameterized', () => {
     expect(result.sql).not.toContain('DROP')
   })
 
-  it('full-text search query is parameterized', () => {
+  it('full-text search query and language are parameterized', () => {
     const q = e.tsQuery('english', '\'; DROP TABLE users; --')
     const result = sql(e.tsMatch('searchVector', q))
 
-    expect(result.params).toEqual(['\'; DROP TABLE users; --'])
+    expect(result.params).toEqual(['english', '\'; DROP TABLE users; --'])
     expect(result.sql).not.toContain('DROP')
+    expect(result.sql).toContain('plainto_tsquery($')
   })
 
   it('vector values are parameterized', () => {
@@ -836,6 +837,45 @@ describe('Security P0: unbranded __raw objects do not bypass parameterization', 
 
     expect(out).not.toContain('DROP')
     expect(out).toContain('"name" = $1')
+  })
+})
+
+describe('Security: validateRawSqlFragment (partial-index where)', () => {
+  it('accepts plain predicates without comments or terminators', () => {
+    expect(() => validateRawSqlFragment('deleted_at IS NULL', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('status = \'active\'', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('id > 0 AND tenant_id = 42', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('role IN (\'admin\', \'user\')', 'idx')).not.toThrow()
+  })
+
+  it('accepts ; INSIDE a string literal (no false positives)', () => {
+    expect(() => validateRawSqlFragment('body ILIKE \'%foo;bar%\'', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('comment ~ \'O\'\'Brien;\'', 'idx')).not.toThrow()
+  })
+
+  it('rejects ; outside string literals (statement terminator)', () => {
+    expect(() => validateRawSqlFragment('1 = 1; DROP TABLE users', 'idx')).toThrow(/";"/)
+    expect(() => validateRawSqlFragment(';', 'idx')).toThrow(/";"/)
+  })
+
+  it('rejects -- line comments outside string literals', () => {
+    expect(() => validateRawSqlFragment('1 = 1 -- malicious', 'idx')).toThrow(/"--"/)
+  })
+
+  it('rejects /* block comments outside string literals', () => {
+    expect(() => validateRawSqlFragment('1 = 1 /* attack */', 'idx')).toThrow(/"\/\*"/)
+  })
+
+  it('rejects unterminated string literals', () => {
+    expect(() => validateRawSqlFragment('status = \'active', 'idx')).toThrow(/unterminated/)
+  })
+
+  it('defineTable rejects partial-index where with injection', () => {
+    expect(() => defineTable('events', (t) => {
+      const col = t.text().index({ where: 'tenant = \'a\'; DROP TABLE x' })
+
+      return { id: t.serial().primaryKey(), name: col }
+    })).toThrow(/";"/)
   })
 })
 

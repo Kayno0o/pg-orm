@@ -408,18 +408,54 @@ const db = new Database({
   // Statement timeout (ms)
   statementTimeout: 30000,
 
+  // idle_in_transaction_session_timeout (ms) — kills connections that hold a
+  // transaction open without activity. The prod safety net for forgotten awaits.
+  idleInTransactionTimeout: 60000,
+
+  // Reported as application_name on the PG connection — shows up in pg_stat_activity
+  // and PG logs for filtering and incident attribution.
+  application_name: 'my-service',
+
   // Query logging
   onQuery: (event) => console.log(event.sql, event.durationMs),
   onSlowQuery: (event) => console.warn(`Slow query: ${event.durationMs}ms`),
   slowQueryThreshold: 1000,
+
+  // Called when transaction onCommit/onRollback callbacks throw, or when a
+  // stream safety warning surfaces. Without this, those errors are silently
+  // swallowed (the tx already settled, so re-throwing would lie about state).
+  onCallbackError: ({ kind, error }) => log.error(`pg-orm ${kind} failed`, error),
 })
 
 // Health check
 const ok = await db.ping()
 
-// Close connections
-await db.close()
+// Graceful close — drain: wait for in-flight queries before closing the pool.
+await db.close({ drain: true, timeout: 5000 })
 ```
+
+## Security model
+
+This library is type-safe and parameterizes every column-value, expression-leaf,
+and tagged-template interpolation it generates. SQL injection is structurally
+impossible through the typed APIs.
+
+A small surface of **escape hatches** accepts raw SQL strings that are embedded
+unparameterized — pass only developer-authored SQL through these, never user
+input. They are explicitly marked `@trusted` in JSDoc:
+
+| API | Where the string lands |
+| --- | --- |
+| `t.text().check(expr)` | `CHECK (expr)` in DDL |
+| `t.int().generated(expr)` | `GENERATED ALWAYS AS (expr) STORED` in DDL |
+| `t.text().defaultRaw(sql)` | `DEFAULT sql` in DDL |
+| `t.text().index({ where })` | `WHERE` clause of a partial index. Validated at `defineTable()` to reject `;` / `--` / `/*` outside string literals. |
+| `q.computedRaw(expr, alias)` | SELECT-list expression |
+| `e.raw(sql, ...params)` | WHERE/ON fragment (positional `?` params are bound; the surrounding SQL is verbatim) |
+| `db.raw(sql, params)` / tagged template | full query body |
+
+Validation errors (invalid identifiers, non-finite numbers, unsafe delimiters,
+injection-shaped raw fragments) throw `ValidationError extends OrmError`.
 
 ## License
 

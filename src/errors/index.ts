@@ -213,6 +213,26 @@ export class AfterHookError extends OrmError {
   }
 }
 
+/**
+ * Thrown when a value, identifier, or argument fails ORM-side validation
+ * (before any SQL reaches the driver). Examples: invalid identifier characters,
+ * non-finite numbers in insert/update payloads, unsafe `stringAgg` delimiter,
+ * unbalanced `e.raw()` placeholders, unknown isolation level, raw-SQL fragment
+ * containing `;`/`--`/`/*`.
+ */
+export class ValidationError extends OrmError {
+  readonly context: string
+  readonly field?: string
+  readonly value?: unknown
+  constructor(message: string, context: string, opts?: { field?: string, value?: unknown, cause?: unknown }) {
+    super(message, opts?.cause)
+    this.name = 'ValidationError'
+    this.context = context
+    this.field = opts?.field
+    this.value = opts?.value
+  }
+}
+
 /** Thrown by `findOneOrThrow()` when no row matches the query. */
 export class NotFoundError extends OrmError {
   readonly table: string
