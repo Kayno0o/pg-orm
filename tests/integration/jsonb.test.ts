@@ -21,18 +21,18 @@ afterAll(async () => {
 describe('JSONB — insert & select round-trip', () => {
   it('round-trips a nested object', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({
+    const id = await repo.write.insertOne({
       data: { name: 'doc1', tags: ['a', 'b'], meta: { author: 'kay', version: 2 } },
     })
-    const doc = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.data).toEqual({ name: 'doc1', tags: ['a', 'b'], meta: { author: 'kay', version: 2 } })
   })
 
   it('preserves empty arrays and missing optional keys', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({ data: { name: 'doc2', tags: [] } })
-    const doc = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const id = await repo.write.insertOne({ data: { name: 'doc2', tags: [] } })
+    const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.data.tags).toEqual([])
     expect(doc.data.meta).toBeUndefined()
@@ -40,8 +40,8 @@ describe('JSONB — insert & select round-trip', () => {
 
   it('preserves nullable JSONB column as null', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({ data: { name: 'doc3', tags: [] }, optional: null })
-    const doc = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const id = await repo.write.insertOne({ data: { name: 'doc3', tags: [] }, optional: null })
+    const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.optional).toBeNull()
   })
@@ -49,8 +49,8 @@ describe('JSONB — insert & select round-trip', () => {
   it('round-trips strings with quotes, slashes, and unicode', async () => {
     const repo = db.repo(documentsTable)
     const tricky = { name: 'has "quotes" and \\slashes\\', tags: ['café', '\u{1F600}'] }
-    const id = await repo.insertOne({ data: tricky })
-    const doc = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const id = await repo.write.insertOne({ data: tricky })
+    const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.data).toEqual(tricky)
   })
@@ -59,11 +59,11 @@ describe('JSONB — insert & select round-trip', () => {
 describe('JSONB — full-column update', () => {
   it('replaces the JSONB value (does not merge)', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({
+    const id = await repo.write.insertOne({
       data: { name: 'before', tags: ['old'], meta: { author: 'kay' } },
     })
 
-    const [updated] = await repo.updateMany(
+    const [updated] = await repo.write.updateMany(
       { data: { name: 'after', tags: ['new'] } },
       e => e.eq('id', id),
     )
@@ -74,9 +74,9 @@ describe('JSONB — full-column update', () => {
 
   it('updates a deeply nested object', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({ data: { name: 'deep', tags: [] } })
+    const id = await repo.write.insertOne({ data: { name: 'deep', tags: [] } })
 
-    const [updated] = await repo.updateMany(
+    const [updated] = await repo.write.updateMany(
       { data: { name: 'deep', tags: ['t1'], meta: { author: 'kay', version: 9 } } },
       e => e.eq('id', id),
     )
@@ -86,17 +86,17 @@ describe('JSONB — full-column update', () => {
 
   it('sets optional JSONB column from null to a value and back', async () => {
     const repo = db.repo(documentsTable)
-    const id = await repo.insertOne({ data: { name: 'opt', tags: [] }, optional: null })
+    const id = await repo.write.insertOne({ data: { name: 'opt', tags: [] }, optional: null })
 
-    await repo.updateMany({ optional: { foo: 1, bar: 'baz' } }, e => e.eq('id', id))
+    await repo.write.updateMany({ optional: { foo: 1, bar: 'baz' } }, e => e.eq('id', id))
 
-    const afterSet = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const afterSet = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(afterSet.optional).toEqual({ foo: 1, bar: 'baz' })
 
-    await repo.updateMany({ optional: null }, e => e.eq('id', id))
+    await repo.write.updateMany({ optional: null }, e => e.eq('id', id))
 
-    const afterClear = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const afterClear = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(afterClear.optional).toBeNull()
   })
@@ -110,11 +110,11 @@ describe('JSONB — insertMany & batch', () => {
       { name: 'b', tags: ['y', 'z'], meta: { version: 1 } },
       { name: 'c', tags: [] },
     ]
-    const ids = await repo.insertMany(shapes.map(data => ({ data })))
+    const ids = await repo.write.insertMany(shapes.map(data => ({ data })))
 
     expect(ids).toHaveLength(3)
 
-    const docs = await repo.findMany(q => q.orderBy('id', 'asc'))
+    const docs = await repo.read.findMany(q => q.orderBy('id', 'asc'))
 
     expect(docs.map(d => d.data)).toEqual(shapes)
   })

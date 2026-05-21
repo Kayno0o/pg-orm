@@ -22,11 +22,11 @@ afterAll(async () => {
 describe('Optimistic lock — concurrency races', () => {
   it('two concurrent updateWithLock: exactly one wins, one rejects with StaleRecordError', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.insertOne({ name: 'race', value: 0 })
+    const id = await repo.write.insertOne({ name: 'race', value: 0 })
 
     const results = await Promise.allSettled([
-      repo.updateWithLock({ value: 100 }, e => e.eq('id', id), 1),
-      repo.updateWithLock({ value: 200 }, e => e.eq('id', id), 1),
+      repo.write.updateWithLock({ value: 100 }, e => e.eq('id', id), 1),
+      repo.write.updateWithLock({ value: 200 }, e => e.eq('id', id), 1),
     ])
 
     const fulfilled = results.filter(r => r.status === 'fulfilled')
@@ -36,7 +36,7 @@ describe('Optimistic lock — concurrency races', () => {
     expect(rejected).toHaveLength(1)
     expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(StaleRecordError)
 
-    const final = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const final = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(final.version).toBe(2)
     expect([100, 200]).toContain(final.value)
@@ -45,10 +45,10 @@ describe('Optimistic lock — concurrency races', () => {
   it('N=10 concurrent updates with same stale version: exactly one succeeds, nine fail', async () => {
     const N = 10
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.insertOne({ name: 'race-n', value: 0 })
+    const id = await repo.write.insertOne({ name: 'race-n', value: 0 })
 
     const attempts = Array.from({ length: N }, (_, i) =>
-      repo.updateWithLock({ value: i + 1 }, e => e.eq('id', id), 1))
+      repo.write.updateWithLock({ value: i + 1 }, e => e.eq('id', id), 1))
     const results = await Promise.allSettled(attempts)
 
     const fulfilled = results.filter(r => r.status === 'fulfilled')
@@ -60,18 +60,18 @@ describe('Optimistic lock — concurrency races', () => {
       rejected.every(r => (r as PromiseRejectedResult).reason instanceof StaleRecordError),
     ).toBe(true)
 
-    const final = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const final = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(final.version).toBe(2)
   })
 
   it('sequential updates with proper version threading all succeed and increment by 1', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.insertOne({ name: 'seq', value: 0 })
-    let current = await repo.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+    const id = await repo.write.insertOne({ name: 'seq', value: 0 })
+    let current = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     for (let i = 0; i < 5; i++) {
-      const updated = await repo.updateWithLock(
+      const updated = await repo.write.updateWithLock(
         { value: current.value + 1 },
         e => e.eq('id', id),
         current.version,
@@ -87,23 +87,23 @@ describe('Optimistic lock — concurrency races', () => {
 
   it('update on deleted row throws StaleRecordError', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.insertOne({ name: 'rip', value: 0 })
+    const id = await repo.write.insertOne({ name: 'rip', value: 0 })
 
-    await repo.deleteMany(e => e.eq('id', id))
+    await repo.write.deleteMany(e => e.eq('id', id))
 
     expect(
-      repo.updateWithLock({ value: 1 }, e => e.eq('id', id), 1),
+      repo.write.updateWithLock({ value: 1 }, e => e.eq('id', id), 1),
     ).rejects.toBeInstanceOf(StaleRecordError)
   })
 
   it('parallel updates on different rows do not interfere', async () => {
     const repo = db.repo(versionedItemsTable)
-    const ids = await repo.insertMany(
+    const ids = await repo.write.insertMany(
       Array.from({ length: 5 }, (_, i) => ({ name: `r${i}`, value: 0 })),
     )
 
     const results = await Promise.all(
-      ids.map(id => repo.updateWithLock({ value: 42 }, e => e.eq('id', id), 1)),
+      ids.map(id => repo.write.updateWithLock({ value: 42 }, e => e.eq('id', id), 1)),
     )
 
     expect(results).toHaveLength(5)

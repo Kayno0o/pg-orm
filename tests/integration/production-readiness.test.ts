@@ -36,15 +36,15 @@ describe('SQL Injection E2E', () => {
     ]
 
     for (const payload of payloads) {
-      const userId = await repo.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
-      const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+      const userId = await repo.write.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
+      const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
       // Value stored as literal string
       expect(user.name).toBe(payload)
     }
 
     // Verify table still exists and has the expected row count
-    const count = await repo.count()
+    const count = await repo.read.count()
 
     expect(count).toBe(payloads.length)
   })
@@ -52,17 +52,17 @@ describe('SQL Injection E2E', () => {
   it('handles injection payloads in where clauses', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     // These should find no rows, not cause SQL errors
-    const result = await repo.findMany(q =>
+    const result = await repo.read.findMany(q =>
       q.where(e => e.eq('name', `'; DROP TABLE users; --`)),
     )
 
     expect(result).toHaveLength(0)
 
     // Table still works
-    const all = await repo.findMany()
+    const all = await repo.read.findMany()
 
     expect(all).toHaveLength(1)
     expect(all[0]!.name).toBe('Alice')
@@ -71,29 +71,29 @@ describe('SQL Injection E2E', () => {
   it('handles injection payloads in LIKE patterns', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
-    const result = await repo.findMany(q =>
+    const result = await repo.read.findMany(q =>
       q.where(e => e.like('name', `%'; DROP TABLE users; --%`)),
     )
 
     expect(result).toHaveLength(0)
 
     // Table still works
-    const count = await repo.count()
+    const count = await repo.read.count()
 
     expect(count).toBe(1)
   })
 
   it('handles injection payloads in update set values', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     const payload = `'; UPDATE users SET email='hacked'; --`
 
-    await repo.updateOne({ name: payload }, e => e.eq('id', userId))
+    await repo.write.updateOne({ name: payload }, e => e.eq('id', userId))
 
-    const updated = await repo.findById(userId)
+    const updated = await repo.read.findById(userId)
 
     expect(updated!.name).toBe(payload)
     expect(updated!.email).toBe('alice@test.com') // Not modified
@@ -158,7 +158,7 @@ describe('Database.withContext()', () => {
       const scoped = contextDb.withContext({ requestId: 'req-123', userId: 42 })
       const repo = scoped.repo(usersTable)
 
-      await repo.insertOne({ name: 'Test', email: 'ctx@test.com' })
+      await repo.write.insertOne({ name: 'Test', email: 'ctx@test.com' })
 
       // Find the INSERT event
       const insertEvent = events.find(e => e.sql.includes('INSERT'))

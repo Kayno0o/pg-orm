@@ -22,13 +22,13 @@ describe('Streaming', () => {
   it('yields all rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany(
+    await repo.write.insertMany(
       Array.from({ length: 10 }, (_, i) => ({ name: `User${i}`, email: `u${i}@test.com` })),
     )
 
     const rows: any[] = []
 
-    for await (const row of repo.stream()) {
+    for await (const row of repo.stream.stream()) {
       rows.push(row)
     }
 
@@ -38,13 +38,13 @@ describe('Streaming', () => {
   it('respects chunkSize', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany(
+    await repo.write.insertMany(
       Array.from({ length: 8 }, (_, i) => ({ name: `User${i}`, email: `u${i}@test.com` })),
     )
 
     const rows: any[] = []
 
-    for await (const row of repo.stream(undefined, { chunkSize: 3 })) {
+    for await (const row of repo.stream.stream(undefined, { chunkSize: 3 })) {
       rows.push(row)
     }
 
@@ -54,7 +54,7 @@ describe('Streaming', () => {
   it('applies filter callback', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'Alice', email: 'a@test.com', age: 30 },
       { name: 'Bob', email: 'b@test.com', age: 20 },
       { name: 'Charlie', email: 'c@test.com', age: 40 },
@@ -62,7 +62,7 @@ describe('Streaming', () => {
 
     const rows: any[] = []
 
-    for await (const row of repo.stream(q => q.where(e => e.gt('age', 25)))) {
+    for await (const row of repo.stream.stream(q => q.where(e => e.gt('age', 25)))) {
       rows.push(row)
     }
 
@@ -72,9 +72,9 @@ describe('Streaming', () => {
   it('returns virtuals on streamed rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    for await (const row of repo.stream()) {
+    for await (const row of repo.stream.stream()) {
       // isDeleted is a virtual from softDelete trait
       expect(row.isDeleted).toBe(false)
     }
@@ -84,7 +84,7 @@ describe('Streaming', () => {
     const repo = db.repo(usersTable)
     const rows: any[] = []
 
-    for await (const row of repo.stream()) {
+    for await (const row of repo.stream.stream()) {
       rows.push(row)
     }
 

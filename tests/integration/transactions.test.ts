@@ -23,10 +23,10 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
     })
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(1)
   })
@@ -36,7 +36,7 @@ describe('Transactions', () => {
       await db.transaction(async (tx) => {
         const repo = db.repo(usersTable).using(tx)
 
-        await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+        await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
         throw new Error('rollback!')
       })
@@ -45,7 +45,7 @@ describe('Transactions', () => {
       // expected
     }
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(0)
   })
@@ -54,13 +54,13 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
       try {
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.insertOne({ name: 'Bob', email: 'bob@test.com' })
+          await spRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
           throw new Error('savepoint rollback')
         })
@@ -72,7 +72,7 @@ describe('Transactions', () => {
       // Alice should still be committed within the transaction
     })
 
-    const users = await db.repo(usersTable).findMany()
+    const users = await db.repo(usersTable).read.findMany()
 
     expect(users).toHaveLength(1)
     expect(users[0]!.name).toBe('Alice')
@@ -82,10 +82,10 @@ describe('Transactions', () => {
     await db.transaction({ isolation: 'serializable' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Serialized', email: 'serial@test.com' })
+      await repo.write.insertOne({ name: 'Serialized', email: 'serial@test.com' })
     })
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(1)
   })
@@ -94,21 +94,21 @@ describe('Transactions', () => {
     await db.transaction({ isolation: 'read committed' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'RC', email: 'rc@test.com' })
+      await repo.write.insertOne({ name: 'RC', email: 'rc@test.com' })
     })
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(1)
   })
 
   it('supports read-only access mode', async () => {
     // Insert a row first
-    await db.repo(usersTable).insertOne({ name: 'Existing', email: 'existing@test.com' })
+    await db.repo(usersTable).write.insertOne({ name: 'Existing', email: 'existing@test.com' })
 
     await db.transaction({ isolation: 'read committed', accessMode: 'read only' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
-      const users = await repo.findMany()
+      const users = await repo.read.findMany()
 
       expect(users).toHaveLength(1)
     })
@@ -125,8 +125,8 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'TxUser', email: 'tx@test.com' })
-      const found = await repo.findOne(q => q.where(e => e.eq('email', 'tx@test.com')))
+      await repo.write.insertOne({ name: 'TxUser', email: 'tx@test.com' })
+      const found = await repo.read.findOne(q => q.where(e => e.eq('email', 'tx@test.com')))
 
       expect(found).not.toBeNull()
     })
@@ -136,16 +136,16 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Outer', email: 'outer@test.com' })
+      await repo.write.insertOne({ name: 'Outer', email: 'outer@test.com' })
 
       await tx.savepoint(async (sp1) => {
         const spRepo = db.repo(usersTable).using(sp1)
 
-        await spRepo.insertOne({ name: 'Inner', email: 'inner@test.com' })
+        await spRepo.write.insertOne({ name: 'Inner', email: 'inner@test.com' })
       })
     })
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(2)
   })

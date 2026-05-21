@@ -136,16 +136,16 @@ posts.withRelations(r => ({
 
 ```ts
 // Load relations in batched queries
-const usersWithPosts = await UserRepo.findMany(q => q.include('posts'))
+const usersWithPosts = await UserRepo.read.findMany(q => q.include('posts'))
 // usersWithPosts[0].posts is typed as Post[]
 
 // Nested includes
-const postsWithAll = await PostRepo.findMany(q =>
+const postsWithAll = await PostRepo.read.findMany(q =>
   q.include('author').include('comments'),
 )
 
 // Relation filtering
-const usersWithPublished = await UserRepo.findMany(q =>
+const usersWithPublished = await UserRepo.read.findMany(q =>
   q.include('posts', sq => sq.where(e => e.eq('published', true))),
 )
 ```
@@ -210,23 +210,43 @@ q.aggregate(e => ({
 q.groupBy('department').having(e => e.gt('count', 5))
 ```
 
+### Repository operation suites
+
+Repository operations are grouped into three lazy suites accessed as properties:
+
+- `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
+- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders
+- `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
+
+Each suite is constructed on first access; suites you never touch never allocate.
+
+### Reads
+
+```ts
+await repo.read.findMany(q => q.where(e => e.eq('status', 'active')))
+await repo.read.findOne(q => q.where(e => e.eq('id', 1)))
+await repo.read.findById(1)
+await repo.read.count(e => e.eq('status', 'active'))
+await repo.read.exists(e => e.eq('email', 'a@test.com'))
+```
+
 ### Mutations
 
 ```ts
 // Insert
-await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-await repo.insertMany([{ ... }, { ... }])
+await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+await repo.write.insertMany([{ ... }, { ... }])
 
 // Update
-await repo.updateMany({ status: 'active' }, e => e.eq('id', 1))
-await repo.updateOne({ name: 'Bob' }, e => e.eq('id', 1))
+await repo.write.updateMany({ status: 'active' }, e => e.eq('id', 1))
+await repo.write.updateOne({ name: 'Bob' }, e => e.eq('id', 1))
 
 // Delete
-await repo.deleteOne(e => e.eq('id', 1))
-await repo.deleteMany(e => e.lt('createdAt', cutoff))
+await repo.write.deleteOne(e => e.eq('id', 1))
+await repo.write.deleteMany(e => e.lt('createdAt', cutoff))
 
 // Upsert
-await repo.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
+await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
 ```
 
 ## Traits
@@ -244,7 +264,7 @@ const users = defineTable('users', t => ({ ... }))
 // Use .forceDelete() for real DELETE
 
 // Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict
-await repo.updateWithLock(
+await repo.write.updateWithLock(
   { name: 'Updated' },
   e => e.eq('id', 1),
   currentVersion,
@@ -272,12 +292,12 @@ Available hooks: `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `
 ```ts
 await db.transaction(async (tx) => {
   const txRepo = UserRepo.using(tx)
-  await txRepo.insertOne({ name: 'Alice', email: 'a@test.com' })
+  await txRepo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
   // Savepoints
   try {
     await tx.savepoint(async (sp) => {
-      await txRepo.insertOne({ name: 'Dupe', email: 'a@test.com' })
+      await txRepo.write.insertOne({ name: 'Dupe', email: 'a@test.com' })
     })
   } catch {
     // savepoint rolled back, outer tx continues
@@ -295,12 +315,12 @@ await db.transaction(
 
 ```ts
 // Offset-based
-const page = await repo.paginate({ page: 1, perPage: 20 })
+const page = await repo.read.paginate({ page: 1, perPage: 20 })
 // { data, total, page, perPage, totalPages }
 
 // Cursor-based (efficient for large datasets)
-const page1 = await repo.paginateCursor({ take: 20, column: 'id' })
-const page2 = await repo.paginateCursor({
+const page1 = await repo.read.paginateCursor({ take: 20, column: 'id' })
+const page2 = await repo.read.paginateCursor({
   take: 20,
   column: 'id', cursor: page1.nextCursor,
 })
@@ -309,12 +329,17 @@ const page2 = await repo.paginateCursor({
 ## Streaming
 
 ```ts
-for await (const row of repo.stream(q => q.where(e => e.eq('active', true)), { chunkSize: 500 })) {
+for await (const row of repo.stream.stream(q => q.where(e => e.eq('active', true)), { chunkSize: 500 })) {
+  // process row
+}
+
+// Cursor-based (safe for mutable data):
+for await (const row of repo.stream.streamCursor({ chunkSize: 500 })) {
   // process row
 }
 ```
 
-> **Note**: Streaming uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use cursor-based pagination with `paginateCursor()` instead, or run inside a `REPEATABLE READ` transaction.
+> **Note**: `stream()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use `streamCursor()` instead, or run inside a `REPEATABLE READ` transaction.
 
 ## Migration
 
@@ -365,7 +390,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 import { UniqueError, StaleRecordError } from '@kaynooo/pg-orm'
 
 try {
-  await repo.insertOne({ email: 'duplicate@test.com', name: 'Test' })
+  await repo.write.insertOne({ email: 'duplicate@test.com', name: 'Test' })
 } catch (err) {
   if (err instanceof UniqueError) {
     console.log(`Duplicate on column: ${err.column}`)

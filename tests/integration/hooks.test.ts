@@ -60,7 +60,7 @@ describe('Hooks - integration', () => {
   it('fires beforeInsert and afterInsert', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
 
     expect(hookLog).toContain('beforeInsert')
     expect(hookLog).toContain('afterInsert')
@@ -68,8 +68,8 @@ describe('Hooks - integration', () => {
 
   it('beforeInsert transforms data', async () => {
     const repo = db.repo(hookedTable)
-    const userId = await repo.insertOne({ name: 'alice', email: 'a@test.com' })
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const userId = await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.name).toBe('ALICE')
   })
@@ -77,9 +77,9 @@ describe('Hooks - integration', () => {
   it('fires afterSelect on findMany', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
     hookLog.length = 0
-    await repo.findMany()
+    await repo.read.findMany()
 
     expect(hookLog).toContain('afterSelect')
   })
@@ -87,9 +87,9 @@ describe('Hooks - integration', () => {
   it('fires beforeUpdate and afterUpdate', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
     hookLog.length = 0
-    await repo.updateMany({ name: 'bob' }, e => e.eq('email', 'a@test.com'))
+    await repo.write.updateMany({ name: 'bob' }, e => e.eq('email', 'a@test.com'))
 
     expect(hookLog).toContain('beforeUpdate')
     expect(hookLog).toContain('afterUpdate')
@@ -98,9 +98,9 @@ describe('Hooks - integration', () => {
   it('fires beforeDelete and afterDelete', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
     hookLog.length = 0
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
     expect(hookLog).toContain('beforeDelete')
     expect(hookLog).toContain('afterDelete')
@@ -109,7 +109,7 @@ describe('Hooks - integration', () => {
   it('insertMany fires beforeInsert for each row', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'a', email: 'a@test.com' },
       { name: 'b', email: 'b@test.com' },
     ])
@@ -122,9 +122,9 @@ describe('Hooks - integration', () => {
   it('hooks run on findOne too', async () => {
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
     hookLog.length = 0
-    await repo.findOne()
+    await repo.read.findOne()
 
     expect(hookLog).toContain('afterSelect')
   })
@@ -133,7 +133,7 @@ describe('Hooks - integration', () => {
     hookLog.length = 0
     const repo = db.repo(hookedTable)
 
-    await repo.insertOne({ name: 'test', email: 'test@test.com' })
+    await repo.write.insertOne({ name: 'test', email: 'test@test.com' })
 
     expect(hookLog.indexOf('beforeInsert')).toBeLessThan(hookLog.indexOf('afterInsert'))
   })

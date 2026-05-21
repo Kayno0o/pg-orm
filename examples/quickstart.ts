@@ -68,14 +68,14 @@ async function main() {
   await db.raw`DELETE FROM users`
 
   // 7. Basic CRUD — insert (returns primary key only)
-  const aliceId = await UserRepo.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
+  const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
 
   console.log('Inserted id:', aliceId)
 
-  const bobId = await UserRepo.insertOne({ name: 'Bob', email: 'bob@example.com' })
+  const bobId = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
 
   // insert many posts (returns array of primary keys)
-  const insertedPostIds = await PostRepo.insertMany([
+  const insertedPostIds = await PostRepo.write.insertMany([
     { title: 'Hello', body: 'First post', authorId: aliceId, published: true },
     { title: 'World', body: 'Second post', authorId: aliceId, published: true },
     { title: 'Draft', body: 'Unpublished', authorId: aliceId }, // omits 'published' — uses DB DEFAULT
@@ -85,17 +85,17 @@ async function main() {
   console.log('Inserted posts:', insertedPostIds.length)
 
   // findOne — callback style
-  const found = await UserRepo.findOne(q => q.where(e => e.eq('id', aliceId)))
+  const found = await UserRepo.read.findOne(q => q.where(e => e.eq('id', aliceId)))
 
   console.log('Found user:', found?.name)
 
   // findMany — no args returns all
-  const allUsers = await UserRepo.findMany()
+  const allUsers = await UserRepo.read.findMany()
 
   console.log('All users:', allUsers.length)
 
   // update
-  const updated = await UserRepo.updateMany(
+  const updated = await UserRepo.write.updateMany(
     { name: 'Alice Updated' },
     e => e.eq('id', aliceId),
   )
@@ -103,7 +103,7 @@ async function main() {
   console.log('Updated:', updated[0]?.name)
 
   // 8. Expression builder — .where() with e.and() / e.or()
-  const filtered = await PostRepo.findMany(q =>
+  const filtered = await PostRepo.read.findMany(q =>
     q.where(e =>
       e.or(
         e.eq('authorId', aliceId),
@@ -115,7 +115,7 @@ async function main() {
   console.log('Filtered posts:', filtered.length)
 
   // 9. Join query
-  const joined = await PostRepo.findMany(q =>
+  const joined = await PostRepo.read.findMany(q =>
     q.join('users', 'u', e => e.raw('"u"."id" = "posts"."authorId"'))
       .where(e => e.eq('authorId', aliceId)),
   )
@@ -123,14 +123,14 @@ async function main() {
   console.log('Joined posts:', joined.length)
 
   // 10. .include() eager load — typed! 'posts' autocompletes from relation names
-  const usersWithPosts = await UserRepo.findMany(q => q.include('posts'))
+  const usersWithPosts = await UserRepo.read.findMany(q => q.include('posts'))
 
   for (const u of usersWithPosts) {
     console.log(`${u.name}: ${u.posts.length} posts`) // u.posts is typed as Post[]
   }
 
   // belongsTo include — author is typed as User | null
-  const postsWithAuthor = await PostRepo.findMany(q => q.include('author'))
+  const postsWithAuthor = await PostRepo.read.findMany(q => q.include('author'))
 
   for (const p of postsWithAuthor) {
     console.log(`${p.title} by ${p.author?.name}`) // p.author is typed as User | null
@@ -138,7 +138,7 @@ async function main() {
 
   // --- NEW: Relation filtering on .include() ---
   console.log('\n--- Relation filtering ---')
-  const usersWithPublished = await UserRepo.findMany(q =>
+  const usersWithPublished = await UserRepo.read.findMany(q =>
     q.include('posts', posts, sq => sq.where(e => e.eq('published', true))),
   )
 
@@ -148,7 +148,7 @@ async function main() {
 
   // --- NEW: Aggregate functions ---
   console.log('\n--- Aggregates ---')
-  const agg = await PostRepo.findMany(q =>
+  const agg = await PostRepo.read.findMany(q =>
     q.aggregate(e => ({
       totalPosts: e.countCol(),
       maxId: e.max('id'),
@@ -160,12 +160,12 @@ async function main() {
 
   // --- NEW: Cursor-based pagination ---
   console.log('\n--- Cursor Pagination ---')
-  const page1 = await PostRepo.paginateCursor({ take: 2, column: 'id' })
+  const page1 = await PostRepo.read.paginateCursor({ take: 2, column: 'id' })
 
   console.log(`Page 1: ${page1.data.length} posts, nextCursor: ${page1.nextCursor}`)
 
   if (page1.nextCursor != null) {
-    const page2 = await PostRepo.paginateCursor({
+    const page2 = await PostRepo.read.paginateCursor({
       take: 2,
       column: 'id',
       cursor: page1.nextCursor,
@@ -176,11 +176,11 @@ async function main() {
 
   // --- NEW: Optimistic locking ---
   console.log('\n--- Optimistic Locking ---')
-  const post = await PostRepo.findOne(q => q.where(e => e.eq('title', 'Hello')))
+  const post = await PostRepo.read.findOne(q => q.where(e => e.eq('title', 'Hello')))
 
   if (post) {
     console.log(`Post version before update: ${post.version}`)
-    const updatedPost = await PostRepo.updateWithLock(
+    const updatedPost = await PostRepo.write.updateWithLock(
       { title: 'Hello Updated' },
       e => e.eq('id', post.id),
       post.version,
@@ -190,7 +190,7 @@ async function main() {
 
     // Try with stale version — should throw StaleRecordError
     try {
-      await PostRepo.updateWithLock(
+      await PostRepo.write.updateWithLock(
         { title: 'Should Fail' },
         e => e.eq('id', post.id),
         post.version, // stale version
@@ -203,26 +203,26 @@ async function main() {
 
   // --- NEW: Soft-delete awareness ---
   console.log('\n--- Soft Delete ---')
-  await UserRepo.deleteOne(e => e.eq('id', bobId))
-  const activeUsers = await UserRepo.findMany()
+  await UserRepo.write.deleteOne(e => e.eq('id', bobId))
+  const activeUsers = await UserRepo.read.findMany()
 
   console.log(`Active users (soft-deleted excluded): ${activeUsers.length}`)
-  const allIncludingDeleted = await UserRepo.findMany(q => q.withTrashed())
+  const allIncludingDeleted = await UserRepo.read.findMany(q => q.withTrashed())
 
   console.log(`All users (with trashed): ${allIncludingDeleted.length}`)
 
-  // Soft-delete filter also applies on repo.select()
-  const selectBuilder = UserRepo.select()
+  // Soft-delete filter also applies on repo.read.select()
+  const selectBuilder = UserRepo.read.select()
   const { sql } = selectBuilder.toSQL()
 
-  console.log(`repo.select() auto-filters soft-deleted: ${sql.includes('IS NULL')}`)
+  console.log(`repo.read.select() auto-filters soft-deleted: ${sql.includes('IS NULL')}`)
 
   // --- Insert and re-select with relations ---
   console.log('\n--- Insert and Re-select ---')
-  const newPostId = await PostRepo.insertOne(
+  const newPostId = await PostRepo.write.insertOne(
     { title: 'New Post', body: 'With author!', authorId: aliceId },
   )
-  const newPost = await PostRepo.findOneOrThrow(q =>
+  const newPost = await PostRepo.read.findOneOrThrow(q =>
     q.where(e => e.eq('id', newPostId)).include('author'),
   )
 
@@ -232,12 +232,12 @@ async function main() {
   await db.transaction(async (tx) => {
     const txRepo = UserRepo.using(tx)
 
-    await txRepo.insertOne({ name: 'Charlie', email: 'charlie@example.com' })
+    await txRepo.write.insertOne({ name: 'Charlie', email: 'charlie@example.com' })
 
     // Savepoint — rollback nested operation
     try {
       await tx.savepoint(async () => {
-        await txRepo.insertOne({ name: 'DupeCharlie', email: 'charlie@example.com' })
+        await txRepo.write.insertOne({ name: 'DupeCharlie', email: 'charlie@example.com' })
       })
     }
     catch {
@@ -248,7 +248,7 @@ async function main() {
   // 12. Streaming — async iterator (callback style)
   let streamCount = 0
 
-  for await (const _post of PostRepo.stream(q => q, { chunkSize: 2 })) {
+  for await (const _post of PostRepo.stream.stream(q => q, { chunkSize: 2 })) {
     streamCount++
   }
 
@@ -260,7 +260,7 @@ async function main() {
   console.log('Total users:', rawResult[0]?.count)
 
   // delete
-  const deleted = await UserRepo.forceDelete(e => e.eq('name', 'Charlie'))
+  const deleted = await UserRepo.write.forceDelete(e => e.eq('name', 'Charlie'))
 
   console.log('Force deleted:', deleted.length)
 

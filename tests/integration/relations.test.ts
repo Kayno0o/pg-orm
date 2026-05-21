@@ -24,19 +24,19 @@ async function seedRelations() {
   const commentRepo = db.repo(commentsTable)
   const tagRepo = db.repo(tagsTable)
 
-  const aliceId = await userRepo.insertOne({ name: 'Alice', email: 'alice@test.com' })
-  const bobId = await userRepo.insertOne({ name: 'Bob', email: 'bob@test.com' })
+  const aliceId = await userRepo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+  const bobId = await userRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
-  const post1Id = await postRepo.insertOne({ title: 'Post 1', body: 'Body 1', authorId: aliceId })
-  const post2Id = await postRepo.insertOne({ title: 'Post 2', body: 'Body 2', authorId: aliceId })
-  const post3Id = await postRepo.insertOne({ title: 'Post 3', body: 'Body 3', authorId: bobId })
+  const post1Id = await postRepo.write.insertOne({ title: 'Post 1', body: 'Body 1', authorId: aliceId })
+  const post2Id = await postRepo.write.insertOne({ title: 'Post 2', body: 'Body 2', authorId: aliceId })
+  const post3Id = await postRepo.write.insertOne({ title: 'Post 3', body: 'Body 3', authorId: bobId })
 
-  await commentRepo.insertOne({ body: 'Comment 1', postId: post1Id, authorId: bobId })
-  await commentRepo.insertOne({ body: 'Comment 2', postId: post1Id, authorId: aliceId })
-  await commentRepo.insertOne({ body: 'Comment 3', postId: post2Id, authorId: bobId })
+  await commentRepo.write.insertOne({ body: 'Comment 1', postId: post1Id, authorId: bobId })
+  await commentRepo.write.insertOne({ body: 'Comment 2', postId: post1Id, authorId: aliceId })
+  await commentRepo.write.insertOne({ body: 'Comment 3', postId: post2Id, authorId: bobId })
 
-  const tag1Id = await tagRepo.insertOne({ name: 'typescript' })
-  const tag2Id = await tagRepo.insertOne({ name: 'postgres' })
+  const tag1Id = await tagRepo.write.insertOne({ name: 'typescript' })
+  const tag2Id = await tagRepo.write.insertOne({ name: 'postgres' })
 
   // Wire post_tags
   await db.raw('INSERT INTO "post_tags" ("postId", "tagId") VALUES ($1, $2)', [post1Id, tag1Id])
@@ -50,7 +50,7 @@ describe('belongsTo', () => {
   it('loads parent relation', async () => {
     const { post1Id } = await seedRelations()
     const postRepo = db.repo(postsTable)
-    const posts = await postRepo.findMany(q => q.include('author').where(e => e.eq('id', post1Id)))
+    const posts = await postRepo.read.findMany(q => q.include('author').where(e => e.eq('id', post1Id)))
 
     expect(posts).toHaveLength(1)
     expect(posts[0]!.author).toBeDefined()
@@ -61,14 +61,14 @@ describe('belongsTo', () => {
     const postRepo = db.repo(postsTable)
     // Insert a post without matching the seed
     const userRepo = db.repo(usersTable)
-    const userId = await userRepo.insertOne({ name: 'Test', email: 'test@test.com' })
+    const userId = await userRepo.write.insertOne({ name: 'Test', email: 'test@test.com' })
 
-    await postRepo.insertOne({ title: 'Orphan', body: 'body', authorId: userId })
+    await postRepo.write.insertOne({ title: 'Orphan', body: 'body', authorId: userId })
 
     // Delete the user to make the FK dangle (force delete bypasses soft-delete)
-    await userRepo.forceDelete(e => e.eq('id', userId))
+    await userRepo.write.forceDelete(e => e.eq('id', userId))
 
-    const posts = await postRepo.findMany(q => q.include('author'))
+    const posts = await postRepo.read.findMany(q => q.include('author'))
     const orphan = posts.find(p => p.title === 'Orphan')
 
     expect(orphan!.author).toBeNull()
@@ -79,7 +79,7 @@ describe('hasMany', () => {
   it('loads children', async () => {
     const { aliceId } = await seedRelations()
     const userRepo = db.repo(usersTable)
-    const users = await userRepo.findMany(q => q.include('posts').where(e => e.eq('id', aliceId)))
+    const users = await userRepo.read.findMany(q => q.include('posts').where(e => e.eq('id', aliceId)))
 
     expect(users).toHaveLength(1)
     expect(users[0]!.posts).toHaveLength(2)
@@ -87,9 +87,9 @@ describe('hasMany', () => {
 
   it('returns empty array when no children', async () => {
     const userRepo = db.repo(usersTable)
-    const userId = await userRepo.insertOne({ name: 'Loner', email: 'loner@test.com' })
+    const userId = await userRepo.write.insertOne({ name: 'Loner', email: 'loner@test.com' })
 
-    const users = await userRepo.findMany(q => q.include('posts').where(e => e.eq('id', userId)))
+    const users = await userRepo.read.findMany(q => q.include('posts').where(e => e.eq('id', userId)))
 
     expect(users[0]!.posts).toEqual([])
   })
@@ -99,7 +99,7 @@ describe('nested includes', () => {
   it('loads nested relations via callback composition', async () => {
     await seedRelations()
     const userRepo = db.repo(usersTable)
-    const users = await userRepo.findMany(q =>
+    const users = await userRepo.read.findMany(q =>
       q.include('posts', postsTable, pq =>
         pq.include('comments')))
 
@@ -115,7 +115,7 @@ describe('nested includes', () => {
   it('supports filtering with nested includes', async () => {
     const { aliceId } = await seedRelations()
     const userRepo = db.repo(usersTable)
-    const users = await userRepo.findMany(q =>
+    const users = await userRepo.read.findMany(q =>
       q.include('posts', postsTable, pq =>
         pq.where(e => e.eq('title', 'Post 1'))
           .include('comments', commentsTable, cq => cq))
@@ -131,7 +131,7 @@ describe('hasManyThrough', () => {
   it('loads through relations', async () => {
     const { post1Id } = await seedRelations()
     const postRepo = db.repo(postsTable)
-    const posts = await postRepo.findMany(q =>
+    const posts = await postRepo.read.findMany(q =>
       q.include('tags').where(e => e.eq('id', post1Id)))
 
     expect(posts).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('hasManyThrough', () => {
   it('returns empty array for post with no tags', async () => {
     const { post3Id } = await seedRelations()
     const postRepo = db.repo(postsTable)
-    const posts = await postRepo.findMany(q =>
+    const posts = await postRepo.read.findMany(q =>
       q.include('tags').where(e => e.eq('id', post3Id)))
 
     expect(posts[0]!.tags).toEqual([])
@@ -154,7 +154,7 @@ describe('hasManyThrough', () => {
   it('uses __pgorm_pivot_fk__ internally (no collision)', async () => {
     const { post1Id } = await seedRelations()
     const postRepo = db.repo(postsTable)
-    const posts = await postRepo.findMany(q =>
+    const posts = await postRepo.read.findMany(q =>
       q.include('tags').where(e => e.eq('id', post1Id)))
 
     // The pivot FK should be cleaned up from the result
@@ -169,7 +169,7 @@ describe('filtered includes', () => {
   it('applies callback filter to included relation', async () => {
     const { aliceId } = await seedRelations()
     const userRepo = db.repo(usersTable)
-    const users = await userRepo.findMany(q =>
+    const users = await userRepo.read.findMany(q =>
       q.include('posts', postsTable, pq => pq.where(e => e.eq('title', 'Post 1'))).where(e => e.eq('id', aliceId)))
 
     expect(users[0]!.posts).toHaveLength(1)
@@ -182,16 +182,16 @@ describe('large batch chunking', () => {
     const userRepo = db.repo(usersTable)
     const postRepo = db.repo(postsTable)
 
-    const userIds = await userRepo.insertMany(
+    const userIds = await userRepo.write.insertMany(
       Array.from({ length: 20 }, (_, i) => ({ name: `User${i}`, email: `user${i}@test.com` })),
     )
-    const users = await userRepo.findMany(q => q.where(e => e.in('id', userIds)))
+    const users = await userRepo.read.findMany(q => q.where(e => e.in('id', userIds)))
 
     for (const user of users) {
-      await postRepo.insertOne({ title: `Post by ${user.name}`, body: 'body', authorId: user.id })
+      await postRepo.write.insertOne({ title: `Post by ${user.name}`, body: 'body', authorId: user.id })
     }
 
-    const result = await userRepo.findMany(q => q.include('posts'))
+    const result = await userRepo.read.findMany(q => q.include('posts'))
 
     expect(result).toHaveLength(20)
 

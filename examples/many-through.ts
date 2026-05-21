@@ -59,14 +59,14 @@ async function main() {
   await db.raw`DELETE FROM mt_tags`
 
   // Seed data (insertOne now returns the primary key only)
-  const p1 = await PostRepo.insertOne({ title: 'Post A' })
-  const p2 = await PostRepo.insertOne({ title: 'Post B' })
-  const t1 = await TagRepo.insertOne({ name: 'rust' })
-  const t2 = await TagRepo.insertOne({ name: 'typescript' })
-  const t3 = await TagRepo.insertOne({ name: 'bun' })
+  const p1 = await PostRepo.write.insertOne({ title: 'Post A' })
+  const p2 = await PostRepo.write.insertOne({ title: 'Post B' })
+  const t1 = await TagRepo.write.insertOne({ name: 'rust' })
+  const t2 = await TagRepo.write.insertOne({ name: 'typescript' })
+  const t3 = await TagRepo.write.insertOne({ name: 'bun' })
 
   // Link: Post A → rust, typescript; Post B → typescript, bun
-  await PostTagRepo.insertMany([
+  await PostTagRepo.write.insertMany([
     { postId: p1, tagId: t1 },
     { postId: p1, tagId: t2 },
     { postId: p2, tagId: t2 },
@@ -74,7 +74,7 @@ async function main() {
   ])
 
   // Add comments
-  await CommentRepo.insertMany([
+  await CommentRepo.write.insertMany([
     { postId: p1, body: 'Great post!', approved: true },
     { postId: p1, body: 'Spam', approved: false },
     { postId: p1, body: 'Interesting', approved: true },
@@ -84,7 +84,7 @@ async function main() {
 
   // --- hasManyThrough ---
   console.log('--- hasManyThrough ---')
-  const postsWithTags = await PostRepo.findMany(q => q.include('tags'))
+  const postsWithTags = await PostRepo.read.findMany(q => q.include('tags'))
 
   for (const post of postsWithTags) {
     const tagNames = post.tags.map(t => t.name).join(', ')
@@ -101,7 +101,7 @@ async function main() {
 
   // --- NEW: Include with filtering ---
   console.log('\n--- Include with Filtering ---')
-  const postsWithApproved = await PostRepo.findMany(q =>
+  const postsWithApproved = await PostRepo.read.findMany(q =>
     q.include('comments', comments, sq => sq.where(e => e.eq('approved', true))),
   )
 
@@ -116,7 +116,7 @@ async function main() {
 
   // --- NEW: Nested includes (posts.comments via dotted path) ---
   console.log('\n--- Nested Includes ---')
-  const postsNested = await PostRepo.findMany(q =>
+  const postsNested = await PostRepo.read.findMany(q =>
     q.include('comments'),
   )
 
@@ -134,7 +134,7 @@ async function main() {
 
   // --- NEW: Multiple includes in parallel ---
   console.log('\n--- Multiple Includes (parallel) ---')
-  const postsWithBoth = await PostRepo.findMany(q =>
+  const postsWithBoth = await PostRepo.read.findMany(q =>
     q.include('tags').include('comments'),
   )
 
@@ -150,12 +150,12 @@ async function main() {
 
   // --- NEW: Cursor pagination ---
   console.log('\n--- Cursor Pagination ---')
-  const page1 = await CommentRepo.paginateCursor({ take: 2, column: 'id' })
+  const page1 = await CommentRepo.read.paginateCursor({ take: 2, column: 'id' })
 
   console.log(`Page 1: ${page1.data.length} comments (next: ${page1.nextCursor})`)
 
   if (page1.nextCursor != null) {
-    const page2 = await CommentRepo.paginateCursor({
+    const page2 = await CommentRepo.read.paginateCursor({
       take: 2,
       column: 'id',
       cursor: page1.nextCursor,
@@ -164,7 +164,7 @@ async function main() {
     console.log(`Page 2: ${page2.data.length} comments (next: ${page2.nextCursor})`)
 
     if (page2.nextCursor != null) {
-      const page3 = await CommentRepo.paginateCursor({
+      const page3 = await CommentRepo.read.paginateCursor({
         take: 2,
         column: 'id',
         cursor: page2.nextCursor,

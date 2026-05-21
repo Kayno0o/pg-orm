@@ -23,13 +23,13 @@ describe('Transaction rollback chains', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Outer', email: 'outer@chain.test' })
+      await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' })
 
       try {
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.insertOne({ name: 'Inner', email: 'inner@chain.test' })
+          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' })
 
           throw new Error('rollback inner')
         })
@@ -37,7 +37,7 @@ describe('Transaction rollback chains', () => {
       catch { /* swallowed */ }
     })
 
-    const users = await db.repo(usersTable).findMany()
+    const users = await db.repo(usersTable).read.findMany()
 
     expect(users).toHaveLength(1)
     expect(users[0]!.name).toBe('Outer')
@@ -48,11 +48,11 @@ describe('Transaction rollback chains', () => {
       await db.transaction(async (tx) => {
         const repo = db.repo(usersTable).using(tx)
 
-        await repo.insertOne({ name: 'Outer', email: 'outer@chain.test' })
+        await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' })
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.insertOne({ name: 'Inner', email: 'inner@chain.test' })
+          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' })
         })
 
         throw new Error('rollback outer')
@@ -60,7 +60,7 @@ describe('Transaction rollback chains', () => {
     }
     catch { /* swallowed */ }
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(0)
   })
@@ -68,12 +68,12 @@ describe('Transaction rollback chains', () => {
   it('mixed: SP1 commits, SP2 rolls back, outer commits → only SP1 visible', async () => {
     await db.transaction(async (tx) => {
       await tx.savepoint(async (sp1) => {
-        await db.repo(usersTable).using(sp1).insertOne({ name: 'SP1', email: 'sp1@chain.test' })
+        await db.repo(usersTable).using(sp1).write.insertOne({ name: 'SP1', email: 'sp1@chain.test' })
       })
 
       try {
         await tx.savepoint(async (sp2) => {
-          await db.repo(usersTable).using(sp2).insertOne({ name: 'SP2', email: 'sp2@chain.test' })
+          await db.repo(usersTable).using(sp2).write.insertOne({ name: 'SP2', email: 'sp2@chain.test' })
 
           throw new Error('rollback sp2')
         })
@@ -81,7 +81,7 @@ describe('Transaction rollback chains', () => {
       catch { /* swallowed */ }
     })
 
-    const users = await db.repo(usersTable).findMany(q => q.orderBy('name', 'asc'))
+    const users = await db.repo(usersTable).read.findMany(q => q.orderBy('name', 'asc'))
 
     expect(users).toHaveLength(1)
     expect(users[0]!.name).toBe('SP1')
@@ -99,7 +99,7 @@ describe('Transaction rollback chains', () => {
       })
 
       await tx.savepoint(async (sp) => {
-        await db.repo(usersTable).using(sp).insertOne({ name: 'X', email: 'x@chain.test' })
+        await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
       })
     })
 
@@ -120,7 +120,7 @@ describe('Transaction rollback chains', () => {
 
         try {
           await tx.savepoint(async (sp) => {
-            await db.repo(usersTable).using(sp).insertOne({ name: 'X', email: 'x@chain.test' })
+            await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
 
             throw new Error('sp boom')
           })
@@ -141,7 +141,7 @@ describe('Transaction rollback chains', () => {
     try {
       await db.transaction(async (tx) => {
         await tx.savepoint(async (sp) => {
-          await db.repo(usersTable).using(sp).insertOne({ name: 'X', email: 'x@chain.test' })
+          await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
 
           throw new Error('unhandled sp error')
         })
@@ -153,7 +153,7 @@ describe('Transaction rollback chains', () => {
 
     expect(outerCaught).toBe(true)
 
-    const count = await db.repo(usersTable).count()
+    const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(0)
   })

@@ -63,7 +63,7 @@ async function main() {
   await db.raw`DELETE FROM sc_staging`
 
   // 1. Seed initial products
-  await ProductRepo.insertMany([
+  await ProductRepo.write.insertMany([
     { sku: 'P1', name: 'Product 1', price: '10.00', category: 'electronics', stock: 50, metadata: { color: 'red', tags: ['electronics'] } },
     { sku: 'P2', name: 'Product 2', price: '20.00', category: 'electronics', stock: 30, metadata: { color: 'blue', tags: ['home'] } },
     { sku: 'P3', name: 'Product 3', price: '35.00', category: 'home', stock: 15, metadata: { color: 'green' } },
@@ -71,13 +71,13 @@ async function main() {
   ])
 
   // Seed archived products
-  await ArchivedRepo.insertMany([
+  await ArchivedRepo.write.insertMany([
     { sku: 'ARCH1', name: 'Archived Widget', price: '8.00', category: 'electronics', stock: 0, metadata: {} },
     { sku: 'ARCH2', name: 'Archived Gadget', price: '12.00', category: 'home', stock: 0, metadata: {} },
   ])
 
   // 2. Seed staging with updates and new items
-  await StagingRepo.insertMany([
+  await StagingRepo.write.insertMany([
     { sku: 'P1', name: 'Product 1 Updated', price: '12.00', stock: 45 },
     { sku: 'P2', name: 'Product 2', price: '20.00', stock: 25 },
     { sku: 'NEW', name: 'New Product', price: '15.00', stock: 100 },
@@ -87,7 +87,7 @@ async function main() {
 
   // 3. Showcase: MERGE with NOT MATCHED BY SOURCE
   console.log('\nRunning MERGE sync...')
-  const mergeQuery = ProductRepo.merge()
+  const mergeQuery = ProductRepo.write.merge()
     .using('sc_staging', 's')
     .on(e => e.raw('"sc_products"."sku" = "s"."sku"'))
     .whenMatched('update', {
@@ -109,7 +109,7 @@ async function main() {
   console.log('SQL:', sql)
   await db.query(sql, params)
 
-  const productsAfterMerge = await ProductRepo.findMany()
+  const productsAfterMerge = await ProductRepo.read.findMany()
 
   console.log('Products after merge:', productsAfterMerge.length)
   for (const p of productsAfterMerge) {
@@ -118,7 +118,7 @@ async function main() {
 
   // 4. Showcase: JSONB Subscripting (PG18 feature)
   console.log('\nQuerying with JSONB Subscripting...')
-  const redProducts = await ProductRepo.findMany(q =>
+  const redProducts = await ProductRepo.read.findMany(q =>
     q.where(e => e.eq(e.jsonbSubscript('metadata', 'color') as any, 'red')),
   )
 
@@ -127,7 +127,7 @@ async function main() {
     console.log(`- ${p.name} (Color: ${p.metadata.color})`)
   }
 
-  const electronics = await ProductRepo.findMany(q =>
+  const electronics = await ProductRepo.read.findMany(q =>
     q.where(e => e.eq(e.jsonbSubscript('metadata', 'tags', 0) as any, 'electronics')),
   )
 
@@ -135,7 +135,7 @@ async function main() {
 
   // --- NEW: Aggregate functions ---
   console.log('\n--- Aggregates ---')
-  const stats = await ProductRepo.findMany(q =>
+  const stats = await ProductRepo.read.findMany(q =>
     q.aggregate(e => ({
       totalProducts: e.countCol(),
       totalStock: e.sum('stock'),
@@ -149,7 +149,7 @@ async function main() {
 
   // --- NEW: Aggregates with GROUP BY ---
   console.log('\n--- Aggregates with GROUP BY ---')
-  const byCategory = await ProductRepo.findMany(q =>
+  const byCategory = await ProductRepo.read.findMany(q =>
     q.aggregate(e => ({
       count: e.countCol(),
       avgPrice: e.avg('price'),
@@ -164,7 +164,7 @@ async function main() {
 
   // --- NEW: JSON aggregates ---
   console.log('\n--- JSON Aggregates ---')
-  const skusByCategory = await ProductRepo.findMany(q =>
+  const skusByCategory = await ProductRepo.read.findMany(q =>
     q.aggregate(e => ({
       skus: e.arrayAgg('sku'),
     }))
@@ -179,8 +179,8 @@ async function main() {
   // --- NEW: Set operations (UNION) ---
   console.log('\n--- Set Operations (UNION) ---')
 
-  const activeQuery = ProductRepo.select().pick('sku', 'name', 'price')
-  const archivedQuery = ArchivedRepo.select().pick('sku', 'name', 'price')
+  const activeQuery = ProductRepo.read.select().pick('sku', 'name', 'price')
+  const archivedQuery = ArchivedRepo.read.select().pick('sku', 'name', 'price')
 
   const unionQuery = SetOperationBuilder.union(activeQuery, archivedQuery)
     .orderBy('name')
@@ -197,7 +197,7 @@ async function main() {
 
   // --- NEW: Typed computed columns ---
   console.log('\n--- Typed Computed Columns ---')
-  const withDiscount = await ProductRepo.findMany(q =>
+  const withDiscount = await ProductRepo.read.findMany(q =>
     q.computedRaw<number>('"price"::numeric * 0.9', 'discountedPrice'),
   )
 

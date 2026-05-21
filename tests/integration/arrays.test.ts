@@ -22,40 +22,40 @@ afterAll(async () => {
 describe('array columns — insert & select', () => {
   it('inserts and retrieves a text array', async () => {
     const repo = db.repo(itemsTable)
-    const itemId = await repo.insertOne({ name: 'item1', tags: ['Seb', 'Sebouille', 'Sebobar'] })
-    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
+    const itemId = await repo.write.insertOne({ name: 'item1', tags: ['Seb', 'Sebouille', 'Sebobar'] })
+    const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual(['Seb', 'Sebouille', 'Sebobar'])
   })
 
   it('inserts and retrieves an int array', async () => {
     const repo = db.repo(itemsTable)
-    const itemId = await repo.insertOne({ name: 'item2', tags: [], scores: [10, 20, 30] })
-    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
+    const itemId = await repo.write.insertOne({ name: 'item2', tags: [], scores: [10, 20, 30] })
+    const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.scores).toEqual([10, 20, 30])
   })
 
   it('inserts and retrieves an empty array', async () => {
     const repo = db.repo(itemsTable)
-    const itemId = await repo.insertOne({ name: 'item3', tags: [] })
-    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
+    const itemId = await repo.write.insertOne({ name: 'item3', tags: [] })
+    const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual([])
   })
 
   it('inserts and retrieves a null array column', async () => {
     const repo = db.repo(itemsTable)
-    const itemId = await repo.insertOne({ name: 'item4', tags: ['x'], scores: null })
-    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
+    const itemId = await repo.write.insertOne({ name: 'item4', tags: ['x'], scores: null })
+    const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.scores).toBeNull()
   })
 
   it('handles strings with special characters', async () => {
     const repo = db.repo(itemsTable)
-    const itemId = await repo.insertOne({ name: 'item5', tags: ['hello world', 'foo,bar', 'say "hi"'] })
-    const item = await repo.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
+    const itemId = await repo.write.insertOne({ name: 'item5', tags: ['hello world', 'foo,bar', 'say "hi"'] })
+    const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.tags).toEqual(['hello world', 'foo,bar', 'say "hi"'])
   })
@@ -65,9 +65,9 @@ describe('array columns — update', () => {
   it('updates a text array', async () => {
     const repo = db.repo(itemsTable)
 
-    await repo.insertOne({ name: 'upd1', tags: ['old'] })
+    await repo.write.insertOne({ name: 'upd1', tags: ['old'] })
 
-    const [updated] = await repo.updateMany({ tags: ['new', 'values'] }, e => e.eq('name', 'upd1'))
+    const [updated] = await repo.write.updateMany({ tags: ['new', 'values'] }, e => e.eq('name', 'upd1'))
 
     expect(updated!.tags).toEqual(['new', 'values'])
   })
@@ -77,10 +77,10 @@ describe('array columns — arrayContains filter', () => {
   it('finds items where array contains a value', async () => {
     const repo = db.repo(itemsTable)
 
-    await repo.insertOne({ name: 'match', tags: ['alpha', 'beta'] })
-    await repo.insertOne({ name: 'nomatch', tags: ['gamma'] })
+    await repo.write.insertOne({ name: 'match', tags: ['alpha', 'beta'] })
+    await repo.write.insertOne({ name: 'nomatch', tags: ['gamma'] })
 
-    const results = await repo.findMany(q => q.where(e => e.arrayContains('tags', 'alpha')))
+    const results = await repo.read.findMany(q => q.where(e => e.arrayContains('tags', 'alpha')))
 
     expect(results).toHaveLength(1)
     expect(results[0]!.name).toBe('match')
@@ -91,11 +91,11 @@ describe('array columns — arrayOverlap filter', () => {
   it('finds items where array overlaps', async () => {
     const repo = db.repo(itemsTable)
 
-    await repo.insertOne({ name: 'match1', tags: ['a', 'b'] })
-    await repo.insertOne({ name: 'match2', tags: ['b', 'c'] })
-    await repo.insertOne({ name: 'nomatch', tags: ['d'] })
+    await repo.write.insertOne({ name: 'match1', tags: ['a', 'b'] })
+    await repo.write.insertOne({ name: 'match2', tags: ['b', 'c'] })
+    await repo.write.insertOne({ name: 'nomatch', tags: ['d'] })
 
-    const results = await repo.findMany(q =>
+    const results = await repo.read.findMany(q =>
       q.where(e => e.arrayOverlap('tags', ['a', 'c'])).orderBy('name', 'asc'),
     )
 

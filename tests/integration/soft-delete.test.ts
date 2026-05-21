@@ -22,12 +22,12 @@ afterAll(async () => {
 describe('Soft Delete', () => {
   it('deleteMany sets deletedAt instead of removing row', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    await repo.deleteMany(e => e.eq('id', userId))
+    await repo.write.deleteMany(e => e.eq('id', userId))
 
     // Row should still exist in DB via withTrashed
-    const all = await repo.findMany(q => q.withTrashed())
+    const all = await repo.read.findMany(q => q.withTrashed())
 
     expect(all).toHaveLength(1)
     expect(all[0]!.deletedAt).not.toBeNull()
@@ -36,11 +36,11 @@ describe('Soft Delete', () => {
   it('findMany excludes soft-deleted rows by default', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.insertOne({ name: 'Bob', email: 'b@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Bob', email: 'b@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
-    const users = await repo.findMany()
+    const users = await repo.read.findMany()
 
     expect(users).toHaveLength(1)
     expect(users[0]!.name).toBe('Bob')
@@ -49,10 +49,10 @@ describe('Soft Delete', () => {
   it('withTrashed includes soft-deleted rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
-    const all = await repo.findMany(q => q.withTrashed())
+    const all = await repo.read.findMany(q => q.withTrashed())
 
     expect(all).toHaveLength(1)
   })
@@ -60,11 +60,11 @@ describe('Soft Delete', () => {
   it('count excludes soft-deleted rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.insertOne({ name: 'Bob', email: 'b@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Bob', email: 'b@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
-    const count = await repo.count()
+    const count = await repo.read.count()
 
     expect(count).toBe(1)
   })
@@ -72,10 +72,10 @@ describe('Soft Delete', () => {
   it('exists excludes soft-deleted rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
-    const exists = await repo.exists(e => e.eq('email', 'a@test.com'))
+    const exists = await repo.read.exists(e => e.eq('email', 'a@test.com'))
 
     expect(exists).toBe(false)
   })
@@ -83,10 +83,10 @@ describe('Soft Delete', () => {
   it('forceDelete removes row permanently', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.forceDelete(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.forceDelete(e => e.eq('email', 'a@test.com'))
 
-    const all = await repo.findMany(q => q.withTrashed())
+    const all = await repo.read.findMany(q => q.withTrashed())
 
     expect(all).toHaveLength(0)
   })
@@ -94,13 +94,13 @@ describe('Soft Delete', () => {
   it('isDeleted virtual works correctly', async () => {
     const repo = db.repo(usersTable)
 
-    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.isDeleted).toBe(false)
 
-    await repo.deleteMany(e => e.eq('id', userId))
-    const deleted = await repo.findMany(q => q.withTrashed())
+    await repo.write.deleteMany(e => e.eq('id', userId))
+    const deleted = await repo.read.findMany(q => q.withTrashed())
 
     expect(deleted[0]!.isDeleted).toBe(true)
   })
@@ -108,8 +108,8 @@ describe('Soft Delete', () => {
   it('deleteOne returns the soft-deleted row', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const result = await repo.deleteOne(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const result = await repo.write.deleteOne(e => e.eq('email', 'a@test.com'))
 
     expect(result).not.toBeNull()
     expect(result!.deletedAt).not.toBeNull()
@@ -117,15 +117,15 @@ describe('Soft Delete', () => {
 
   it('isDeleted virtual is applied on mutation return rows', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
     // updateMany should apply virtuals on returned rows (was missing before fix)
-    const updated = await repo.updateMany({ name: 'Alice2' }, e => e.eq('id', userId))
+    const updated = await repo.write.updateMany({ name: 'Alice2' }, e => e.eq('id', userId))
 
     expect(updated[0]!.isDeleted).toBe(false)
 
     // deleteMany (soft path) should apply virtuals on returned rows
-    const deleted = await repo.deleteMany(e => e.eq('id', userId))
+    const deleted = await repo.write.deleteMany(e => e.eq('id', userId))
 
     expect(deleted[0]!.isDeleted).toBe(true)
   })

@@ -21,11 +21,11 @@ afterAll(async () => {
 describe('CRUD - insertOne', () => {
   it('inserts and returns the primary key', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     expect(userId).toBeDefined()
 
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.name).toBe('Alice')
     expect(user.email).toBe('alice@test.com')
@@ -33,8 +33,8 @@ describe('CRUD - insertOne', () => {
 
   it('auto-sets createdAt/updatedAt via timestamps trait', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Bob', email: 'bob@test.com' })
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const userId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.createdAt).toBeInstanceOf(Date)
     expect(user.updatedAt).toBeInstanceOf(Date)
@@ -42,16 +42,16 @@ describe('CRUD - insertOne', () => {
 
   it('inserts with nullable field', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const userId = await repo.write.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBe(30)
   })
 
   it('inserts with null nullable field', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
-    const user = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
+    const userId = await repo.write.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
+    const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBeNull()
   })
@@ -60,7 +60,7 @@ describe('CRUD - insertOne', () => {
 describe('CRUD - insertMany', () => {
   it('inserts multiple rows', async () => {
     const repo = db.repo(usersTable)
-    const userIds = await repo.insertMany([
+    const userIds = await repo.write.insertMany([
       { name: 'A', email: 'a@test.com' },
       { name: 'B', email: 'b@test.com' },
       { name: 'C', email: 'c@test.com' },
@@ -68,14 +68,14 @@ describe('CRUD - insertMany', () => {
 
     expect(userIds).toHaveLength(3)
 
-    const firstUser = await repo.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!)))
+    const firstUser = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!)))
 
     expect(firstUser.name).toBe('A')
   })
 
   it('returns empty array for empty input', async () => {
     const repo = db.repo(usersTable)
-    const result = await repo.insertMany([])
+    const result = await repo.write.insertMany([])
 
     expect(result).toEqual([])
   })
@@ -85,11 +85,11 @@ describe('CRUD - findMany', () => {
   it('finds all rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'A', email: 'a@test.com' },
       { name: 'B', email: 'b@test.com' },
     ])
-    const users = await repo.findMany()
+    const users = await repo.read.findMany()
 
     expect(users).toHaveLength(2)
   })
@@ -97,11 +97,11 @@ describe('CRUD - findMany', () => {
   it('filters with where', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'Alice', email: 'alice@test.com' },
       { name: 'Bob', email: 'bob@test.com' },
     ])
-    const users = await repo.findMany(q => q.where(e => e.eq('name', 'Alice')))
+    const users = await repo.read.findMany(q => q.where(e => e.eq('name', 'Alice')))
 
     expect(users).toHaveLength(1)
     expect(users[0]!.name).toBe('Alice')
@@ -110,12 +110,12 @@ describe('CRUD - findMany', () => {
   it('orders results', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'Charlie', email: 'c@test.com' },
       { name: 'Alice', email: 'a@test.com' },
       { name: 'Bob', email: 'b@test.com' },
     ])
-    const users = await repo.findMany(q => q.orderBy('name', 'asc'))
+    const users = await repo.read.findMany(q => q.orderBy('name', 'asc'))
 
     expect(users[0]!.name).toBe('Alice')
     expect(users[2]!.name).toBe('Charlie')
@@ -124,12 +124,12 @@ describe('CRUD - findMany', () => {
   it('limits results', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'A', email: 'a@test.com' },
       { name: 'B', email: 'b@test.com' },
       { name: 'C', email: 'c@test.com' },
     ])
-    const users = await repo.findMany(q => q.limit(2))
+    const users = await repo.read.findMany(q => q.limit(2))
 
     expect(users).toHaveLength(2)
   })
@@ -137,8 +137,8 @@ describe('CRUD - findMany', () => {
   it('picks specific columns', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const users = await repo.findMany(q => q.pick('id', 'name'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const users = await repo.read.findMany(q => q.pick('id', 'name'))
 
     expect(users[0]).toHaveProperty('name')
     expect(users[0]).toHaveProperty('id')
@@ -149,8 +149,8 @@ describe('CRUD - findOne', () => {
   it('returns first matching row', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const user = await repo.findOne(q => q.where(e => e.eq('name', 'Alice')))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const user = await repo.read.findOne(q => q.where(e => e.eq('name', 'Alice')))
 
     expect(user).not.toBeNull()
     expect(user!.name).toBe('Alice')
@@ -158,7 +158,7 @@ describe('CRUD - findOne', () => {
 
   it('returns null when not found', async () => {
     const repo = db.repo(usersTable)
-    const user = await repo.findOne(q => q.where(e => e.eq('name', 'Ghost')))
+    const user = await repo.read.findOne(q => q.where(e => e.eq('name', 'Ghost')))
 
     expect(user).toBeNull()
   })
@@ -167,8 +167,8 @@ describe('CRUD - findOne', () => {
 describe('CRUD - findById', () => {
   it('finds row by id', async () => {
     const repo = db.repo(usersTable)
-    const insertedId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const found = await repo.findById(insertedId)
+    const insertedId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const found = await repo.read.findById(insertedId)
 
     expect(found).not.toBeNull()
     expect(found!.id).toBe(insertedId)
@@ -176,7 +176,7 @@ describe('CRUD - findById', () => {
 
   it('returns null for missing id', async () => {
     const repo = db.repo(usersTable)
-    const found = await repo.findById(999999)
+    const found = await repo.read.findById(999999)
 
     expect(found).toBeNull()
   })
@@ -186,8 +186,8 @@ describe('CRUD - updateMany', () => {
   it('updates matching rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const updated = await repo.updateMany(
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const updated = await repo.write.updateMany(
       { name: 'Alice Updated' },
       e => e.eq('email', 'a@test.com'),
     )
@@ -201,8 +201,8 @@ describe('CRUD - updateOne', () => {
   it('updates and returns single row', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const updated = await repo.updateOne(
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const updated = await repo.write.updateOne(
       { name: 'Alice V2' },
       e => e.eq('email', 'a@test.com'),
     )
@@ -213,7 +213,7 @@ describe('CRUD - updateOne', () => {
 
   it('returns null when no match', async () => {
     const repo = db.repo(usersTable)
-    const result = await repo.updateOne({ name: 'Nobody' }, e => e.eq('id', 999999))
+    const result = await repo.write.updateOne({ name: 'Nobody' }, e => e.eq('id', 999999))
 
     expect(result).toBeNull()
   })
@@ -222,15 +222,15 @@ describe('CRUD - updateOne', () => {
 describe('CRUD - deleteMany', () => {
   it('soft-deletes rows (because of softDelete trait)', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    const deleted = await repo.deleteMany(e => e.eq('id', userId))
+    const deleted = await repo.write.deleteMany(e => e.eq('id', userId))
 
     expect(deleted).toHaveLength(1)
     expect(deleted[0]!.deletedAt).not.toBeNull()
 
     // Soft-deleted rows should not appear in findMany
-    const remaining = await repo.findMany()
+    const remaining = await repo.read.findMany()
 
     expect(remaining).toHaveLength(0)
   })
@@ -239,7 +239,7 @@ describe('CRUD - deleteMany', () => {
 describe('CRUD - findOrCreate', () => {
   it('creates new row when not exists', async () => {
     const repo = db.repo(usersTable)
-    const user = await repo.findOrCreate(
+    const user = await repo.write.findOrCreate(
       { name: 'Alice', email: 'a@test.com' },
       ['email'],
     )
@@ -250,8 +250,8 @@ describe('CRUD - findOrCreate', () => {
   it('returns existing row on conflict', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const user = await repo.findOrCreate(
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const user = await repo.write.findOrCreate(
       { name: 'Alice Different', email: 'a@test.com' },
       ['email'],
     )
@@ -264,11 +264,11 @@ describe('CRUD - count', () => {
   it('counts all rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'A', email: 'a@test.com' },
       { name: 'B', email: 'b@test.com' },
     ])
-    const count = await repo.count()
+    const count = await repo.read.count()
 
     expect(count).toBe(2)
   })
@@ -276,11 +276,11 @@ describe('CRUD - count', () => {
   it('counts with filter', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertMany([
+    await repo.write.insertMany([
       { name: 'Alice', email: 'a@test.com', age: 30 },
       { name: 'Bob', email: 'b@test.com', age: 20 },
     ])
-    const count = await repo.count(e => e.gt('age', 25))
+    const count = await repo.read.count(e => e.gt('age', 25))
 
     expect(count).toBe(1)
   })
@@ -290,15 +290,15 @@ describe('CRUD - exists', () => {
   it('returns true when match exists', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    const result = await repo.exists(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const result = await repo.read.exists(e => e.eq('email', 'a@test.com'))
 
     expect(result).toBe(true)
   })
 
   it('returns false when no match', async () => {
     const repo = db.repo(usersTable)
-    const result = await repo.exists(e => e.eq('email', 'ghost@test.com'))
+    const result = await repo.read.exists(e => e.eq('email', 'ghost@test.com'))
 
     expect(result).toBe(false)
   })

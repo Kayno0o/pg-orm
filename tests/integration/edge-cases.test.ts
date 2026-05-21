@@ -26,34 +26,34 @@ describe('restore()', () => {
   it('restores a soft-deleted record', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
 
     // Should be hidden from normal queries
-    expect(await repo.findMany()).toHaveLength(0)
+    expect(await repo.read.findMany()).toHaveLength(0)
 
     // Restore
-    const restored = await repo.restore(e => e.eq('email', 'a@test.com'))
+    const restored = await repo.write.restore(e => e.eq('email', 'a@test.com'))
 
     expect(restored).toHaveLength(1)
     expect(restored[0]!.name).toBe('Alice')
     expect(restored[0]!.deletedAt).toBeNull()
 
     // Should be visible again
-    expect(await repo.findMany()).toHaveLength(1)
+    expect(await repo.read.findMany()).toHaveLength(1)
   })
 
   it('only restores matching soft-deleted records', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
-    await repo.insertOne({ name: 'Bob', email: 'b@test.com' })
-    await repo.deleteMany(e => e.eq('email', 'a@test.com'))
-    await repo.deleteMany(e => e.eq('email', 'b@test.com'))
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Bob', email: 'b@test.com' })
+    await repo.write.deleteMany(e => e.eq('email', 'a@test.com'))
+    await repo.write.deleteMany(e => e.eq('email', 'b@test.com'))
 
-    await repo.restore(e => e.eq('email', 'a@test.com'))
+    await repo.write.restore(e => e.eq('email', 'a@test.com'))
 
-    const all = await repo.findMany()
+    const all = await repo.read.findMany()
 
     expect(all).toHaveLength(1)
     expect(all[0]!.name).toBe('Alice')
@@ -62,10 +62,10 @@ describe('restore()', () => {
   it('does nothing when no soft-deleted records match', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
     // Alice is not deleted, so restore should match nothing
-    const restored = await repo.restore(e => e.eq('email', 'a@test.com'))
+    const restored = await repo.write.restore(e => e.eq('email', 'a@test.com'))
 
     expect(restored).toHaveLength(0)
   })
@@ -73,7 +73,7 @@ describe('restore()', () => {
   it('throws on table without softDelete trait', async () => {
     const repo = db.repo(postsTable)
 
-    expect(repo.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
+    expect(repo.write.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
   })
 })
 
@@ -82,7 +82,7 @@ describe('upsertMany()', () => {
   it('inserts new records', async () => {
     const repo = db.repo(usersTable)
 
-    const result = await repo.upsertMany(
+    const result = await repo.write.upsertMany(
       [
         { name: 'Alice', email: 'a@test.com' },
         { name: 'Bob', email: 'b@test.com' },
@@ -92,7 +92,7 @@ describe('upsertMany()', () => {
 
     expect(result).toHaveLength(2)
 
-    const all = await repo.findMany()
+    const all = await repo.read.findMany()
 
     expect(all).toHaveLength(2)
   })
@@ -100,9 +100,9 @@ describe('upsertMany()', () => {
   it('updates existing records on conflict', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    const result = await repo.upsertMany(
+    const result = await repo.write.upsertMany(
       [
         { name: 'Alice Updated', email: 'a@test.com' },
         { name: 'Bob', email: 'b@test.com' },
@@ -112,7 +112,7 @@ describe('upsertMany()', () => {
 
     expect(result).toHaveLength(2)
 
-    const all = await repo.findMany(q => q.orderBy('email', 'asc'))
+    const all = await repo.read.findMany(q => q.orderBy('email', 'asc'))
 
     expect(all).toHaveLength(2)
     expect(all[0]!.name).toBe('Alice Updated')
@@ -122,7 +122,7 @@ describe('upsertMany()', () => {
   it('returns empty for empty input', async () => {
     const repo = db.repo(usersTable)
 
-    const result = await repo.upsertMany([], ['email'])
+    const result = await repo.write.upsertMany([], ['email'])
 
     expect(result).toEqual([])
   })
@@ -130,15 +130,15 @@ describe('upsertMany()', () => {
   it('updates only specified columns on conflict', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'a@test.com', age: 25 })
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com', age: 25 })
 
-    await repo.upsertMany(
+    await repo.write.upsertMany(
       [{ name: 'Alice Changed', email: 'a@test.com', age: 99 }],
       ['email'],
       ['name'],
     )
 
-    const user = await repo.findOne(q => q.where(e => e.eq('email', 'a@test.com')))
+    const user = await repo.read.findOne(q => q.where(e => e.eq('email', 'a@test.com')))
 
     expect(user!.name).toBe('Alice Changed')
     // age should NOT be updated since we only specified 'name' as update column
@@ -158,17 +158,17 @@ describe('Default query limit', () => {
       const repo = limitDb.repo(usersTable)
 
       // Insert 3 users
-      await repo.insertOne({ name: 'Alice', email: 'dl-a@test.com' })
-      await repo.insertOne({ name: 'Bob', email: 'dl-b@test.com' })
-      await repo.insertOne({ name: 'Charlie', email: 'dl-c@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'dl-a@test.com' })
+      await repo.write.insertOne({ name: 'Bob', email: 'dl-b@test.com' })
+      await repo.write.insertOne({ name: 'Charlie', email: 'dl-c@test.com' })
 
       // findMany without explicit limit should return only 2
-      const users = await repo.findMany()
+      const users = await repo.read.findMany()
 
       expect(users).toHaveLength(2)
 
       // findMany with explicit limit should use that
-      const all = await repo.findMany(q => q.limit(10))
+      const all = await repo.read.findMany(q => q.limit(10))
 
       expect(all).toHaveLength(3)
     }
@@ -191,7 +191,7 @@ describe('Transaction hooks', () => {
 
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Alice', email: 'txhook-a@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'txhook-a@test.com' })
     })
 
     expect(committed).toBe(true)
@@ -210,7 +210,7 @@ describe('Transaction hooks', () => {
 
         const repo = db.repo(usersTable).using(tx)
 
-        await repo.insertOne({ name: 'Alice', email: 'txhook-b@test.com' })
+        await repo.write.insertOne({ name: 'Alice', email: 'txhook-b@test.com' })
 
         throw new Error('test rollback')
       })
@@ -253,7 +253,7 @@ describe('Transaction hooks', () => {
 
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Alice', email: 'txhook-c@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'txhook-c@test.com' })
     })
 
     expect(rolledBack).toBe(false)
@@ -275,7 +275,7 @@ describe('Transaction hooks', () => {
 
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.insertOne({ name: 'Alice', email: 'txhook-d@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'txhook-d@test.com' })
     })
 
     expect(order).toEqual([1, 2, 3])
@@ -299,7 +299,7 @@ describe('Request context correlation', () => {
         async (tx) => {
           const repo = ctxDb.repo(usersTable).using(tx)
 
-          await repo.insertOne({ name: 'Alice', email: 'ctx-a@test.com' })
+          await repo.write.insertOne({ name: 'Alice', email: 'ctx-a@test.com' })
         },
       )
 
@@ -328,7 +328,7 @@ describe('Request context correlation', () => {
       await ctxDb.transaction(async (tx) => {
         const repo = ctxDb.repo(usersTable).using(tx)
 
-        await repo.insertOne({ name: 'Alice', email: 'ctx-b@test.com' })
+        await repo.write.insertOne({ name: 'Alice', email: 'ctx-b@test.com' })
       })
 
       // No events should have context
@@ -370,11 +370,11 @@ describe('NULL handling in aggregates', () => {
   it('COUNT ignores NULL values correctly', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'null-a@test.com', age: 25 })
-    await repo.insertOne({ name: 'Bob', email: 'null-b@test.com', age: null })
-    await repo.insertOne({ name: 'Charlie', email: 'null-c@test.com', age: 30 })
+    await repo.write.insertOne({ name: 'Alice', email: 'null-a@test.com', age: 25 })
+    await repo.write.insertOne({ name: 'Bob', email: 'null-b@test.com', age: null })
+    await repo.write.insertOne({ name: 'Charlie', email: 'null-c@test.com', age: 30 })
 
-    const total = await repo.count()
+    const total = await repo.read.count()
 
     expect(total).toBe(3)
   })
@@ -382,10 +382,10 @@ describe('NULL handling in aggregates', () => {
   it('SUM/AVG with all NULL returns null', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.insertOne({ name: 'Alice', email: 'nullagg-a@test.com', age: null })
-    await repo.insertOne({ name: 'Bob', email: 'nullagg-b@test.com', age: null })
+    await repo.write.insertOne({ name: 'Alice', email: 'nullagg-a@test.com', age: null })
+    await repo.write.insertOne({ name: 'Bob', email: 'nullagg-b@test.com', age: null })
 
-    const rows = await repo.findMany(q =>
+    const rows = await repo.read.findMany(q =>
       q.pick().computed(e => e.sum('age'), 'total'),
     )
 
@@ -398,8 +398,8 @@ describe('Large values', () => {
   it('handles large text values', async () => {
     const repo = db.repo(postsTable)
     const largeBody = 'x'.repeat(100_000)
-    const postId = await repo.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
-    const post = await repo.findOneOrThrow(q => q.where(e => e.eq('id', postId)))
+    const postId = await repo.write.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
+    const post = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', postId)))
 
     expect(post.body).toBe(largeBody)
     expect(post.body.length).toBe(100_000)

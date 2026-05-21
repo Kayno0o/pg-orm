@@ -21,7 +21,7 @@ afterAll(async () => {
 async function seedUsers(count: number) {
   const repo = db.repo(usersTable)
 
-  return repo.insertMany(
+  return repo.write.insertMany(
     Array.from({ length: count }, (_, i) => ({
       name: `User ${String(i + 1).padStart(3, '0')}`,
       email: `user${i + 1}@test.com`,
@@ -34,7 +34,7 @@ describe('Offset Pagination', () => {
   it('returns correct page', async () => {
     await seedUsers(15)
     const repo = db.repo(usersTable)
-    const result = await repo.paginate({ page: 1, perPage: 5 })
+    const result = await repo.read.paginate({ page: 1, perPage: 5 })
 
     expect(result.data).toHaveLength(5)
     expect(result.total).toBe(15)
@@ -46,7 +46,7 @@ describe('Offset Pagination', () => {
   it('returns second page', async () => {
     await seedUsers(15)
     const repo = db.repo(usersTable)
-    const result = await repo.paginate({ page: 2, perPage: 5 })
+    const result = await repo.read.paginate({ page: 2, perPage: 5 })
 
     expect(result.data).toHaveLength(5)
     expect(result.page).toBe(2)
@@ -55,7 +55,7 @@ describe('Offset Pagination', () => {
   it('returns last page with fewer items', async () => {
     await seedUsers(12)
     const repo = db.repo(usersTable)
-    const result = await repo.paginate({ page: 3, perPage: 5 })
+    const result = await repo.read.paginate({ page: 3, perPage: 5 })
 
     expect(result.data).toHaveLength(2)
     expect(result.totalPages).toBe(3)
@@ -64,7 +64,7 @@ describe('Offset Pagination', () => {
   it('returns empty data for page beyond total', async () => {
     await seedUsers(5)
     const repo = db.repo(usersTable)
-    const result = await repo.paginate({ page: 3, perPage: 5 })
+    const result = await repo.read.paginate({ page: 3, perPage: 5 })
 
     expect(result.data).toHaveLength(0)
   })
@@ -72,7 +72,7 @@ describe('Offset Pagination', () => {
   it('supports where filter', async () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
-    const result = await repo.paginate({
+    const result = await repo.read.paginate({
       page: 1,
       perPage: 5,
       where: e => e.gte('age', 25),
@@ -87,7 +87,7 @@ describe('Cursor Pagination', () => {
   it('forward pagination returns first page', async () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
-    const result = await repo.paginateCursor({ take: 3 })
+    const result = await repo.read.paginateCursor({ take: 3 })
 
     expect(result.data).toHaveLength(3)
     expect(result.nextCursor).not.toBeNull()
@@ -96,8 +96,8 @@ describe('Cursor Pagination', () => {
   it('forward pagination follows cursor', async () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
-    const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
-    const page2 = await repo.paginateCursor({
+    const page1 = await repo.read.paginateCursor({ take: 3, column: 'id' })
+    const page2 = await repo.read.paginateCursor({
       take: 3,
       column: 'id',
       cursor: page1.nextCursor,
@@ -115,8 +115,8 @@ describe('Cursor Pagination', () => {
   it('last page returns null cursor', async () => {
     await seedUsers(5)
     const repo = db.repo(usersTable)
-    const page1 = await repo.paginateCursor({ take: 3, column: 'id' })
-    const page2 = await repo.paginateCursor({
+    const page1 = await repo.read.paginateCursor({ take: 3, column: 'id' })
+    const page2 = await repo.read.paginateCursor({
       take: 3,
       column: 'id',
       cursor: page1.nextCursor,
@@ -130,10 +130,10 @@ describe('Cursor Pagination', () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
     // Get the last few items
-    const allUsers = await repo.findMany(q => q.orderBy('id', 'asc'))
+    const allUsers = await repo.read.findMany(q => q.orderBy('id', 'asc'))
     const lastId = allUsers.at(-1)!.id
 
-    const result = await repo.paginateCursor({
+    const result = await repo.read.paginateCursor({
       take: 3,
       column: 'id',
       cursor: lastId,
@@ -147,7 +147,7 @@ describe('Cursor Pagination', () => {
 
   it('empty table returns empty data and null cursor', async () => {
     const repo = db.repo(usersTable)
-    const result = await repo.paginateCursor({ take: 5 })
+    const result = await repo.read.paginateCursor({ take: 5 })
 
     expect(result.data).toHaveLength(0)
     expect(result.nextCursor).toBeNull()
@@ -156,7 +156,7 @@ describe('Cursor Pagination', () => {
   it('supports where filter', async () => {
     await seedUsers(10)
     const repo = db.repo(usersTable)
-    const result = await repo.paginateCursor({
+    const result = await repo.read.paginateCursor({
       take: 3,
       where: e => e.gte('age', 25),
     })
