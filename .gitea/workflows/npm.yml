@@ -39,7 +39,7 @@ jobs:
           PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Publish to Forgejo npm registry
-        run: bun pm publish
+        run: bun publish --access public
         env:
           PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
