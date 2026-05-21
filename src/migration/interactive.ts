@@ -2,11 +2,27 @@ import type { MigrationOp } from './types'
 import { createInterface } from 'node:readline'
 import { colors } from '@kaynooo/utils'
 
+/** Default reader: real TTY readline. Overridable in tests via the `reader` argument. */
+async function defaultReader(prompt: string): Promise<string> {
+  return new Promise<string>((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+
+    rl.question(prompt, (ans: string) => {
+      rl.close()
+      resolve(ans)
+    })
+  })
+}
+
 /**
  * Interactive TTY confirmation for `db.sync({ confirm: true })`. Prints a colored
  * preview of the SQL about to run and returns true if the user confirms.
  */
-export async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp[]): Promise<boolean> {
+export async function promptSync(
+  ops: MigrationOp[],
+  destructiveOps: MigrationOp[],
+  reader: (prompt: string) => Promise<string> = defaultReader,
+): Promise<boolean> {
   const safeOps = ops.filter(o => !o.destructive)
 
   console.log(`\n${colors.bold.cyan('── Database Sync Preview ──')}\n`)
@@ -32,19 +48,10 @@ export async function promptSync(ops: MigrationOp[], destructiveOps: MigrationOp
   console.log(colors.dim('SQL to execute:'))
   console.log(`${colors.dim(ops.map(o => `  ${o.sql};`).join('\n'))}\n`)
 
-  const answer = await new Promise<string>((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-
-    rl.question(
-      destructiveOps.length > 0
-        ? `${colors.bold.yellow(`Apply ${ops.length} operation(s) (${destructiveOps.length} destructive)? [y/N]`)} `
-        : `${colors.bold(`Apply ${ops.length} operation(s)? [Y/n]`)} `,
-      (ans: string) => {
-        rl.close()
-        resolve(ans.trim().toLowerCase())
-      },
-    )
-  })
+  const prompt = destructiveOps.length > 0
+    ? `${colors.bold.yellow(`Apply ${ops.length} operation(s) (${destructiveOps.length} destructive)? [y/N]`)} `
+    : `${colors.bold(`Apply ${ops.length} operation(s)? [Y/n]`)} `
+  const answer = (await reader(prompt)).trim().toLowerCase()
 
   const defaultYes = destructiveOps.length === 0
 

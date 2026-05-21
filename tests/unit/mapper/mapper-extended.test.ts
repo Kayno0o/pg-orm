@@ -1,0 +1,135 @@
+import type { AnyColumns } from '../../../src'
+import { describe, expect, it } from 'bun:test'
+import { clearMapperCache, compileMapper, getOrCompileMapper } from '../../../src/mapper/index'
+
+function makeCols(spec: Record<string, string>): AnyColumns {
+  const out: Record<string, unknown> = {}
+
+  for (const [name, pgType] of Object.entries(spec)) {
+    out[name] = { _kind: 'column', pgType, constraints: [] }
+  }
+
+  return out as AnyColumns
+}
+
+describe('mapper bigint coercion', () => {
+  it('coerces int8 string values to BigInt', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8' }))
+    const result = mapper({ id: '9007199254740993' })
+
+    expect(typeof result.id).toBe('bigint')
+    expect(result.id).toBe(9007199254740993n)
+  })
+
+  it('coerces bigserial string values to BigInt', () => {
+    const mapper = compileMapper(makeCols({ id: 'bigserial' }))
+    const result = mapper({ id: '42' })
+
+    expect(typeof result.id).toBe('bigint')
+    expect(result.id).toBe(42n)
+  })
+
+  it('preserves null int8 values', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8' }))
+    const result = mapper({ id: null })
+
+    expect(result.id).toBeNull()
+  })
+
+  it('preserves undefined int8 values as null/undefined (no coercion)', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8' }))
+    const result = mapper({ id: undefined })
+
+    expect(result.id).toBeUndefined()
+  })
+
+  it('passes through already-bigint values', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8' }))
+    const result = mapper({ id: 123n })
+
+    expect(result.id).toBe(123n)
+  })
+
+  it('handles a mix of bigint and non-bigint columns', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8', name: 'text', age: 'int4' }))
+    const result = mapper({ id: '99', name: 'Alice', age: 30 })
+
+    expect(result).toEqual({ id: 99n, name: 'Alice', age: 30 })
+    expect(typeof result.id).toBe('bigint')
+  })
+
+  it('bigint columns force JIT path (not identity) even with no pick/omit', () => {
+    const cols = makeCols({ id: 'int8' })
+    const mapper = compileMapper(cols)
+    const row = { id: '1' }
+    const result = mapper(row)
+
+    // identity would return same reference; JIT returns a fresh object
+    expect(result).not.toBe(row)
+  })
+
+  it('respects pick when bigint columns are present', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8', name: 'text' }), ['id'])
+    const result = mapper({ id: '7', name: 'ignored' })
+
+    expect(result).toEqual({ id: 7n })
+    expect(result).not.toHaveProperty('name')
+  })
+
+  it('respects omit when bigint columns are present', () => {
+    const mapper = compileMapper(makeCols({ id: 'int8', name: 'text' }), undefined, ['name'])
+    const result = mapper({ id: '7', name: 'gone' })
+
+    expect(result).toEqual({ id: 7n })
+    expect(result).not.toHaveProperty('name')
+  })
+})
+
+describe('getOrCompileMapper cache key fingerprint', () => {
+  it('treats pick column order as equivalent (sorted fingerprint)', () => {
+    clearMapperCache()
+    const cols = makeCols({ id: 'int4', name: 'text' })
+    const m1 = getOrCompileMapper('t', cols, ['id', 'name'])
+    const m2 = getOrCompileMapper('t', cols, ['name', 'id'])
+
+    expect(m1).toBe(m2)
+  })
+
+  it('treats omit column order as equivalent (sorted fingerprint)', () => {
+    clearMapperCache()
+    const cols = makeCols({ id: 'int4', name: 'text', age: 'int4' })
+    const m1 = getOrCompileMapper('t', cols, undefined, ['name', 'age'])
+    const m2 = getOrCompileMapper('t', cols, undefined, ['age', 'name'])
+
+    expect(m1).toBe(m2)
+  })
+
+  it('separates entries by pick vs omit even with same columns', () => {
+    clearMapperCache()
+    const cols = makeCols({ id: 'int4', name: 'text' })
+    const m1 = getOrCompileMapper('t', cols, ['id'])
+    const m2 = getOrCompileMapper('t', cols, undefined, ['name'])
+
+    expect(m1).not.toBe(m2)
+  })
+
+  it('promotes recently-accessed entries (LRU touch)', () => {
+    clearMapperCache()
+    const cols = makeCols({ id: 'int4' })
+
+    // Seed the cache
+    const original = getOrCompileMapper('seed', cols, ['id'])
+
+    // Fill cache to ~1000 entries while periodically touching the original
+    for (let i = 0; i < 1100; i++) {
+      getOrCompileMapper(`other_${i}`, cols, ['id'])
+
+      if (i % 100 === 0)
+        getOrCompileMapper('seed', cols, ['id']) // keep promoting
+    }
+
+    const seedAfter = getOrCompileMapper('seed', cols, ['id'])
+
+    expect(seedAfter).toBe(original)
+  })
+})
