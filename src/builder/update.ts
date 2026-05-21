@@ -1,10 +1,8 @@
 import type { AnyColumns, InferSelect, InferUpdate } from '../types/index'
-import type { ExprBuilder, ExprTape } from './expr'
 import { WhereableMutationBuilder } from './base'
-import { createExprBuilder } from './expr'
 import { rawSql, validateValues } from './state'
 
-export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
+export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder<TColumns> {
   constructor(table: string) {
     super('update', table)
   }
@@ -25,14 +23,6 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends
    */
   setRaw(column: keyof TColumns & string, sqlExpression: string): this {
     ;(this._state.setValues ??= {})[column] = rawSql(sqlExpression)
-
-    return this
-  }
-
-  override where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.whereTape = fn(builder)
 
     return this
   }

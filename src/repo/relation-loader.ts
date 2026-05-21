@@ -5,6 +5,7 @@ import { SelectBuilder } from '../builder/query'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { OrmError } from '../errors/index'
 import { buildPlaceholders, quote } from '../sql/utils'
+import { ChunkedQueryExecutor, collectParentIds, groupBy, indexBy } from './chunked-executor'
 
 /**
  * Batched relation loading — single query per relation, all relations in parallel.
@@ -13,13 +14,17 @@ import { buildPlaceholders, quote } from '../sql/utils'
  * through child loaders.
  */
 export class RelationLoader {
+  private readonly chunked: ChunkedQueryExecutor
+
   constructor(
     private table: AnyTableDef,
     private executor: Executable,
     private maxIncludeDepth: number,
     private batchChunkSize: number,
     private tableRegistry?: ReadonlyMap<string, AnyTableDef>,
-  ) {}
+  ) {
+    this.chunked = new ChunkedQueryExecutor(executor, batchChunkSize)
+  }
 
   async loadIncludes(
     parentRows: Record<string, unknown>[],
@@ -87,60 +92,22 @@ export class RelationLoader {
     return table.primaryKey ?? DEFAULT_PRIMARY_KEY
   }
 
-  private async _query(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    return this.executor.query(sql, params)
-  }
-
   // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
-  private async _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    if (ids.length <= this.batchChunkSize) {
-      const placeholders = buildPlaceholders(ids.length)
-
-      return this._query(
-        `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
-        ids,
-      )
-    }
-
-    const results: Record<string, unknown>[] = []
-
-    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
-      const chunk = ids.slice(i, i + this.batchChunkSize)
-      const placeholders = buildPlaceholders(chunk.length)
-      const rows = await this._query(
-        `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${placeholders})`,
-        chunk,
-      )
-
-      results.push(...rows)
-    }
-
-    return results
+  private _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
+    return this.chunked.execute(ids, chunk => ({
+      sql: `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${buildPlaceholders(chunk.length)})`,
+      params: chunk,
+    }))
   }
 
-  private async _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    const buildSql = (chunk: unknown[]) => {
-      const placeholders = buildPlaceholders(chunk.length)
-
-      return `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
+  private _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
+    return this.chunked.execute(ids, chunk => ({
+      sql: `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
        FROM ${quote(rel.throughTable!)} j
        JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
-       WHERE j.${quote(rel.throughFrom!)} IN (${placeholders})`
-    }
-
-    if (ids.length <= this.batchChunkSize) {
-      return this._query(buildSql(ids), ids)
-    }
-
-    const results: Record<string, unknown>[] = []
-
-    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
-      const chunk = ids.slice(i, i + this.batchChunkSize)
-
-      results.push(...await this._query(buildSql(chunk), chunk))
-    }
-
-    return results
+       WHERE j.${quote(rel.throughFrom!)} IN (${buildPlaceholders(chunk.length)})`,
+      params: chunk,
+    }))
   }
 
   // Build a filtered query for a relation using callback, or fall back to batch query.
@@ -165,7 +132,7 @@ export class RelationLoader {
     filtered.andWhere(e => e.in(column, ids))
     const { sql, params } = filtered.toSQL()
 
-    return { rows: await this._query(sql, params), nestedIncludes }
+    return { rows: await this.executor.query(sql, params), nestedIncludes }
   }
 
   private async _loadBelongsTo(
@@ -175,7 +142,7 @@ export class RelationLoader {
     ctx: { depth: number, seen: Set<string> },
   ): Promise<void> {
     const fk = rel.foreignKey
-    const parentIds = [...new Set(parentRows.map(r => r[fk]).filter(v => v != null))]
+    const parentIds = collectParentIds(parentRows, fk)
 
     if (parentIds.length === 0) {
       for (const row of parentRows) row[inc.relation] = null
@@ -186,23 +153,13 @@ export class RelationLoader {
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
     const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, inc.callback)
-
-    const indexed = new Map<unknown, Record<string, unknown>>()
-
-    for (const child of childRows) indexed.set(child[targetPk], child)
+    const indexed = indexBy(childRows, targetPk)
 
     for (const parent of parentRows) {
       parent[inc.relation] = indexed.get(parent[fk]) ?? null
     }
 
-    if (nestedIncludes.length > 0 && targetTable) {
-      const childVisited = new Set(ctx.seen)
-
-      childVisited.add(`${this.table.name}.${inc.relation}`)
-      const childLoader = new RelationLoader(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
-
-      await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
-    }
+    await this._loadNested(targetTable, childRows, nestedIncludes, inc.relation, ctx)
   }
 
   private async _loadHasOneOrMany(
@@ -213,7 +170,7 @@ export class RelationLoader {
   ): Promise<void> {
     const sourcePk = this._findPrimaryKey(this.table)
     const targetFk = rel.foreignKey
-    const parentIds = [...new Set(parentRows.map(r => r[sourcePk]).filter(v => v != null))]
+    const parentIds = collectParentIds(parentRows, sourcePk)
     const isMany = rel.type === 'hasMany'
 
     if (parentIds.length === 0) {
@@ -227,43 +184,21 @@ export class RelationLoader {
     const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, inc.callback)
 
     if (isMany) {
-      const grouped = new Map<unknown, Record<string, unknown>[]>()
-
-      for (const child of childRows) {
-        const fk = child[targetFk]
-
-        if (!grouped.has(fk))
-          grouped.set(fk, [])
-
-        grouped.get(fk)!.push(child)
-      }
+      const grouped = groupBy(childRows, targetFk)
 
       for (const parent of parentRows) {
         parent[inc.relation] = grouped.get(parent[sourcePk]) ?? []
       }
     }
     else {
-      const indexed = new Map<unknown, Record<string, unknown>>()
-
-      for (const child of childRows) indexed.set(child[targetFk], child)
+      const indexed = indexBy(childRows, targetFk)
 
       for (const parent of parentRows) {
         parent[inc.relation] = indexed.get(parent[sourcePk]) ?? null
       }
     }
 
-    if (nestedIncludes.length > 0) {
-      const targetTableDef = this._resolveTable(rel.targetTable)
-
-      if (targetTableDef) {
-        const childVisited = new Set(ctx.seen)
-
-        childVisited.add(`${this.table.name}.${inc.relation}`)
-        const childLoader = new RelationLoader(targetTableDef, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
-
-        await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
-      }
-    }
+    await this._loadNested(this._resolveTable(rel.targetTable), childRows, nestedIncludes, inc.relation, ctx)
   }
 
   private async _loadHasManyThrough(
@@ -274,7 +209,7 @@ export class RelationLoader {
     const sourcePk = this._findPrimaryKey(this.table)
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-    const parentIds = [...new Set(parentRows.map(r => r[sourcePk]).filter(v => v != null))]
+    const parentIds = collectParentIds(parentRows, sourcePk)
 
     if (parentIds.length === 0) {
       for (const row of parentRows) row[relationName] = []
@@ -283,21 +218,34 @@ export class RelationLoader {
     }
 
     const rows = await this._batchThroughQuery(rel, targetPk, parentIds)
+    const grouped = groupBy(rows, '__pgorm_pivot_fk__')
 
-    const grouped = new Map<unknown, Record<string, unknown>[]>()
-
-    for (const row of rows) {
-      const fk = row.__pgorm_pivot_fk__
-
-      if (!grouped.has(fk))
-        grouped.set(fk, [])
-
-      grouped.get(fk)!.push(row)
-      delete row.__pgorm_pivot_fk__
-    }
+    for (const row of rows) delete row.__pgorm_pivot_fk__
 
     for (const parent of parentRows) {
       parent[relationName] = grouped.get(parent[sourcePk]) ?? []
     }
+  }
+
+  /**
+   * Recursively load nested includes against a child row set, propagating the
+   * visited-relation set so cycle detection sees the parent edge.
+   */
+  private async _loadNested(
+    targetTable: AnyTableDef | undefined,
+    childRows: Record<string, unknown>[],
+    nestedIncludes: IncludeEntry[],
+    relationName: string,
+    ctx: { depth: number, seen: Set<string> },
+  ): Promise<void> {
+    if (nestedIncludes.length === 0 || !targetTable)
+      return
+
+    const childVisited = new Set(ctx.seen)
+
+    childVisited.add(`${this.table.name}.${relationName}`)
+    const childLoader = new RelationLoader(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
+
+    await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
   }
 }

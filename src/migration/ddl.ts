@@ -1,34 +1,20 @@
-import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
+import type { AnyColumnDef, AnyTableDef } from '../types/index'
 import type { MigrationOp } from './types'
 import { getColumnMeta } from '../schema/columns'
 import { escapeLiteralBody } from '../sql/utils'
 import { QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
+import { collectConstraints } from './constraint-collector'
 import { BIGSERIAL_RE, BOOL_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, SERIAL_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
-import { columnEntries } from './types'
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
-  const colDefs: string[] = []
+  const { colDefs, pkCols, uniqueCols } = collectConstraints(table, generateColumnDDL)
   const constraints: string[] = []
 
-  for (const [colName, colDef] of columnEntries(table.columns)) {
-    colDefs.push(`  ${generateColumnDDL(colName, colDef)}`)
-  }
-
-  const pkCols = columnEntries(table.columns)
-    .filter(([, col]) => col.constraints.some((c: ColumnConstraint) => c.type === 'primary_key'))
-    .map(([name]) => `"${name}"`)
-
-  if (pkCols.length) {
+  if (pkCols.length)
     constraints.push(`  PRIMARY KEY (${pkCols.join(', ')})`)
-  }
 
-  const uqCols = columnEntries(table.columns)
-    .filter(([, col]) => col.constraints.some((c: ColumnConstraint) => c.type === 'unique'))
-    .map(([name]) => name)
-
-  for (const col of uqCols) {
+  for (const col of uniqueCols)
     constraints.push(`  UNIQUE ("${col}")`)
-  }
 
   // FK constraints are emitted as separate `add_fk` ops after all CREATE TABLEs,
   // so cross-table FK ordering is not constrained by declaration order.

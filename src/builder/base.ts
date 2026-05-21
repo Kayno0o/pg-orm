@@ -1,3 +1,4 @@
+import type { AnyColumns } from '../types/index'
 import type { ExprBuilder, ExprTape } from './expr'
 import type { BuilderState, QueryOp } from './state'
 import { assembleQuery } from './assembler'
@@ -45,9 +46,9 @@ export abstract class MutationBuilder extends BaseBuilder {
   }
 }
 
-export abstract class WhereableMutationBuilder extends MutationBuilder {
-  where(fn: (e: ExprBuilder<any>) => ExprTape): this {
-    const builder = createExprBuilder()
+export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = AnyColumns> extends MutationBuilder {
+  where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    const builder = createExprBuilder<TColumns>()
 
     this._state.whereTape = fn(builder)
 

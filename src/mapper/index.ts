@@ -99,24 +99,26 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   omit?: string[],
 ): RowMapper<Record<string, unknown>> {
   const key = `${tableName}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}`
-  let mapper = _mapperCache.get(key)
+  const cached = _mapperCache.get(key)
 
-  if (!mapper) {
-    mapper = compileMapper(columns, pick, omit)
-    _mapperCache.set(key, mapper)
+  if (cached !== undefined) {
+    // LRU hit: promote to most-recently-used by re-inserting at the tail.
+    _mapperCache.delete(key)
+    _mapperCache.set(key, cached)
 
-    // Bounded eviction: remove oldest 100 entries when cache exceeds max
-    if (_mapperCache.size > MAPPER_CACHE_MAX) {
-      let evicted = 0
+    return cached
+  }
 
-      for (const k of _mapperCache.keys()) {
-        if (evicted >= 100)
-          break
+  const mapper = compileMapper(columns, pick, omit)
 
-        _mapperCache.delete(k)
-        evicted++
-      }
-    }
+  _mapperCache.set(key, mapper)
+
+  // Single-entry LRU eviction: drop the least-recently-used (head of insertion order).
+  if (_mapperCache.size > MAPPER_CACHE_MAX) {
+    const lruKey = _mapperCache.keys().next().value
+
+    if (lruKey !== undefined)
+      _mapperCache.delete(lruKey)
   }
 
   return mapper

@@ -1,19 +1,9 @@
 import type { AnyColumns, InferSelect } from '../types/index'
-import type { ExprBuilder, ExprTape } from './expr'
 import { WhereableMutationBuilder } from './base'
-import { createExprBuilder } from './expr'
 
-export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
+export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder<TColumns> {
   constructor(table: string) {
     super('delete', table)
-  }
-
-  override where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.whereTape = fn(builder)
-
-    return this
   }
 
   returning(): DeleteBuilder<TColumns, InferSelect<TColumns>>
