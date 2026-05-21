@@ -175,8 +175,22 @@ export function validateRawSqlFragment(fragment: string, context: string): void 
 }
 
 const MIGRATION_NAME_RE = /[^\w-]/g
+const MAX_MIGRATION_NAME_BYTES = 100
 
-// Sanitize migration filename — no path traversal
+// Sanitize migration filename — no path traversal, length-bounded.
+// A bounded length keeps filenames within filesystem limits (most FS cap at 255
+// bytes, but PG's identifier ceiling and timestamp prefixes eat into that) and
+// blocks pathological inputs from producing multi-MB filenames.
 export function sanitizeMigrationName(name: string): string {
-  return name.replace(MIGRATION_NAME_RE, '_')
+  const sanitized = name.replace(MIGRATION_NAME_RE, '_')
+
+  if (Buffer.byteLength(sanitized, 'utf8') > MAX_MIGRATION_NAME_BYTES) {
+    throw new ValidationError(
+      `Migration name too long after sanitization (${Buffer.byteLength(sanitized, 'utf8')} bytes, max ${MAX_MIGRATION_NAME_BYTES})`,
+      'migration.name',
+      { value: `${sanitized.slice(0, 80)}…` },
+    )
+  }
+
+  return sanitized
 }

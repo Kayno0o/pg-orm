@@ -13,8 +13,15 @@ export class OrmError extends Error {
 
 /**
  * Optional global param redactor. Set via `setParamRedactor()` (typically wired
- * from `DbConfig.redactParam`) to scrub sensitive values from `QueryError.params`
+ * from `DbConfig.redactParams`) to scrub sensitive values from `QueryError.params`
  * even outside production. Receives the raw param array and returns the scrubbed copy.
+ *
+ * **The redactor MUST NOT throw.** If it does, the QueryError construction
+ * propagates the exception — this is intentional. Silently swallowing redactor
+ * bugs hides programming errors and makes the resulting `params: []` look
+ * indistinguishable from a deliberate "no params" case, which historically led
+ * to debugging black holes. Validate inputs inside your redactor and prefer
+ * returning sanitized copies over throwing.
  */
 type ParamRedactor = (params: unknown[]) => unknown[]
 let paramRedactor: ParamRedactor | undefined
@@ -36,12 +43,10 @@ export class QueryError extends OrmError {
       this.params = []
     }
     else if (paramRedactor) {
-      try {
-        this.params = paramRedactor(params)
-      }
-      catch {
-        this.params = []
-      }
+      // Intentionally NOT wrapped in try/catch: a throwing redactor is a
+      // programming bug in the caller's code, and silently dropping params
+      // masks it. See the ParamRedactor type doc above.
+      this.params = paramRedactor(params)
     }
     else {
       this.params = params

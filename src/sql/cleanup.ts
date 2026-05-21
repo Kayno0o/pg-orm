@@ -1,30 +1,77 @@
 import type { SQL } from 'bun'
 import { asDriver } from './adapter'
 
-interface Closable { sql: InstanceType<typeof SQL> }
+export interface ShutdownErrorEvent {
+  kind: 'shutdownCloseError'
+  error: unknown
+}
+
+/**
+ * The shape `cleanup.ts` requires of registered instances. Database conforms
+ * via structural typing — the kind union here is a subset of Database's
+ * (which also includes onCommit/onRollback/streamWarning).
+ */
+interface Closable {
+  sql: InstanceType<typeof SQL>
+  /**
+   * Optional channel for surfacing shutdown-close failures. Mirrors the
+   * `onCallbackError` channel used for transaction commit/rollback callbacks
+   * (see `Database._onCallbackError`). If unset, errors fall back to
+   * `console.warn`.
+   */
+  _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
+}
 
 const activeInstances = new Set<WeakRef<Closable>>()
 let cleanupRegistered = false
 
-function closeInstance(instance: Closable): void {
-  try {
-    // Fire-and-forget — process is exiting, we just need to initiate the close
-    void asDriver(instance.sql).close({ timeout: 1000 })
+function reportShutdownError(instance: Closable, error: unknown): void {
+  const channel = instance._onCallbackError
+
+  if (channel) {
+    try {
+      channel({ kind: 'shutdownCloseError', error })
+
+      return
+    }
+    catch (channelErr) {
+      // The user's channel itself threw. Drop to console as last resort so
+      // both errors are visible.
+      console.warn('pg-orm: onCallbackError handler threw during shutdown:', channelErr)
+    }
   }
-  catch {
-    // best-effort — connection may already be closed
+
+  console.warn('pg-orm: shutdown close failed:', error)
+}
+
+/**
+ * @internal
+ */
+export async function closeInstance(instance: Closable): Promise<void> {
+  try {
+    await asDriver(instance.sql).close({ timeout: 1000 })
+  }
+  catch (err) {
+    reportShutdownError(instance, err)
   }
 }
 
-function cleanup(): void {
+/**
+ * @internal
+ */
+export async function cleanup(): Promise<void> {
+  const tasks: Promise<void>[] = []
+
   for (const ref of activeInstances) {
     const instance = ref.deref()
 
     if (instance)
-      closeInstance(instance)
+      tasks.push(closeInstance(instance))
   }
 
   activeInstances.clear()
+
+  await Promise.allSettled(tasks)
 }
 
 function registerCleanupHandlers(): void {
@@ -34,14 +81,16 @@ function registerCleanupHandlers(): void {
   cleanupRegistered = true
 
   process.on('SIGINT', () => {
-    cleanup()
-    process.exit(130)
+    cleanup().finally(() => process.exit(130))
   })
   process.on('SIGTERM', () => {
-    cleanup()
-    process.exit(143)
+    cleanup().finally(() => process.exit(143))
   })
-  process.on('beforeExit', cleanup)
+  process.on('beforeExit', () => {
+    // beforeExit can be re-entered if cleanup schedules more I/O. Allowing the
+    // promise to run keeps the event loop alive until it settles.
+    void cleanup()
+  })
 }
 
 /**
@@ -59,4 +108,11 @@ export function registerInstance(instance: Closable): WeakRef<Closable> {
 
 export function unregisterInstance(ref: WeakRef<Closable>): void {
   activeInstances.delete(ref)
+}
+
+/**
+ * @internal
+ */
+export function _activeInstanceCount(): number {
+  return activeInstances.size
 }

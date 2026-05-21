@@ -109,12 +109,15 @@ export interface DbConfig {
    * would change observable semantics). If unset, errors are silently dropped
    * (and the stream warning falls back to `console.warn`).
    */
-  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning', error: unknown }) => void
+  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
   /**
    * Scrub sensitive values from `QueryError.params` even outside production.
    * Receives the positional param array and returns the redacted copy.
-   * Called for every QueryError-derived error. Throwing inside the function
-   * causes params to be dropped entirely (empty array).
+   * Called for every QueryError-derived error.
+   *
+   * **MUST NOT throw.** A throwing redactor propagates the exception out of
+   * the QueryError constructor — intentionally, so programming bugs in the
+   * redactor surface loudly rather than masquerading as missing params.
    */
   redactParams?: (params: unknown[]) => unknown[]
   /**
@@ -217,7 +220,7 @@ export class Database extends BaseExecutor {
   private _statementTimeout?: number
   private _idleInTransactionTimeout?: number
   private _pingErrorHandler?: (error: unknown) => void
-  _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning', error: unknown }) => void
+  _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
   private _retryMaxRetries: number
   private _retryBaseDelay: number
   private _retryMaxDelay: number
@@ -620,17 +623,33 @@ export class Database extends BaseExecutor {
 
       if (this._inFlight > 0) {
         await new Promise<void>((resolve) => {
-          this._drainResolvers.push(resolve)
+          let timer: ReturnType<typeof setTimeout> | undefined
+
+          // Wrap resolve so the natural-completion path (in-flight count → 0)
+          // also clears the timeout, preventing the timer from keeping the
+          // event loop alive past drain.
+          const settle = (): void => {
+            if (timer !== undefined)
+              clearTimeout(timer)
+
+            resolve()
+          }
+
+          this._drainResolvers.push(settle)
 
           if (opts.timeout !== undefined && Number.isFinite(opts.timeout)) {
-            setTimeout(() => {
-              const idx = this._drainResolvers.indexOf(resolve)
+            timer = setTimeout(() => {
+              const idx = this._drainResolvers.indexOf(settle)
 
-              if (idx >= 0) {
+              if (idx >= 0)
                 this._drainResolvers.splice(idx, 1)
-                resolve()
-              }
+
+              resolve()
             }, opts.timeout)
+
+            // The timer is a hard ceiling, not a load-bearing signal — don't
+            // let it block process exit on its own.
+            timer.unref?.()
           }
         })
       }
@@ -681,12 +700,28 @@ export class TransactionClient extends BaseExecutor {
       this._slowQueryThreshold = slowQueryThreshold
   }
 
-  /** Register a callback to run after the transaction commits successfully. */
+  /**
+   * Register a callback to run after the transaction commits successfully.
+   *
+   * **Callback semantics**: the callback fires AFTER the transaction has
+   * already been committed by the driver — `tx.*` query methods are no
+   * longer connected to a live transaction at that point. The callback
+   * MUST NOT call back into `tx.*`. Use it for side effects that should
+   * happen only on commit: cache invalidation, telemetry emit, queue
+   * dispatch, webhook fire, etc. A throw is routed to `onCallbackError`
+   * (or dropped) — it cannot un-commit the transaction.
+   */
   onCommit(fn: () => void | Promise<void>): void {
     this._onCommitCallbacks.push(fn)
   }
 
-  /** Register a callback to run after the transaction rolls back. */
+  /**
+   * Register a callback to run after the transaction rolls back.
+   *
+   * Same semantics as `onCommit`: fires after the rollback has settled,
+   * `tx.*` is no longer live, callbacks MUST NOT call back into `tx.*`.
+   * Use for compensating actions, error logging, retry scheduling.
+   */
   onRollback(fn: (err: unknown) => void | Promise<void>): void {
     this._onRollbackCallbacks.push(fn)
   }

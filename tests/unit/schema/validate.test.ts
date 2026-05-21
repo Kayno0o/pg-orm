@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { ValidationError } from '../../../src/errors/index'
 import { sanitizeMigrationName, validateIdentifier, validateTsLanguage } from '../../../src/schema/validate'
 
 describe('validateIdentifier', () => {
@@ -63,5 +64,23 @@ describe('sanitizeMigrationName', () => {
 
   it('handles spaces and dots', () => {
     expect(sanitizeMigrationName('my migration.sql')).toBe('my_migration_sql')
+  })
+
+  it('throws ValidationError when sanitized name exceeds the byte cap', () => {
+    const huge = 'a'.repeat(200)
+
+    expect(() => sanitizeMigrationName(huge)).toThrow(ValidationError)
+  })
+
+  it('throws ValidationError on a multi-MB pathological input', () => {
+    const massive = 'b'.repeat(10_000_000)
+
+    expect(() => sanitizeMigrationName(massive)).toThrow(/too long/)
+  })
+
+  it('accepts names at the boundary', () => {
+    const atLimit = 'c'.repeat(100)
+
+    expect(sanitizeMigrationName(atLimit)).toBe(atLimit)
   })
 })

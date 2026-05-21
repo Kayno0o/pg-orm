@@ -1,4 +1,5 @@
 import type { AnyTableDef } from '../types/index'
+import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { OrmError } from '../errors/index'
 
 type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
@@ -27,7 +28,8 @@ export function getVirtualEntries(table: AnyTableDef): VirtualEntry[] {
  * Install virtual fields as lazy getters on each row. The first read computes
  * and replaces itself with the materialized value so subsequent reads are
  * plain property accesses. A throw inside `compute` is wrapped in OrmError
- * with the table + field name for easier debugging.
+ * with the table, field name, and the row's primary-key value so bulk
+ * failures (e.g., 1 bad row out of 10k in a findMany) are debuggable.
  */
 export function applyVirtuals<T extends Record<string, unknown>>(table: AnyTableDef, rows: T[]): T[] {
   const entries = getVirtualEntries(table)
@@ -36,6 +38,7 @@ export function applyVirtuals<T extends Record<string, unknown>>(table: AnyTable
     return rows
 
   const tableName = table.name
+  const pkColumn = table.primaryKey ?? DEFAULT_PRIMARY_KEY
 
   for (const row of rows) {
     for (const [key, virt] of entries) {
@@ -47,8 +50,16 @@ export function applyVirtuals<T extends Record<string, unknown>>(table: AnyTable
             value = virt.compute(row)
           }
           catch (err) {
+            // Use the underlying row to read the PK, not `this` — `this` may
+            // be a row clone created by post-processing. `row` is the bound
+            // closure target that was actually passed to compute().
+            const pkValue = (row as Record<string, unknown>)[pkColumn]
+            const rowRef = pkValue !== undefined
+              ? `row ${tableName}.${pkColumn}=${formatPkValue(pkValue)}`
+              : `row in table "${tableName}"`
+
             throw new OrmError(
-              `Virtual field "${key}" on table "${tableName}" threw during computation: ${err instanceof Error ? err.message : String(err)}`,
+              `Virtual field "${key}" on ${rowRef} threw during computation: ${err instanceof Error ? err.message : String(err)}`,
               err,
             )
           }
@@ -64,4 +75,14 @@ export function applyVirtuals<T extends Record<string, unknown>>(table: AnyTable
   }
 
   return rows
+}
+
+function formatPkValue(value: unknown): string {
+  if (value === null)
+    return 'null'
+
+  if (typeof value === 'string')
+    return `"${value}"`
+
+  return String(value)
 }
