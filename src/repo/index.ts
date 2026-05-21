@@ -1,7 +1,7 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferInsert, InferPrimaryKey, InferSelect, InferUpdate, InferVirtuals, WithVirtuals } from '../types/index'
-import { DeleteBuilder, InsertBuilder, MergeBuilder, rawSql, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { NotFoundError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
@@ -13,6 +13,20 @@ import { applySoftDeleteFilter, getOptimisticLockColumn, getSoftDeleteColumn, re
 import { applyVirtuals, clearVirtualEntriesCache } from './virtuals'
 
 export { clearVirtualEntriesCache }
+
+/**
+ * Construction params for `Repository`. Only `table` and `executor` are required;
+ * everything else falls back to module defaults. Built by `Database.repo()` — most
+ * callers should not construct `Repository` directly.
+ */
+export interface RepositoryConfig {
+  table: AnyTableDef
+  executor: Executable
+  tableRegistry?: ReadonlyMap<string, AnyTableDef>
+  maxIncludeDepth?: number
+  defaultLimit?: number
+  batchChunkSize?: number
+}
 
 /**
  * Type-safe repository for a table definition.
@@ -44,26 +58,26 @@ export class Repository<
   private _relationLoader: RelationLoader
   private _hooks: HookOrchestrator
 
-  constructor(
-    table: AnyTableDef,
-    executor: Executable,
-    tableRegistry?: ReadonlyMap<string, AnyTableDef>,
-    maxIncludeDepth?: number,
-    defaultLimit?: number,
-    batchChunkSize?: number,
-  ) {
-    this._table = table
-    this._executor = executor
-    this._tableRegistry = tableRegistry
-    this._maxIncludeDepth = maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
-    this._batchChunkSize = batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
-    this._defaultLimit = defaultLimit
-    this._relationLoader = new RelationLoader(table, executor, this._maxIncludeDepth, this._batchChunkSize, tableRegistry)
-    this._hooks = new HookOrchestrator(table)
+  constructor(config: RepositoryConfig) {
+    this._table = config.table
+    this._executor = config.executor
+    this._tableRegistry = config.tableRegistry
+    this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
+    this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
+    this._defaultLimit = config.defaultLimit
+    this._relationLoader = new RelationLoader(config.table, config.executor, this._maxIncludeDepth, this._batchChunkSize, config.tableRegistry)
+    this._hooks = new HookOrchestrator(config.table)
   }
 
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>(this._table, tx as Executable, this._tableRegistry, this._maxIncludeDepth, this._defaultLimit, this._batchChunkSize)
+    return new Repository<TColumns, TRelations, TVirtuals>({
+      table: this._table,
+      executor: tx as Executable,
+      tableRegistry: this._tableRegistry,
+      maxIncludeDepth: this._maxIncludeDepth,
+      defaultLimit: this._defaultLimit,
+      batchChunkSize: this._batchChunkSize,
+    })
   }
 
   // --- Primary key helper ---
@@ -210,10 +224,10 @@ export class Repository<
 
     // `validateValues` (inside `.set()`) rejects `__raw` objects to prevent user
     // payloads from smuggling raw SQL through. The optimistic-lock increment is
-    // ORM-internal and must be applied AFTER that check, by writing the rawSql
-    // directly into the builder state — do not move this above `.set()`.
+    // ORM-internal and must be applied AFTER that check via `setRaw()`, which
+    // bypasses validation — do not move this above `.set()`.
     if (lockCol !== null) {
-      b.getState().setValues![lockCol] = rawSql(`${quote(lockCol)} + 1`)
+      b.setRaw(lockCol, `${quote(lockCol)} + 1`)
     }
 
     const { sql, params } = b.toSQL()
@@ -306,11 +320,8 @@ export class Repository<
       .limit(1)
 
     applySoftDeleteFilter(this._table, builder)
+    builder.asExists()
 
-    const existsState = builder.getState()
-
-    existsState.columns = []
-    existsState.computedColumns = [{ expr: '1', alias: '_exists' }]
     const { sql, params } = builder.toSQL()
     const rows = await this._query(sql, params)
 
@@ -549,7 +560,7 @@ export class Repository<
 
     const builder = new SelectBuilder<TColumns, TRelations>(this._table.name)
     const finalBuilder = cb ? cb(builder) : builder
-    const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
+    const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     let offset = 0
     const mapper = this._getMapper(finalBuilder)
 

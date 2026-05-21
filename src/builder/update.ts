@@ -2,7 +2,7 @@ import type { AnyColumns, InferSelect, InferUpdate } from '../types/index'
 import type { ExprBuilder, ExprTape } from './expr'
 import { WhereableMutationBuilder } from './base'
 import { createExprBuilder } from './expr'
-import { validateValues } from './state'
+import { rawSql, validateValues } from './state'
 
 export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends WhereableMutationBuilder {
   constructor(table: string) {
@@ -12,6 +12,19 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void> extends
   set(vals: InferUpdate<TColumns>): this {
     validateValues(vals as Record<string, unknown>, 'UpdateBuilder.set()')
     this._state.setValues = vals as Record<string, unknown>
+
+    return this
+  }
+
+  /**
+   * Set a column to a raw SQL expression (bypasses `validateValues`). Internal
+   * escape hatch for ORM-managed updates like the optimistic-lock increment.
+   *
+   * @trusted The SQL expression is inlined verbatim. Pass only developer-authored
+   * SQL — never user input. See README "Security model".
+   */
+  setRaw(column: keyof TColumns & string, sqlExpression: string): this {
+    ;(this._state.setValues ??= {})[column] = rawSql(sqlExpression)
 
     return this
   }

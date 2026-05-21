@@ -288,4 +288,32 @@ export class SelectBuilder<
 
     return this
   }
+
+  /**
+   * Reshape the SELECT to a single `1 AS _exists` column. Combined with
+   * `LIMIT 1`, callers use `rows.length > 0` to test existence. Used by
+   * `repo.exists()`; not typically called directly.
+   */
+  asExists(): this {
+    this._state.columns = []
+    this._state.omitColumns = []
+    this._state.computedColumns = [{ expr: '1', alias: '_exists' }]
+
+    return this
+  }
+
+  /**
+   * Hint for `repo.stream()` — overrides the default chunk size when this
+   * builder is passed to streaming. `opts.chunkSize` to `stream()` still wins
+   * over the builder-side hint.
+   */
+  withStreamChunk(size: number): this {
+    if (!Number.isInteger(size) || size <= 0) {
+      throw new ValidationError(`withStreamChunk() requires a positive integer, got ${size}`, 'withStreamChunk', { value: size })
+    }
+
+    this._state.streamChunkSize = size
+
+    return this
+  }
 }

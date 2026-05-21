@@ -8,7 +8,7 @@ describe('Edge Cases — Unit', () => {
   describe('restore()', () => {
     it('throws OrmError if table has no softDelete trait', async () => {
       const mock = new MockExecutor()
-      const repo = new Repository(postsTable, mock)
+      const repo = new Repository({ table: postsTable, executor: mock })
 
       expect(repo.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
       expect(repo.restore(e => e.eq('id', 1))).rejects.toThrow('restore() requires softDelete trait')
@@ -18,7 +18,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([{ id: 1, name: 'Alice', email: 'a@test.com', age: null, deletedAt: null, createdAt: new Date(), updatedAt: new Date() }])
-      const repo = new Repository(usersTable, mock)
+      const repo = new Repository({ table: usersTable, executor: mock })
 
       await repo.restore(e => e.eq('id', 1))
 
@@ -43,7 +43,7 @@ describe('Edge Cases — Unit', () => {
       tables.set('posts', postsTable)
 
       // eslint-disable-next-line no-new
-      new Repository(postsTable, mock, tables)
+      new Repository({ table: postsTable, executor: mock, tableRegistry: tables })
 
       // Preset parent rows
       mock.preset([{ id: 1, title: 'Test', body: 'Body', authorId: 1, publishedAt: null }])
@@ -67,7 +67,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([])
-      const repo = new Repository(usersTable, mock, undefined, undefined, 100)
+      const repo = new Repository({ table: usersTable, executor: mock, defaultLimit: 100 })
 
       await repo.findMany()
 
@@ -81,7 +81,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([])
-      const repo = new Repository(usersTable, mock, undefined, undefined, 100)
+      const repo = new Repository({ table: usersTable, executor: mock, defaultLimit: 100 })
 
       await repo.findMany(q => q.limit(10))
 
@@ -96,7 +96,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([])
-      const repo = new Repository(usersTable, mock)
+      const repo = new Repository({ table: usersTable, executor: mock })
 
       await repo.findMany()
 
@@ -110,7 +110,7 @@ describe('Edge Cases — Unit', () => {
   describe('upsertMany()', () => {
     it('returns empty array for empty input', async () => {
       const mock = new MockExecutor()
-      const repo = new Repository(postsTable, mock)
+      const repo = new Repository({ table: postsTable, executor: mock })
 
       const result = await repo.upsertMany([], ['id'])
 
@@ -125,7 +125,7 @@ describe('Edge Cases — Unit', () => {
         { id: 1, title: 'Post 1', body: 'Body 1', authorId: 1, publishedAt: null },
         { id: 2, title: 'Post 2', body: 'Body 2', authorId: 1, publishedAt: null },
       ])
-      const repo = new Repository(postsTable, mock)
+      const repo = new Repository({ table: postsTable, executor: mock })
 
       const result = await repo.upsertMany(
         [
@@ -148,7 +148,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([{ id: 1, title: 'Post 1', body: 'Body 1', authorId: 1, publishedAt: null }])
-      const repo = new Repository(postsTable, mock)
+      const repo = new Repository({ table: postsTable, executor: mock })
 
       await repo.upsertMany(
         [{ title: 'Post 1', body: 'Body 1', authorId: 1 }],
@@ -169,7 +169,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
 
       mock.preset([{ id: 1, title: 'Post 1', body: 'Updated', authorId: 1, publishedAt: null }])
-      const repo = new Repository(postsTable, mock)
+      const repo = new Repository({ table: postsTable, executor: mock })
 
       await repo.upsertMany(
         [{ title: 'Post 1', body: 'Updated', authorId: 1 }],

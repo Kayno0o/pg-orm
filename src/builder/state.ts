@@ -106,6 +106,8 @@ export interface BuilderState {
   includes: IncludeEntry[]
   // Soft-delete bypass
   withTrashed: boolean
+  // Per-builder override for stream() chunk size. Unset → caller default.
+  streamChunkSize?: number
 }
 
 export function createState(op: QueryOp, table: string): BuilderState {
