@@ -70,7 +70,7 @@ export {
 // Repository
 export { Repository } from './repo/index'
 
-export { type ColumnTypes } from './schema/columns'
+export { type ColumnTypes } from './schema/column-types'
 
 // Schema
 export { defineTable } from './schema/index'

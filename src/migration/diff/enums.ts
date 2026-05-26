@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyTableDef } from '../../types/index'
 import type { LiveEnum, MigrationOp } from '../types'
-import { getColumnMeta } from '../../schema/columns'
+import { getColumnMeta } from '../../schema/column-meta'
 import { escapeLiteralBody } from '../../sql/utils'
 import { columnEntries } from '../types'
 

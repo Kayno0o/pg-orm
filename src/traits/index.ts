@@ -1,7 +1,8 @@
-import type { ColumnTypes } from '../schema/columns'
+import type { ColumnTypes } from '../schema/column-types'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, VirtualDef } from '../types/index'
 import { OrmError } from '../errors/index'
-import { ColumnBuilder, createColumnTypes } from '../schema/columns'
+import { createColumnTypes } from '../schema/column-types'
+import { ColumnBuilder } from '../schema/columns'
 import { validateIdentifier } from '../schema/validate'
 
 /**

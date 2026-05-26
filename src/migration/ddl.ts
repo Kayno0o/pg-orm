@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyTableDef } from '../types/index'
 import type { MigrationOp } from './types'
-import { getColumnMeta } from '../schema/columns'
+import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody } from '../sql/utils'
 import { QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 import { collectConstraints } from './constraint-collector'

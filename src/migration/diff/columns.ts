@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../../types/index'
 import type { LiveColumn, LiveTable, MigrationOp } from '../types'
-import { getColumnMeta } from '../../schema/columns'
+import { getColumnMeta } from '../../schema/column-meta'
 import { generateColumnDDL, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 

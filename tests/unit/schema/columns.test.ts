@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createColumnTypes } from '../../../src/schema/columns'
+import { createColumnTypes } from '../../../src/schema/column-types'
 
 describe('ColumnBuilder', () => {
   const t = createColumnTypes()

@@ -1,9 +1,10 @@
 import type { Trait } from '../traits/index'
 import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
-import type { ColumnTypes } from './columns'
+import type { ColumnTypes } from './column-types'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
-import { ColumnBuilder, createColumnTypes, getColumnIndex } from './columns'
+import { createColumnTypes } from './column-types'
+import { ColumnBuilder, getColumnIndex } from './columns'
 import { createRelationTypes } from './relations'
 import { validateIdentifier, validateRawSqlFragment } from './validate'
 
