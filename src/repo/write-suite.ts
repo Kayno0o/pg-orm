@@ -225,24 +225,31 @@ export class WriteSuite<
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
 
-  // Builder accessors for advanced usage
+  // Builder accessors for advanced usage — skip the convenience hooks/trait dispatch
+  // applied by the methods above. Use when you need fine-grained control over the
+  // emitted SQL (e.g. RETURNING columns, ON CONFLICT clauses, MERGE branches).
 
+  /** Builder accessor for advanced INSERT (custom RETURNING, ON CONFLICT, …). */
   insert(): InsertBuilder<TColumns> {
     return new InsertBuilder<TColumns>(this._ctx.table.name)
   }
 
+  /** Builder accessor for advanced UPDATE (custom RETURNING, FROM, …). */
   update(): UpdateBuilder<TColumns> {
     return new UpdateBuilder<TColumns>(this._ctx.table.name)
   }
 
+  /** Builder accessor for advanced DELETE (custom USING, RETURNING, …). */
   delete(): DeleteBuilder<TColumns> {
     return new DeleteBuilder<TColumns>(this._ctx.table.name)
   }
 
+  /** Builder accessor for `MERGE INTO` (`WHEN MATCHED` / `WHEN NOT MATCHED` branches). */
   merge(): MergeBuilder<TColumns> {
     return new MergeBuilder<TColumns>(this._ctx.table.name)
   }
 
+  /** Builder accessor for explicit upsert (`INSERT ... ON CONFLICT ... DO UPDATE`). */
   upsert(): UpsertBuilder<TColumns> {
     return new UpsertBuilder<TColumns>(this._ctx.table.name)
   }

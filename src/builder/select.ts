@@ -7,6 +7,20 @@ import { BaseBuilder } from './base'
 import { createExprBuilder, OP_AND } from './expr'
 import { PLACEHOLDER_RE } from './state'
 
+/**
+ * Builder for `SELECT` statements. Composable, fluent, returns `this`-typed
+ * chains. The three generics drive end-to-end type inference; reshaping methods
+ * (`pick`, `omit`, `computed`, `aggregate`, `count`, `include`) return a new
+ * `SelectBuilder` instance with a refined `TResult`.
+ *
+ * @template TColumns  The owning table's column map. Constrains identifier-bound
+ *   methods (`where`, `orderBy`, `groupBy`, `include`, …) so misspellings fail
+ *   at compile time.
+ * @template TRelations  The owning table's relation map. Constrains `include()`
+ *   to defined relations and threads child-row types into `TResult`.
+ * @template TResult  Row shape this builder will return. Defaults to
+ *   `InferSelect<TColumns>`; reshaping methods narrow/widen it.
+ */
 export class SelectBuilder<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
@@ -65,12 +79,14 @@ export class SelectBuilder<
     return this as never
   }
 
+  /** Emit `SELECT DISTINCT`. */
   distinct(): this {
     this._state.distinct = true
 
     return this
   }
 
+  /** Emit `SELECT DISTINCT ON (cols...)` — keep the first row per `cols` tuple. */
   distinctOn<K extends (keyof TColumns & string)[]>(...cols: K): this {
     this._state.distinctOn = cols as string[]
 
@@ -127,6 +143,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** RIGHT JOIN another table. */
   rightJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
     validateIdentifier(table, 'rightJoin table')
     validateIdentifier(alias, 'rightJoin alias')
@@ -137,6 +154,7 @@ export class SelectBuilder<
     return this
   }
 
+  /** FULL OUTER JOIN another table. */
   fullJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
     validateIdentifier(table, 'fullJoin table')
     validateIdentifier(alias, 'fullJoin alias')
@@ -176,12 +194,14 @@ export class SelectBuilder<
     return this
   }
 
+  /** GROUP BY one or more columns. */
   groupBy(...cols: (keyof TColumns & string)[]): this {
     this._state.groupBy = cols as string[]
 
     return this
   }
 
+  /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
   having(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
     const builder = createExprBuilder<TColumns>()
 
@@ -197,24 +217,28 @@ export class SelectBuilder<
     return this
   }
 
+  /** Add FOR SHARE shared row-level locking. */
   forShare(): this {
     this._state.lockMode = 'share'
 
     return this
   }
 
+  /** Add FOR NO KEY UPDATE row-level locking (allows concurrent FK references). */
   forNoKeyUpdate(): this {
     this._state.lockMode = 'no_key_update'
 
     return this
   }
 
+  /** Combine with `forUpdate`/`forShare` to skip rows that are already locked. */
   skipLocked(): this {
     this._state.skipLocked = true
 
     return this
   }
 
+  /** Declare a named WINDOW for use in window functions. */
   window(name: string, opts: { partitionBy?: string[], orderBy?: OrderEntry[] }): this {
     validateIdentifier(name, 'window name')
     this._state.windows.push({ name, partitionBy: opts.partitionBy ?? [], orderBy: opts.orderBy ?? [] })
@@ -254,18 +278,23 @@ export class SelectBuilder<
     return this
   }
 
+  /** Alias the SELECT for use as a subquery (`(SELECT ...) AS alias`). */
   as(_alias: string): this {
     this._state.alias = _alias
 
     return this
   }
 
-  // Typed eager relation loading — constrained to relation names only.
-  // hasMany relations always use WHERE fk = ANY($1) batching, never per-row subqueries.
-  //
-  // Two forms:
-  //   .include('posts')                                           — simple include
-  //   .include('posts', postsTable, pq => pq.include(...))       — typed callback (filtering + nesting)
+  /**
+   * Typed eager relation loading — constrained to relation names only.
+   * `hasMany`/`hasManyThrough` use `WHERE fk = ANY($1)` batching (one extra query),
+   * never N+1 per-row subqueries.
+   *
+   * Two forms:
+   * - `.include('posts')` — simple include
+   * - `.include('posts', postsTable, pq => pq.where(...).include(...))` — typed
+   *   callback for filtering child rows and nesting further `.include`s.
+   */
   include<K extends keyof TRelations & string>(
     relation: K,
   ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }>
@@ -289,8 +318,15 @@ export class SelectBuilder<
     return this as never
   }
 
-  // Aggregate builder — uses ExprBuilder aggregate methods to build computed columns
-  // Usage: .aggregate(e => ({ total: e.sum('amount'), avg: e.avg('price') }))
+  /**
+   * Replace the column list with one or more aggregate expressions.
+   * The returned `TResult` is reshaped to the aggregate aliases.
+   *
+   * @example
+   * ```ts
+   * .aggregate(e => ({ total: e.sum('amount'), avg: e.avg('price') }))
+   * ```
+   */
   aggregate<TAgg extends Record<string, AggResult<unknown>>>(
     fn: (e: ExprBuilder<TColumns>) => TAgg,
   ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number }> {
@@ -306,6 +342,7 @@ export class SelectBuilder<
     return this as never
   }
 
+  /** Reshape to `SELECT count(*) AS count`. Used by `repo.count()`. */
   count(): SelectBuilder<TColumns, TRelations, { count: number }> {
     this._state.op = 'count'
 
