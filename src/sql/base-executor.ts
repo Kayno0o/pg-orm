@@ -1,5 +1,13 @@
 import type { SQL } from 'bun'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { unsafeQuery } from './adapter'
+
+/**
+ * Async-local storage for query context. `Database.withContext(ctx, fn)` runs
+ * `fn` with `ctx` bound here; `BaseExecutor` picks it up and decorates every
+ * `QueryEvent`/`SlowQueryEvent`/`QueryErrorEvent` emitted inside the scope.
+ */
+export const queryContextStorage = new AsyncLocalStorage<Record<string, unknown>>()
 
 // --- Query logging ---
 
@@ -41,6 +49,24 @@ export abstract class BaseExecutor implements Executable {
   protected _slowQueryThreshold = 1000
   protected _context?: Record<string, unknown>
 
+  /**
+   * Resolve the effective context for a query event: the ALS-bound ambient
+   * context (set via `Database.withContext`) merged with this executor's
+   * explicit `_context` (set via `transaction({ context })`). Explicit keys
+   * override ambient ones.
+   */
+  protected _currentContext(): Record<string, unknown> | undefined {
+    const ambient = queryContextStorage.getStore()
+
+    if (!ambient)
+      return this._context
+
+    if (!this._context)
+      return ambient
+
+    return { ...ambient, ...this._context }
+  }
+
   async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     if (this._onQuery || this._onSlowQuery) {
       const start = performance.now()
@@ -50,16 +76,19 @@ export abstract class BaseExecutor implements Executable {
         result = await unsafeQuery(this.sql, sqlStr, params)
       }
       catch (err) {
-        this._onError?.({ error: err, sql: sqlStr, params, ...this._context ? { context: this._context } : {} })
+        const ctx = this._currentContext()
+
+        this._onError?.({ error: err, sql: sqlStr, params, ...ctx ? { context: ctx } : {} })
 
         throw err
       }
 
       const durationMs = performance.now() - start
       const event: QueryEvent = { sql: sqlStr, params, durationMs }
+      const ctx = this._currentContext()
 
-      if (this._context)
-        event.context = this._context
+      if (ctx)
+        event.context = ctx
 
       if (this._onQuery)
         this._onQuery(event)
@@ -74,7 +103,9 @@ export abstract class BaseExecutor implements Executable {
       return await unsafeQuery(this.sql, sqlStr, params)
     }
     catch (err) {
-      this._onError?.({ error: err, sql: sqlStr, params, ...this._context ? { context: this._context } : {} })
+      const ctx = this._currentContext()
+
+      this._onError?.({ error: err, sql: sqlStr, params, ...ctx ? { context: ctx } : {} })
 
       throw err
     }

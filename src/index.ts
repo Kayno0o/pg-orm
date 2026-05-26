@@ -25,6 +25,7 @@ export {
 // Errors
 export {
   AfterHookError,
+  BeforeHookError,
   CheckError,
   ConnectionError,
   ConstraintError,

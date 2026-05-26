@@ -8,9 +8,25 @@ export class DrainCoordinator {
   private _draining = false
   private _inFlight = 0
   private _resolvers: (() => void)[] = []
+  private _onImbalance?: (event: { inFlight: number }) => void
 
   get draining(): boolean {
     return this._draining
+  }
+
+  // @internal — current in-flight count (for tests/observability).
+  get inFlight(): number {
+    return this._inFlight
+  }
+
+  /**
+   * Register a callback fired when `exit()` is called with no matching `enter()`.
+   * Indicates a programming bug (double-exit, exit-without-enter); the default
+   * behavior is to log to `console.warn`, but consumers can route this to their
+   * preferred observability sink.
+   */
+  setImbalanceHandler(fn: (event: { inFlight: number }) => void): void {
+    this._onImbalance = fn
   }
 
   /** Mark a query as started. Must be paired with `exit()`. */
@@ -18,8 +34,24 @@ export class DrainCoordinator {
     this._inFlight++
   }
 
-  /** Mark a query as finished. Resolves any drain waiters when count hits 0. */
+  /**
+   * Mark a query as finished. Resolves any drain waiters when count hits 0.
+   * Guards against going negative on a buggy `exit()` without a matching
+   * `enter()` — surfaces the imbalance via the configured handler (or
+   * `console.warn`) instead of corrupting the drain count.
+   */
   exit(): void {
+    if (this._inFlight <= 0) {
+      const event = { inFlight: this._inFlight }
+
+      if (this._onImbalance)
+        this._onImbalance(event)
+      else
+        console.warn('pg-orm: DrainCoordinator.exit() called with no matching enter() — ignoring (in-flight=%d)', this._inFlight)
+
+      return
+    }
+
     this._inFlight--
 
     if (this._inFlight === 0 && this._resolvers.length > 0) {

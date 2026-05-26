@@ -219,6 +219,27 @@ export class AfterHookError extends OrmError {
 }
 
 /**
+ * Thrown when a before-hook (beforeInsert, beforeUpdate, beforeDelete, beforeUpsert)
+ * throws. The mutation was aborted — `committed: false` signals this to callers.
+ * Symmetric counterpart to {@link AfterHookError}.
+ */
+export class BeforeHookError extends OrmError {
+  readonly committed = false
+  readonly table: string
+  readonly hook: string
+  constructor(table: string, hook: string, cause: unknown) {
+    super(
+      `"${hook}" hook on table "${table}" threw before the mutation was applied. `
+      + `The database change was NOT performed. ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    )
+    this.name = 'BeforeHookError'
+    this.table = table
+    this.hook = hook
+  }
+}
+
+/**
  * Thrown when a value, identifier, or argument fails ORM-side validation
  * (before any SQL reaches the driver). Examples: invalid identifier characters,
  * non-finite numbers in insert/update payloads, unsafe `stringAgg` delimiter,

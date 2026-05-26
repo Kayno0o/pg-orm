@@ -459,6 +459,68 @@ const ok = await db.ping()
 await db.close({ drain: true, timeout: 5000 })
 ```
 
+## Production Checklist
+
+Copy-pasteable config for production workloads. Every option below is documented
+above; this section is the recommended *combination*. Each rail addresses a
+distinct failure mode that's expensive to debug after the fact.
+
+```ts
+const db = new Database({
+  url: process.env.DATABASE_URL!,
+  tables: [users, posts /* … */],
+
+  // Pool — size to peak concurrent in-flight queries; oversizing wastes server
+  // connections and starves other clients.
+  pool: { max: 20, idleTimeout: 30_000, connectionTimeout: 5_000 },
+
+  // Server-side safety net for runaway queries (kills statements after N ms).
+  statementTimeout: 30_000,
+
+  // Server-side safety net for forgotten `await`s inside transaction callbacks
+  // — PG will end the connection if the tx idles past this. Pairs with the
+  // app-side AbortSignal you should plumb into long-running tx bodies.
+  idleInTransactionTimeout: 60_000,
+
+  // Cheap incident-triage win: every connection labels itself in pg_stat_activity
+  // and PG logs. Include version/instance for easy filtering.
+  application_name: `my-service@${process.env.GIT_SHA ?? 'dev'}`,
+
+  // Cap unbounded SELECTs that omit `.limit()`. Catches "forgot to paginate" bugs
+  // before they hit production.
+  defaultLimit: 1000,
+
+  // Auto-retry transient connection errors (admin shutdowns, connection drops).
+  // Does NOT retry inside a transaction — those bubble up.
+  retry: { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 5_000 },
+
+  // Observability — every query, slow query, and error has a hook. Combine with
+  // `db.withContext({ requestId, traceId }, fn)` to correlate query logs to
+  // incoming requests.
+  onQuery: (e) => metrics.histogram('pg.query.duration', e.durationMs, e.context),
+  onSlowQuery: (e) => log.warn({ sql: e.sql, ms: e.durationMs, ...e.context }, 'slow query'),
+  onError: (e) => log.error({ sql: e.sql, err: e.error, ...e.context }, 'query failed'),
+  slowQueryThreshold: 500,
+
+  // Don't drop tx callback failures on the floor — by the time they fire the tx
+  // is already committed/rolled-back, so re-throwing would change observed state.
+  onCallbackError: ({ kind, error }) => log.error({ kind, err: error }, 'pg-orm callback failed'),
+
+  // Strip secrets from QueryError.params before they reach your logger.
+  redactParams: (params) => params.map(p => typeof p === 'string' && p.length > 64 ? '[redacted]' : p),
+})
+
+// Request-scoped correlation — wraps a request handler so every query inside
+// (including in nested transactions) tags its QueryEvent with the request id.
+app.use((req, _res, next) => db.withContext({ requestId: req.id }, () => next()))
+
+// On shutdown — drain in-flight queries, then close the pool. Without `drain`,
+// in-flight queries are aborted when the pool closes.
+process.on('SIGTERM', async () => {
+  await db.close({ drain: true, timeout: 10_000 })
+})
+```
+
 ## Security model
 
 This library is type-safe and parameterizes every column-value, expression-leaf,

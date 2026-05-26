@@ -10,7 +10,7 @@ import { ConnectionError, setParamRedactor, ValidationError } from '../errors/in
 import { clearMapperCache } from '../mapper/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
 import { asDriver } from './adapter'
-import { BaseExecutor } from './base-executor'
+import { BaseExecutor, queryContextStorage } from './base-executor'
 import { registerInstance, unregisterInstance } from './cleanup'
 import { DrainCoordinator } from './drain'
 import { MigrationRunner } from './migration-runner'
@@ -345,8 +345,16 @@ export class Database extends BaseExecutor {
 
     let txRef: TransactionClient | undefined
 
+    // Capture the ALS-bound context at the call site so the tx body re-enters
+    // the same scope. bun:sql's `begin()` schedules its callback through a path
+    // that may not preserve `AsyncLocalStorage` propagation; pinning the scope
+    // here keeps `Database.withContext` working inside transactions.
+    const ambientContext = queryContextStorage.getStore()
+    const runInContext = <R>(body: () => Promise<R>): Promise<R> =>
+      ambientContext ? queryContextStorage.run(ambientContext, body) : body()
+
     try {
-      const result = await asDriver(this.sql).begin<T>(async (sqlTx) => {
+      const result = await asDriver(this.sql).begin<T>(async sqlTx => runInContext(async () => {
         if (opts)
           await applyIsolation(sqlTx, opts)
 
@@ -364,39 +372,57 @@ export class Database extends BaseExecutor {
         txRef = tx
 
         return fn(tx)
-      })
+      }))
 
       // Transaction committed — fire onCommit callbacks
-      if (txRef) {
-        for (const cb of txRef._onCommitCallbacks) {
-          try {
-            await cb()
-          }
-          catch (callbackErr) {
-            // The commit already happened — re-throwing would change observed
-            // semantics. Surface to onCallbackError or drop.
-            this._onCallbackError?.({ kind: 'onCommit', error: callbackErr })
-          }
-        }
-      }
+      if (txRef)
+        await this._fireTxCallbacks('onCommit', txRef._onCommitCallbacks)
 
       return result
     }
     catch (err) {
       // Transaction rolled back — fire onRollback callbacks
-      if (txRef) {
-        for (const cb of txRef._onRollbackCallbacks) {
-          try {
-            await cb(err)
-          }
-          catch (callbackErr) {
-            this._onCallbackError?.({ kind: 'onRollback', error: callbackErr })
-          }
-        }
-      }
+      if (txRef)
+        await this._fireTxCallbacks('onRollback', txRef._onRollbackCallbacks, err)
 
       throw err
     }
+  }
+
+  /**
+   * Sequentially fire every registered tx callback. Errors are collected and
+   * dispatched as a single `AggregateError` to `onCallbackError` so callbacks
+   * registered after a failing one are never silently dropped — the commit (or
+   * rollback) has already settled and re-throwing would change observable
+   * semantics.
+   */
+  private async _fireTxCallbacks(
+    kind: 'onCommit' | 'onRollback',
+    callbacks: ((err?: unknown) => void | Promise<void>)[],
+    rollbackErr?: unknown,
+  ): Promise<void> {
+    if (callbacks.length === 0)
+      return
+
+    const errors: unknown[] = []
+
+    for (const cb of callbacks) {
+      try {
+        await cb(rollbackErr)
+      }
+      catch (callbackErr) {
+        errors.push(callbackErr)
+      }
+    }
+
+    if (errors.length === 0)
+      return
+
+    const error = errors.length === 1
+      ? errors[0]
+      : new AggregateError(errors, `${errors.length} ${kind} callbacks failed`)
+
+    this._onCallbackError?.({ kind, error })
   }
 
   /** Health check — returns true if the database is reachable. */
@@ -477,14 +503,29 @@ export class Database extends BaseExecutor {
   }
 
   /**
-   * Create a scoped database instance that attaches context to all query events.
-   * Useful for correlating queries to HTTP requests, trace IDs, etc.
+   * Run `fn` with `ctx` bound to async-local storage. Every query emitted
+   * inside `fn` (including queries from repos, builders, and nested
+   * `transaction()` calls) gets `ctx` attached to its `QueryEvent`,
+   * `SlowQueryEvent`, and `QueryErrorEvent` automatically — no need to thread
+   * a scoped Database through your call graph.
+   *
+   * Nested calls merge: inner keys override outer keys. An explicit
+   * `transaction({ context })` overrides keys that overlap with the ambient
+   * context for queries inside that transaction.
+   *
+   * @example
+   * ```ts
+   * app.use((req, _res, next) => {
+   *   db.withContext({ requestId: req.id, userId: req.user?.id }, async () => {
+   *     await next() // queries inside this scope carry the context
+   *   })
+   * })
+   * ```
    */
-  withContext(ctx: Record<string, unknown>): Database {
-    const scoped = Object.create(this) as Database
+  withContext<T>(ctx: Record<string, unknown>, fn: () => Promise<T> | T): Promise<T> {
+    const outer = queryContextStorage.getStore()
+    const merged = outer ? { ...outer, ...ctx } : ctx
 
-    scoped._context = ctx
-
-    return scoped
+    return Promise.resolve(queryContextStorage.run(merged, fn))
   }
 }
