@@ -1,5 +1,6 @@
 import type { BaseBuilder } from '../builder/base'
 import type { MigrationOp } from '../migration/index'
+import type { SyncOptions } from '../migration/sync'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { TransactionOptions } from './transaction'
@@ -7,13 +8,13 @@ import { SQL } from 'bun'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { ConnectionError, setParamRedactor, ValidationError } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
-import { rollbackMigrations, syncSchema } from '../migration/index'
 import { clearVirtualEntriesCache, Repository } from '../repo/index'
 import { asDriver } from './adapter'
 import { BaseExecutor } from './base-executor'
 import { registerInstance, unregisterInstance } from './cleanup'
 import { DrainCoordinator } from './drain'
-import { withRetry } from './retry'
+import { MigrationRunner } from './migration-runner'
+import { RetryPolicy } from './retry'
 import { TransactionClient } from './transaction'
 import { applyIdleInTransactionTimeout, applyIsolation, applyStatementTimeout } from './tx-sql'
 
@@ -129,14 +130,13 @@ export class Database extends BaseExecutor {
   private _idleInTransactionTimeout?: number
   private _pingErrorHandler?: (error: unknown) => void
   _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
-  private _retryMaxRetries: number
-  private _retryBaseDelay: number
-  private _retryMaxDelay: number
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
   private _instanceRef: ReturnType<typeof registerInstance>
   private _drain = new DrainCoordinator()
+  private _retry: RetryPolicy
+  private _migrations?: MigrationRunner
 
   constructor(config: DbConfig = {}) {
     super()
@@ -175,9 +175,11 @@ export class Database extends BaseExecutor {
     this._idleInTransactionTimeout = idleInTransactionTimeout
     this._pingErrorHandler = onPingError
     this._onCallbackError = onCallbackError
-    this._retryMaxRetries = retry?.maxRetries ?? 0
-    this._retryBaseDelay = retry?.baseDelayMs ?? 100
-    this._retryMaxDelay = retry?.maxDelayMs ?? 5000
+    this._retry = new RetryPolicy({
+      maxRetries: retry?.maxRetries ?? 0,
+      baseDelayMs: retry?.baseDelayMs ?? 100,
+      maxDelayMs: retry?.maxDelayMs ?? 5000,
+    })
     this._maxIncludeDepth = maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
     this._batchChunkSize = batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = defaultLimit
@@ -222,10 +224,7 @@ export class Database extends BaseExecutor {
     this._drain.enter()
 
     try {
-      return await withRetry(
-        () => super.query(sqlStr, params),
-        { maxRetries: this._retryMaxRetries, baseDelayMs: this._retryBaseDelay, maxDelayMs: this._retryMaxDelay },
-      )
+      return await this._retry.run(() => super.query(sqlStr, params))
     }
     finally {
       this._drain.exit()
@@ -260,24 +259,28 @@ export class Database extends BaseExecutor {
     })
   }
 
+  /** Lazy-built `MigrationRunner` — owns `sync` / `rollback`. */
+  private get migrations(): MigrationRunner {
+    return this._migrations ??= new MigrationRunner(
+      (s, p) => this.query(s, p),
+      this.sql,
+      this._schema,
+      this._tables,
+    )
+  }
+
   /**
    * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
    * Pass `{ dryRun: true }` to preview changes; `{ allowDestructive: true }` to allow DROP/RENAME;
    * `{ confirm: true }` to show SQL and prompt for confirmation.
    */
-  async sync(opts?: { allowDestructive?: boolean, dryRun?: boolean, confirm?: boolean }): Promise<{ sql: string, ops: MigrationOp[] }> {
-    return syncSchema(
-      { query: (s, p) => this.query(s, p), sql: this.sql, schema: this._schema, tables: this._tables },
-      opts,
-    )
+  async sync(opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {
+    return this.migrations.sync(opts)
   }
 
   /** Rollback the last N migrations by executing their down SQL. */
   async rollback(count = 1): Promise<{ rolledBack: string[], sql: string }> {
-    return rollbackMigrations(
-      { query: (s, p) => this.query(s, p), sql: this.sql },
-      count,
-    )
+    return this.migrations.rollback(count)
   }
 
   // Get the internal tables registry

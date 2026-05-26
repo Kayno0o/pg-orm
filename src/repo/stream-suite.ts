@@ -6,7 +6,6 @@ import { SelectBuilder } from '../builder/query'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
-import { applySoftDeleteFilter } from './traits'
 import { applyVirtuals } from './virtuals'
 
 /**
@@ -59,7 +58,7 @@ export class StreamSuite<
     let offset = 0
     const mapper = this._ctx.getMapper(finalBuilder)
 
-    applySoftDeleteFilter(this._ctx.table, finalBuilder)
+    this._ctx.traits.applyPreSelect(finalBuilder)
 
     while (true) {
       const chunkBuilder = finalBuilder.branch()

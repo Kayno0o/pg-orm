@@ -58,3 +58,16 @@ export async function withRetry<T>(
 
   throw lastError
 }
+
+/**
+ * Stateful wrapper around `withRetry`. Created once per `Database` so call sites
+ * don't have to thread `maxRetries`/`baseDelayMs`/`maxDelayMs` everywhere — they
+ * just call `policy.run(fn)`.
+ */
+export class RetryPolicy {
+  constructor(private readonly cfg: RetryConfig) {}
+
+  run<T>(fn: () => Promise<T>, retryable?: (err: unknown) => boolean): Promise<T> {
+    return withRetry(fn, this.cfg, retryable)
+  }
+}

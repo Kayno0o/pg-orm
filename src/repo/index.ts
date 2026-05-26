@@ -5,6 +5,7 @@ import type { RepositoryCtx } from './context'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY } from '../constants'
 import { getOrCompileMapper } from '../mapper/index'
 import { HookOrchestrator } from './hooks'
+import { TraitDispatcher } from './middleware'
 import { ReadSuite } from './read-suite'
 import { RelationLoader } from './relation-loader'
 import { StreamSuite } from './stream-suite'
@@ -68,6 +69,7 @@ export class Repository<
     const batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     const relationLoader = new RelationLoader(table, executor, maxIncludeDepth, batchChunkSize, config.tableRegistry)
     const hooks = new HookOrchestrator(table)
+    const traits = new TraitDispatcher(table)
 
     this._ctx = {
       table,
@@ -78,6 +80,7 @@ export class Repository<
       defaultLimit: config.defaultLimit,
       relationLoader,
       hooks,
+      traits,
       getPrimaryKey: () => table.primaryKey ?? DEFAULT_PRIMARY_KEY,
       getMapper: (builder: SelectBuilder<any, any, any>) => {
         const s = builder.getState()

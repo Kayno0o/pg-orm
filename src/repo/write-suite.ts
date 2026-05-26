@@ -3,8 +3,7 @@ import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKe
 import type { RepositoryCtx } from './context'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
-import { quote } from '../sql/utils'
-import { getOptimisticLockColumn, getSoftDeleteColumn, requireSoftDeleteColumn } from './traits'
+import { requireSoftDeleteColumn } from './traits'
 import { applyVirtuals } from './virtuals'
 
 /**
@@ -60,20 +59,16 @@ export class WriteSuite<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     const s = await this._ctx.hooks.runBefore('beforeUpdate', set)
-    const lockCol = getOptimisticLockColumn(this._ctx.table)
 
     const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
       .set(s)
       .where(where)
       .returning()
 
-    // `validateValues` (inside `.set()`) rejects `__raw` objects to prevent user
-    // payloads from smuggling raw SQL through. The optimistic-lock increment is
-    // ORM-internal and must be applied AFTER that check via `setRaw()`, which
-    // bypasses validation — do not move this above `.set()`.
-    if (lockCol !== null) {
-      b.setRaw(lockCol, `${quote(lockCol)} + 1`)
-    }
+    // `applyPreUpdate` runs trait middleware (e.g. optimistic-lock version bump
+    // via `setRaw()`) AFTER `.set()`'s `validateValues` check, so user payloads
+    // can't smuggle `__raw` through and the version bump itself bypasses validation.
+    this._ctx.traits.applyPreUpdate(b)
 
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
@@ -101,7 +96,7 @@ export class WriteSuite<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
     currentVersion: number,
   ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const lockCol = getOptimisticLockColumn(this._ctx.table)
+    const lockCol = this._ctx.traits.getOptimisticLockColumn()
 
     if (!lockCol) {
       throw new ValidationError(
@@ -125,28 +120,10 @@ export class WriteSuite<
   async deleteMany(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = getSoftDeleteColumn(this._ctx.table)
-
-    if (sdCol) {
-      await this._ctx.hooks.runBefore('beforeDelete', undefined)
-
-      const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
-        .set({ [sdCol]: new Date() } as InferUpdate<TColumns>)
-        .where(where)
-        .returning()
-      const { sql, params } = b.toSQL()
-      const rows = await this._ctx.query(sql, params)
-
-      await this._ctx.hooks.runAfter('afterDelete', rows)
-
-      return applyVirtuals(this._ctx.table, rows) as WithVirtuals<TColumns, TVirtuals>[]
-    }
-
     await this._ctx.hooks.runBefore('beforeDelete', undefined)
 
-    const b = new DeleteBuilder<TColumns>(this._ctx.table.name)
-      .where(where)
-      .returning()
+    const b = this._ctx.traits.rewriteDelete<TColumns>(where)
+      ?? new DeleteBuilder<TColumns>(this._ctx.table.name).where(where).returning()
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 

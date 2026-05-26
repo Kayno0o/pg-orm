@@ -5,7 +5,6 @@ import { SelectBuilder } from '../builder/query'
 import { NotFoundError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
-import { applySoftDeleteFilter } from './traits'
 import { applyVirtuals } from './virtuals'
 
 /**
@@ -40,7 +39,7 @@ export class ReadSuite<
     const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
     const finalBuilder = cb ? cb(builder) : builder
 
-    applySoftDeleteFilter(this._ctx.table, finalBuilder)
+    this._ctx.traits.applyPreSelect(finalBuilder)
 
     const state = finalBuilder.getState()
 
@@ -132,7 +131,7 @@ export class ReadSuite<
       builder.where(where)
     }
 
-    applySoftDeleteFilter(this._ctx.table, builder)
+    this._ctx.traits.applyPreSelect(builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._ctx.query(sql, params)
@@ -146,7 +145,7 @@ export class ReadSuite<
       .where(where)
       .limit(1)
 
-    applySoftDeleteFilter(this._ctx.table, builder)
+    this._ctx.traits.applyPreSelect(builder)
     builder.asExists()
 
     const { sql, params } = builder.toSQL()
@@ -229,7 +228,7 @@ export class ReadSuite<
   select(): SelectBuilder<TColumns, TRelations> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
 
-    applySoftDeleteFilter(this._ctx.table, builder)
+    this._ctx.traits.applyPreSelect(builder)
 
     return builder
   }
