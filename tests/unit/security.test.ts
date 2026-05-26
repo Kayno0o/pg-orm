@@ -879,6 +879,124 @@ describe('Security: validateRawSqlFragment (partial-index where)', () => {
   })
 })
 
+describe('Security H1: JOIN identifier validation', () => {
+  const b = () => new SelectBuilder<any>('users')
+  const onTrue = (e: any) => e.raw('TRUE')
+
+  for (const method of ['join', 'leftJoin', 'rightJoin', 'fullJoin'] as const) {
+    it(`${method}() rejects injection in table name`, () => {
+      expect(() => (b() as any)[method]('posts; DROP TABLE users', 'p', onTrue)).toThrow(/Invalid/)
+    })
+
+    it(`${method}() rejects injection in alias`, () => {
+      expect(() => (b() as any)[method]('posts', 'p"; DROP TABLE users', onTrue)).toThrow(/Invalid/)
+    })
+
+    it(`${method}() accepts plain identifiers`, () => {
+      expect(() => (b() as any)[method]('posts', 'p', onTrue)).not.toThrow()
+    })
+  }
+})
+
+describe('Security H1: window/with/withRecursive identifier validation', () => {
+  const b = () => new SelectBuilder<any>('users')
+
+  it('window() rejects injection in name', () => {
+    expect(() => b().window('w; DROP TABLE users', { partitionBy: ['id'] })).toThrow(/Invalid/)
+  })
+
+  it('window() accepts a plain name', () => {
+    expect(() => b().window('w', { partitionBy: ['id'] })).not.toThrow()
+  })
+
+  it('with() rejects injection in CTE name', () => {
+    expect(() => b().with('cte; DROP TABLE users', 'SELECT 1', [])).toThrow(/Invalid/)
+  })
+
+  it('withRecursive() rejects injection in CTE name', () => {
+    expect(() => b().withRecursive('cte"; DROP TABLE users', 'SELECT 1', [])).toThrow(/Invalid/)
+  })
+})
+
+describe('Security H2: with()/withRecursive() $N placeholder/params parity', () => {
+  const b = () => new SelectBuilder<any>('users')
+
+  it('with() throws when SQL has $1 but no params', () => {
+    expect(() => b().with('t', 'SELECT * FROM x WHERE id = $1', [])).toThrow(/placeholder/i)
+  })
+
+  it('with() throws when params are passed but SQL has no $N', () => {
+    expect(() => b().with('t', 'SELECT * FROM x', ['leaked'])).toThrow(/placeholder/i)
+  })
+
+  it('with() throws when $N count is fewer than params length', () => {
+    expect(() => b().with('t', 'SELECT * FROM x WHERE id = $1', [1, 2])).toThrow(/placeholder/i)
+  })
+
+  it('with() accepts matched $N and params', () => {
+    expect(() => b().with('t', 'SELECT * FROM x WHERE id = $1 AND y = $2', [1, 2])).not.toThrow()
+  })
+
+  it('withRecursive() throws on placeholder mismatch', () => {
+    expect(() => b().withRecursive('t', 'SELECT * FROM x WHERE id = $1', [])).toThrow(/placeholder/i)
+  })
+
+  it('withRecursive() accepts no $N when no params', () => {
+    expect(() => b().withRecursive('t', 'SELECT 1', [])).not.toThrow()
+  })
+})
+
+describe('Security H3: validateRawSqlFragment rejects PG-specific string literals', () => {
+  it('rejects E\'...\' escape strings', () => {
+    expect(() => validateRawSqlFragment('name = E\'foo\'', 'idx')).toThrow(/escape string/)
+  })
+
+  it('rejects lowercase e\'...\' escape strings', () => {
+    expect(() => validateRawSqlFragment('name = e\'foo\'', 'idx')).toThrow(/escape string/)
+  })
+
+  it('does not flag E as part of an identifier', () => {
+    expect(() => validateRawSqlFragment('Email = \'foo\'', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('name = \'foo\' AND state = \'bar\'', 'idx')).not.toThrow()
+  })
+
+  it('rejects U&\'...\' Unicode strings', () => {
+    expect(() => validateRawSqlFragment('name = U&\'\\0041\'', 'idx')).toThrow(/Unicode/)
+  })
+
+  it('rejects lowercase u&\'...\' Unicode strings', () => {
+    expect(() => validateRawSqlFragment('name = u&\'foo\'', 'idx')).toThrow(/Unicode/)
+  })
+
+  it('rejects empty-tag $$...$$ dollar quotes', () => {
+    expect(() => validateRawSqlFragment('name = $$evil; DROP TABLE x$$', 'idx')).toThrow(/dollar-quoted/)
+  })
+
+  it('rejects tagged $body$...$body$ dollar quotes', () => {
+    expect(() => validateRawSqlFragment('name = $body$evil; DROP$body$', 'idx')).toThrow(/dollar-quoted/)
+  })
+
+  it('does NOT flag parameter placeholders like $1', () => {
+    expect(() => validateRawSqlFragment('id = $1 AND name = $2', 'idx')).not.toThrow()
+  })
+
+  it('does not flag $ followed by digits then non-$ char', () => {
+    expect(() => validateRawSqlFragment('a = $1 OR b = $2', 'idx')).not.toThrow()
+  })
+
+  it('blocks ; smuggled inside a dollar quote', () => {
+    // Without the dollar-quote check, a payload like $$; DROP TABLE x$$
+    // would be invisible to the standard ; scanner.
+    expect(() => validateRawSqlFragment('a = 1 AND b = $$; DROP TABLE x$$', 'idx')).toThrow(/dollar-quoted/)
+  })
+
+  it('blocks -- smuggled inside an escape string', () => {
+    // Without the E-string check, E'foo--bar' could be a vector to bury
+    // a comment that bypasses scanner state.
+    expect(() => validateRawSqlFragment('a = E\'-- nope\'', 'idx')).toThrow(/escape string/)
+  })
+})
+
 describe('Security: literal escaping helpers', () => {
   it('quoteLiteral doubles single quotes and wraps in apostrophes', () => {
     expect(quoteLiteral('hello')).toBe('\'hello\'')

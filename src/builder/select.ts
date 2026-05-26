@@ -5,6 +5,7 @@ import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
 import { BaseBuilder } from './base'
 import { createExprBuilder, OP_AND } from './expr'
+import { PLACEHOLDER_RE } from './state'
 
 export class SelectBuilder<
   TColumns extends AnyColumns,
@@ -106,6 +107,8 @@ export class SelectBuilder<
 
   /** INNER JOIN another table. */
   join(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateIdentifier(table, 'join table')
+    validateIdentifier(alias, 'join alias')
     const builder = createExprBuilder<TColumns>()
 
     this._state.joins.push({ type: 'inner', table, alias, on: on(builder) })
@@ -115,6 +118,8 @@ export class SelectBuilder<
 
   /** LEFT JOIN another table. */
   leftJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateIdentifier(table, 'leftJoin table')
+    validateIdentifier(alias, 'leftJoin alias')
     const builder = createExprBuilder<TColumns>()
 
     this._state.joins.push({ type: 'left', table, alias, on: on(builder) })
@@ -123,6 +128,8 @@ export class SelectBuilder<
   }
 
   rightJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateIdentifier(table, 'rightJoin table')
+    validateIdentifier(alias, 'rightJoin alias')
     const builder = createExprBuilder<TColumns>()
 
     this._state.joins.push({ type: 'right', table, alias, on: on(builder) })
@@ -131,6 +138,8 @@ export class SelectBuilder<
   }
 
   fullJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
+    validateIdentifier(table, 'fullJoin table')
+    validateIdentifier(alias, 'fullJoin alias')
     const builder = createExprBuilder<TColumns>()
 
     this._state.joins.push({ type: 'full', table, alias, on: on(builder) })
@@ -207,18 +216,39 @@ export class SelectBuilder<
   }
 
   window(name: string, opts: { partitionBy?: string[], orderBy?: OrderEntry[] }): this {
+    validateIdentifier(name, 'window name')
     this._state.windows.push({ name, partitionBy: opts.partitionBy ?? [], orderBy: opts.orderBy ?? [] })
 
     return this
   }
 
+  /**
+   * Attach a CTE (`WITH name AS (sql)`).
+   *
+   * @trusted The `sql` body is interpolated unparameterized. Pass only
+   * developer-authored SQL — NEVER user input. Use positional `$N`
+   * placeholders for any dynamic values and pass them via `params`. Do not
+   * use template-string interpolation: ``` `... WHERE id = ${userInput}` ```
+   * is an injection. See README "Security model".
+   */
   with(name: string, sql: string, params: unknown[] = [], materialized?: boolean): this {
+    validateIdentifier(name, 'with CTE name')
+    validateCtePlaceholders(sql, params, 'with')
     this._state.ctes.push({ name, sql, params, materialized })
 
     return this
   }
 
+  /**
+   * Attach a recursive CTE (`WITH RECURSIVE name AS (sql)`).
+   *
+   * @trusted Same safety contract as {@link with}: the `sql` body is
+   * interpolated unparameterized. Use `$N` placeholders + `params` only;
+   * never interpolate user input.
+   */
   withRecursive(name: string, sql: string, params: unknown[] = [], materialized?: boolean): this {
+    validateIdentifier(name, 'withRecursive CTE name')
+    validateCtePlaceholders(sql, params, 'withRecursive')
     this._state.ctes.push({ name, sql, params, materialized, recursive: true })
 
     return this
@@ -315,5 +345,32 @@ export class SelectBuilder<
     this._state.streamChunkSize = size
 
     return this
+  }
+}
+
+// Verifies that the distinct `$N` placeholders referenced in a CTE body line up
+// with the params array — catches both missing params (likely an injection via
+// string interpolation when the caller meant to use $N) and extra params (a
+// silent reindex bug at assembly time).
+function validateCtePlaceholders(sql: string, params: unknown[], context: string): void {
+  const seen = new Set<number>()
+  let max = 0
+
+  for (const m of sql.matchAll(PLACEHOLDER_RE)) {
+    const n = Number(m[1])
+
+    seen.add(n)
+
+    if (n > max)
+      max = n
+  }
+
+  if (max !== params.length || seen.size !== params.length) {
+    throw new ValidationError(
+      `${context}(): SQL references ${seen.size} distinct placeholder(s) (max $${max}) but ${params.length} param(s) were provided. `
+      + 'Use positional $N placeholders and pass values via params; never interpolate user input into the SQL string.',
+      context,
+      { value: { distinctPlaceholders: seen.size, maxPlaceholder: max, paramsLength: params.length } },
+    )
   }
 }

@@ -71,12 +71,31 @@ export function validateTsLanguage(language: string): void {
   }
 }
 
+const WORD_CHAR_RE = /\w/
+const DOLLAR_TAG_START_RE = /[a-z_]/i
+
+function isStandaloneToken(fragment: string, start: number, end: number): boolean {
+  if (start > 0 && WORD_CHAR_RE.test(fragment[start - 1] ?? ''))
+    return false
+
+  if (end < fragment.length && WORD_CHAR_RE.test(fragment[end] ?? ''))
+    return false
+
+  return true
+}
+
 /**
  * Validates a raw SQL fragment used in DDL (partial-index WHERE clauses,
  * and potentially other developer-authored fragments). Rejects fragments
  * containing statement terminators, SQL line comments, or block comments
  * outside string literals. Permissive of legitimate SQL such as
  * `body ILIKE '%foo;%'` (the `;` is inside a literal).
+ *
+ * Also rejects PG-specific string literal forms (`E'...'`, `U&'...'`, and
+ * dollar-quoted `$tag$...$tag$`) — these can hide semicolons and comments
+ * that the standard single/double-quote scanner cannot see through, so the
+ * conservative choice is to refuse them outright. Use plain `'...'`
+ * literals (double the apostrophe to escape) in DDL fragments.
  *
  * This is defense-in-depth: schema definitions are normally developer-authored
  * code, but partial-index predicates are commonly copy-pasted from analytics
@@ -121,6 +140,55 @@ export function validateRawSqlFragment(fragment: string, context: string): void 
       i++
 
       continue
+    }
+
+    // E'...' escape-string literals (PG extension). Reject — they support
+    // backslash escapes the scanner doesn't model, so a malicious payload
+    // could embed `\';` and break out.
+    if ((c === 'E' || c === 'e') && next === '\'' && isStandaloneToken(fragment, i, i + 1)) {
+      throw new ValidationError(
+        `${context}: raw SQL fragment contains an E'...' escape string. `
+        + 'Use plain \'...\' literals (double the apostrophe to escape) in DDL fragments.',
+        context,
+        { value: fragment },
+      )
+    }
+
+    // U&'...' Unicode string literals (PG extension). Reject for the same
+    // reason — Unicode-escape syntax can smuggle delimiters the scanner
+    // cannot decode.
+    if ((c === 'U' || c === 'u') && next === '&' && fragment[i + 2] === '\'' && isStandaloneToken(fragment, i, i + 1)) {
+      throw new ValidationError(
+        `${context}: raw SQL fragment contains a U&'...' Unicode string literal. `
+        + 'Use plain \'...\' literals in DDL fragments.',
+        context,
+        { value: fragment },
+      )
+    }
+
+    // Dollar-quoted strings: $$...$$ or $tag$...$tag$. Reject — anything
+    // between the delimiters is opaque to the scanner (including `;`, `--`,
+    // `/*`), which defeats the whole point of this validator. The tag (if
+    // any) must start with a letter or underscore, which excludes parameter
+    // placeholders like `$1`.
+    if (c === '$') {
+      let j = i + 1
+
+      while (j < fragment.length && WORD_CHAR_RE.test(fragment[j] ?? '')) {
+        j++
+      }
+
+      const tagLen = j - (i + 1)
+      const tagStartsValid = tagLen === 0 || DOLLAR_TAG_START_RE.test(fragment[i + 1] ?? '')
+
+      if (tagStartsValid && fragment[j] === '$') {
+        throw new ValidationError(
+          `${context}: raw SQL fragment contains a dollar-quoted string (${fragment.slice(i, j + 1)}). `
+          + 'Use plain \'...\' literals in DDL fragments.',
+          context,
+          { value: fragment },
+        )
+      }
     }
 
     if (c === '\'') {
