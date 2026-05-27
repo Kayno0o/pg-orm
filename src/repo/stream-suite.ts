@@ -6,7 +6,6 @@ import { SelectBuilder } from '../builder/query'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
-import { applyVirtuals } from './virtuals'
 
 /**
  * Streaming async iterators — `stream` (LIMIT/OFFSET chunked) and `streamCursor`
@@ -58,7 +57,7 @@ export class StreamSuite<
     let offset = 0
     const mapper = this._ctx.getMapper(finalBuilder)
 
-    this._ctx.traits.applyPreSelect(finalBuilder)
+    this._ctx.runtime.applyPreSelect(finalBuilder)
 
     while (true) {
       const chunkBuilder = finalBuilder.branch()
@@ -79,7 +78,7 @@ export class StreamSuite<
         mapped = await runHooksAsync(this._ctx.table, 'afterSelect', mapped)
       }
 
-      mapped = applyVirtuals(this._ctx.table, mapped, this._ctx.virtualsCache)
+      mapped = this._ctx.runtime.applyVirtuals(mapped)
 
       for (const row of mapped) {
         yield row
@@ -114,7 +113,7 @@ export class StreamSuite<
     } = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
-    const col = opts.column ?? (this._ctx.getPrimaryKey() as keyof TColumns & string)
+    const col = opts.column ?? (this._ctx.runtime.primaryKey as keyof TColumns & string)
     const direction = opts.direction ?? 'forward'
     let cursor: unknown
     const read = this._read()

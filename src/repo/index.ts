@@ -2,17 +2,13 @@ import type { SelectBuilder } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals } from '../types/index'
 import type { RepositoryCtx } from './context'
-import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_PRIMARY_KEY } from '../constants'
+import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { getOrCompileMapper } from '../mapper/index'
-import { HookOrchestrator } from './hooks'
-import { TraitDispatcher } from './middleware'
 import { ReadSuite } from './read-suite'
-import { RelationLoader } from './relation-loader'
+import { RelationResolver } from './relation-resolver'
 import { StreamSuite } from './stream-suite'
-import { clearVirtualEntriesCache, VirtualEntriesCache } from './virtuals'
+import { buildTableRuntime } from './table-runtime'
 import { WriteSuite } from './write-suite'
-
-export { clearVirtualEntriesCache }
 
 /**
  * Construction params for `Repository`. Only `table` and `executor` are required;
@@ -67,10 +63,8 @@ export class Repository<
     const executor = config.executor
     const maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
     const batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
-    const relationLoader = new RelationLoader(table, executor, maxIncludeDepth, batchChunkSize, config.tableRegistry)
-    const hooks = new HookOrchestrator(table)
-    const traits = new TraitDispatcher(table)
-    const virtualsCache = new VirtualEntriesCache()
+    const runtime = buildTableRuntime(table)
+    const relations = new RelationResolver(table, executor, maxIncludeDepth, batchChunkSize, config.tableRegistry)
 
     this._ctx = {
       table,
@@ -79,11 +73,8 @@ export class Repository<
       maxIncludeDepth,
       batchChunkSize,
       defaultLimit: config.defaultLimit,
-      relationLoader,
-      hooks,
-      traits,
-      virtualsCache,
-      getPrimaryKey: () => table.primaryKey ?? DEFAULT_PRIMARY_KEY,
+      runtime,
+      relations,
       getMapper: (builder: SelectBuilder<any, any, any>) => {
         const s = builder.getState()
 

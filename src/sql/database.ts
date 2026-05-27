@@ -8,7 +8,7 @@ import type { TransactionClient, TransactionOptions } from './transaction'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { setParamRedactor } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
-import { clearVirtualEntriesCache, Repository } from '../repo/index'
+import { Repository } from '../repo/index'
 import { BaseExecutor, queryContextStorage } from './base-executor'
 import { normalizeDbConfig, validateDbConfig } from './config'
 import { ConnectionLifecycle } from './connection-lifecycle'
@@ -237,16 +237,14 @@ export class Database extends BaseExecutor {
   /**
    * Invalidate process-global JIT mapper caches.
    *
-   * Virtual-entries caches are now instance-scoped per `Repository`, so they
-   * are not touched here — discard the `Repository` (or the `Database`) and
-   * the cache GC's with it. The mapper cache remains module-scoped pending
-   * a follow-up; this method clears it across every `Database` instance in
-   * the process.
+   * Virtual entries are now materialized once per `Repository` at construction
+   * (no cache to clear) — discard the `Repository` (or the `Database`) and
+   * the materialized entries GC with it. The mapper cache remains
+   * module-scoped pending a follow-up; this method clears it across every
+   * `Database` instance in the process.
    */
   invalidateCache(): void {
     clearMapperCache()
-    // No-op (kept for one release): virtual-entries cache is now per-Repository.
-    clearVirtualEntriesCache()
   }
 
   /**

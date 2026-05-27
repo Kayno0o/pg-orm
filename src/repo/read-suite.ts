@@ -5,7 +5,6 @@ import { SelectBuilder } from '../builder/query'
 import { NotFoundError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
-import { applyVirtuals } from './virtuals'
 
 /**
  * Read operations — `find*`, `count`, `exists`, `paginate*`, and the `select()`
@@ -39,7 +38,7 @@ export class ReadSuite<
     const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
     const finalBuilder = cb ? cb(builder) : builder
 
-    this._ctx.traits.applyPreSelect(finalBuilder)
+    this._ctx.runtime.applyPreSelect(finalBuilder)
 
     const state = finalBuilder.getState()
 
@@ -59,10 +58,10 @@ export class ReadSuite<
       mapped = await runHooksAsync(this._ctx.table, 'afterSelect', mapped)
     }
 
-    mapped = applyVirtuals(this._ctx.table, mapped, this._ctx.virtualsCache)
+    mapped = this._ctx.runtime.applyVirtuals(mapped)
 
     if (state.includes.length > 0) {
-      mapped = await this._ctx.relationLoader.loadIncludes(mapped, state.includes)
+      mapped = await this._ctx.relations.loadIncludes(mapped, state.includes)
     }
 
     return mapped
@@ -106,7 +105,7 @@ export class ReadSuite<
 
   /** Find a row by primary key. Supports composite PKs when `id` is an object. */
   async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const pk = this._ctx.getPrimaryKey()
+    const pk = this._ctx.runtime.primaryKey
 
     if (pk.includes(',')) {
       const pkCols = pk.split(',')
@@ -131,7 +130,7 @@ export class ReadSuite<
       builder.where(where)
     }
 
-    this._ctx.traits.applyPreSelect(builder)
+    this._ctx.runtime.applyPreSelect(builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._ctx.query(sql, params)
@@ -145,7 +144,7 @@ export class ReadSuite<
       .where(where)
       .limit(1)
 
-    this._ctx.traits.applyPreSelect(builder)
+    this._ctx.runtime.applyPreSelect(builder)
     builder.asExists()
 
     const { sql, params } = builder.toSQL()
@@ -192,7 +191,7 @@ export class ReadSuite<
     where?: (e: ExprBuilder<TColumns>) => ExprTape
   }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
     const { take, cursor, direction = 'forward', where: whereFn } = opts
-    const col = (opts.column ?? this._ctx.getPrimaryKey()) as keyof TColumns & string
+    const col = (opts.column ?? this._ctx.runtime.primaryKey) as keyof TColumns & string
     const isForward = direction === 'forward'
 
     const data = await this.findMany((q) => {
@@ -228,7 +227,7 @@ export class ReadSuite<
   select(): SelectBuilder<TColumns, TRelations> {
     const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
 
-    this._ctx.traits.applyPreSelect(builder)
+    this._ctx.runtime.applyPreSelect(builder)
 
     return builder
   }

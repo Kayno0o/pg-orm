@@ -2,10 +2,8 @@ import type { SelectBuilder } from '../builder/query'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
 import type { AnyTableDef } from '../types/index'
-import type { HookOrchestrator } from './hooks'
-import type { TraitDispatcher } from './middleware'
-import type { RelationLoader } from './relation-loader'
-import type { VirtualEntriesCache } from './virtuals'
+import type { RelationResolver } from './relation-resolver'
+import type { TableRuntime } from './table-runtime'
 
 /**
  * Frozen, per-repository shared context handed to each operation suite. Encapsulates
@@ -21,11 +19,8 @@ export interface RepositoryCtx {
   readonly maxIncludeDepth: number
   readonly batchChunkSize: number
   readonly defaultLimit?: number
-  readonly relationLoader: RelationLoader
-  readonly hooks: HookOrchestrator
-  readonly traits: TraitDispatcher
-  readonly virtualsCache: VirtualEntriesCache
-  readonly getPrimaryKey: () => string
+  readonly runtime: TableRuntime
+  readonly relations: RelationResolver
   readonly getMapper: (b: SelectBuilder<any, any, any>) => RowMapper<Record<string, unknown>>
   readonly query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
 }

@@ -3,8 +3,6 @@ import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKe
 import type { RepositoryCtx } from './context'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
-import { requireSoftDeleteColumn } from './traits'
-import { applyVirtuals } from './virtuals'
 
 /**
  * Write operations — `insert*`, `update*`, `delete*`, `upsertMany`, `findOrCreate`,
@@ -20,16 +18,16 @@ export class WriteSuite<
 
   /** Insert a single row and return the primary key of the inserted record. */
   async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
-    const v = await this._ctx.hooks.runBefore('beforeInsert', values)
+    const v = await this._ctx.runtime.runBefore('beforeInsert', values)
 
-    const pk = this._ctx.getPrimaryKey()
+    const pk = this._ctx.runtime.primaryKey
     const b = new InsertBuilder<TColumns>(this._ctx.table.name)
       .values(v)
       .returning(pk)
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterInsert', rows)
+    await this._ctx.runtime.runAfter('afterInsert', rows)
 
     return rows[0]![pk] as InferPrimaryKey<TColumns>
   }
@@ -39,16 +37,16 @@ export class WriteSuite<
     if (values.length === 0)
       return []
 
-    const v = await this._ctx.hooks.runBeforeMany('beforeInsert', values)
+    const v = await this._ctx.runtime.runBeforeMany('beforeInsert', values)
 
-    const pk = this._ctx.getPrimaryKey()
+    const pk = this._ctx.runtime.primaryKey
     const b = new InsertBuilder<TColumns>(this._ctx.table.name)
       .many(v)
       .returning(pk)
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterInsert', rows)
+    await this._ctx.runtime.runAfter('afterInsert', rows)
 
     return rows.map(r => r[pk]) as InferPrimaryKey<TColumns>[]
   }
@@ -58,7 +56,7 @@ export class WriteSuite<
     set: InferUpdate<TColumns>,
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const s = await this._ctx.hooks.runBefore('beforeUpdate', set)
+    const s = await this._ctx.runtime.runBefore('beforeUpdate', set)
 
     const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
       .set(s)
@@ -68,14 +66,14 @@ export class WriteSuite<
     // `applyPreUpdate` runs trait middleware (e.g. optimistic-lock version bump
     // via `setRaw()`) AFTER `.set()`'s `validateValues` check, so user payloads
     // can't smuggle `__raw` through and the version bump itself bypasses validation.
-    this._ctx.traits.applyPreUpdate(b)
+    this._ctx.runtime.applyPreUpdate(b)
 
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterUpdate', rows)
+    await this._ctx.runtime.runAfter('afterUpdate', rows)
 
-    const withVirtuals = applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)
+    const withVirtuals = this._ctx.runtime.applyVirtuals(rows)
 
     return withVirtuals as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -96,7 +94,7 @@ export class WriteSuite<
     where: (e: ExprBuilder<TColumns>) => ExprTape,
     currentVersion: number,
   ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const lockCol = this._ctx.traits.getOptimisticLockColumn()
+    const lockCol = this._ctx.runtime.optimisticLockColumn
 
     if (!lockCol) {
       throw new ValidationError(
@@ -120,16 +118,16 @@ export class WriteSuite<
   async deleteMany(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._ctx.hooks.runBefore('beforeDelete', undefined)
+    await this._ctx.runtime.runBefore('beforeDelete', undefined)
 
-    const b = this._ctx.traits.rewriteDelete<TColumns>(where)
+    const b = this._ctx.runtime.rewriteDelete<TColumns>(where)
       ?? new DeleteBuilder<TColumns>(this._ctx.table.name).where(where).returning()
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterDelete', rows)
+    await this._ctx.runtime.runAfter('afterDelete', rows)
 
-    return applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache) as WithVirtuals<TColumns, TVirtuals>[]
+    return this._ctx.runtime.applyVirtuals(rows) as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Delete the first matching row. Returns the deleted record or `null`. */
@@ -150,7 +148,7 @@ export class WriteSuite<
     if (values.length === 0)
       return []
 
-    const v = await this._ctx.hooks.runBeforeMany('beforeUpsert', values)
+    const v = await this._ctx.runtime.runBeforeMany('beforeUpsert', values)
 
     const ib = new InsertBuilder<TColumns>(this._ctx.table.name).many(v)
     const conflict = ib.onConflict(conflictTarget)
@@ -159,9 +157,9 @@ export class WriteSuite<
     const { sql, params } = final.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterInsert', rows)
+    await this._ctx.runtime.runAfter('afterInsert', rows)
 
-    applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)
+    this._ctx.runtime.applyVirtuals(rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -171,9 +169,9 @@ export class WriteSuite<
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
   ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const v = await this._ctx.hooks.runBefore('beforeUpsert', values)
+    const v = await this._ctx.runtime.runBefore('beforeUpsert', values)
 
-    const pk = this._ctx.getPrimaryKey()
+    const pk = this._ctx.runtime.primaryKey
     const b = new InsertBuilder<TColumns>(this._ctx.table.name)
       .values(v)
       .onConflict(conflictTarget)
@@ -182,18 +180,18 @@ export class WriteSuite<
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterInsert', rows)
+    await this._ctx.runtime.runAfter('afterInsert', rows)
 
-    return applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)[0] as WithVirtuals<TColumns, TVirtuals>
+    return this._ctx.runtime.applyVirtuals(rows)[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Restore soft-deleted records: sets the soft-delete column to NULL. */
   async restore(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = requireSoftDeleteColumn(this._ctx.table, 'restore()')
+    const sdCol = this._ctx.runtime.requireSoftDeleteColumn('restore()')
 
-    const s = await this._ctx.hooks.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
+    const s = await this._ctx.runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
 
     const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
       .set(s)
@@ -203,7 +201,7 @@ export class WriteSuite<
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterUpdate', rows)
+    await this._ctx.runtime.runAfter('afterUpdate', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -212,7 +210,7 @@ export class WriteSuite<
   async forceDelete(
     where: (e: ExprBuilder<TColumns>) => ExprTape,
   ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._ctx.hooks.runBefore('beforeDelete', undefined)
+    await this._ctx.runtime.runBefore('beforeDelete', undefined)
 
     const b = new DeleteBuilder<TColumns>(this._ctx.table.name)
       .where(where)
@@ -220,7 +218,7 @@ export class WriteSuite<
     const { sql, params } = b.toSQL()
     const rows = await this._ctx.query(sql, params)
 
-    await this._ctx.hooks.runAfter('afterDelete', rows)
+    await this._ctx.runtime.runAfter('afterDelete', rows)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }

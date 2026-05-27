@@ -5,26 +5,26 @@ import { SelectBuilder } from '../builder/query'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { OrmError } from '../errors/index'
 import { buildPlaceholders, quote } from '../sql/utils'
-import { ChunkedQueryExecutor, collectParentIds, groupBy, indexBy } from './chunked-executor'
+import { collectParentIds, groupBy, indexBy } from '../utils/collection'
 
 /**
  * Batched relation loading — single query per relation, all relations in parallel.
  * Nested includes are handled via callback composition: each load method extracts
  * nested includes from the callback's builder state and recursively loads them
- * through child loaders.
+ * through child resolvers.
+ *
+ * Chunking lives inside this class via `#runChunked` — IDs are split into chunks
+ * sized by `batchChunkSize` so the IN list never overflows the bind-parameter
+ * limit. The same loop serves every relation strategy.
  */
-export class RelationLoader {
-  private readonly chunked: ChunkedQueryExecutor
-
+export class RelationResolver {
   constructor(
     private table: AnyTableDef,
     private executor: Executable,
     private maxIncludeDepth: number,
     private batchChunkSize: number,
     private tableRegistry?: ReadonlyMap<string, AnyTableDef>,
-  ) {
-    this.chunked = new ChunkedQueryExecutor(executor, batchChunkSize)
-  }
+  ) {}
 
   async loadIncludes(
     parentRows: Record<string, unknown>[],
@@ -84,6 +84,37 @@ export class RelationLoader {
     return parentRows
   }
 
+  /**
+   * Split `ids` into chunks of `batchChunkSize` and run `buildSql(chunk)` for
+   * each, concatenating rows. Empty input short-circuits without touching the
+   * executor — the caller decides the SQL shape (IN-clause, JOIN-through-pivot,
+   * etc.) so the same chunk loop serves every relation strategy.
+   */
+  private async _runChunked(
+    ids: unknown[],
+    buildSql: (chunk: unknown[]) => { sql: string, params: unknown[] },
+  ): Promise<Record<string, unknown>[]> {
+    if (ids.length === 0)
+      return []
+
+    if (ids.length <= this.batchChunkSize) {
+      const { sql, params } = buildSql(ids)
+
+      return this.executor.query(sql, params)
+    }
+
+    const results: Record<string, unknown>[] = []
+
+    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
+      const chunk = ids.slice(i, i + this.batchChunkSize)
+      const { sql, params } = buildSql(chunk)
+
+      results.push(...await this.executor.query(sql, params))
+    }
+
+    return results
+  }
+
   private _resolveTable(name: string): AnyTableDef | undefined {
     return this.tableRegistry?.get(name)
   }
@@ -94,14 +125,14 @@ export class RelationLoader {
 
   // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
   private _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    return this.chunked.execute(ids, chunk => ({
+    return this._runChunked(ids, chunk => ({
       sql: `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${buildPlaceholders(chunk.length)})`,
       params: chunk,
     }))
   }
 
   private _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    return this.chunked.execute(ids, chunk => ({
+    return this._runChunked(ids, chunk => ({
       sql: `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
        FROM ${quote(rel.throughTable!)} j
        JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
@@ -244,8 +275,8 @@ export class RelationLoader {
     const childVisited = new Set(ctx.seen)
 
     childVisited.add(`${this.table.name}.${relationName}`)
-    const childLoader = new RelationLoader(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
+    const childResolver = new RelationResolver(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
 
-    await childLoader.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
+    await childResolver.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
   }
 }
