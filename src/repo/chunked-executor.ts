@@ -1,5 +1,7 @@
 import type { Executable } from '../sql/base-executor'
 
+export { collectParentIds, groupBy, indexBy } from '../utils/collection'
+
 /**
  * Splits a list of IDs into chunks and runs `buildSql(chunk)` for each,
  * concatenating row results. Empty input returns `[]` without touching the
@@ -36,43 +38,4 @@ export class ChunkedQueryExecutor {
 
     return results
   }
-}
-
-/** Unique non-null values of `row[key]` across `rows`, in encounter order. */
-export function collectParentIds(
-  rows: Record<string, unknown>[],
-  key: string,
-): unknown[] {
-  return [...new Set(rows.map(r => r[key]).filter(v => v != null))]
-}
-
-/** Last-wins index of `rows` by `row[key]`. */
-export function indexBy<T extends Record<string, unknown>>(
-  rows: T[],
-  key: string,
-): Map<unknown, T> {
-  const out = new Map<unknown, T>()
-
-  for (const row of rows) out.set(row[key], row)
-
-  return out
-}
-
-/** Group `rows` by `row[key]`, preserving insertion order within each bucket. */
-export function groupBy<T extends Record<string, unknown>>(
-  rows: T[],
-  key: string,
-): Map<unknown, T[]> {
-  const out = new Map<unknown, T[]>()
-
-  for (const row of rows) {
-    const k = row[key]
-    const bucket = out.get(k)
-
-    if (bucket)
-      bucket.push(row)
-    else out.set(k, [row])
-  }
-
-  return out
 }
