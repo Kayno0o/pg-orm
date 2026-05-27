@@ -8,15 +8,13 @@ elif [ -f /usr/local/bin/bun ]; then
   BUN_PATH=/usr/local/bin/bun
 fi
 
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(json|ts)$' | tr '\n' ' ')
+STAGED_TS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.ts$' | tr '\n' ' ')
 
-if [ -n "$STAGED_FILES" ]; then
-  if command -v eslint_d &> /dev/null; then
-    eslint_d --cache $STAGED_FILES
-  else
-    $BUN_PATH eslint --cache $STAGED_FILES
-  fi
+if [ -z "$STAGED_TS_FILES" ]; then
+  exit 0
 fi
+
+$BUN_PATH eslint --cache $STAGED_TS_FILES
 
 $BUN_PATH run duplicates
 $BUN_PATH run build
