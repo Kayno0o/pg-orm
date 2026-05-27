@@ -2,12 +2,29 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { QueryError, setParamRedactor } from '../../../src/errors/index'
 
 afterEach(() => {
-  // Tests are global-state — always reset the redactor.
+  // Tests are global-state — always reset the redactor and env.
   setParamRedactor(undefined)
+  delete process.env.REDACT_QUERY_LOGS
 })
 
 describe('paramRedactor', () => {
-  it('no redactor → params passed through unchanged', () => {
+  it('no redactor → params default-scrubbed to "[REDACTED]" (safe default)', () => {
+    const err = new QueryError('boom', 'SELECT $1', ['secret'])
+
+    expect(err.params).toEqual(['[REDACTED]'])
+  })
+
+  it('no redactor + REDACT_QUERY_LOGS=0 → params preserved verbatim (debug opt-out)', () => {
+    process.env.REDACT_QUERY_LOGS = '0'
+
+    const err = new QueryError('boom', 'SELECT $1', ['secret'])
+
+    expect(err.params).toEqual(['secret'])
+  })
+
+  it('identity redactor → params preserved verbatim (explicit opt-out)', () => {
+    setParamRedactor(p => p)
+
     const err = new QueryError('boom', 'SELECT $1', ['secret'])
 
     expect(err.params).toEqual(['secret'])
@@ -45,12 +62,12 @@ describe('paramRedactor', () => {
     expect(() => new QueryError('boom', 'SELECT $1', ['secret'])).toThrow(bug)
   })
 
-  it('setParamRedactor(undefined) clears the redactor', () => {
+  it('setParamRedactor(undefined) clears the redactor → falls back to safe default', () => {
     setParamRedactor(() => ['x'])
     setParamRedactor(undefined)
 
     const err = new QueryError('boom', 'SELECT $1', ['raw'])
 
-    expect(err.params).toEqual(['raw'])
+    expect(err.params).toEqual(['[REDACTED]'])
   })
 })

@@ -4,24 +4,46 @@ import { OrmError } from '../errors/index'
 
 type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
 
-// Per-table cache: avoids re-running Object.entries on every result set.
-let _cache = new WeakMap<AnyTableDef, VirtualEntry[]>()
+/**
+ * Per-repository virtual-entries cache. Replaces the previous module-level
+ * WeakMap so each `Database` / `Repository` instance owns its own memoized
+ * lookup — two databases sharing the same `AnyTableDef` no longer share
+ * cache state, and an `invalidateCache()` call on one cannot disrupt
+ * another's in-flight queries.
+ *
+ * The cache is keyed by `AnyTableDef` identity. Re-defining a table (via
+ * `defineTable`) produces a new identity, so cache entries naturally tied
+ * to the previous definition will be GC'd alongside it.
+ */
+export class VirtualEntriesCache {
+  private _cache = new WeakMap<AnyTableDef, VirtualEntry[]>()
 
-export function clearVirtualEntriesCache(): void {
-  _cache = new WeakMap()
-}
+  entries(table: AnyTableDef): VirtualEntry[] {
+    let entries = this._cache.get(table)
 
-export function getVirtualEntries(table: AnyTableDef): VirtualEntry[] {
-  let entries = _cache.get(table)
+    if (!entries) {
+      const virtuals = table.virtuals
 
-  if (!entries) {
-    const virtuals = table.virtuals
+      entries = virtuals ? Object.entries(virtuals) : []
+      this._cache.set(table, entries)
+    }
 
-    entries = virtuals ? Object.entries(virtuals) : []
-    _cache.set(table, entries)
+    return entries
   }
 
-  return entries
+  clear(): void {
+    this._cache = new WeakMap()
+  }
+}
+
+/**
+ * @deprecated The virtual-entries cache is now instance-scoped on each
+ * `Repository`. This function is a no-op kept for one release for API
+ * stability — use `db.invalidateCache()` or simply drop the call. Will be
+ * removed in the next major.
+ */
+export function clearVirtualEntriesCache(): void {
+  // No-op: nothing to clear at module scope anymore.
 }
 
 /**
@@ -30,9 +52,17 @@ export function getVirtualEntries(table: AnyTableDef): VirtualEntry[] {
  * plain property accesses. A throw inside `compute` is wrapped in OrmError
  * with the table, field name, and the row's primary-key value so bulk
  * failures (e.g., 1 bad row out of 10k in a findMany) are debuggable.
+ *
+ * The `cache` argument is the per-Repository memo. Passing it explicitly
+ * means callers (suites) can never accidentally share state across
+ * `Database` instances, which the old module-level cache silently did.
  */
-export function applyVirtuals<T extends Record<string, unknown>>(table: AnyTableDef, rows: T[]): T[] {
-  const entries = getVirtualEntries(table)
+export function applyVirtuals<T extends Record<string, unknown>>(
+  table: AnyTableDef,
+  rows: T[],
+  cache: VirtualEntriesCache,
+): T[] {
+  const entries = cache.entries(table)
 
   if (entries.length === 0)
     return rows

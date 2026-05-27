@@ -79,7 +79,7 @@ export class StreamSuite<
         mapped = await runHooksAsync(this._ctx.table, 'afterSelect', mapped)
       }
 
-      mapped = applyVirtuals(this._ctx.table, mapped)
+      mapped = applyVirtuals(this._ctx.table, mapped, this._ctx.virtualsCache)
 
       for (const row of mapped) {
         yield row

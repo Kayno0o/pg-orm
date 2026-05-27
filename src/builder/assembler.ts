@@ -125,6 +125,12 @@ function printSelectColumns(state: BuilderState): string {
     : ['*']
 
   for (const cc of state.computedColumns) {
+    // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
+    // entry points: `computed()` produces strings via the safe `ExprBuilder`,
+    // and `computedRaw()` runs the string through `validateRawSqlFragment`
+    // (rejects `;`, `--`, `/*`, dollar-quotes, unterminated strings). The
+    // alias is bound by `validateIdentifier`. Do not introduce a new caller
+    // here without applying both.
     cols.push(`${cc.expr} AS ${quote(cc.alias)}`)
   }
 

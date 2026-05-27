@@ -5,6 +5,7 @@ import type { AnyTableDef } from '../types/index'
 import type { HookOrchestrator } from './hooks'
 import type { TraitDispatcher } from './middleware'
 import type { RelationLoader } from './relation-loader'
+import type { VirtualEntriesCache } from './virtuals'
 
 /**
  * Frozen, per-repository shared context handed to each operation suite. Encapsulates
@@ -23,6 +24,7 @@ export interface RepositoryCtx {
   readonly relationLoader: RelationLoader
   readonly hooks: HookOrchestrator
   readonly traits: TraitDispatcher
+  readonly virtualsCache: VirtualEntriesCache
   readonly getPrimaryKey: () => string
   readonly getMapper: (b: SelectBuilder<any, any, any>) => RowMapper<Record<string, unknown>>
   readonly query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>

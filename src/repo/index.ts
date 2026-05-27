@@ -9,7 +9,7 @@ import { TraitDispatcher } from './middleware'
 import { ReadSuite } from './read-suite'
 import { RelationLoader } from './relation-loader'
 import { StreamSuite } from './stream-suite'
-import { clearVirtualEntriesCache } from './virtuals'
+import { clearVirtualEntriesCache, VirtualEntriesCache } from './virtuals'
 import { WriteSuite } from './write-suite'
 
 export { clearVirtualEntriesCache }
@@ -70,6 +70,7 @@ export class Repository<
     const relationLoader = new RelationLoader(table, executor, maxIncludeDepth, batchChunkSize, config.tableRegistry)
     const hooks = new HookOrchestrator(table)
     const traits = new TraitDispatcher(table)
+    const virtualsCache = new VirtualEntriesCache()
 
     this._ctx = {
       table,
@@ -81,6 +82,7 @@ export class Repository<
       relationLoader,
       hooks,
       traits,
+      virtualsCache,
       getPrimaryKey: () => table.primaryKey ?? DEFAULT_PRIMARY_KEY,
       getMapper: (builder: SelectBuilder<any, any, any>) => {
         const s = builder.getState()

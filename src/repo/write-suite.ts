@@ -75,7 +75,7 @@ export class WriteSuite<
 
     await this._ctx.hooks.runAfter('afterUpdate', rows)
 
-    const withVirtuals = applyVirtuals(this._ctx.table, rows)
+    const withVirtuals = applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)
 
     return withVirtuals as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -129,7 +129,7 @@ export class WriteSuite<
 
     await this._ctx.hooks.runAfter('afterDelete', rows)
 
-    return applyVirtuals(this._ctx.table, rows) as WithVirtuals<TColumns, TVirtuals>[]
+    return applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache) as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   /** Delete the first matching row. Returns the deleted record or `null`. */
@@ -161,7 +161,7 @@ export class WriteSuite<
 
     await this._ctx.hooks.runAfter('afterInsert', rows)
 
-    applyVirtuals(this._ctx.table, rows)
+    applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)
 
     return rows as WithVirtuals<TColumns, TVirtuals>[]
   }
@@ -184,7 +184,7 @@ export class WriteSuite<
 
     await this._ctx.hooks.runAfter('afterInsert', rows)
 
-    return applyVirtuals(this._ctx.table, rows)[0] as WithVirtuals<TColumns, TVirtuals>
+    return applyVirtuals(this._ctx.table, rows, this._ctx.virtualsCache)[0] as WithVirtuals<TColumns, TVirtuals>
   }
 
   /** Restore soft-deleted records: sets the soft-delete column to NULL. */

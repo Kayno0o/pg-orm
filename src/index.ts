@@ -41,6 +41,7 @@ export {
   QueryError,
   ResourceError,
   type RetryableError,
+  sanitizePgErrorMessage,
   SerializationError,
   setParamRedactor,
   StaleRecordError,

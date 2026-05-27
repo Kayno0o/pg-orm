@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { OrmError } from '../../../src/errors/index'
 import { defineTable } from '../../../src/index'
-import { applyVirtuals, clearVirtualEntriesCache, getVirtualEntries } from '../../../src/repo/virtuals'
+import { applyVirtuals, VirtualEntriesCache } from '../../../src/repo/virtuals'
 
 function makePeople() {
   return defineTable('people', t => ({
@@ -13,11 +13,15 @@ function makePeople() {
   })
 }
 
+function cache() {
+  return new VirtualEntriesCache()
+}
+
 describe('applyVirtuals', () => {
   it('returns the same array when the table has no virtuals', () => {
     const t = defineTable('bare', col => ({ id: col.serial().primaryKey() }))
     const rows = [{ id: 1 }]
-    const out = applyVirtuals(t, rows)
+    const out = applyVirtuals(t, rows, cache())
 
     expect(out).toBe(rows)
     expect(out[0]).toEqual({ id: 1 })
@@ -36,7 +40,7 @@ describe('applyVirtuals', () => {
 
     const rows = [{ id: 1, firstName: 'A', lastName: 'B' }]
 
-    applyVirtuals(t2, rows)
+    applyVirtuals(t2, rows, cache())
     expect(calls).toBe(0) // not computed yet
     expect((rows[0] as any).counted).toBe('value')
     expect(calls).toBe(1)
@@ -54,7 +58,7 @@ describe('applyVirtuals', () => {
 
     const rows = [{ id: 1 }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
     const r = rows[0] as any
 
     expect(r.v).toBe(1)
@@ -70,7 +74,7 @@ describe('applyVirtuals', () => {
       { id: 2, firstName: 'Alan', lastName: 'Turing' },
     ]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
     expect((rows[0] as any).fullName).toBe('Ada Lovelace')
     expect((rows[1] as any).fullName).toBe('Alan Turing')
   })
@@ -85,7 +89,7 @@ describe('applyVirtuals', () => {
     })
     const rows = [{ id: 42 }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     try {
       void (rows[0] as any).boom
@@ -110,7 +114,7 @@ describe('applyVirtuals', () => {
     })
     const rows = [{ id: 'abc-123' }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     try {
       void (rows[0] as any).boom
@@ -132,7 +136,7 @@ describe('applyVirtuals', () => {
     })
     const rows = [{ id: null }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     try {
       void (rows[0] as any).boom
@@ -154,7 +158,7 @@ describe('applyVirtuals', () => {
     })
     const rows = [{} as { id: number }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     try {
       void (rows[0] as any).boom
@@ -177,7 +181,7 @@ describe('applyVirtuals', () => {
     })
     const rows = [{ id: 1 }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     try {
       void (rows[0] as any).boom
@@ -194,7 +198,7 @@ describe('applyVirtuals', () => {
     const t = makePeople()
     const rows = [{ id: 1, firstName: 'A', lastName: 'B' }]
 
-    applyVirtuals(t, rows)
+    applyVirtuals(t, rows, cache())
 
     // Defining a getter doesn't show the property until it's been read;
     // JSON.stringify still includes it because it's enumerable + configurable.
@@ -205,29 +209,44 @@ describe('applyVirtuals', () => {
   })
 })
 
-describe('getVirtualEntries', () => {
-  it('caches entries per table (WeakMap)', () => {
+describe('VirtualEntriesCache', () => {
+  it('caches entries per table (returns same reference on repeated lookup)', () => {
+    const c = new VirtualEntriesCache()
     const t = makePeople()
-    const e1 = getVirtualEntries(t)
-    const e2 = getVirtualEntries(t)
+    const e1 = c.entries(t)
+    const e2 = c.entries(t)
 
     expect(e1).toBe(e2)
   })
 
   it('returns empty array for tables without virtuals', () => {
+    const c = new VirtualEntriesCache()
     const t = defineTable('empty', col => ({ id: col.serial().primaryKey() }))
 
-    expect(getVirtualEntries(t)).toEqual([])
+    expect(c.entries(t)).toEqual([])
   })
-})
 
-describe('clearVirtualEntriesCache', () => {
-  it('forces re-computation of entries on next read', () => {
+  it('two cache instances are independent (no shared module state)', () => {
     const t = makePeople()
-    const before = getVirtualEntries(t)
+    const a = new VirtualEntriesCache()
+    const b = new VirtualEntriesCache()
 
-    clearVirtualEntriesCache()
-    const after = getVirtualEntries(t)
+    const fromA = a.entries(t)
+    const fromB = b.entries(t)
+
+    // Different identity — proves the cache is per-instance, not module-scoped.
+    expect(fromA).not.toBe(fromB)
+    // But the content is the same shape.
+    expect(fromA.map(([k]) => k)).toEqual(fromB.map(([k]) => k))
+  })
+
+  it('clear() forces re-computation of entries on next read', () => {
+    const c = new VirtualEntriesCache()
+    const t = makePeople()
+    const before = c.entries(t)
+
+    c.clear()
+    const after = c.entries(t)
 
     expect(after).not.toBe(before)
     expect(after.length).toBe(before.length)

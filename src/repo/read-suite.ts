@@ -59,7 +59,7 @@ export class ReadSuite<
       mapped = await runHooksAsync(this._ctx.table, 'afterSelect', mapped)
     }
 
-    mapped = applyVirtuals(this._ctx.table, mapped)
+    mapped = applyVirtuals(this._ctx.table, mapped, this._ctx.virtualsCache)
 
     if (state.includes.length > 0) {
       mapped = await this._ctx.relationLoader.loadIncludes(mapped, state.includes)

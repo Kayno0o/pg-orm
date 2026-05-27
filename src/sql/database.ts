@@ -78,9 +78,20 @@ export interface DbConfig {
    */
   onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
   /**
-   * Scrub sensitive values from `QueryError.params` even outside production.
-   * Receives the positional param array and returns the redacted copy.
-   * Called for every QueryError-derived error.
+   * Scrub sensitive values from `QueryError.params`. Receives the positional
+   * param array and returns the redacted copy. Called for every QueryError-
+   * derived error.
+   *
+   * **Default behavior:** when no redactor is set, every param is replaced
+   * with the string `'[REDACTED]'`. This is safe-by-default — accidental
+   * upgrades or unset `NODE_ENV` won't leak data into logs.
+   *
+   * To **opt out** during local debugging:
+   * - set `REDACT_QUERY_LOGS=0` in the environment, OR
+   * - pass an identity redactor: `redactParams: p => p`.
+   *
+   * To **customize**, return a redacted copy (e.g., scrub by index/type while
+   * keeping safe values raw).
    *
    * **MUST NOT throw.** A throwing redactor propagates the exception out of
    * the QueryError constructor — intentionally, so programming bugs in the
@@ -478,8 +489,18 @@ export class Database extends BaseExecutor {
     }
   }
 
+  /**
+   * Invalidate process-global JIT mapper caches.
+   *
+   * Virtual-entries caches are now instance-scoped per `Repository`, so they
+   * are not touched here — discard the `Repository` (or the `Database`) and
+   * the cache GC's with it. The mapper cache remains module-scoped pending
+   * a follow-up; this method clears it across every `Database` instance in
+   * the process.
+   */
   invalidateCache(): void {
     clearMapperCache()
+    // No-op (kept for one release): virtual-entries cache is now per-Repository.
     clearVirtualEntriesCache()
   }
 

@@ -123,10 +123,12 @@ describe('Error hierarchy', () => {
 })
 
 describe('Error redaction', () => {
-  it('QueryError stores query when REDACT is not set', () => {
+  it('QueryError stores query when REDACT is not set (params default-scrubbed)', () => {
     const err = new QueryError('bad', 'SELECT 1', [42])
 
     expect(err.query).toBe('SELECT 1')
-    expect(err.params).toEqual([42])
+    // Default behavior: params are scrubbed. Opt in to raw via REDACT_QUERY_LOGS=0
+    // or an identity `redactParams` on DbConfig.
+    expect(err.params).toEqual(['[REDACTED]'])
   })
 })

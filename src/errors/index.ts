@@ -14,7 +14,7 @@ export class OrmError extends Error {
 /**
  * Optional global param redactor. Set via `setParamRedactor()` (typically wired
  * from `DbConfig.redactParams`) to scrub sensitive values from `QueryError.params`
- * even outside production. Receives the raw param array and returns the scrubbed copy.
+ * outside production. Receives the raw param array and returns the scrubbed copy.
  *
  * **The redactor MUST NOT throw.** If it does, the QueryError construction
  * propagates the exception — this is intentional. Silently swallowing redactor
@@ -22,24 +22,43 @@ export class OrmError extends Error {
  * indistinguishable from a deliberate "no params" case, which historically led
  * to debugging black holes. Validate inputs inside your redactor and prefer
  * returning sanitized copies over throwing.
+ *
+ * **Default behavior (no redactor set):** params are replaced with `'[REDACTED]'`
+ * placeholders. To recover raw params during local debugging, set the env
+ * `REDACT_QUERY_LOGS=0` or supply an identity redactor: `redactParams: p => p`.
+ * The safe default prevents accidental data leaks in shared logs (Sentry,
+ * stdout aggregators) when callers forget to wire a redactor.
  */
 type ParamRedactor = (params: unknown[]) => unknown[]
 let paramRedactor: ParamRedactor | undefined
+
+const DEFAULT_PARAM_REDACTOR: ParamRedactor = params => params.map(() => '[REDACTED]')
 
 export function setParamRedactor(fn: ParamRedactor | undefined): void {
   paramRedactor = fn
 }
 
-/** Query execution error. Contains the SQL and params (redacted in production). */
+/**
+ * Query execution error. Contains the SQL and params.
+ *
+ * Redaction modes:
+ * - `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`: hard-redact (`query = '[REDACTED]'`, `params = []`).
+ * - `REDACT_QUERY_LOGS=0`: opt-in to raw — params/query preserved verbatim regardless of redactor.
+ * - Otherwise: use the registered `paramRedactor` if any; else the safe default that scrubs each value.
+ */
 export class QueryError extends OrmError {
   readonly query: string
   readonly params: unknown[]
   constructor(message: string, query: string, params: unknown[], cause?: unknown) {
     super(sanitizeMessage(message), cause)
     this.name = 'QueryError'
-    this.query = shouldRedact() ? '[REDACTED]' : query
 
-    if (shouldRedact()) {
+    const hardRedact = shouldRedact()
+    const explicitRaw = process.env.REDACT_QUERY_LOGS === '0'
+
+    this.query = hardRedact ? '[REDACTED]' : query
+
+    if (hardRedact) {
       this.params = []
     }
     else if (paramRedactor) {
@@ -48,8 +67,11 @@ export class QueryError extends OrmError {
       // masks it. See the ParamRedactor type doc above.
       this.params = paramRedactor(params)
     }
-    else {
+    else if (explicitRaw) {
       this.params = params
+    }
+    else {
+      this.params = DEFAULT_PARAM_REDACTOR(params)
     }
   }
 }
@@ -310,6 +332,29 @@ function sanitizeMessage(message: string): string {
   return message
 }
 
+const PG_KEY_VALUE_RE = /Key \(([^)]+)\)=\([^)]*\)/g
+const PG_DETAIL_LINE_RE = /\bDetail:.*$/gm
+
+/**
+ * Strip data values from a raw PG error message before it becomes a
+ * `QueryError.message`. PG emits constraint failures with the offending value
+ * inline (e.g. `Key (email)=(alice@example.com) already exists.`), and that
+ * message ends up in logs even in development. We replace the value half of
+ * `Key (col)=(value)` and the entire `Detail:` line — both habitual carriers
+ * of customer data. Structured fields on `ConstraintError` (constraint, table,
+ * column) are unaffected and still tell you what failed.
+ *
+ * Set `REDACT_QUERY_LOGS=0` to opt out (e.g. during local repro).
+ */
+export function sanitizePgErrorMessage(message: string): string {
+  if (process.env.REDACT_QUERY_LOGS === '0')
+    return message
+
+  return message
+    .replace(PG_KEY_VALUE_RE, 'Key ($1)=([REDACTED])')
+    .replace(PG_DETAIL_LINE_RE, 'Detail: [redacted]')
+}
+
 // Parse PG error codes into typed constraint errors
 // PG error codes: 23505 = unique_violation, 23503 = foreign_key_violation,
 // 23502 = not_null_violation, 23514 = check_violation
@@ -335,45 +380,51 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   const table = pgErr.table_name ?? pgErr.table ?? ''
   const column = pgErr.column_name ?? pgErr.column ?? ''
 
+  // Sanitize the raw PG message ONCE here. Constraint failures embed user data
+  // in the message text ("Key (email)=(alice@example.com)"), and that string
+  // is what bubbles up to logs as `err.message`. The raw error is still
+  // available on `err.cause` for callers that explicitly need it.
+  const safeMessage = sanitizePgErrorMessage(pgErr.message)
+
   // bun:sql emits client-side error codes (string-prefixed) for transport-level
   // failures. "ERR_POSTGRES_CONNECTION_CLOSED" is the dropped-connection case we
   // hit in CI when the server-side PG closes idle sockets — surface it as a
   // ConnectionError so the Database retry path catches it.
   if (pgErr.code === 'ERR_POSTGRES_CONNECTION_CLOSED') {
-    return new ConnectionError(pgErr.message, err)
+    return new ConnectionError(safeMessage, err)
   }
 
   switch (code) {
     case '23505': // unique_violation
-      return new UniqueError(pgErr.message, query, params, { constraint, table, column }, err)
+      return new UniqueError(safeMessage, query, params, { constraint, table, column }, err)
     case '23503': // foreign_key_violation
-      return new ForeignKeyError(pgErr.message, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, err)
+      return new ForeignKeyError(safeMessage, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, err)
     case '23502': // not_null_violation
-      return new NotNullError(pgErr.message, query, params, { constraint, table, column }, err)
+      return new NotNullError(safeMessage, query, params, { constraint, table, column }, err)
     case '23514': // check_violation
-      return new CheckError(pgErr.message, query, params, { constraint, table }, err)
+      return new CheckError(safeMessage, query, params, { constraint, table }, err)
     case '40P01': // deadlock_detected
-      return new DeadlockError(pgErr.message, query, params, err)
+      return new DeadlockError(safeMessage, query, params, err)
     case '40001': // serialization_failure
-      return new SerializationError(pgErr.message, query, params, err)
+      return new SerializationError(safeMessage, query, params, err)
     default:
       if (code?.startsWith('08') || code === '57P01') {
-        return new ConnectionError(pgErr.message, err)
+        return new ConnectionError(safeMessage, err)
       }
 
       if (code === '57014') {
-        return new TimeoutError(pgErr.message, err)
+        return new TimeoutError(safeMessage, err)
       }
 
       if (code?.startsWith('53')) {
-        return new ResourceError(pgErr.message, code, err)
+        return new ResourceError(safeMessage, code, err)
       }
 
       if (code?.startsWith('22')) {
-        return new DataError(pgErr.message, code, query, params, err)
+        return new DataError(safeMessage, code, query, params, err)
       }
 
-      return new QueryError(pgErr.message, query, params, err)
+      return new QueryError(safeMessage, query, params, err)
   }
 }
 

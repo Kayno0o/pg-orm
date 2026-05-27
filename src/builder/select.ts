@@ -2,7 +2,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, InferRelationResult, InferS
 import type { AggResult, ExprBuilder, ExprOp, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
-import { validateIdentifier } from '../schema/validate'
+import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { BaseBuilder } from './base'
 import { createExprBuilder, OP_AND } from './expr'
 import { PLACEHOLDER_RE } from './state'
@@ -67,13 +67,30 @@ export class SelectBuilder<
    *
    * @trusted The expression is interpolated unparameterized. Pass only
    * developer-authored SQL — never user input. Prefer `computed()` with the
-   * `ExprBuilder` callback for safer composition. See README "Security model".
+   * `ExprBuilder` callback for safer composition.
+   *
+   * Defense-in-depth: the expression is run through `validateRawSqlFragment`
+   * (same allowlist as DDL fragments) which rejects `;`, `--`, `/*`, dollar-
+   * quoted strings, `E'...'`/`U&'...'` escape literals, and unterminated
+   * quotes. This blocks the realistic injection path (analytics-dashboard
+   * copy-paste, dynamic column lists) without lifting the "developer-authored
+   * only" rule. See README "Security model".
    */
   computedRaw<TComputed = unknown>(
     expr: string,
     alias: string,
   ): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
     validateIdentifier(alias, 'computed alias')
+
+    if (!expr || !expr.trim()) {
+      throw new ValidationError(
+        'computedRaw expression must not be empty.',
+        'computedRaw expression',
+        { value: expr },
+      )
+    }
+
+    validateRawSqlFragment(expr, 'computedRaw expression')
     this._state.computedColumns.push({ expr, alias })
 
     return this as never
