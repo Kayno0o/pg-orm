@@ -1,0 +1,173 @@
+import type { SQL } from 'bun'
+import { describe, expect, it } from 'bun:test'
+import { queryContextStorage } from '../../../src/sql/base-executor'
+import { TransactionRunner } from '../../../src/sql/transaction-runner'
+
+interface FakeDriver {
+  unsafe: (sql: string, params: unknown[]) => Promise<unknown[]>
+  begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
+  savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
+  close: (opts?: { timeout?: number }) => Promise<void>
+}
+
+async function emptyClose(): Promise<void> {
+  return undefined
+}
+
+function makeSqlFake(beginImpl?: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>): InstanceType<typeof SQL> {
+  const fake: FakeDriver = {
+    unsafe: async () => [],
+    begin: beginImpl ?? (async fn => fn({} as InstanceType<typeof SQL>)),
+    savepoint: async fn => fn({} as InstanceType<typeof SQL>),
+    close: emptyClose,
+  }
+
+  return fake as unknown as InstanceType<typeof SQL>
+}
+
+describe('TransactionRunner', () => {
+  it('fires onCommit callbacks after commit', async () => {
+    const fired: string[] = []
+    const runner = new TransactionRunner(makeSqlFake(), {})
+
+    const result = await runner.run(async (tx) => {
+      tx.onCommit(() => {
+        fired.push('a')
+      })
+      tx.onCommit(() => {
+        fired.push('b')
+      })
+
+      return 'ok'
+    })
+
+    expect(result).toBe('ok')
+    expect(fired).toEqual(['a', 'b'])
+  })
+
+  it('fires onRollback callbacks on throw and rethrows the original error', async () => {
+    const fired: unknown[] = []
+    const runner = new TransactionRunner(
+      makeSqlFake(async (fn) => {
+        // Mimic bun:sql's begin: propagates throws from the body.
+        return fn({} as InstanceType<typeof SQL>)
+      }),
+      {},
+    )
+
+    await expect(runner.run(async (tx) => {
+      tx.onRollback((err) => {
+        fired.push(err)
+      })
+
+      throw new Error('rollback me')
+    })).rejects.toThrow('rollback me')
+
+    expect(fired).toHaveLength(1)
+    expect((fired[0] as Error).message).toBe('rollback me')
+  })
+
+  it('routes a single throwing callback to onCallbackError', async () => {
+    const seen: { kind: string, error: unknown }[] = []
+    const runner = new TransactionRunner(makeSqlFake(), {
+      onCallbackError: e => seen.push({ kind: e.kind, error: e.error }),
+    })
+
+    await runner.run(async (tx) => {
+      tx.onCommit(() => {
+        throw new Error('cb fail')
+      })
+    })
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.kind).toBe('onCommit')
+    expect((seen[0]?.error as Error).message).toBe('cb fail')
+  })
+
+  it('bundles multiple commit-callback failures into an AggregateError', async () => {
+    const seen: { kind: string, error: unknown }[] = []
+    const runner = new TransactionRunner(makeSqlFake(), {
+      onCallbackError: e => seen.push({ kind: e.kind, error: e.error }),
+    })
+
+    await runner.run(async (tx) => {
+      tx.onCommit(() => {
+        throw new Error('a')
+      })
+      tx.onCommit(() => {
+        throw new Error('b')
+      })
+      tx.onCommit(() => {
+        throw new Error('c')
+      })
+    })
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.error).toBeInstanceOf(AggregateError)
+    expect((seen[0]?.error as AggregateError).errors).toHaveLength(3)
+  })
+
+  it('continues firing later callbacks even when an earlier one throws', async () => {
+    const fired: string[] = []
+    const swallow = (): void => undefined
+    const runner = new TransactionRunner(makeSqlFake(), { onCallbackError: swallow })
+
+    await runner.run(async (tx) => {
+      tx.onCommit(() => {
+        fired.push('a')
+
+        throw new Error('a-fail')
+      })
+      tx.onCommit(() => {
+        fired.push('b')
+      })
+      tx.onCommit(() => {
+        fired.push('c')
+      })
+    })
+
+    expect(fired).toEqual(['a', 'b', 'c'])
+  })
+
+  it('replays the ambient ALS context inside the transaction body', async () => {
+    const runner = new TransactionRunner(
+      makeSqlFake(<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> => {
+        // Simulate bun:sql losing ALS by stepping outside the store before
+        // invoking the callback — runner must restore it.
+        return new Promise<T>((resolve, reject) => {
+          setImmediate(async () => {
+            try {
+              resolve(await fn({} as InstanceType<typeof SQL>))
+            }
+            catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)))
+            }
+          })
+        })
+      }),
+      {},
+    )
+
+    let observed: unknown
+
+    await queryContextStorage.run({ requestId: 'r-1' }, async () => {
+      await runner.run(async () => {
+        observed = queryContextStorage.getStore()
+      })
+    })
+
+    expect(observed).toEqual({ requestId: 'r-1' })
+  })
+
+  it('passes opts.context onto the TransactionClient', async () => {
+    const runner = new TransactionRunner(makeSqlFake(), {})
+
+    let txContext: Record<string, unknown> | undefined
+
+    await runner.run({ context: { traceId: 't-1' } }, async (tx) => {
+      txContext = tx._context
+    })
+
+    expect(txContext).toEqual({ traceId: 't-1' })
+  })
+})
