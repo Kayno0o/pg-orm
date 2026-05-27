@@ -1,188 +1,62 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
+import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
-import type { RepositoryCtx } from './context'
+import type { MapperFactory } from './ops/_mapper'
+import type { RelationResolver } from './relation-resolver'
+import type { TableRuntime } from './table-runtime'
 import { SelectBuilder } from '../builder/query'
-import { NotFoundError } from '../errors/index'
-import { hasHooks, runHooksAsync } from '../hooks/index'
-import { mapChunk } from '../mapper/index'
+import { count } from './ops/count'
+import { exists } from './ops/exists'
+import { findMany } from './ops/find-many'
+import { findById, findOne, findOneOrThrow } from './ops/find-one'
+import { paginate, paginateCursor } from './ops/paginate'
 
-/**
- * Read operations — `find*`, `count`, `exists`, `paginate*`, and the `select()`
- * builder accessor. Created lazily on first access via `repo.read`.
- *
- * Builder accessors for write operations live on `repo.write` (`insert()`,
- * `update()`, `delete()`, `merge()`, `upsert()`). `select()` stays here because
- * it's the read-shaped query builder.
- */
-export class ReadSuite<
-  TColumns extends AnyColumns,
-  TRelations extends AnyRelations = {},
-  TVirtuals extends AnyVirtuals = {},
-> {
-  constructor(private _ctx: RepositoryCtx) {}
+type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult>
 
-  /**
-   * Find all rows matching the query. Soft-deleted rows are excluded by default.
-   * @example
-   * ```ts
-   * const users = await repo.read.findMany(q => q.where(e => e.eq('role', 'admin')).orderBy('name'))
-   * ```
-   */
+/** Read coordinator — binds deps and delegates to `./ops/*`. */
+export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelations = {}, TVirtuals extends AnyVirtuals = {}> {
+  constructor(
+    private _exec: Executable,
+    private _rt: TableRuntime,
+    private _rel: RelationResolver,
+    private _map: MapperFactory,
+    private _defaultLimit?: number,
+  ) {}
+
   async findMany(): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async findMany<TResult>(
-    cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<(TResult & InferVirtuals<TVirtuals>)[]>
-  async findMany(
-    cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
-  ): Promise<any[]> {
-    const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
-    const finalBuilder = cb ? cb(builder) : builder
-
-    this._ctx.runtime.applyPreSelect(finalBuilder)
-
-    const state = finalBuilder.getState()
-
-    if (this._ctx.defaultLimit != null && state.limit == null) {
-      state.limit = this._ctx.defaultLimit
-    }
-
-    const { sql, params } = finalBuilder.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
-    const hasOnlyComputed = state.columns?.length === 0 && state.computedColumns.length > 0
-    const mapper = hasOnlyComputed ? null : this._ctx.getMapper(finalBuilder)
-    let mapped = mapper ? mapChunk(mapper, rows) : rows
-
-    if (hasHooks(this._ctx.table, 'afterSelect')) {
-      mapped = await runHooksAsync(this._ctx.table, 'afterSelect', mapped)
-    }
-
-    mapped = this._ctx.runtime.applyVirtuals(mapped)
-
-    if (state.includes.length > 0) {
-      mapped = await this._ctx.relations.loadIncludes(mapped, state.includes)
-    }
-
-    return mapped
+  async findMany<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<(TResult & InferVirtuals<TVirtuals>)[]>
+  async findMany(cb?: SelectCb<TColumns, TRelations>): Promise<any[]> {
+    return findMany<TColumns, TRelations>(this._exec, this._rt, this._rel, this._map, cb, this._defaultLimit)
   }
 
-  /** Find the first row matching the query, or `null` if none found. */
   async findOne(): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async findOne<TResult>(
-    cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<TResult & InferVirtuals<TVirtuals> | null>
-  async findOne(
-    cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
-  ): Promise<any | null> {
-    const wrappedCb = cb
-      ? (q: SelectBuilder<TColumns, TRelations>) => cb(q).limit(1)
-      : (q: SelectBuilder<TColumns, TRelations>) => q.limit(1) as SelectBuilder<TColumns, TRelations, any>
-    const rows = await this.findMany(wrappedCb)
-
-    return rows[0] ?? null
+  async findOne<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
+  async findOne(cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
+    return findOne<TColumns, TRelations>(this._exec, this._rt, this._rel, this._map, cb)
   }
 
-  /**
-   * Like `findOne()`, but throws `NotFoundError` if no row matches.
-   * Useful for distinguishing "not found" from query errors.
-   */
   async findOneOrThrow(): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async findOneOrThrow<TResult>(
-    cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>,
-  ): Promise<TResult & InferVirtuals<TVirtuals>>
-  async findOneOrThrow(
-    cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
-  ): Promise<unknown> {
-    const row = cb ? await this.findOne(cb) : await this.findOne()
-
-    if (row === null) {
-      throw new NotFoundError(this._ctx.table.name)
-    }
-
-    return row
+  async findOneOrThrow<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
+  async findOneOrThrow(cb?: SelectCb<TColumns, TRelations>): Promise<unknown> {
+    return findOneOrThrow<TColumns, TRelations>(this._exec, this._rt, this._rel, this._map, cb)
   }
 
-  /** Find a row by primary key. Supports composite PKs when `id` is an object. */
   async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const pk = this._ctx.runtime.primaryKey
-
-    if (pk.includes(',')) {
-      const pkCols = pk.split(',')
-
-      return this.findOne(q => q.where((e) => {
-        const conditions = pkCols.map(col =>
-          e.eq(col.trim(), (id as Record<string, unknown>)[col.trim()]),
-        )
-
-        return e.and(...conditions)
-      }))
-    }
-
-    return this.findOne(q => q.where(e => e.eq(pk, id)))
+    return findById<TColumns, TRelations>(this._exec, this._rt, this._rel, this._map, id)
   }
 
-  /** Count rows matching `where` (excludes soft-deleted by default). */
   async count(where?: (e: ExprBuilder<TColumns>) => ExprTape): Promise<number> {
-    const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name).count()
-
-    if (where) {
-      builder.where(where)
-    }
-
-    this._ctx.runtime.applyPreSelect(builder)
-
-    const { sql, params } = builder.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    return Number(rows[0]?.count ?? 0)
+    return count<TColumns>(this._exec, this._rt, where)
   }
 
-  /** Check if any row matches `where` (excludes soft-deleted by default). */
   async exists(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<boolean> {
-    const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
-      .where(where)
-      .limit(1)
-
-    this._ctx.runtime.applyPreSelect(builder)
-    builder.asExists()
-
-    const { sql, params } = builder.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    return rows.length > 0
+    return exists<TColumns>(this._exec, this._rt, where)
   }
 
-  /** Offset-based pagination with total count. Returns `{ data, total, page, perPage, totalPages }`. */
-  async paginate(opts: {
-    page: number
-    perPage: number
-    where?: (e: ExprBuilder<TColumns>) => ExprTape
-  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], total: number, page: number, perPage: number, totalPages: number }> {
-    const { page, perPage, where: whereFn } = opts
-
-    const [data, total] = await Promise.all([
-      this.findMany((q) => {
-        let b = q.limit(perPage).offset((page - 1) * perPage)
-
-        if (whereFn)
-          b = b.where(whereFn)
-
-        return b
-      }),
-      this.count(whereFn),
-    ])
-
-    return {
-      data,
-      total,
-      page,
-      perPage,
-      totalPages: Math.ceil(total / perPage),
-    }
+  async paginate(opts: { page: number, perPage: number, where?: (e: ExprBuilder<TColumns>) => ExprTape }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], total: number, page: number, perPage: number, totalPages: number }> {
+    return paginate<TColumns, TRelations>(this._exec, this._rt, this._rel, this._map, opts)
   }
 
-  /** Cursor-based pagination — efficient for large datasets. */
   async paginateCursor<K extends keyof TColumns & string>(opts: {
     take: number
     column?: K
@@ -190,44 +64,14 @@ export class ReadSuite<
     direction?: 'forward' | 'backward'
     where?: (e: ExprBuilder<TColumns>) => ExprTape
   }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
-    const { take, cursor, direction = 'forward', where: whereFn } = opts
-    const col = (opts.column ?? this._ctx.runtime.primaryKey) as keyof TColumns & string
-    const isForward = direction === 'forward'
-
-    const data = await this.findMany((q) => {
-      let b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc')
-
-      if (whereFn)
-        b = b.where(whereFn)
-
-      if (cursor != null) {
-        b = b.andWhere(e =>
-          isForward ? e.gt(col, cursor) : e.lt(col, cursor),
-        )
-      }
-
-      return b
-    })
-
-    const hasMore = data.length > take
-
-    if (hasMore)
-      data.pop()
-
-    if (!isForward)
-      data.reverse()
-
-    const lastRow = data.at(-1) as Record<string, unknown> | undefined
-    const nextCursor = hasMore && lastRow ? lastRow[col] : null
-
-    return { data, nextCursor }
+    return paginateCursor<TColumns, TRelations, K>(this._exec, this._rt, this._rel, this._map, opts)
   }
 
-  /** Builder accessor for advanced SELECT usage. Auto-applies the soft-delete filter. */
+  /** Builder accessor for advanced SELECT. Auto-applies the soft-delete filter. */
   select(): SelectBuilder<TColumns, TRelations> {
-    const builder = new SelectBuilder<TColumns, TRelations>(this._ctx.table.name)
+    const builder = new SelectBuilder<TColumns, TRelations>(this._rt.table.name)
 
-    this._ctx.runtime.applyPreSelect(builder)
+    this._rt.applyPreSelect(builder)
 
     return builder
   }

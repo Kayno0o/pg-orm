@@ -1,9 +1,10 @@
-import type { SelectBuilder } from '../builder/query'
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals } from '../types/index'
-import type { RepositoryCtx } from './context'
+import type { MapperFactory } from './ops/_mapper'
+import type { RelationResolver as RelationResolverType } from './relation-resolver'
+import type { TableRuntime } from './table-runtime'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
-import { getOrCompileMapper } from '../mapper/index'
+import { createMapperFactory } from './ops/_mapper'
 import { ReadSuite } from './read-suite'
 import { RelationResolver } from './relation-resolver'
 import { StreamSuite } from './stream-suite'
@@ -27,15 +28,13 @@ export interface RepositoryConfig {
 /**
  * Type-safe repository for a table definition.
  *
- * Operations are organized into three lazy suites accessed as properties:
+ * Operations are organized into three suites accessed as properties:
  * - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`,
  *   `exists`, `paginate`, `paginateCursor`, and the `select()` builder.
  * - `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`,
  *   `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`,
  *   and the `insert/update/delete/merge/upsert` builders.
  * - `repo.stream` — `stream` (LIMIT/OFFSET chunked) and `streamCursor` (keyset).
- *
- * Each suite is constructed on first access; suites you never touch never allocate.
  *
  * Create via `db.repo(table)` — the repository inherits the database connection
  * and table registry for relation resolution.
@@ -53,55 +52,38 @@ export class Repository<
   TRelations extends AnyRelations = {},
   TVirtuals extends AnyVirtuals = {},
 > {
-  private _ctx: RepositoryCtx
-  private _readSuite?: ReadSuite<TColumns, TRelations, TVirtuals>
-  private _writeSuite?: WriteSuite<TColumns, TRelations, TVirtuals>
-  private _streamSuite?: StreamSuite<TColumns, TRelations, TVirtuals>
-
-  constructor(config: RepositoryConfig) {
-    const table = config.table
-    const executor = config.executor
-    const maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
-    const batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
-    const runtime = buildTableRuntime(table)
-    const relations = new RelationResolver(table, executor, maxIncludeDepth, batchChunkSize, config.tableRegistry)
-
-    this._ctx = {
-      table,
-      executor,
-      tableRegistry: config.tableRegistry,
-      maxIncludeDepth,
-      batchChunkSize,
-      defaultLimit: config.defaultLimit,
-      runtime,
-      relations,
-      getMapper: (builder: SelectBuilder<any, any, any>) => {
-        const s = builder.getState()
-
-        return getOrCompileMapper(
-          table.name,
-          table.columns,
-          s.columns ?? undefined,
-          s.omitColumns.length ? s.omitColumns : undefined,
-        )
-      },
-      query: (sql, params) => executor.query(sql, params),
-    }
-  }
+  private _table: AnyTableDef
+  private _exec: Executable
+  private _rt: TableRuntime
+  private _rel: RelationResolverType
+  private _map: MapperFactory
+  private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
+  private _maxIncludeDepth: number
+  private _batchChunkSize: number
+  private _defaultLimit?: number
 
   /** Read suite — `findMany`, `findOne`, `count`, `paginate*`, `select()`, etc. */
-  get read(): ReadSuite<TColumns, TRelations, TVirtuals> {
-    return this._readSuite ??= new ReadSuite<TColumns, TRelations, TVirtuals>(this._ctx)
-  }
-
+  readonly read: ReadSuite<TColumns, TRelations, TVirtuals>
   /** Write suite — `insert*`, `update*`, `delete*`, `upsertMany`, builders, etc. */
-  get write(): WriteSuite<TColumns, TRelations, TVirtuals> {
-    return this._writeSuite ??= new WriteSuite<TColumns, TRelations, TVirtuals>(this._ctx)
-  }
-
+  readonly write: WriteSuite<TColumns, TRelations, TVirtuals>
   /** Stream suite — `stream` and `streamCursor`. */
-  get stream(): StreamSuite<TColumns, TRelations, TVirtuals> {
-    return this._streamSuite ??= new StreamSuite<TColumns, TRelations, TVirtuals>(this._ctx, () => this.read)
+  readonly stream: StreamSuite<TColumns, TRelations, TVirtuals>
+
+  constructor(config: RepositoryConfig) {
+    this._table = config.table
+    this._exec = config.executor
+    this._tableRegistry = config.tableRegistry
+    this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
+    this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
+    this._defaultLimit = config.defaultLimit
+
+    this._rt = buildTableRuntime(this._table)
+    this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
+    this._map = createMapperFactory(this._table)
+
+    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit)
+    this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
+    this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map)
   }
 
   /**
@@ -118,12 +100,12 @@ export class Repository<
    */
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
     return new Repository<TColumns, TRelations, TVirtuals>({
-      table: this._ctx.table,
+      table: this._table,
       executor: tx as Executable,
-      tableRegistry: this._ctx.tableRegistry,
-      maxIncludeDepth: this._ctx.maxIncludeDepth,
-      defaultLimit: this._ctx.defaultLimit,
-      batchChunkSize: this._ctx.batchChunkSize,
+      tableRegistry: this._tableRegistry,
+      maxIncludeDepth: this._maxIncludeDepth,
+      defaultLimit: this._defaultLimit,
+      batchChunkSize: this._batchChunkSize,
     })
   }
 }

@@ -1,254 +1,77 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
+import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals } from '../types/index'
-import type { RepositoryCtx } from './context'
+import type { TableRuntime } from './table-runtime'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
-import { StaleRecordError, ValidationError } from '../errors/index'
+import { deleteMany, deleteOne } from './ops/delete-many'
+import { findOrCreate } from './ops/find-or-create'
+import { forceDelete } from './ops/force-delete'
+import { insertMany } from './ops/insert-many'
+import { insertOne } from './ops/insert-one'
+import { restore } from './ops/restore'
+import { updateMany, updateOne } from './ops/update-many'
+import { updateWithLock } from './ops/update-with-lock'
+import { upsertMany } from './ops/upsert'
 
-/**
- * Write operations — `insert*`, `update*`, `delete*`, `upsertMany`, `findOrCreate`,
- * `restore`, `forceDelete`, plus the `insert()`/`update()`/`delete()`/`merge()`/
- * `upsert()` builder accessors. Created lazily on first access via `repo.write`.
- */
+/** Write coordinator — binds deps and delegates to `./ops/*`. */
 export class WriteSuite<
   TColumns extends AnyColumns,
   _TRelations extends AnyRelations = {},
   TVirtuals extends AnyVirtuals = {},
 > {
-  constructor(private _ctx: RepositoryCtx) {}
+  constructor(
+    private _exec: Executable,
+    private _rt: TableRuntime,
+  ) {}
 
-  /** Insert a single row and return the primary key of the inserted record. */
   async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
-    const v = await this._ctx.runtime.runBefore('beforeInsert', values)
-
-    const pk = this._ctx.runtime.primaryKey
-    const b = new InsertBuilder<TColumns>(this._ctx.table.name)
-      .values(v)
-      .returning(pk)
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterInsert', rows)
-
-    return rows[0]![pk] as InferPrimaryKey<TColumns>
+    return insertOne<TColumns>(this._exec, this._rt, values)
   }
 
-  /** Insert multiple rows in a single query and return the primary keys of the inserted records. */
   async insertMany(values: InferInsert<TColumns>[]): Promise<InferPrimaryKey<TColumns>[]> {
-    if (values.length === 0)
-      return []
-
-    const v = await this._ctx.runtime.runBeforeMany('beforeInsert', values)
-
-    const pk = this._ctx.runtime.primaryKey
-    const b = new InsertBuilder<TColumns>(this._ctx.table.name)
-      .many(v)
-      .returning(pk)
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterInsert', rows)
-
-    return rows.map(r => r[pk]) as InferPrimaryKey<TColumns>[]
+    return insertMany<TColumns>(this._exec, this._rt, values)
   }
 
-  /** Update all rows matching `where` and return the updated records. */
-  async updateMany(
-    set: InferUpdate<TColumns>,
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const s = await this._ctx.runtime.runBefore('beforeUpdate', set)
-
-    const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
-      .set(s)
-      .where(where)
-      .returning()
-
-    // `applyPreUpdate` runs trait middleware (e.g. optimistic-lock version bump
-    // via `setRaw()`) AFTER `.set()`'s `validateValues` check, so user payloads
-    // can't smuggle `__raw` through and the version bump itself bypasses validation.
-    this._ctx.runtime.applyPreUpdate(b)
-
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterUpdate', rows)
-
-    const withVirtuals = this._ctx.runtime.applyVirtuals(rows)
-
-    return withVirtuals as WithVirtuals<TColumns, TVirtuals>[]
+  async updateMany(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return updateMany<TColumns>(this._exec, this._rt, set, where)
   }
 
-  /** Update the first matching row and return it, or `null` if none matched. */
-  async updateOne(
-    set: InferUpdate<TColumns>,
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this.updateMany(set, where)
-
-    return rows[0] ?? null
+  async updateOne(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
+    return updateOne<TColumns>(this._exec, this._rt, set, where)
   }
 
-  /** Optimistic-lock update — adds WHERE version = $current, throws StaleRecordError if 0 rows affected. */
-  async updateWithLock(
-    set: InferUpdate<TColumns>,
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-    currentVersion: number,
-  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const lockCol = this._ctx.runtime.optimisticLockColumn
-
-    if (!lockCol) {
-      throw new ValidationError(
-        'updateWithLock requires optimisticLock trait on table',
-        'updateWithLock',
-        { field: this._ctx.table.name },
-      )
-    }
-
-    const rows = await this.updateMany(set, e =>
-      e.and(where(e), e.eq(lockCol, currentVersion)))
-
-    if (rows.length === 0) {
-      throw new StaleRecordError(this._ctx.table.name, currentVersion)
-    }
-
-    return rows[0] as WithVirtuals<TColumns, TVirtuals>
+  async updateWithLock(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, currentVersion: number): Promise<WithVirtuals<TColumns, TVirtuals>> {
+    return updateWithLock<TColumns>(this._exec, this._rt, set, where, currentVersion)
   }
 
-  /** Delete all rows matching `where`. Uses soft-delete if the trait is applied. Returns deleted records. */
-  async deleteMany(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._ctx.runtime.runBefore('beforeDelete', undefined)
-
-    const b = this._ctx.runtime.rewriteDelete<TColumns>(where)
-      ?? new DeleteBuilder<TColumns>(this._ctx.table.name).where(where).returning()
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterDelete', rows)
-
-    return this._ctx.runtime.applyVirtuals(rows) as WithVirtuals<TColumns, TVirtuals>[]
+  async deleteMany(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return deleteMany<TColumns>(this._exec, this._rt, where)
   }
 
-  /** Delete the first matching row. Returns the deleted record or `null`. */
-  async deleteOne(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this.deleteMany(where)
-
-    return rows[0] ?? null
+  async deleteOne(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
+    return deleteOne<TColumns>(this._exec, this._rt, where)
   }
 
-  /** Bulk upsert: insert rows, update on conflict. Returns all affected records. */
-  async upsertMany(
-    values: InferInsert<TColumns>[],
-    conflictTarget: (keyof TColumns & string)[],
-    updateColumns?: (keyof TColumns & string)[],
-  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    if (values.length === 0)
-      return []
-
-    const v = await this._ctx.runtime.runBeforeMany('beforeUpsert', values)
-
-    const ib = new InsertBuilder<TColumns>(this._ctx.table.name).many(v)
-    const conflict = ib.onConflict(conflictTarget)
-    const resolved = updateColumns?.length ? conflict.doUpdate(...updateColumns) : conflict.doUpdate()
-    const final = resolved.returning()
-    const { sql, params } = final.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterInsert', rows)
-
-    this._ctx.runtime.applyVirtuals(rows)
-
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return upsertMany<TColumns>(this._exec, this._rt, values, conflictTarget, updateColumns)
   }
 
-  /** Insert a row or return the existing one if conflict target matches. */
-  async findOrCreate(
-    values: InferInsert<TColumns>,
-    conflictTarget: (keyof TColumns & string)[],
-  ): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    const v = await this._ctx.runtime.runBefore('beforeUpsert', values)
-
-    const pk = this._ctx.runtime.primaryKey
-    const b = new InsertBuilder<TColumns>(this._ctx.table.name)
-      .values(v)
-      .onConflict(conflictTarget)
-      .doUpdate(pk as keyof TColumns & string)
-      .returning()
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterInsert', rows)
-
-    return this._ctx.runtime.applyVirtuals(rows)[0] as WithVirtuals<TColumns, TVirtuals>
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<WithVirtuals<TColumns, TVirtuals>> {
+    return findOrCreate<TColumns>(this._exec, this._rt, values, conflictTarget)
   }
 
-  /** Restore soft-deleted records: sets the soft-delete column to NULL. */
-  async restore(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = this._ctx.runtime.requireSoftDeleteColumn('restore()')
-
-    const s = await this._ctx.runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
-
-    const b = new UpdateBuilder<TColumns>(this._ctx.table.name)
-      .set(s)
-      .where((e: ExprBuilder<TColumns>) =>
-        e.and(where(e), e.isNotNull(sdCol)))
-      .returning()
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterUpdate', rows)
-
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+  async restore(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return restore<TColumns>(this._exec, this._rt, where)
   }
 
-  /** Force-delete: bypass soft-delete and run a real DELETE. */
-  async forceDelete(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
-  ): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._ctx.runtime.runBefore('beforeDelete', undefined)
-
-    const b = new DeleteBuilder<TColumns>(this._ctx.table.name)
-      .where(where)
-      .returning()
-    const { sql, params } = b.toSQL()
-    const rows = await this._ctx.query(sql, params)
-
-    await this._ctx.runtime.runAfter('afterDelete', rows)
-
-    return rows as WithVirtuals<TColumns, TVirtuals>[]
+  async forceDelete(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return forceDelete<TColumns>(this._exec, this._rt, where)
   }
 
-  // Builder accessors for advanced usage — skip the convenience hooks/trait dispatch
-  // applied by the methods above. Use when you need fine-grained control over the
-  // emitted SQL (e.g. RETURNING columns, ON CONFLICT clauses, MERGE branches).
-
-  /** Builder accessor for advanced INSERT (custom RETURNING, ON CONFLICT, …). */
-  insert(): InsertBuilder<TColumns> {
-    return new InsertBuilder<TColumns>(this._ctx.table.name)
-  }
-
-  /** Builder accessor for advanced UPDATE (custom RETURNING, FROM, …). */
-  update(): UpdateBuilder<TColumns> {
-    return new UpdateBuilder<TColumns>(this._ctx.table.name)
-  }
-
-  /** Builder accessor for advanced DELETE (custom USING, RETURNING, …). */
-  delete(): DeleteBuilder<TColumns> {
-    return new DeleteBuilder<TColumns>(this._ctx.table.name)
-  }
-
-  /** Builder accessor for `MERGE INTO` (`WHEN MATCHED` / `WHEN NOT MATCHED` branches). */
-  merge(): MergeBuilder<TColumns> {
-    return new MergeBuilder<TColumns>(this._ctx.table.name)
-  }
-
-  /** Builder accessor for explicit upsert (`INSERT ... ON CONFLICT ... DO UPDATE`). */
-  upsert(): UpsertBuilder<TColumns> {
-    return new UpsertBuilder<TColumns>(this._ctx.table.name)
-  }
+  // Builder accessors — skip the hook/trait dispatch applied by the methods above.
+  insert(): InsertBuilder<TColumns> { return new InsertBuilder<TColumns>(this._rt.table.name) }
+  update(): UpdateBuilder<TColumns> { return new UpdateBuilder<TColumns>(this._rt.table.name) }
+  delete(): DeleteBuilder<TColumns> { return new DeleteBuilder<TColumns>(this._rt.table.name) }
+  merge(): MergeBuilder<TColumns> { return new MergeBuilder<TColumns>(this._rt.table.name) }
+  upsert(): UpsertBuilder<TColumns> { return new UpsertBuilder<TColumns>(this._rt.table.name) }
 }
