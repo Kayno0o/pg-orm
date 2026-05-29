@@ -48,12 +48,13 @@ describe('insertMany op', () => {
     expect(exec.queries).toHaveLength(0)
   })
 
-  it('returns PKs in row order', async () => {
+  it('returns full entities in row order', async () => {
     const { exec, rt } = setup(users)
 
-    exec.preset([{ id: 10 }, { id: 11 }, { id: 12 }])
-    const ids = await insertMany(exec, rt, [{ name: 'A' }, { name: 'B' }, { name: 'C' }])
+    exec.preset([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
+    const rows = await insertMany(exec, rt, [{ name: 'A' }, { name: 'B' }, { name: 'C' }])
 
-    expect(ids).toEqual([10, 11, 12])
+    expect(rows).toEqual([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
+    expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
   })
 })

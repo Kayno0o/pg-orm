@@ -68,7 +68,7 @@ describe('CRUD - insertMany', () => {
 
     expect(userIds).toHaveLength(3)
 
-    const firstUser = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!)))
+    const firstUser = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!.id)))
 
     expect(firstUser.name).toBe('A')
   })

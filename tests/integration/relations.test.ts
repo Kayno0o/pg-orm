@@ -185,7 +185,7 @@ describe('large batch chunking', () => {
     const userIds = await userRepo.write.insertMany(
       Array.from({ length: 20 }, (_, i) => ({ name: `User${i}`, email: `user${i}@test.com` })),
     )
-    const users = await userRepo.read.findMany(q => q.where(e => e.in('id', userIds)))
+    const users = await userRepo.read.findMany(q => q.where(e => e.in('id', userIds.map(u => u.id))))
 
     for (const user of users) {
       await postRepo.write.insertOne({ title: `Post by ${user.name}`, body: 'body', authorId: user.id })

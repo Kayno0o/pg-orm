@@ -1,6 +1,6 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferUpdate, WithVirtuals } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { deleteMany, deleteOne } from './ops/delete-many'
@@ -28,7 +28,7 @@ export class WriteSuite<
     return insertOne<TColumns>(this._exec, this._rt, values)
   }
 
-  async insertMany(values: InferInsert<TColumns>[]): Promise<InferPrimaryKey<TColumns>[]> {
+  async insertMany(values: InferInsert<TColumns>[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
     return insertMany<TColumns>(this._exec, this._rt, values)
   }
 

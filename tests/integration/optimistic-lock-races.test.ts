@@ -103,7 +103,7 @@ describe('Optimistic lock — concurrency races', () => {
     )
 
     const results = await Promise.all(
-      ids.map(id => repo.write.updateWithLock({ value: 42 }, e => e.eq('id', id), 1)),
+      ids.map(({ id }) => repo.write.updateWithLock({ value: 42 }, e => e.eq('id', id), 1)),
     )
 
     expect(results).toHaveLength(5)
