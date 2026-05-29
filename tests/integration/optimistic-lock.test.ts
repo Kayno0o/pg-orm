@@ -22,7 +22,7 @@ afterAll(async () => {
 describe('Optimistic Lock', () => {
   it('inserts with default version 1', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const { id: itemId } = await repo.write.insertOne({ name: 'Item 1', value: 100 })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.version).toBe(1)
@@ -30,7 +30,7 @@ describe('Optimistic Lock', () => {
 
   it('updateWithLock succeeds with correct version', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const { id: itemId } = await repo.write.insertOne({ name: 'Item 1', value: 100 })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     const updated = await repo.write.updateWithLock(
@@ -45,7 +45,7 @@ describe('Optimistic Lock', () => {
 
   it('updateWithLock throws StaleRecordError on version mismatch', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const { id: itemId } = await repo.write.insertOne({ name: 'Item 1', value: 100 })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     // First update succeeds
@@ -67,7 +67,7 @@ describe('Optimistic Lock', () => {
 
   it('regular updateMany auto-increments version', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const { id: itemId } = await repo.write.insertOne({ name: 'Item 1', value: 100 })
 
     const updated = await repo.write.updateMany(
       { value: 200 },
@@ -79,7 +79,7 @@ describe('Optimistic Lock', () => {
 
   it('multiple sequential updates increment version correctly', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const { id: itemId } = await repo.write.insertOne({ name: 'Item 1', value: 100 })
 
     let result = await repo.write.updateWithLock({ value: 200 }, e => e.eq('id', itemId), 1)
 

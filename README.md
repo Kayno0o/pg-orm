@@ -117,6 +117,12 @@ t.int4().check('val > 0') // CHECK constraint
 t.int4().generated('col1 + col2') // GENERATED ALWAYS AS ... STORED
 ```
 
+> **No case conversion.** Column keys are used as PostgreSQL identifiers *verbatim* —
+> there is no automatic `camelCase` ↔ `snake_case` mapping. A key named `authorId`
+> becomes a quoted `"authorId"` column, not `author_id`. If you want snake_case
+> columns, name the keys in snake_case yourself. (Keys are validated against
+> `/^[a-zA-Z_][a-zA-Z0-9_]*$/`, never rewritten.)
+
 ## Relations
 
 ```ts
@@ -357,9 +363,14 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 // { name, up, down }
 ```
 
-### Known Limitations
+### Foreign keys
 
-- Foreign key constraints are only generated during `CREATE TABLE`. Adding `.references()` to an existing column will not generate `ALTER TABLE ADD CONSTRAINT` during sync. Workaround: use `db.raw()` to add FK constraints manually on existing tables.
+Foreign key constraints are emitted as separate `add_fk` operations *after* all
+`create_table` operations, so a FK-violating declaration order is safe on an empty
+database. They are also diffed for existing tables: adding `.references()` to a
+column generates `ALTER TABLE ... ADD CONSTRAINT` on the next `sync()`, removing it
+generates a (destructive) `DROP CONSTRAINT`, and changing the target/`onDelete`/
+`onUpdate` is detected as a change.
 
 ## Raw SQL
 
@@ -398,7 +409,17 @@ try {
 }
 ```
 
-In production (`NODE_ENV=production`), error messages are sanitized to strip data values. Set `REDACT_QUERY_LOGS=1` to fully redact query SQL and params.
+`QueryError` redaction is **safe-by-default**: with no `redactParams` configured, the
+positional params on a `QueryError` are replaced with `'[REDACTED]'` placeholders so
+values never leak into shared logs. The mode is resolved per error:
+
+- `NODE_ENV=production` **or** `REDACT_QUERY_LOGS=1` — hard-redact: `query` becomes `'[REDACTED]'` and `params` becomes `[]`.
+- `REDACT_QUERY_LOGS=0` — opt out entirely: raw SQL and params are preserved verbatim (use for local debugging only).
+- Otherwise — apply the configured `redactParams` if set, else the safe default that scrubs every param.
+
+A `redactParams` redactor **must not throw** — a throwing redactor propagates out of the
+`QueryError` constructor by design, so the bug surfaces loudly instead of silently
+producing empty params.
 
 ## Configuration
 

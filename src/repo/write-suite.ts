@@ -24,7 +24,7 @@ export class WriteSuite<
     private _rt: TableRuntime,
   ) {}
 
-  async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>> {
+  async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>> {
     return insertOne<TColumns>(this._exec, this._rt, values)
   }
 

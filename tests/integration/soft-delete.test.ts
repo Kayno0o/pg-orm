@@ -22,7 +22,7 @@ afterAll(async () => {
 describe('Soft Delete', () => {
   it('deleteMany sets deletedAt instead of removing row', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
     await repo.write.deleteMany(e => e.eq('id', userId))
 
@@ -94,7 +94,7 @@ describe('Soft Delete', () => {
   it('isDeleted virtual works correctly', async () => {
     const repo = db.repo(usersTable)
 
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.isDeleted).toBe(false)
@@ -117,7 +117,7 @@ describe('Soft Delete', () => {
 
   it('isDeleted virtual is applied on mutation return rows', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
     // updateMany should apply virtuals on returned rows (was missing before fix)
     const updated = await repo.write.updateMany({ name: 'Alice2' }, e => e.eq('id', userId))

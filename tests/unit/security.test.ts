@@ -842,7 +842,7 @@ describe('Security P0: unbranded __raw objects do not bypass parameterization', 
 
 describe('Security: validateRawSqlFragment (partial-index where)', () => {
   it('accepts plain predicates without comments or terminators', () => {
-    expect(() => validateRawSqlFragment('deleted_at IS NULL', 'idx')).not.toThrow()
+    expect(() => validateRawSqlFragment('deletedAt IS NULL', 'idx')).not.toThrow()
     expect(() => validateRawSqlFragment('status = \'active\'', 'idx')).not.toThrow()
     expect(() => validateRawSqlFragment('id > 0 AND tenant_id = 42', 'idx')).not.toThrow()
     expect(() => validateRawSqlFragment('role IN (\'admin\', \'user\')', 'idx')).not.toThrow()

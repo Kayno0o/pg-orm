@@ -94,7 +94,7 @@ export class Repository<
    * @example
    * ```ts
    * await db.transaction(async (tx) => {
-   *   const id = await repo.using(tx).write.insertOne({ … })
+   *   const row = await repo.using(tx).write.insertOne({ … })
    * })
    * ```
    */

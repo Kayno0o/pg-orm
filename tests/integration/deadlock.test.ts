@@ -24,8 +24,8 @@ describe('Deadlock detection', () => {
     const repo = db.repo(usersTable)
 
     // Insert two users
-    const aliceId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
-    const bobId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const { id: aliceId } = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const { id: bobId } = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
     let deadlockDetected = false
 

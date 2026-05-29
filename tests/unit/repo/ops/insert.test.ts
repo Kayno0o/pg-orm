@@ -10,15 +10,15 @@ const users = defineTable('users', t => ({
 }))
 
 describe('insertOne op', () => {
-  it('issues INSERT ... RETURNING <pk> and returns the inserted PK', async () => {
+  it('issues INSERT ... RETURNING * and returns the full inserted entity', async () => {
     const { exec, rt } = setup(users)
 
-    exec.preset([{ id: 99 }])
-    const id = await insertOne(exec, rt, { name: 'Alice' })
+    exec.preset([{ id: 99, name: 'Alice' }])
+    const row = await insertOne(exec, rt, { name: 'Alice' })
 
-    expect(id).toBe(99)
+    expect(row).toEqual({ id: 99, name: 'Alice' })
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
-    expect(exec.lastQuery!.sql).toMatch(/RETURNING "id"/)
+    expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
   })
 
   it('fires beforeInsert hook so payload can be mutated', async () => {
@@ -31,7 +31,7 @@ describe('insertOne op', () => {
 
     const { exec, rt } = setup(table)
 
-    exec.preset([{ id: 1 }])
+    exec.preset([{ id: 1, name: 'Bob!' }])
     await insertOne(exec, rt, { name: 'Bob' })
 
     expect(exec.lastQuery!.params).toContain('Bob!')

@@ -21,7 +21,7 @@ afterAll(async () => {
 describe('CRUD - insertOne', () => {
   it('inserts and returns the primary key', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     expect(userId).toBeDefined()
 
@@ -33,7 +33,7 @@ describe('CRUD - insertOne', () => {
 
   it('auto-sets createdAt/updatedAt via timestamps trait', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.createdAt).toBeInstanceOf(Date)
@@ -42,7 +42,7 @@ describe('CRUD - insertOne', () => {
 
   it('inserts with nullable field', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
+    const { id: userId } = await repo.write.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBe(30)
@@ -50,7 +50,7 @@ describe('CRUD - insertOne', () => {
 
   it('inserts with null nullable field', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
+    const { id: userId } = await repo.write.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBeNull()
@@ -167,7 +167,7 @@ describe('CRUD - findOne', () => {
 describe('CRUD - findById', () => {
   it('finds row by id', async () => {
     const repo = db.repo(usersTable)
-    const insertedId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const { id: insertedId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
     const found = await repo.read.findById(insertedId)
 
     expect(found).not.toBeNull()
@@ -222,7 +222,7 @@ describe('CRUD - updateOne', () => {
 describe('CRUD - deleteMany', () => {
   it('soft-deletes rows (because of softDelete trait)', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
     const deleted = await repo.write.deleteMany(e => e.eq('id', userId))
 

@@ -68,11 +68,11 @@ async function main() {
   await db.raw`DELETE FROM users`
 
   // 7. Basic CRUD — insert (returns primary key only)
-  const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
+  const { id: aliceId } = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
 
   console.log('Inserted id:', aliceId)
 
-  const bobId = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
+  const { id: bobId } = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
 
   // insert many posts (returns array of primary keys)
   const insertedPostIds = await PostRepo.write.insertMany([
@@ -219,7 +219,7 @@ async function main() {
 
   // --- Insert and re-select with relations ---
   console.log('\n--- Insert and Re-select ---')
-  const newPostId = await PostRepo.write.insertOne(
+  const { id: newPostId } = await PostRepo.write.insertOne(
     { title: 'New Post', body: 'With author!', authorId: aliceId },
   )
   const newPost = await PostRepo.read.findOneOrThrow(q =>
