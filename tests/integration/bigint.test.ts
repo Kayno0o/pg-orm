@@ -24,7 +24,7 @@ const BIG_MIN = -9_223_372_036_854_775_808n
 describe('bigint — round-trip', () => {
   it('preserves bigint type (not coerced to number or string)', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: 1n })
+    const id = await repo.write.insertOne({ big: 1n })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(typeof row.big).toBe('bigint')
@@ -33,7 +33,7 @@ describe('bigint — round-trip', () => {
 
   it('round-trips 0n', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: 0n })
+    const id = await repo.write.insertOne({ big: 0n })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(row.big).toBe(0n)
@@ -41,7 +41,7 @@ describe('bigint — round-trip', () => {
 
   it('round-trips MAX bigint (9223372036854775807)', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: BIG_MAX })
+    const id = await repo.write.insertOne({ big: BIG_MAX })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(row.big).toBe(BIG_MAX)
@@ -49,7 +49,7 @@ describe('bigint — round-trip', () => {
 
   it('round-trips MIN bigint (-9223372036854775808)', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: BIG_MIN })
+    const id = await repo.write.insertOne({ big: BIG_MIN })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(row.big).toBe(BIG_MIN)
@@ -58,7 +58,7 @@ describe('bigint — round-trip', () => {
   it('round-trips a value beyond Number.MAX_SAFE_INTEGER without precision loss', async () => {
     const v = BigInt(Number.MAX_SAFE_INTEGER) + 10n
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: v })
+    const id = await repo.write.insertOne({ big: v })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(row.big).toBe(v)
@@ -67,7 +67,7 @@ describe('bigint — round-trip', () => {
 
   it('handles nullable bigint as null', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: 1n, bigNullable: null })
+    const id = await repo.write.insertOne({ big: 1n, bigNullable: null })
     const row = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(row.bigNullable).toBeNull()
@@ -75,7 +75,7 @@ describe('bigint — round-trip', () => {
 
   it('updates a bigint column preserving precision', async () => {
     const repo = db.repo(bigItemsTable)
-    const { id } = await repo.write.insertOne({ big: 1n })
+    const id = await repo.write.insertOne({ big: 1n })
 
     await repo.write.updateMany({ big: BIG_MAX }, e => e.eq('id', id))
 

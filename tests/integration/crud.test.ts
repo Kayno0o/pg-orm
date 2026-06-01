@@ -21,7 +21,7 @@ afterAll(async () => {
 describe('CRUD - insertOne', () => {
   it('inserts and returns the primary key', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     expect(userId).toBeDefined()
 
@@ -33,7 +33,7 @@ describe('CRUD - insertOne', () => {
 
   it('auto-sets createdAt/updatedAt via timestamps trait', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.createdAt).toBeInstanceOf(Date)
@@ -42,7 +42,7 @@ describe('CRUD - insertOne', () => {
 
   it('inserts with nullable field', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
+    const userId = await repo.write.insertOne({ name: 'Charlie', email: 'charlie@test.com', age: 30 })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBe(30)
@@ -50,7 +50,7 @@ describe('CRUD - insertOne', () => {
 
   it('inserts with null nullable field', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
+    const userId = await repo.write.insertOne({ name: 'Dave', email: 'dave@test.com', age: null })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.age).toBeNull()
@@ -68,7 +68,7 @@ describe('CRUD - insertMany', () => {
 
     expect(userIds).toHaveLength(3)
 
-    const firstUser = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!.id)))
+    const firstUser = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userIds[0]!)))
 
     expect(firstUser.name).toBe('A')
   })
@@ -167,7 +167,7 @@ describe('CRUD - findOne', () => {
 describe('CRUD - findById', () => {
   it('finds row by id', async () => {
     const repo = db.repo(usersTable)
-    const { id: insertedId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const insertedId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
     const found = await repo.read.findById(insertedId)
 
     expect(found).not.toBeNull()
@@ -190,6 +190,7 @@ describe('CRUD - updateMany', () => {
     const updated = await repo.write.updateMany(
       { name: 'Alice Updated' },
       e => e.eq('email', 'a@test.com'),
+      { full: true },
     )
 
     expect(updated).toHaveLength(1)
@@ -205,6 +206,7 @@ describe('CRUD - updateOne', () => {
     const updated = await repo.write.updateOne(
       { name: 'Alice V2' },
       e => e.eq('email', 'a@test.com'),
+      { full: true },
     )
 
     expect(updated).not.toBeNull()
@@ -222,9 +224,9 @@ describe('CRUD - updateOne', () => {
 describe('CRUD - deleteMany', () => {
   it('soft-deletes rows (because of softDelete trait)', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-    const deleted = await repo.write.deleteMany(e => e.eq('id', userId))
+    const deleted = await repo.write.deleteMany(e => e.eq('id', userId), { full: true })
 
     expect(deleted).toHaveLength(1)
     expect(deleted[0]!.deletedAt).not.toBeNull()
@@ -242,6 +244,7 @@ describe('CRUD - findOrCreate', () => {
     const user = await repo.write.findOrCreate(
       { name: 'Alice', email: 'a@test.com' },
       ['email'],
+      { full: true },
     )
 
     expect(user.name).toBe('Alice')
@@ -254,6 +257,7 @@ describe('CRUD - findOrCreate', () => {
     const user = await repo.write.findOrCreate(
       { name: 'Alice Different', email: 'a@test.com' },
       ['email'],
+      { full: true },
     )
 
     expect(user.email).toBe('a@test.com')

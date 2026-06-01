@@ -36,7 +36,7 @@ describe('SQL Injection E2E', () => {
     ]
 
     for (const payload of payloads) {
-      const { id: userId } = await repo.write.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
+      const userId = await repo.write.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
       const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
       // Value stored as literal string
@@ -87,7 +87,7 @@ describe('SQL Injection E2E', () => {
 
   it('handles injection payloads in update set values', async () => {
     const repo = db.repo(usersTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
 
     const payload = `'; UPDATE users SET email='hacked'; --`
 
@@ -399,7 +399,7 @@ describe('FK-add migration on populated tables', () => {
       const parentIds: number[] = []
 
       for (let i = 0; i < 5; i++) {
-        parentIds.push((await parentRepo.write.insertOne({ name: `Parent${i}` })).id)
+        parentIds.push(await parentRepo.write.insertOne({ name: `Parent${i}` }))
       }
 
       for (const pid of parentIds) {

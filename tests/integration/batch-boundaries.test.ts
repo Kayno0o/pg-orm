@@ -27,7 +27,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
       const userIds = await db.repo(usersTable).write.insertMany(users)
 
       // One post per user
-      const posts = userIds.map(({ id }, i) => ({
+      const posts = userIds.map((id, i) => ({
         title: `p${i}`,
         body: 'body',
         authorId: id,
@@ -68,7 +68,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
         email: `u${i}@batch.test`,
       }))
       const userIds = await db.repo(usersTable).write.insertMany(users)
-      const posts = userIds.map(({ id }, i) => ({
+      const posts = userIds.map((id, i) => ({
         title: `p${i}`,
         body: 'body',
         authorId: id,
@@ -106,7 +106,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
         email: `u${i}@batch.test`,
       }))
       const userIds = await db.repo(usersTable).write.insertMany(users)
-      const posts = userIds.map(({ id }, i) => ({
+      const posts = userIds.map((id, i) => ({
         title: `p${i}`,
         body: 'body',
         authorId: id,
@@ -161,7 +161,7 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
 
     expect(userIds).toHaveLength(5000)
 
-    const posts = userIds.map(({ id }, i) => ({
+    const posts = userIds.map((id, i) => ({
       title: `p${i}`,
       body: 'b',
       authorId: id,
@@ -185,7 +185,7 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
       email: `u${i}@5k.test`,
     }))
     const userIds = await db.repo(usersTable).write.insertMany(users)
-    const posts = userIds.map(({ id }, i) => ({
+    const posts = userIds.map((id, i) => ({
       title: `p${i}`,
       body: 'b',
       authorId: id,

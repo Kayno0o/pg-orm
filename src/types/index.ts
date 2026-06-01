@@ -206,6 +206,12 @@ export type PrimaryKeyColumn<TColumns extends AnyColumns> = {
 export type InferPrimaryKey<TColumns extends AnyColumns>
   = ExtractColumnType<TColumns[PrimaryKeyColumn<TColumns>]>
 
+/** Options controlling what a write operation returns. */
+export interface WriteReturnOptions {
+  /** Return the full entity (with virtuals applied) instead of just the primary key. */
+  full?: boolean
+}
+
 // InferSelect: all columns, nullable columns get | null
 export type InferSelect<TColumns extends AnyColumns> = {
   [K in keyof TColumns]: IsColumnNullable<TColumns[K]> extends true

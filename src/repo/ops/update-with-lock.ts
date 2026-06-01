@@ -1,6 +1,6 @@
 import type { ExprBuilder, ExprTape } from '../../builder/expr'
 import type { Executable } from '../../sql/executor'
-import type { AnyColumns, InferUpdate } from '../../types/index'
+import type { AnyColumns, InferUpdate, WriteReturnOptions } from '../../types/index'
 import type { TableRuntime } from '../table-runtime'
 import { StaleRecordError, ValidationError } from '../../errors/index'
 import { updateMany } from './update-many'
@@ -11,6 +11,7 @@ export async function updateWithLock<TC extends AnyColumns>(
   set: InferUpdate<TC>,
   where: (e: ExprBuilder<TC>) => ExprTape,
   currentVersion: number,
+  opts?: WriteReturnOptions,
 ): Promise<any> {
   const lockCol = runtime.optimisticLockColumn
 
@@ -23,7 +24,7 @@ export async function updateWithLock<TC extends AnyColumns>(
   }
 
   const rows = await updateMany<TC>(executor, runtime, set, e =>
-    e.and(where(e), e.eq(lockCol, currentVersion)))
+    e.and(where(e), e.eq(lockCol, currentVersion)), opts)
 
   if (rows.length === 0)
     throw new StaleRecordError(runtime.table.name, currentVersion)

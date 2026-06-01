@@ -24,19 +24,19 @@ async function seedRelations() {
   const commentRepo = db.repo(commentsTable)
   const tagRepo = db.repo(tagsTable)
 
-  const { id: aliceId } = await userRepo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
-  const { id: bobId } = await userRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+  const aliceId = await userRepo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+  const bobId = await userRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
 
-  const { id: post1Id } = await postRepo.write.insertOne({ title: 'Post 1', body: 'Body 1', authorId: aliceId })
-  const { id: post2Id } = await postRepo.write.insertOne({ title: 'Post 2', body: 'Body 2', authorId: aliceId })
-  const { id: post3Id } = await postRepo.write.insertOne({ title: 'Post 3', body: 'Body 3', authorId: bobId })
+  const post1Id = await postRepo.write.insertOne({ title: 'Post 1', body: 'Body 1', authorId: aliceId })
+  const post2Id = await postRepo.write.insertOne({ title: 'Post 2', body: 'Body 2', authorId: aliceId })
+  const post3Id = await postRepo.write.insertOne({ title: 'Post 3', body: 'Body 3', authorId: bobId })
 
   await commentRepo.write.insertOne({ body: 'Comment 1', postId: post1Id, authorId: bobId })
   await commentRepo.write.insertOne({ body: 'Comment 2', postId: post1Id, authorId: aliceId })
   await commentRepo.write.insertOne({ body: 'Comment 3', postId: post2Id, authorId: bobId })
 
-  const { id: tag1Id } = await tagRepo.write.insertOne({ name: 'typescript' })
-  const { id: tag2Id } = await tagRepo.write.insertOne({ name: 'postgres' })
+  const tag1Id = await tagRepo.write.insertOne({ name: 'typescript' })
+  const tag2Id = await tagRepo.write.insertOne({ name: 'postgres' })
 
   // Wire post_tags
   await db.raw('INSERT INTO "post_tags" ("postId", "tagId") VALUES ($1, $2)', [post1Id, tag1Id])
@@ -61,7 +61,7 @@ describe('belongsTo', () => {
     const postRepo = db.repo(postsTable)
     // Insert a post without matching the seed
     const userRepo = db.repo(usersTable)
-    const { id: userId } = await userRepo.write.insertOne({ name: 'Test', email: 'test@test.com' })
+    const userId = await userRepo.write.insertOne({ name: 'Test', email: 'test@test.com' })
 
     await postRepo.write.insertOne({ title: 'Orphan', body: 'body', authorId: userId })
 
@@ -87,7 +87,7 @@ describe('hasMany', () => {
 
   it('returns empty array when no children', async () => {
     const userRepo = db.repo(usersTable)
-    const { id: userId } = await userRepo.write.insertOne({ name: 'Loner', email: 'loner@test.com' })
+    const userId = await userRepo.write.insertOne({ name: 'Loner', email: 'loner@test.com' })
 
     const users = await userRepo.read.findMany(q => q.include('posts').where(e => e.eq('id', userId)))
 
@@ -185,7 +185,7 @@ describe('large batch chunking', () => {
     const userIds = await userRepo.write.insertMany(
       Array.from({ length: 20 }, (_, i) => ({ name: `User${i}`, email: `user${i}@test.com` })),
     )
-    const users = await userRepo.read.findMany(q => q.where(e => e.in('id', userIds.map(u => u.id))))
+    const users = await userRepo.read.findMany(q => q.where(e => e.in('id', userIds)))
 
     for (const user of users) {
       await postRepo.write.insertOne({ title: `Post by ${user.name}`, body: 'body', authorId: user.id })

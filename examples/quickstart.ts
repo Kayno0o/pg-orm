@@ -68,11 +68,11 @@ async function main() {
   await db.raw`DELETE FROM users`
 
   // 7. Basic CRUD — insert (returns primary key only)
-  const { id: aliceId } = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
+  const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
 
   console.log('Inserted id:', aliceId)
 
-  const { id: bobId } = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
+  const bobId = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
 
   // insert many posts (returns array of primary keys)
   const insertedPostIds = await PostRepo.write.insertMany([
@@ -98,6 +98,7 @@ async function main() {
   const updated = await UserRepo.write.updateMany(
     { name: 'Alice Updated' },
     e => e.eq('id', aliceId),
+    { full: true },
   )
 
   console.log('Updated:', updated[0]?.name)
@@ -184,6 +185,7 @@ async function main() {
       { title: 'Hello Updated' },
       e => e.eq('id', post.id),
       post.version,
+      { full: true },
     )
 
     console.log(`Post version after update: ${updatedPost.version}`)
@@ -219,7 +221,7 @@ async function main() {
 
   // --- Insert and re-select with relations ---
   console.log('\n--- Insert and Re-select ---')
-  const { id: newPostId } = await PostRepo.write.insertOne(
+  const newPostId = await PostRepo.write.insertOne(
     { title: 'New Post', body: 'With author!', authorId: aliceId },
   )
   const newPost = await PostRepo.read.findOneOrThrow(q =>

@@ -69,19 +69,20 @@ await db.sync()
 const UserRepo = db.repo(users)
 const PostRepo = db.repo(posts)
 
-const alice = await UserRepo.insertOne({ name: 'Alice', email: 'alice@example.com' })
+// Write ops return the primary key by default; pass `{ full: true }` for the full row.
+const aliceId = await UserRepo.insertOne({ name: 'Alice', email: 'alice@example.com' })
 
 const allUsers = await UserRepo.findMany()
 
 const filtered = await PostRepo.findMany(q =>
-  q.where(e => e.eq('authorId', alice.id))
+  q.where(e => e.eq('authorId', aliceId))
    .orderBy('id', 'desc')
    .limit(10),
 )
 
-await UserRepo.updateMany({ name: 'Alice Updated' }, e => e.eq('id', alice.id))
+await UserRepo.updateMany({ name: 'Alice Updated' }, e => e.eq('id', aliceId))
 
-await UserRepo.deleteOne(e => e.eq('id', alice.id))
+await UserRepo.deleteOne(e => e.eq('id', aliceId))
 ```
 
 ## Schema Definition
@@ -221,7 +222,7 @@ q.groupBy('department').having(e => e.gt('count', 5))
 Repository operations are grouped into three lazy suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders
+- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
 - `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
 
 Each suite is constructed on first access; suites you never touch never allocate.
@@ -238,14 +239,23 @@ await repo.read.exists(e => e.eq('email', 'a@test.com'))
 
 ### Mutations
 
+By default, write operations return the **primary key** (a single id, or an array of
+ids for the `*Many` variants — `null` for the `*One` variants when nothing matched).
+Pass `{ full: true }` as the final argument to get the full row(s) back, with virtuals
+applied. Returning only the key keeps the common case cheap: `RETURNING "id"` instead of
+`RETURNING *`.
+
 ```ts
-// Insert
-await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
-await repo.write.insertMany([{ ... }, { ... }])
+// Insert — returns the primary key
+const id = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+const ids = await repo.write.insertMany([{ ... }, { ... }])
+
+// ...or the full entity with `{ full: true }`
+const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { full: true })
 
 // Update
 await repo.write.updateMany({ status: 'active' }, e => e.eq('id', 1))
-await repo.write.updateOne({ name: 'Bob' }, e => e.eq('id', 1))
+const updated = await repo.write.updateOne({ name: 'Bob' }, e => e.eq('id', 1), { full: true })
 
 // Delete
 await repo.write.deleteOne(e => e.eq('id', 1))

@@ -37,14 +37,21 @@ describe('deleteMany op', () => {
 })
 
 describe('deleteOne op', () => {
-  it('returns first row or null', async () => {
+  it('returns first primary key or null by default', async () => {
     const { exec, rt } = setup(users)
 
     exec.preset([{ id: 1 }])
-    expect(await deleteOne(exec, rt, e => e.eq('id', 1))).toEqual({ id: 1 })
+    expect(await deleteOne(exec, rt, e => e.eq('id', 1))).toBe(1)
 
     exec.preset([])
     expect(await deleteOne(exec, rt, e => e.eq('id', 1))).toBeNull()
+  })
+
+  it('returns the first full row with { full: true }', async () => {
+    const { exec, rt } = setup(users)
+
+    exec.preset([{ id: 1, name: 'A' }])
+    expect(await deleteOne(exec, rt, e => e.eq('id', 1), { full: true })).toEqual({ id: 1, name: 'A' })
   })
 })
 

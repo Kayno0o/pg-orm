@@ -33,7 +33,7 @@ describe('restore()', () => {
     expect(await repo.read.findMany()).toHaveLength(0)
 
     // Restore
-    const restored = await repo.write.restore(e => e.eq('email', 'a@test.com'))
+    const restored = await repo.write.restore(e => e.eq('email', 'a@test.com'), { full: true })
 
     expect(restored).toHaveLength(1)
     expect(restored[0]!.name).toBe('Alice')
@@ -398,7 +398,7 @@ describe('Large values', () => {
   it('handles large text values', async () => {
     const repo = db.repo(postsTable)
     const largeBody = 'x'.repeat(100_000)
-    const { id: postId } = await repo.write.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
+    const postId = await repo.write.insertOne({ title: 'Big Post', body: largeBody, authorId: 0 })
     const post = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', postId)))
 
     expect(post.body).toBe(largeBody)

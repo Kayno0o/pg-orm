@@ -59,11 +59,11 @@ async function main() {
   await db.raw`DELETE FROM mt_tags`
 
   // Seed data (insertOne now returns the primary key only)
-  const { id: p1 } = await PostRepo.write.insertOne({ title: 'Post A' })
-  const { id: p2 } = await PostRepo.write.insertOne({ title: 'Post B' })
-  const { id: t1 } = await TagRepo.write.insertOne({ name: 'rust' })
-  const { id: t2 } = await TagRepo.write.insertOne({ name: 'typescript' })
-  const { id: t3 } = await TagRepo.write.insertOne({ name: 'bun' })
+  const p1 = await PostRepo.write.insertOne({ title: 'Post A' })
+  const p2 = await PostRepo.write.insertOne({ title: 'Post B' })
+  const t1 = await TagRepo.write.insertOne({ name: 'rust' })
+  const t2 = await TagRepo.write.insertOne({ name: 'typescript' })
+  const t3 = await TagRepo.write.insertOne({ name: 'bun' })
 
   // Link: Post A → rust, typescript; Post B → typescript, bun
   await PostTagRepo.write.insertMany([

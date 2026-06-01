@@ -68,7 +68,7 @@ describe('Hooks - integration', () => {
 
   it('beforeInsert transforms data', async () => {
     const repo = db.repo(hookedTable)
-    const { id: userId } = await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
+    const userId = await repo.write.insertOne({ name: 'alice', email: 'a@test.com' })
     const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
     expect(user.name).toBe('ALICE')

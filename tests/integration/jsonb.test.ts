@@ -21,7 +21,7 @@ afterAll(async () => {
 describe('JSONB — insert & select round-trip', () => {
   it('round-trips a nested object', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({
+    const id = await repo.write.insertOne({
       data: { name: 'doc1', tags: ['a', 'b'], meta: { author: 'kay', version: 2 } },
     })
     const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
@@ -31,7 +31,7 @@ describe('JSONB — insert & select round-trip', () => {
 
   it('preserves empty arrays and missing optional keys', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({ data: { name: 'doc2', tags: [] } })
+    const id = await repo.write.insertOne({ data: { name: 'doc2', tags: [] } })
     const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.data.tags).toEqual([])
@@ -40,7 +40,7 @@ describe('JSONB — insert & select round-trip', () => {
 
   it('preserves nullable JSONB column as null', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({ data: { name: 'doc3', tags: [] }, optional: null })
+    const id = await repo.write.insertOne({ data: { name: 'doc3', tags: [] }, optional: null })
     const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.optional).toBeNull()
@@ -49,7 +49,7 @@ describe('JSONB — insert & select round-trip', () => {
   it('round-trips strings with quotes, slashes, and unicode', async () => {
     const repo = db.repo(documentsTable)
     const tricky = { name: 'has "quotes" and \\slashes\\', tags: ['café', '\u{1F600}'] }
-    const { id } = await repo.write.insertOne({ data: tricky })
+    const id = await repo.write.insertOne({ data: tricky })
     const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     expect(doc.data).toEqual(tricky)
@@ -59,13 +59,14 @@ describe('JSONB — insert & select round-trip', () => {
 describe('JSONB — full-column update', () => {
   it('replaces the JSONB value (does not merge)', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({
+    const id = await repo.write.insertOne({
       data: { name: 'before', tags: ['old'], meta: { author: 'kay' } },
     })
 
     const [updated] = await repo.write.updateMany(
       { data: { name: 'after', tags: ['new'] } },
       e => e.eq('id', id),
+      { full: true },
     )
 
     expect(updated!.data).toEqual({ name: 'after', tags: ['new'] })
@@ -74,11 +75,12 @@ describe('JSONB — full-column update', () => {
 
   it('updates a deeply nested object', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({ data: { name: 'deep', tags: [] } })
+    const id = await repo.write.insertOne({ data: { name: 'deep', tags: [] } })
 
     const [updated] = await repo.write.updateMany(
       { data: { name: 'deep', tags: ['t1'], meta: { author: 'kay', version: 9 } } },
       e => e.eq('id', id),
+      { full: true },
     )
 
     expect(updated!.data.meta).toEqual({ author: 'kay', version: 9 })
@@ -86,7 +88,7 @@ describe('JSONB — full-column update', () => {
 
   it('sets optional JSONB column from null to a value and back', async () => {
     const repo = db.repo(documentsTable)
-    const { id } = await repo.write.insertOne({ data: { name: 'opt', tags: [] }, optional: null })
+    const id = await repo.write.insertOne({ data: { name: 'opt', tags: [] }, optional: null })
 
     await repo.write.updateMany({ optional: { foo: 1, bar: 'baz' } }, e => e.eq('id', id))
 

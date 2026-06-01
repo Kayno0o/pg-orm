@@ -1,6 +1,6 @@
 import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferUpdate, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { deleteMany, deleteOne } from './ops/delete-many'
@@ -24,48 +24,70 @@ export class WriteSuite<
     private _rt: TableRuntime,
   ) {}
 
-  async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    return insertOne<TColumns>(this._exec, this._rt, values)
+  async insertOne(values: InferInsert<TColumns>): Promise<InferPrimaryKey<TColumns>>
+  async insertOne(values: InferInsert<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    return insertOne<TColumns>(this._exec, this._rt, values, opts)
   }
 
-  async insertMany(values: InferInsert<TColumns>[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return insertMany<TColumns>(this._exec, this._rt, values)
+  async insertMany(values: InferInsert<TColumns>[]): Promise<InferPrimaryKey<TColumns>[]>
+  async insertMany(values: InferInsert<TColumns>[], opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async insertMany(values: InferInsert<TColumns>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return insertMany<TColumns>(this._exec, this._rt, values, opts)
   }
 
-  async updateMany(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return updateMany<TColumns>(this._exec, this._rt, set, where)
+  async updateMany(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return updateMany<TColumns>(this._exec, this._rt, set, where, opts)
   }
 
-  async updateOne(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    return updateOne<TColumns>(this._exec, this._rt, set, where)
+  async updateOne(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    return updateOne<TColumns>(this._exec, this._rt, set, where, opts)
   }
 
-  async updateWithLock(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, currentVersion: number): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    return updateWithLock<TColumns>(this._exec, this._rt, set, where, currentVersion)
+  async updateWithLock(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, currentVersion: number): Promise<InferPrimaryKey<TColumns>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, currentVersion: number, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: (e: ExprBuilder<TColumns>) => ExprTape, currentVersion: number, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    return updateWithLock<TColumns>(this._exec, this._rt, set, where, currentVersion, opts)
   }
 
-  async deleteMany(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return deleteMany<TColumns>(this._exec, this._rt, where)
+  async deleteMany(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns>[]>
+  async deleteMany(where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async deleteMany(where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return deleteMany<TColumns>(this._exec, this._rt, where, opts)
   }
 
-  async deleteOne(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    return deleteOne<TColumns>(this._exec, this._rt, where)
+  async deleteOne(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns> | null>
+  async deleteOne(where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async deleteOne(where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    return deleteOne<TColumns>(this._exec, this._rt, where, opts)
   }
 
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return upsertMany<TColumns>(this._exec, this._rt, values, conflictTarget, updateColumns)
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns: (keyof TColumns & string)[] | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return upsertMany<TColumns>(this._exec, this._rt, values, conflictTarget, updateColumns, opts)
   }
 
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<WithVirtuals<TColumns, TVirtuals>> {
-    return findOrCreate<TColumns>(this._exec, this._rt, values, conflictTarget)
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>>
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    return findOrCreate<TColumns>(this._exec, this._rt, values, conflictTarget, opts)
   }
 
-  async restore(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return restore<TColumns>(this._exec, this._rt, where)
+  async restore(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns>[]>
+  async restore(where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async restore(where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return restore<TColumns>(this._exec, this._rt, where, opts)
   }
 
-  async forceDelete(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return forceDelete<TColumns>(this._exec, this._rt, where)
+  async forceDelete(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<InferPrimaryKey<TColumns>[]>
+  async forceDelete(where: (e: ExprBuilder<TColumns>) => ExprTape, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async forceDelete(where: (e: ExprBuilder<TColumns>) => ExprTape, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return forceDelete<TColumns>(this._exec, this._rt, where, opts)
   }
 
   // Builder accessors — skip the hook/trait dispatch applied by the methods above.
