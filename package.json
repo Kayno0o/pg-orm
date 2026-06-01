@@ -22,7 +22,6 @@
     "sql",
     "database"
   ],
-  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
