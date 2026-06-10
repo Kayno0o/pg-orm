@@ -224,6 +224,17 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
 function printInsert(sb: SqlBuilder, state: BuilderState): void {
   const vals = state.insertValues!
   const keys = Object.keys(vals)
+
+  // No columns supplied → let every column take its default. `() VALUES ()` is a
+  // syntax error in Postgres; `DEFAULT VALUES` is the correct empty-row insert.
+  if (keys.length === 0) {
+    sb.push(`INSERT INTO ${quote(state.table)} DEFAULT VALUES`)
+    printOnConflict(sb, state)
+    printReturning(sb, state.returning)
+
+    return
+  }
+
   const colList = quoteCols(keys)
   const valList = keys.map(k => sb.pushParam(vals[k])).join(', ')
 

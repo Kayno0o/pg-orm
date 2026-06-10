@@ -46,6 +46,23 @@ describe('insertOne op', () => {
 
     expect(exec.lastQuery!.params).toContain('Bob!')
   })
+
+  it('emits DEFAULT VALUES for an empty object (all columns take their default)', async () => {
+    const defaults = defineTable('defaults', t => ({
+      id: t.serial().primaryKey(),
+      name: t.text().notNull().default('anon'),
+    }))
+    const { exec, rt } = setup(defaults)
+
+    exec.preset([{ id: 7 }])
+    const id = await insertOne(exec, rt, {})
+
+    expect(id).toBe(7)
+    // `() VALUES ()` is a Postgres syntax error — must be `DEFAULT VALUES`.
+    expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "defaults" DEFAULT VALUES/)
+    expect(exec.lastQuery!.sql).not.toMatch(/\(\)\s*VALUES\s*\(\)/)
+    expect(exec.lastQuery!.params).toHaveLength(0)
+  })
 })
 
 describe('insertMany op', () => {
