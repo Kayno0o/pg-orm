@@ -104,6 +104,52 @@ describe('diffSchema — extended migration tests', () => {
     expect(alterOp!.sql).toContain('TYPE text')
   })
 
+  it('detects column type change from text[] to text (array to scalar)', () => {
+    const table = defineTable('items', t => ({
+      id: t.serial().primaryKey(),
+      tags: t.text().nullable(),
+    }))
+    const ops = diffSchema(
+      live([{
+        name: 'items',
+        columns: [
+          liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+          liveCol('tags', { dataType: 'text[]', isNullable: true }),
+        ],
+      }]),
+      registry(table),
+    )
+
+    const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'tags')
+
+    expect(alterOp).toBeDefined()
+    expect(alterOp!.destructive).toBe(true)
+    expect(alterOp!.sql).toContain('TYPE text')
+  })
+
+  it('detects column type change from text to text[] (scalar to array)', () => {
+    const table = defineTable('items', t => ({
+      id: t.serial().primaryKey(),
+      tags: t.array(t.text()).nullable(),
+    }))
+    const ops = diffSchema(
+      live([{
+        name: 'items',
+        columns: [
+          liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+          liveCol('tags', { dataType: 'text', isNullable: true }),
+        ],
+      }]),
+      registry(table),
+    )
+
+    const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'tags')
+
+    expect(alterOp).toBeDefined()
+    expect(alterOp!.destructive).toBe(true)
+    expect(alterOp!.sql).toContain('TYPE text[]')
+  })
+
   it('detects column type change from text to varchar', () => {
     const table = defineTable('items', t => ({
       id: t.serial().primaryKey(),
@@ -523,6 +569,159 @@ describe('diffSchema — extended migration tests', () => {
   })
 
   // --- Edge cases ---
+
+  // --- Default value diffing ---
+
+  describe('default value diffing', () => {
+    it('detects stale array default (text[] default on text column)', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        tags: t.text().default(''),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            liveCol('tags', { dataType: 'text', defaultValue: '\'{}\'::text[]', isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'tags')
+
+      expect(alterOp).toBeDefined()
+      expect(alterOp!.sql).toContain('SET DEFAULT')
+      expect(alterOp!.sql).toContain('\'\'')
+      expect(alterOp!.destructive).toBe(false)
+    })
+
+    it('detects added default (no default → has default)', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        count: t.integer().default(0),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            liveCol('count', { dataType: 'integer', defaultValue: null, isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'count')
+
+      expect(alterOp).toBeDefined()
+      expect(alterOp!.sql).toContain('SET DEFAULT 0')
+      expect(alterOp!.destructive).toBe(false)
+    })
+
+    it('detects removed default (has default → no default)', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        count: t.integer().nullable(),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            liveCol('count', { dataType: 'integer', defaultValue: '0', isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'count')
+
+      expect(alterOp).toBeDefined()
+      expect(alterOp!.sql).toContain('DROP DEFAULT')
+      expect(alterOp!.destructive).toBe(false)
+    })
+
+    it('detects changed default value', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        label: t.text().default('world'),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            liveCol('label', { dataType: 'text', defaultValue: '\'hello\'', isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'label')
+
+      expect(alterOp).toBeDefined()
+      expect(alterOp!.sql).toContain('SET DEFAULT \'world\'')
+    })
+
+    it('produces no op when defaults match (normalizing PG type cast)', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        name: t.text().default(''),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            // PostgreSQL appends ::text cast — should not trigger a diff
+            liveCol('name', { dataType: 'text', defaultValue: '\'\'::text', isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      expect(ops.find(o => o.column === 'name')).toBeUndefined()
+    })
+
+    it('skips default diffing for primary key columns', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false, defaultValue: 'nextval(\'items_id_seq\'::regclass)' }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      // No DROP DEFAULT should be emitted for a PK with a sequence default
+      expect(ops.find(o => o.column === 'id' && o.sql?.includes('DEFAULT'))).toBeUndefined()
+    })
+
+    it('skips default diffing for generated columns', () => {
+      const table = defineTable('items', t => ({
+        id: t.serial().primaryKey(),
+        fullName: t.text().generated('first_name || \' \' || last_name'),
+      }))
+      const ops = diffSchema(
+        live([{
+          name: 'items',
+          columns: [
+            liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+            liveCol('fullName', { dataType: 'text', isGenerated: true, defaultValue: null, isNullable: true }),
+          ],
+        }]),
+        registry(table),
+      )
+
+      expect(ops.find(o => o.column === 'fullName' && o.sql?.includes('DEFAULT'))).toBeUndefined()
+    })
+  })
 
   it('handles empty desired schema (drop everything)', () => {
     const ops = diffSchema(

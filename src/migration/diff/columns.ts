@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../../types/index'
 import type { LiveColumn, LiveTable, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { generateColumnDDL, normalizeType } from '../ddl'
+import { generateColumnDDL, normalizeDefault, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 
 export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): void {
@@ -154,5 +154,37 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
       destructive: false,
       description: `Drop NOT NULL from "${colName}" in "${tableName}"`,
     })
+  }
+
+  if (!liveCol.isPrimaryKey && !liveCol.isGenerated) {
+    const desiredDefaultConstraint = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')
+    const desiredDefault = desiredDefaultConstraint?.value ?? null
+    const liveDefault = liveCol.defaultValue
+
+    const normalizedDesired = desiredDefault !== null ? normalizeDefault(desiredDefault) : null
+    const normalizedLive = liveDefault !== null ? normalizeDefault(liveDefault) : null
+
+    if (normalizedDesired !== normalizedLive) {
+      if (desiredDefault !== null) {
+        ops.push({
+          type: 'alter_column',
+          table: tableName,
+          column: colName,
+          sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET DEFAULT ${desiredDefault}`,
+          destructive: false,
+          description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
+        })
+      }
+      else {
+        ops.push({
+          type: 'alter_column',
+          table: tableName,
+          column: colName,
+          sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP DEFAULT`,
+          destructive: false,
+          description: `Drop default from "${colName}" in "${tableName}"`,
+        })
+      }
+    }
   }
 }

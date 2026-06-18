@@ -229,6 +229,37 @@ describe('Migration Sync', () => {
     }
   })
 
+  it('detects and applies column default change', async () => {
+    const table = defineTable('sync_test_default', t => ({
+      id: t.serial().primaryKey(),
+      score: t.integer().default(99),
+    }))
+    const db = createSyncDb([table])
+
+    try {
+      // Create the table with a different default than what the schema specifies
+      await db.raw('DROP TABLE IF EXISTS "sync_test_default"', [])
+      await db.raw('CREATE TABLE "sync_test_default" ("id" serial PRIMARY KEY, "score" integer DEFAULT 0)', [])
+
+      const result = await db.sync({ allowDestructive: true })
+
+      expect(result.ops.some(o => o.sql.includes('SET DEFAULT 99'))).toBe(true)
+
+      // Verify the DB column now carries the new default
+      const rows = await db.raw<{ column_default: string }>(`
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_name = 'sync_test_default' AND column_name = 'score'
+      `, [])
+
+      expect(rows[0]!.column_default).toBe('99')
+    }
+    finally {
+      await db.raw('DROP TABLE IF EXISTS "sync_test_default"', [])
+      await db.close({ timeout: 5000 })
+    }
+  })
+
   it('getTablesRegistry returns registered tables', async () => {
     const table = defineTable('sync_test_reg', t => ({
       id: t.serial().primaryKey(),
