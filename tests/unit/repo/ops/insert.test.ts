@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from '../../../../src/index'
-import { insertMany } from '../../../../src/repo/ops/insert-many'
-import { insertOne } from '../../../../src/repo/ops/insert-one'
-import { setupOpEnv as setup } from './_helpers'
+import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull(),
 }))
 
-describe('insertOne op', () => {
+describe('WritePipeline insertOne', () => {
   it('issues INSERT ... RETURNING "id" and returns the primary key by default', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 99 }])
-    const id = await insertOne(exec, rt, { name: 'Alice' })
+    const id = await pipeline.insertOne({ name: 'Alice' })
 
     expect(id).toBe(99)
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -22,10 +20,10 @@ describe('insertOne op', () => {
   })
 
   it('returns the full inserted entity with { full: true }', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 99, name: 'Alice' }])
-    const row = await insertOne(exec, rt, { name: 'Alice' }, { full: true })
+    const row = await pipeline.insertOne({ name: 'Alice' }, { full: true })
 
     expect(row).toEqual({ id: 99, name: 'Alice' })
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
@@ -39,10 +37,10 @@ describe('insertOne op', () => {
 
     table.hook('beforeInsert', (values: any) => ({ ...values, name: `${values.name}!` }))
 
-    const { exec, rt } = setup(table)
+    const { exec, pipeline } = setup(table)
 
     exec.preset([{ id: 1, name: 'Bob!' }])
-    await insertOne(exec, rt, { name: 'Bob' })
+    await pipeline.insertOne({ name: 'Bob' })
 
     expect(exec.lastQuery!.params).toContain('Bob!')
   })
@@ -52,10 +50,10 @@ describe('insertOne op', () => {
       id: t.serial().primaryKey(),
       name: t.text().notNull().default('anon'),
     }))
-    const { exec, rt } = setup(defaults)
+    const { exec, pipeline } = setup(defaults)
 
     exec.preset([{ id: 7 }])
-    const id = await insertOne(exec, rt, {})
+    const id = await pipeline.insertOne({})
 
     expect(id).toBe(7)
     // `() VALUES ()` is a Postgres syntax error — must be `DEFAULT VALUES`.
@@ -65,31 +63,31 @@ describe('insertOne op', () => {
   })
 })
 
-describe('insertMany op', () => {
+describe('WritePipeline insertMany', () => {
   it('short-circuits on empty array without issuing a query', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
-    const result = await insertMany(exec, rt, [])
+    const result = await pipeline.insertMany([])
 
     expect(result).toEqual([])
     expect(exec.queries).toHaveLength(0)
   })
 
   it('returns primary keys in row order by default', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 10 }, { id: 11 }, { id: 12 }])
-    const ids = await insertMany(exec, rt, [{ name: 'A' }, { name: 'B' }, { name: 'C' }])
+    const ids = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }])
 
     expect(ids).toEqual([10, 11, 12])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING "id"/)
   })
 
   it('returns full entities in row order with { full: true }', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
-    const rows = await insertMany(exec, rt, [{ name: 'A' }, { name: 'B' }, { name: 'C' }], { full: true })
+    const rows = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }], { full: true })
 
     expect(rows).toEqual([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from '../../../../src/index'
-import { findOrCreate } from '../../../../src/repo/ops/find-or-create'
-import { upsertMany } from '../../../../src/repo/ops/upsert'
-import { setupOpEnv as setup } from './_helpers'
+import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
   id: t.serial().primaryKey(),
@@ -10,21 +8,21 @@ const users = defineTable('users', t => ({
   name: t.text().notNull(),
 }))
 
-describe('upsertMany op', () => {
+describe('WritePipeline upsertMany', () => {
   it('short-circuits on empty values without issuing a query', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
-    const result = await upsertMany(exec, rt, [], ['email'])
+    const result = await pipeline.upsertMany([], ['email'])
 
     expect(result).toEqual([])
     expect(exec.queries).toHaveLength(0)
   })
 
   it('emits INSERT ... ON CONFLICT DO UPDATE and returns primary keys by default', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const ids = await upsertMany(exec, rt, [{ email: 'a@x.com', name: 'A' }], ['email'])
+    const ids = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'])
 
     expect(ids).toEqual([1])
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -33,22 +31,22 @@ describe('upsertMany op', () => {
   })
 
   it('returns full rows with { full: true }', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const rows = await upsertMany(exec, rt, [{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { full: true })
+    const rows = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { full: true })
 
     expect(rows).toEqual([{ id: 1, email: 'a@x.com', name: 'A' }])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
   })
 })
 
-describe('findOrCreate op', () => {
+describe('WritePipeline findOrCreate', () => {
   it('returns the primary key by default', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const id = await findOrCreate(exec, rt, { email: 'a@x.com', name: 'A' }, ['email'])
+    const id = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'])
 
     expect(id).toBe(1)
     expect(exec.lastQuery!.sql).toMatch(/ON CONFLICT/)
@@ -56,10 +54,10 @@ describe('findOrCreate op', () => {
   })
 
   it('returns a single full row with { full: true }', async () => {
-    const { exec, rt } = setup(users)
+    const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const row = await findOrCreate(exec, rt, { email: 'a@x.com', name: 'A' }, ['email'], { full: true })
+    const row = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'], { full: true })
 
     expect(row).toEqual({ id: 1, email: 'a@x.com', name: 'A' })
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)

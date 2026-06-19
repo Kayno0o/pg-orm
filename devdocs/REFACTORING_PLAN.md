@@ -6,24 +6,28 @@ This document tracks architectural-deepening opportunities identified in the cod
 
 ---
 
-## Candidate 1: Repository Write-Operation Pipeline (active)
+## Candidate 1: Repository Write-Operation Pipeline ✅ completed
 
-**Status:** In design — see framing below.
+**Status:** Implemented.
 
-**Cluster:**
-- `src/repo/ops/insert-one.ts`
-- `src/repo/ops/insert-many.ts`
-- `src/repo/ops/update-many.ts`
-- `src/repo/ops/delete-many.ts`
-- `src/repo/ops/force-delete.ts`
-- `src/repo/ops/restore.ts`
-- `src/repo/ops/upsert.ts`
-- `src/repo/ops/find-or-create.ts`
-- `src/repo/table-runtime.ts`
-- `src/repo/write-suite.ts`
+**Cluster (old):**
+- `src/repo/ops/insert-one.ts` ❌ deleted
+- `src/repo/ops/insert-many.ts` ❌ deleted
+- `src/repo/ops/update-many.ts` ❌ deleted
+- `src/repo/ops/delete-many.ts` ❌ deleted
+- `src/repo/ops/force-delete.ts` ❌ deleted
+- `src/repo/ops/restore.ts` ❌ deleted
+- `src/repo/ops/upsert.ts` ❌ deleted
+- `src/repo/ops/find-or-create.ts` ❌ deleted
+- `src/repo/ops/update-with-lock.ts` ❌ deleted
+- `src/repo/table-runtime.ts` ✅ kept (runtime boundary)
+- `src/repo/write-suite.ts` ✅ rewritten as thin façade
 
-**Why they're coupled:**  
-Every write-style operation repeats the same ~20-line orchestration:
+**New deep module:**
+- `src/repo/write-pipeline.ts` — owns the full write lifecycle.
+
+**Why they were coupled:**  
+Every write-style operation repeated the same ~20-line orchestration:
 
 1. Decide `RETURNING` columns based on `{ full: true }`.
 2. Build the appropriate statement builder.
@@ -34,18 +38,28 @@ Every write-style operation repeats the same ~20-line orchestration:
 7. Apply virtual fields when returning full rows.
 8. Extract primary key(s) when returning keys.
 
-The only real variation between ops is the builder type and the hook event names. Hooks, virtual installation, PK extraction, and the `{ full: true }` path are not hidden behind a common abstraction; they are re-declared in each file.
+The only real variation between ops was the builder type and the hook event names.
 
 **Dependency category:**  
 **In-process / local-substitutable.** The pipeline depends on the query builder, `TableRuntime`, and an executor. `tests/helpers/mock-executor.ts` already provides a test stand-in for the executor.
 
-**Test impact:**
-- Unit tests for ops all reuse `tests/unit/repo/ops/_helpers.ts` to wire the same dependencies, then retest the same orchestration.
-- Divergences are easy to miss: `upsert.ts` fires `afterInsert` instead of `afterUpsert`, `find-or-create.ts` fires `beforeUpsert` + `afterInsert`, `restore.ts` fires `beforeUpdate`/`afterUpdate`, and `delete-many.ts` vs `force-delete.ts` differ only in whether `rewriteDelete` is consulted.
-- A new op can forget `runtime.applyVirtuals(rows)` in the `{ full: true }` branch and existing unit tests for other ops will not catch it.
+**Outcome:**
+- Created `WritePipeline` with a single shared `_execute()` path and one public method per operation (`insertOne`, `insertMany`, `updateMany`, `updateOne`, `updateWithLock`, `deleteMany`, `deleteOne`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`).
+- `WriteSuite` now delegates to `WritePipeline`; it keeps the same typed public API and the raw builder accessors.
+- Deleted the nine shallow `src/repo/ops/*.ts` files.
+- Updated `tests/unit/repo/ops/{insert,update,delete,upsert-foc}.test.ts` and `_helpers.ts` to test the new `WritePipeline` boundary directly.
+- All checks green: `just fix` (circular, typecheck, lint, build) + `bun test tests/unit`.
 
-**Target outcome:**  
-A single deep module that owns the entire write-operation lifecycle. Callers declare *what* operation they want and the pipeline handles *how* it is built, executed, hooked, and returned.
+**What the pipeline hides:**
+- Hook selection and timing (`runBefore`/`runBeforeMany`/`runAfter` with correct event names).
+- `RETURNING` projection (`[]` for full rows, `[primaryKey]` otherwise).
+- Builder construction (`InsertBuilder`, `UpdateBuilder`, `DeleteBuilder`, `OnConflictBuilder`).
+- Trait-transform ordering (`applyPreUpdate` strictly after `.set()`; `rewriteDelete` for soft-delete).
+- Soft-delete rewrite and `restore()` soft-delete-column guard.
+- Empty-array short-circuit for `insertMany`/`upsertMany`.
+- Virtual installation and primary-key extraction.
+
+**Public surface preserved:** `repo.write.insertOne(...)` etc. still work exactly as before. Raw builder accessors (`repo.write.insert()`, `repo.write.update()`, etc.) still bypass the pipeline by design.
 
 ---
 
@@ -74,10 +88,7 @@ A single deep module that owns the entire write-operation lifecycle. Callers dec
 
 **Cluster:**
 - `src/repo/table-runtime.ts`
-- `src/repo/ops/delete-many.ts`
-- `src/repo/ops/update-many.ts`
-- `src/repo/ops/restore.ts`
-- `src/repo/ops/update-with-lock.ts`
+- `src/repo/write-pipeline.ts`
 - `src/traits/`
 
 **Why they're coupled:**  
@@ -88,7 +99,7 @@ Callers must know the ordering contract for trait rules:
 - `restore` open-codes the soft-delete-column check instead of using a trait pipeline.
 - `updateWithLock` relies on `updateMany` calling `applyPreUpdate` at the right moment.
 
-The runtime knows *that* a trait exists, but every op knows *when* to apply it.
+The runtime knows *that* a trait exists, but the write pipeline still knows *when* to apply it. Candidate 1 moved this timing into one file, but a future deep module could expose a declarative trait-middleware interface so the pipeline does not hard-code `applyPreUpdate`/`rewriteDelete` order.
 
 **Dependency category:**  
 **In-process.** Trait rules are pure table-state transformations.
@@ -152,5 +163,5 @@ The runtime knows *that* a trait exists, but every op knows *when* to apply it.
 1. Pick the next candidate to deepen.
 2. Frame the problem space: constraints, dependencies, and an illustrative (not final) interface sketch.
 3. Design 2–4 radically different interfaces in parallel via sub-agents.
-4. Compare designs, recommend one, and create a GitHub issue RFC.
-5. Implement the chosen design, updating this document with the outcome.
+4. Compare designs, recommend one, and (optionally) create a GitHub issue RFC.
+5. Implement the chosen design directly in the codebase, updating this document with the outcome.
