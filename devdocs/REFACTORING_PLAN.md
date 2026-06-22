@@ -63,24 +63,52 @@ The only real variation between ops was the builder type and the hook event name
 
 ---
 
-## Candidate 2: Hook, Virtual, and Mapper Post-Processing Pipeline
+## Candidate 2: Hook, Virtual, and Mapper Post-Processing Pipeline ✅ completed
 
-**Cluster:**
-- `src/repo/table-runtime.ts`
-- `src/repo/ops/find-many.ts`
-- `src/repo/ops/stream.ts`
-- `src/repo/relation-resolver.ts`
-- `src/mapper/index.ts`
+**Status:** Implemented.
 
-**Why they're coupled:**  
-`afterSelect` hooks are open-coded in `findMany`/`stream` instead of going through `runtime.runAfter`. Eager-loaded child rows skip hooks, virtuals, and mapper coercion entirely. The decision of *when* to map rows, apply virtuals, and run hooks is spread across callers.
+**Cluster (old):**
+- `src/repo/ops/find-many.ts` ❌ deleted
+- `src/repo/ops/find-one.ts` ❌ deleted
+- `src/repo/ops/paginate.ts` ❌ deleted
+- `src/repo/ops/stream.ts` ❌ deleted
+- `src/repo/ops/stream-cursor.ts` ❌ deleted
+- `src/repo/ops/count.ts` ❌ deleted
+- `src/repo/ops/exists.ts` ❌ deleted
+- `src/repo/ops/_mapper.ts` ✅ moved to `src/repo/_mapper.ts`
+- `src/repo/table-runtime.ts` ✅ kept
+- `src/repo/relation-resolver.ts` ✅ extended with `RelationProcessor` callback seam
+- `src/mapper/index.ts` ✅ unchanged (already a deep module)
+
+**New deep module:**
+- `src/repo/read-pipeline.ts` — owns the full read-result lifecycle.
+
+**Why they were coupled:**  
+`afterSelect` hooks were open-coded in `findMany`/`stream` instead of going through `runtime.runAfter`. Eager-loaded child rows skipped hooks, virtuals, and mapper coercion entirely. The decision of *when* to map rows, apply virtuals, and run hooks was spread across callers.
 
 **Dependency category:**  
-**In-process.** Pure row transformation and hook running (mapper uses `new Function`, but it is still internal computation).
+**In-process.** Pure row transformation and hook running.
 
-**Test impact:**
-- Boundary behavior is only covered by integration tests.
-- Unit tests of helpers pass, giving a false sense of coverage, because the real failure modes live in how helpers are composed.
+**Outcome:**
+- Created `ReadPipeline` with one shared execution/post-processing path and public methods for `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`, `exists`, `paginate`, `paginateCursor`, `stream`, and `streamCursor`.
+- `ReadSuite` and `StreamSuite` are now thin façades delegating to `ReadPipeline`, mirroring the `WriteSuite`/`WritePipeline` split from Candidate 1.
+- Added a `RelationProcessor` callback seam to `RelationResolver` so eager-loaded child rows are recursively post-processed by the pipeline without creating a module cycle.
+- Child rows now run through mapper coercion, `afterSelect` hooks, virtual installation, and nested includes — the same lifecycle as top-level rows.
+- Deleted the seven shallow read op files and moved `src/repo/ops/_mapper.ts` to `src/repo/_mapper.ts`.
+- Updated unit tests to target the `ReadPipeline` boundary directly and added `tests/unit/repo/read-pipeline.test.ts` covering hooks on mapped rows, virtuals on top-level rows, and mapper/hooks/virtuals on eager-loaded child rows.
+- All checks green: `just fix` (circular, typecheck, lint, build) + `bun test tests/unit` (911 tests).
+
+**What the pipeline hides:**
+- Soft-delete pre-filter application.
+- Computed-only query detection (skip JIT mapper).
+- JIT mapper coercion for top-level and child rows.
+- `afterSelect` hook orchestration through `runtime.runAfter`.
+- Virtual installation.
+- Eager include loading with recursive child post-processing.
+- `stream` LIMIT/OFFSET chunking and unsafe warning.
+- `streamCursor` keyset pagination loop.
+
+**Public surface preserved:** `repo.read.findMany(...)` etc. and `repo.stream.stream(...)` still work exactly as before. The builder accessors `repo.read.select()` and the raw query builders still bypass the pipeline by design.
 
 ---
 

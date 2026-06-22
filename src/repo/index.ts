@@ -1,10 +1,10 @@
 import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals } from '../types/index'
-import type { MapperFactory } from './ops/_mapper'
+import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
-import { createMapperFactory } from './ops/_mapper'
+import { createMapperFactory } from './_mapper'
 import { ReadSuite } from './read-suite'
 import { RelationResolver } from './relation-resolver'
 import { StreamSuite } from './stream-suite'
@@ -81,9 +81,9 @@ export class Repository<
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
     this._map = createMapperFactory(this._table)
 
-    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit)
+    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry)
     this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
-    this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map)
+    this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry)
   }
 
   /**

@@ -1,7 +1,7 @@
-import type { SelectBuilder } from '../../builder/query'
-import type { RowMapper } from '../../mapper/index'
-import type { AnyTableDef } from '../../types/index'
-import { getOrCompileMapper } from '../../mapper/index'
+import type { SelectBuilder } from '../builder/query'
+import type { RowMapper } from '../mapper/index'
+import type { AnyTableDef } from '../types/index'
+import { getOrCompileMapper } from '../mapper/index'
 
 export type MapperFactory = (b: SelectBuilder<any, any, any>) => RowMapper<Record<string, unknown>>
 

@@ -8,6 +8,21 @@ import { buildPlaceholders, quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy } from '../utils/collection'
 
 /**
+ * Callback interface supplied by the read pipeline so eager-loaded child rows
+ * receive the same post-processing (mapper coercion, afterSelect hooks,
+ * virtuals, nested includes) as top-level rows. Keeping this as an interface
+ * avoids a module cycle between RelationResolver and the pipeline.
+ */
+export interface RelationProcessor {
+  processRows: (
+    rows: Record<string, unknown>[],
+    tableName: string,
+    source: 'select',
+    opts?: { skipMapper?: boolean },
+  ) => Promise<Record<string, unknown>[]>
+}
+
+/**
  * Batched relation loading — single query per relation, all relations in parallel.
  * Nested includes are handled via callback composition: each load method extracts
  * nested includes from the callback's builder state and recursively loads them
@@ -29,6 +44,7 @@ export class RelationResolver {
   async loadIncludes(
     parentRows: Record<string, unknown>[],
     includes: IncludeEntry[],
+    processor?: RelationProcessor,
     depth = 0,
     visited?: Set<string>,
   ): Promise<any[]> {
@@ -71,11 +87,11 @@ export class RelationResolver {
 
       tasks.push((async () => {
         if (rel.type === 'belongsTo')
-          await this._loadBelongsTo(parentRows, rel, inc, ctx)
+          await this._loadBelongsTo(parentRows, rel, inc, ctx, processor)
         else if (rel.type === 'hasOne' || rel.type === 'hasMany')
-          await this._loadHasOneOrMany(parentRows, rel, inc, ctx)
+          await this._loadHasOneOrMany(parentRows, rel, inc, ctx, processor)
         else if (rel.type === 'hasManyThrough' && rel.throughTable)
-          await this._loadHasManyThrough(parentRows, rel, inc.relation)
+          await this._loadHasManyThrough(parentRows, rel, inc.relation, processor)
       })())
     }
 
@@ -171,6 +187,7 @@ export class RelationResolver {
     rel: AnyRelationDef,
     inc: IncludeEntry,
     ctx: { depth: number, seen: Set<string> },
+    processor?: RelationProcessor,
   ): Promise<void> {
     const fk = rel.foreignKey
     const parentIds = collectParentIds(parentRows, fk)
@@ -183,14 +200,18 @@ export class RelationResolver {
 
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-    const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, inc.callback)
+    let { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, inc.callback)
+
+    if (processor && childRows.length > 0)
+      childRows = await processor.processRows(childRows, rel.targetTable, 'select')
+
     const indexed = indexBy(childRows, targetPk)
 
     for (const parent of parentRows) {
       parent[inc.relation] = indexed.get(parent[fk]) ?? null
     }
 
-    await this._loadNested(targetTable, childRows, nestedIncludes, inc.relation, ctx)
+    await this._loadNested(targetTable, childRows, nestedIncludes, inc.relation, ctx, processor)
   }
 
   private async _loadHasOneOrMany(
@@ -198,6 +219,7 @@ export class RelationResolver {
     rel: AnyRelationDef,
     inc: IncludeEntry,
     ctx: { depth: number, seen: Set<string> },
+    processor?: RelationProcessor,
   ): Promise<void> {
     const sourcePk = this._findPrimaryKey(this.table)
     const targetFk = rel.foreignKey
@@ -212,7 +234,10 @@ export class RelationResolver {
       return
     }
 
-    const { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, inc.callback)
+    let { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, inc.callback)
+
+    if (processor && childRows.length > 0)
+      childRows = await processor.processRows(childRows, rel.targetTable, 'select')
 
     if (isMany) {
       const grouped = groupBy(childRows, targetFk)
@@ -229,13 +254,14 @@ export class RelationResolver {
       }
     }
 
-    await this._loadNested(this._resolveTable(rel.targetTable), childRows, nestedIncludes, inc.relation, ctx)
+    await this._loadNested(this._resolveTable(rel.targetTable), childRows, nestedIncludes, inc.relation, ctx, processor)
   }
 
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     relationName: string,
+    processor?: RelationProcessor,
   ): Promise<void> {
     const sourcePk = this._findPrimaryKey(this.table)
     const targetTable = this._resolveTable(rel.targetTable)
@@ -248,7 +274,11 @@ export class RelationResolver {
       return
     }
 
-    const rows = await this._batchThroughQuery(rel, targetPk, parentIds)
+    let rows = await this._batchThroughQuery(rel, targetPk, parentIds)
+
+    if (processor && rows.length > 0)
+      rows = await processor.processRows(rows, rel.targetTable, 'select')
+
     const grouped = groupBy(rows, '__pgorm_pivot_fk__')
 
     for (const row of rows) delete row.__pgorm_pivot_fk__
@@ -268,6 +298,7 @@ export class RelationResolver {
     nestedIncludes: IncludeEntry[],
     relationName: string,
     ctx: { depth: number, seen: Set<string> },
+    processor?: RelationProcessor,
   ): Promise<void> {
     if (nestedIncludes.length === 0 || !targetTable)
       return
@@ -277,6 +308,6 @@ export class RelationResolver {
     childVisited.add(`${this.table.name}.${relationName}`)
     const childResolver = new RelationResolver(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
 
-    await childResolver.loadIncludes(childRows, nestedIncludes, ctx.depth + 1, childVisited)
+    await childResolver.loadIncludes(childRows, nestedIncludes, processor, ctx.depth + 1, childVisited)
   }
 }

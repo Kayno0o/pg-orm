@@ -57,9 +57,10 @@ export class ColumnBuilder<
     return this as unknown as T
   }
 
-  /** Mark column as NOT NULL. Required for insert unless it has a default. */
+  /** Mark column as NOT NULL. Required for insert unless it has a default. This is the default. */
   notNull(): ColumnBuilder<TType, NotNullable, TDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'not_null' })
+    if (!this._constraints.some(c => c.type === 'not_null'))
+      this._constraints.push({ type: 'not_null' })
 
     return this._narrow()
   }
