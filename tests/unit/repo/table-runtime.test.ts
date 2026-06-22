@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
 import { AfterHookError, BeforeHookError, OrmError } from '../../../src/errors/index'
-import { defineTable, optimisticLock, softDelete } from '../../../src/index'
+import { defineTable } from '../../../src/index'
 import { buildTableRuntime } from '../../../src/repo/table-runtime'
 
 function makePlain() {
@@ -9,20 +8,6 @@ function makePlain() {
     id: t.serial().primaryKey(),
     name: t.text().notNull(),
   }))
-}
-
-function makeSoft() {
-  return defineTable('soft', t => ({
-    id: t.serial().primaryKey(),
-    name: t.text().notNull(),
-  })).withTrait(softDelete())
-}
-
-function makeOpt() {
-  return defineTable('opt', t => ({
-    id: t.serial().primaryKey(),
-    name: t.text().notNull(),
-  })).withTrait(optimisticLock())
 }
 
 function makePeople() {
@@ -35,137 +20,28 @@ function makePeople() {
   })
 }
 
-describe('buildTableRuntime: trait fields', () => {
-  it('exposes null trait columns for plain tables', () => {
+describe('buildTableRuntime: core fields', () => {
+  it('exposes the table and primary key', () => {
     const rt = buildTableRuntime(makePlain())
 
-    expect(rt.hasSoftDelete).toBe(false)
-    expect(rt.hasOptimisticLock).toBe(false)
-    expect(rt.softDeleteColumn).toBeNull()
-    expect(rt.optimisticLockColumn).toBeNull()
+    expect(rt.table.name).toBe('plain')
+    expect(rt.primaryKey).toBe('id')
   })
 
-  it('exposes the soft-delete column name when the trait is applied', () => {
-    const rt = buildTableRuntime(makeSoft())
+  it('exposes a frozen behavior object derived from the same table', () => {
+    const table = makePlain()
+    const rt = buildTableRuntime(table)
 
-    expect(rt.hasSoftDelete).toBe(true)
-    expect(typeof rt.softDeleteColumn).toBe('string')
-    expect(rt.softDeleteColumn!.length).toBeGreaterThan(0)
-  })
-
-  it('exposes the optimistic-lock column name when the trait is applied', () => {
-    const rt = buildTableRuntime(makeOpt())
-
-    expect(rt.hasOptimisticLock).toBe(true)
-    expect(typeof rt.optimisticLockColumn).toBe('string')
-    expect(rt.optimisticLockColumn!.length).toBeGreaterThan(0)
-  })
-
-  it('returns the table primary key (defaulting to id)', () => {
-    expect(buildTableRuntime(makePlain()).primaryKey).toBe('id')
+    expect(rt.behavior).toBeDefined()
+    expect(Object.isFrozen(rt.behavior)).toBe(true)
+    expect(rt.behavior.getSoftDeleteColumn()).toBeNull()
+    expect(rt.behavior.getOptimisticLockColumn()).toBeNull()
   })
 
   it('is frozen — runtime fields cannot be mutated', () => {
     const rt = buildTableRuntime(makePlain())
 
     expect(Object.isFrozen(rt)).toBe(true)
-  })
-})
-
-describe('buildTableRuntime.applyPreSelect', () => {
-  it('is a no-op on a plain table', () => {
-    const rt = buildTableRuntime(makePlain())
-    const b = new SelectBuilder<any, any>('plain')
-    const before = b.getState().whereTape
-
-    rt.applyPreSelect(b)
-    expect(b.getState().whereTape).toBe(before)
-  })
-
-  it('adds an IS NULL filter for the soft-delete column', () => {
-    const t = makeSoft()
-    const rt = buildTableRuntime(t)
-    const b = new SelectBuilder<any, any>('soft')
-
-    rt.applyPreSelect(b)
-    const { sql } = b.toSQL()
-
-    expect(sql).toContain(`"${rt.softDeleteColumn!}" IS NULL`)
-  })
-
-  it('respects withTrashed() and skips the IS NULL filter', () => {
-    const rt = buildTableRuntime(makeSoft())
-    const b = new SelectBuilder<any, any>('soft').withTrashed()
-    const before = b.getState().whereTape
-
-    rt.applyPreSelect(b)
-    expect(b.getState().whereTape).toBe(before)
-    expect(b.toSQL().sql).not.toContain('IS NULL')
-  })
-})
-
-describe('buildTableRuntime.applyPreUpdate', () => {
-  it('is a no-op on a plain table', () => {
-    const rt = buildTableRuntime(makePlain())
-    const b = new UpdateBuilder<any>('plain').set({ name: 'x' }).where(e => e.eq('id', 1))
-    const sqlBefore = b.toSQL().sql
-
-    rt.applyPreUpdate(b)
-    expect(b.toSQL().sql).toBe(sqlBefore)
-  })
-
-  it('appends a version-bump for the optimistic-lock column', () => {
-    const rt = buildTableRuntime(makeOpt())
-    const b = new UpdateBuilder<any>('opt').set({ name: 'x' }).where(e => e.eq('id', 1))
-
-    rt.applyPreUpdate(b)
-    const { sql } = b.toSQL()
-    const col = rt.optimisticLockColumn!
-
-    expect(sql).toContain(`"${col}" = "${col}" + 1`)
-  })
-})
-
-describe('buildTableRuntime.rewriteDelete', () => {
-  it('returns null on a plain table', () => {
-    const rt = buildTableRuntime(makePlain())
-
-    expect(rt.rewriteDelete(e => e.eq('id', 1))).toBeNull()
-  })
-
-  it('returns an UpdateBuilder that sets the soft-delete column when the trait is applied', () => {
-    const rt = buildTableRuntime(makeSoft())
-    const ub = rt.rewriteDelete(e => e.eq('id', 1))
-
-    expect(ub).not.toBeNull()
-    const { sql } = ub!.toSQL()
-    const col = rt.softDeleteColumn!
-
-    expect(sql).toContain(`UPDATE "soft" SET "${col}" =`)
-    expect(sql).toContain('RETURNING')
-  })
-})
-
-describe('buildTableRuntime.requireSoftDeleteColumn', () => {
-  it('throws OrmError on a plain table with the operation name in the message', () => {
-    const rt = buildTableRuntime(makePlain())
-
-    try {
-      rt.requireSoftDeleteColumn('restore')
-
-      throw new Error('should have thrown')
-    }
-    catch (err) {
-      expect(err).toBeInstanceOf(OrmError)
-      expect((err as Error).message).toContain('restore')
-      expect((err as Error).message).toContain('softDelete')
-    }
-  })
-
-  it('returns the column name on a soft-delete table', () => {
-    const rt = buildTableRuntime(makeSoft())
-
-    expect(rt.requireSoftDeleteColumn('restore')).toBe(rt.softDeleteColumn!)
   })
 })
 

@@ -75,9 +75,7 @@ export class WritePipeline<
       .set(s)
       .where(where)
 
-    // Trait middleware MUST run after `.set()` so user payloads can't smuggle
-    // `__raw` through and the version bump itself bypasses validation.
-    this._runtime.applyPreUpdate(builder)
+    this._runtime.behavior.prepareUpdate(builder, s as Record<string, unknown>)
 
     return this._execute({
       builder,
@@ -94,7 +92,7 @@ export class WritePipeline<
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    const lockCol = this._runtime.optimisticLockColumn
+    const lockCol = this._runtime.behavior.getOptimisticLockColumn()
 
     if (!lockCol) {
       throw new ValidationError(
@@ -121,7 +119,7 @@ export class WritePipeline<
   async deleteMany(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runtime.runBefore('beforeDelete', undefined)
 
-    const rewritten = this._runtime.rewriteDelete(where)
+    const rewritten = this._runtime.behavior.rewriteDelete(where)
     const builder = rewritten ?? new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
 
     return this._execute({
@@ -196,14 +194,18 @@ export class WritePipeline<
   // --- Restore ---
 
   async restore(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    const sdCol = this._runtime.requireSoftDeleteColumn('restore()')
+    const sdCol = this._runtime.behavior.getSoftDeleteColumn()
+
+    if (sdCol === null) {
+      throw new ValidationError(
+        'restore() requires softDelete trait on table',
+        'restore',
+        { field: this._runtime.table.name },
+      )
+    }
 
     const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
-    const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table.name)
-      .set(s)
-      .where((e: ExprBuilder<TColumns>) => e.and(where(e), e.isNotNull(sdCol)))
-
-    this._runtime.applyPreUpdate(builder)
+    const builder = this._runtime.behavior.buildRestoreUpdate(s, where)
 
     return this._execute({
       builder,

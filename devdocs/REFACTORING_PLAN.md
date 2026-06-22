@@ -112,29 +112,53 @@ The only real variation between ops was the builder type and the hook event name
 
 ---
 
-## Candidate 3: Trait Middleware / Table-Behavior Pipeline
+## Candidate 3: Trait Middleware / Table-Behavior Pipeline ✅ completed
 
-**Cluster:**
-- `src/repo/table-runtime.ts`
-- `src/repo/write-pipeline.ts`
-- `src/traits/`
+**Status:** Implemented.
 
-**Why they're coupled:**  
-Callers must know the ordering contract for trait rules:
+**Cluster (old):**
+- `src/repo/table-runtime.ts` ✅ rewritten (delegates trait behavior)
+- `src/repo/write-pipeline.ts` ✅ rewritten (delegates to behavior)
+- `src/repo/read-pipeline.ts` ✅ rewritten (delegates to behavior)
+- `src/traits/index.ts` ✅ unchanged (still declares metadata; behavior interprets it)
 
-- `applyPreSelect` must run before `toSQL`.
-- `applyPreUpdate` must run *after* `.set()` so it can inject `setRaw`.
-- `restore` open-codes the soft-delete-column check instead of using a trait pipeline.
-- `updateWithLock` relies on `updateMany` calling `applyPreUpdate` at the right moment.
+**New deep module:**
+- `src/repo/table-behavior.ts` — owns the per-table, per-operation trait lifecycle.
 
-The runtime knows *that* a trait exists, but the write pipeline still knows *when* to apply it. Candidate 1 moved this timing into one file, but a future deep module could expose a declarative trait-middleware interface so the pipeline does not hard-code `applyPreUpdate`/`rewriteDelete` order.
+**Why they were coupled:**  
+Callers had to know the ordering contract for trait rules:
+
+- `applyPreSelect` had to run before `toSQL`.
+- `applyPreUpdate` had to run *after* `.set()` so it could inject `setRaw`.
+- `restore()` open-coded the soft-delete-column guard and builder construction.
+- `updateWithLock` reached into `runtime.optimisticLockColumn` to build its where predicate.
+
+The runtime knew *that* a trait existed, but the pipelines still knew *when* to apply it.
 
 **Dependency category:**  
 **In-process.** Trait rules are pure table-state transformations.
 
-**Test impact:**
-- `table-runtime.test.ts` tests each helper alone.
-- The ordering is only verified by integration tests (`soft-delete.test.ts`, `optimistic-lock.test.ts`). A new op that calls `applyPreUpdate` before `.set()` would pass its own unit test and break optimistic locking in production.
+**Outcome:**
+- Created `TableBehavior` with operation-scoped methods: `prepareSelect`, `prepareInsert`, `prepareUpdate`, `rewriteDelete`, `buildRestoreUpdate`, `getOptimisticLockColumn`, `getSoftDeleteColumn`.
+- `TableRuntime` now exposes a single `behavior: TableBehavior` property and dropped `applyPreSelect`, `applyPreUpdate`, `rewriteDelete`, `hasSoftDelete`, `hasOptimisticLock`, `softDeleteColumn`, `optimisticLockColumn`, and `requireSoftDeleteColumn`.
+- `WritePipeline` delegates all trait-specific builder preparation to `runtime.behavior`.
+  - `updateMany` calls `behavior.prepareUpdate(builder, s)` after `.set()` / `.where()`.
+  - `deleteMany` uses `behavior.rewriteDelete(where) ?? DeleteBuilder`.
+  - `restore()` uses `behavior.buildRestoreUpdate(s, where)` and no longer open-codes the soft-delete guard or post-set transforms.
+  - `updateWithLock()` uses `behavior.getOptimisticLockColumn()` for its version predicate.
+- `ReadPipeline` calls `behavior.prepareSelect(builder)` instead of `runtime.applyPreSelect(builder)`.
+- Added `tests/unit/repo/table-behavior.test.ts` covering the ordering contracts directly (e.g. version bump runs after `.set()` and overwrites a user-supplied version value).
+- Updated `tests/unit/repo/table-runtime.test.ts` to focus on hook/virtual delegation and the new `behavior` property.
+- All checks green: `just fix` + `bun test tests/unit`.
+
+**What the behavior module hides:**
+- Soft-delete pre-select filtering and `withTrashed()` interaction.
+- Optimistic-lock `setRaw` version bump and the post-`.set()` ordering requirement.
+- Soft-delete delete-to-update rewrite.
+- Restore builder construction (`SET deletedAt = NULL WHERE ... IS NOT NULL`) plus post-set transforms.
+- Soft-delete / optimistic-lock column guards.
+
+**Public surface preserved:** `repo.read.*`, `repo.write.*`, and `repo.write.updateWithLock()` / `repo.write.restore()` still work exactly as before.
 
 ---
 

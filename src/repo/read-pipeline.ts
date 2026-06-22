@@ -90,7 +90,7 @@ export class ReadPipeline<
   select(): SelectBuilder<TColumns, TRelations> {
     const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
 
-    this._runtime.applyPreSelect(builder)
+    this._runtime.behavior.prepareSelect(builder)
 
     return builder
   }
@@ -99,7 +99,7 @@ export class ReadPipeline<
     const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
     const finalBuilder = cb ? cb(builder) : builder
 
-    this._runtime.applyPreSelect(finalBuilder)
+    this._runtime.behavior.prepareSelect(finalBuilder)
 
     const state = finalBuilder.getState()
 
@@ -167,7 +167,7 @@ export class ReadPipeline<
     if (where)
       builder.where(where)
 
-    this._runtime.applyPreSelect(builder)
+    this._runtime.behavior.prepareSelect(builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._executor.query(sql, params)
@@ -181,7 +181,7 @@ export class ReadPipeline<
     if (where)
       builder.where(where)
 
-    this._runtime.applyPreSelect(builder)
+    this._runtime.behavior.prepareSelect(builder)
 
     const { sql, params } = builder.toSQL()
     const rows = await this._executor.query(sql, params)
@@ -270,7 +270,7 @@ export class ReadPipeline<
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const mapperFn = this._mapper(finalBuilder)
 
-    this._runtime.applyPreSelect(finalBuilder)
+    this._runtime.behavior.prepareSelect(finalBuilder)
 
     let offset = 0
 
