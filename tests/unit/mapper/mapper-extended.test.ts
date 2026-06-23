@@ -146,6 +146,27 @@ describe('mapper json coercion', () => {
     expect(result).toEqual({ id: 1, data: { a: 1 } })
     expect(result).not.toHaveProperty('name')
   })
+
+  it('falls back to parsing Postgres array literal strings for jsonb', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: '{"#### 1 ###","#    D   #","#    @   #","##########"}' })
+
+    expect(result.data).toEqual(['#### 1 ###', '#    D   #', '#    @   #', '##########'])
+  })
+
+  it('parses Postgres array literal with numbers and nulls for jsonb', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: '{1,NULL,3,true,false}' })
+
+    expect(result.data).toEqual([1, null, 3, true, false])
+  })
+
+  it('returns the raw string when jsonb value is neither JSON nor a Postgres array', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: 'not json at all' })
+
+    expect(result.data).toBe('not json at all')
+  })
 })
 
 describe('getOrCompileMapper cache key fingerprint', () => {

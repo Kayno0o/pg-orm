@@ -54,6 +54,15 @@ describe('JSONB — insert & select round-trip', () => {
 
     expect(doc.data).toEqual(tricky)
   })
+
+  it('round-trips a top-level string array', async () => {
+    const repo = db.repo(documentsTable)
+    const rows = ['##########', '#        #', '#    @   #', '##########']
+    const id = await repo.write.insertOne({ data: rows as never })
+    const doc = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
+
+    expect(doc.data as unknown as string[]).toEqual(rows)
+  })
 })
 
 describe('JSONB — full-column update', () => {

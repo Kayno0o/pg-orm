@@ -42,10 +42,42 @@ export class WritePipeline<
     this._mapperFactory = createMapperFactory(this._runtime.table)
   }
 
+  /**
+   * Serialize json/jsonb values to JSON strings before parameter binding.
+   * bun:sql's unsafe() path does not know column types, and the ORM's
+   * serializeParams() blindly converts every JS array into a PostgreSQL array
+   * literal (e.g. {"a","b"}). For json/jsonb columns that produces invalid
+   * storage, so we pre-stringify arrays/objects here and let normal text
+   * parameter binding send them as JSON.
+   */
+  private _normalizeJsonValues(values: Record<string, unknown>): Record<string, unknown> {
+    const cols = this._runtime.table.columns
+    const out: Record<string, unknown> = {}
+
+    for (const [key, val] of Object.entries(values)) {
+      const col = cols[key]
+
+      if (
+        col
+        && (col.pgType === 'json' || col.pgType === 'jsonb')
+        && val !== null
+        && val !== undefined
+        && (Array.isArray(val) || typeof val === 'object')
+      ) {
+        out[key] = JSON.stringify(val)
+      }
+      else {
+        out[key] = val
+      }
+    }
+
+    return out
+  }
+
   // --- Insert ---
 
   async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    const v = await this._runtime.runBefore('beforeInsert', values)
+    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).values(v)
 
     return this._execute({
@@ -60,7 +92,8 @@ export class WritePipeline<
     if (values.length === 0)
       return []
 
-    const v = await this._runtime.runBeforeMany('beforeInsert', values)
+    const v = (await this._runtime.runBeforeMany('beforeInsert', values))
+      .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(v)
 
     return this._execute({
@@ -74,12 +107,12 @@ export class WritePipeline<
   // --- Update ---
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    const s = await this._runtime.runBefore('beforeUpdate', set)
+    const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table.name)
       .set(s)
       .where(where)
 
-    this._runtime.behavior.prepareUpdate(builder, s as Record<string, unknown>)
+    this._runtime.behavior.prepareUpdate(builder, s)
 
     return this._execute({
       builder,
@@ -164,7 +197,8 @@ export class WritePipeline<
     if (values.length === 0)
       return []
 
-    const v = await this._runtime.runBeforeMany('beforeUpsert', values)
+    const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
+      .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
     const ib = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(v)
     const conflict = ib.onConflict(conflictTarget)
     const builder = updateColumns?.length
@@ -180,7 +214,7 @@ export class WritePipeline<
   }
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    const v = await this._runtime.runBefore('beforeUpsert', values)
+    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
     const pk = this._runtime.primaryKey
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
       .values(v)

@@ -17,6 +17,7 @@ export type RowMapper<T> = (row: Record<string, unknown>) => T
 // Compile a mapper for a specific set of columns (cached per shape fingerprint)
 const MAPPER_CACHE_MAX = 1000
 const _mapperCache = new Map<string, RowMapper<Record<string, unknown>>>()
+const WS_RE = /\s/
 
 // Build a JIT-compiled mapper for a set of columns.
 // bun:sql returns rows as objects (column_name -> value), so the mapper
@@ -38,10 +39,136 @@ function needsJsonParse(pgType: string): boolean {
   return pgType === 'json' || pgType === 'jsonb'
 }
 
+/**
+ * Parse a PostgreSQL array literal into a JS array.
+ * Handles empty arrays, quoted strings, unquoted items, and nested arrays.
+ */
+function parsePgArrayLiteral(text: string): unknown {
+  if (text === '{}')
+    return []
+
+  let pos = 0
+
+  function parseValue(): unknown {
+    skipWhitespace()
+
+    if (text[pos] === '{') {
+      pos++
+      const arr: unknown[] = []
+
+      skipWhitespace()
+
+      if (text[pos] === '}') {
+        pos++
+
+        return arr
+      }
+
+      while (true) {
+        arr.push(parseValue())
+        skipWhitespace()
+
+        if (text[pos] === ',') {
+          pos++
+
+          continue
+        }
+
+        if (text[pos] === '}') {
+          pos++
+
+          return arr
+        }
+
+        // Malformed: bail out and return the original text.
+        return text
+      }
+    }
+
+    if (text[pos] === '"') {
+      pos++
+      let str = ''
+
+      while (pos < text.length && text[pos] !== '"') {
+        if (text[pos] === '\\' && pos + 1 < text.length) {
+          pos++
+          str += text[pos]
+          pos++
+        }
+        else {
+          str += text[pos]
+          pos++
+        }
+      }
+
+      if (text[pos] === '"')
+        pos++
+
+      return str
+    }
+
+    // Unquoted token until comma or }.
+    let token = ''
+
+    while (pos < text.length && text[pos] !== ',' && text[pos] !== '}') {
+      token += text[pos]
+      pos++
+    }
+
+    token = token.trim()
+
+    if (token === 'NULL')
+      return null
+
+    if (token === 'true')
+      return true
+
+    if (token === 'false')
+      return false
+
+    if (token === '')
+      return text // malformed
+
+    const num = Number(token)
+
+    return Number.isFinite(num) ? num : token
+  }
+
+  function skipWhitespace(): void {
+    while (pos < text.length && WS_RE.test(text.charAt(pos)))
+      pos++
+  }
+
+  const result = parseValue()
+
+  skipWhitespace()
+
+  return pos === text.length ? result : text
+}
+
+/**
+ * Parse a value coming from a json/jsonb column.
+ * Some drivers/serializers return PostgreSQL array literals instead of JSON for
+ * arrays, so we fall back to parsing those when JSON.parse fails.
+ */
+function parseJsonValue(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  }
+  catch {
+    const trimmed = value.trim()
+
+    if (trimmed.startsWith('{'))
+      return parsePgArrayLiteral(trimmed)
+
+    return value
+  }
+}
+
 function jsonAccessor(col: string): string {
   const key = JSON.stringify(col)
 
-  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'string' ? JSON.parse(r[${key}]) : r[${key}])`
+  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'string' ? parseJsonValue(r[${key}]) : r[${key}])`
 }
 
 export function compileMapper<TColumns extends AnyColumns>(
@@ -83,8 +210,13 @@ export function compileMapper<TColumns extends AnyColumns>(
 
   // JIT mapper: column names are validated at defineTable() time (not user input).
   // Compiled once per unique column shape, cached, and reused across all queries.
+  // parseJsonValue is passed as a runtime helper so the generated code can fall
+  // back from JSON.parse to PostgreSQL array-literal parsing for mis-serialized
+  // json/jsonb values.
   // eslint-disable-next-line no-new-func -- JIT row mapper: source is built from schema-validated column names, not user input
-  return new Function('r', body) as RowMapper<Record<string, unknown>>
+  const fn = new Function('r', 'parseJsonValue', body) as (r: Record<string, unknown>, parseJsonValue: (v: string) => unknown) => Record<string, unknown>
+
+  return (row: Record<string, unknown>) => fn(row, parseJsonValue)
 }
 
 function identityMapper(row: Record<string, unknown>): Record<string, unknown> {
