@@ -150,6 +150,73 @@ describe('diffSchema — extended migration tests', () => {
     expect(alterOp!.sql).toContain('TYPE text[]')
   })
 
+  it('adds USING clause when changing jsonb to text[]', () => {
+    const table = defineTable('sokoban_level', t => ({
+      id: t.serial().primaryKey(),
+      rows: t.array(t.text()).notNull(),
+    }))
+    const ops = diffSchema(
+      live([{
+        name: 'sokoban_level',
+        columns: [
+          liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+          liveCol('rows', { dataType: 'jsonb', isNullable: false }),
+        ],
+      }]),
+      registry(table),
+    )
+
+    const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'rows')
+
+    expect(alterOp).toBeDefined()
+    expect(alterOp!.destructive).toBe(true)
+    expect(alterOp!.sql).toBe('ALTER TABLE "sokoban_level" ALTER COLUMN "rows" TYPE text[] USING "rows"::text[]')
+  })
+
+  it('adds USING clause when changing json to text[]', () => {
+    const table = defineTable('items', t => ({
+      id: t.serial().primaryKey(),
+      tags: t.array(t.text()).nullable(),
+    }))
+    const ops = diffSchema(
+      live([{
+        name: 'items',
+        columns: [
+          liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+          liveCol('tags', { dataType: 'json', isNullable: true }),
+        ],
+      }]),
+      registry(table),
+    )
+
+    const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'tags')
+
+    expect(alterOp).toBeDefined()
+    expect(alterOp!.sql).toContain('USING "tags"::text[]')
+  })
+
+  it('does not add USING clause for implicitly-cast type changes', () => {
+    const table = defineTable('items', t => ({
+      id: t.serial().primaryKey(),
+      name: t.varchar(255).notNull(),
+    }))
+    const ops = diffSchema(
+      live([{
+        name: 'items',
+        columns: [
+          liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
+          liveCol('name', { dataType: 'text', isNullable: false }),
+        ],
+      }]),
+      registry(table),
+    )
+
+    const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'name')
+
+    expect(alterOp).toBeDefined()
+    expect(alterOp!.sql).toBe('ALTER TABLE "items" ALTER COLUMN "name" TYPE varchar(255)')
+  })
+
   it('detects column type change from text to varchar', () => {
     const table = defineTable('items', t => ({
       id: t.serial().primaryKey(),

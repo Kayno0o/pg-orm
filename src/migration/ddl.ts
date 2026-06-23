@@ -96,6 +96,14 @@ export function normalizeType(pgType: string): string {
     .replace(TIMETZ_RE, 'time with time zone')
 }
 
+// PostgreSQL can implicitly cast between many scalar types (int -> bigint,
+// varchar -> text, etc.), but not from json/jsonb to an array type. When such
+// a change is requested via ALTER COLUMN ... TYPE, Postgres requires an
+// explicit USING expression.
+export function needsUsingCast(liveType: string, desiredType: string): boolean {
+  return (liveType === 'json' || liveType === 'jsonb') && desiredType.endsWith('[]')
+}
+
 export function generateReverseOp(op: MigrationOp): string {
   switch (op.type) {
     case 'create_table': return `DROP TABLE IF EXISTS "${op.table}";`

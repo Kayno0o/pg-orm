@@ -85,6 +85,69 @@ describe('mapper bigint coercion', () => {
   })
 })
 
+describe('mapper json coercion', () => {
+  it('parses jsonb string values into objects', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: '{"name":"doc","tags":["a"]}' })
+
+    expect(result.data).toEqual({ name: 'doc', tags: ['a'] })
+  })
+
+  it('parses json string values into objects', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'json' }))
+    const result = mapper({ id: 1, data: '{"ok":true}' })
+
+    expect(result.data).toEqual({ ok: true })
+  })
+
+  it('parses jsonb array string values', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: '[1,2,3]' })
+
+    expect(result.data).toEqual([1, 2, 3])
+  })
+
+  it('preserves null jsonb values', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: null })
+
+    expect(result.data).toBeNull()
+  })
+
+  it('passes through already-parsed jsonb objects', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const result = mapper({ id: 1, data: { parsed: true } })
+
+    expect(result.data).toEqual({ parsed: true })
+  })
+
+  it('json columns force JIT path (not identity) even with no pick/omit', () => {
+    const cols = makeCols({ id: 'int4', data: 'jsonb' })
+    const mapper = compileMapper(cols)
+    const row = { id: 1, data: '{"a":1}' }
+    const result = mapper(row)
+
+    // identity would return same reference; JIT returns a fresh object
+    expect(result).not.toBe(row)
+  })
+
+  it('respects pick when json columns are present', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), ['id', 'data'])
+    const result = mapper({ id: 1, name: 'ignored', data: '{"a":1}' })
+
+    expect(result).toEqual({ id: 1, data: { a: 1 } })
+    expect(result).not.toHaveProperty('name')
+  })
+
+  it('respects omit when json columns are present', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), undefined, ['name'])
+    const result = mapper({ id: 1, name: 'gone', data: '{"a":1}' })
+
+    expect(result).toEqual({ id: 1, data: { a: 1 } })
+    expect(result).not.toHaveProperty('name')
+  })
+})
+
 describe('getOrCompileMapper cache key fingerprint', () => {
   it('treats pick column order as equivalent (sorted fingerprint)', () => {
     clearMapperCache()

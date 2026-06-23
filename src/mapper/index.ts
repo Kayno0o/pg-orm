@@ -34,6 +34,16 @@ function bigintAccessor(col: string): string {
   return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'bigint' ? r[${key}] : BigInt(r[${key}]))`
 }
 
+function needsJsonParse(pgType: string): boolean {
+  return pgType === 'json' || pgType === 'jsonb'
+}
+
+function jsonAccessor(col: string): string {
+  const key = JSON.stringify(col)
+
+  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'string' ? JSON.parse(r[${key}]) : r[${key}])`
+}
+
 export function compileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
@@ -45,18 +55,26 @@ export function compileMapper<TColumns extends AnyColumns>(
   const bigintCols = new Set(
     allKeys.filter(c => needsBigintCoercion(columns[c]!.pgType)),
   )
+  const jsonCols = new Set(
+    allKeys.filter(c => needsJsonParse(columns[c]!.pgType)),
+  )
 
-  // Fast path: full identity only when no bigint coercion is needed.
-  if (!pick && !omit && filteredCols.length === allKeys.length && bigintCols.size === 0) {
+  // Fast path: full identity only when no coercion is needed.
+  if (!pick && !omit && filteredCols.length === allKeys.length && bigintCols.size === 0 && jsonCols.size === 0) {
     return identityMapper
   }
 
-  // JIT: compile a function that picks the needed fields, coercing int8/bigint columns.
-  // Column names are validated against /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable()
-  // time, so they are safe to embed. JSON.stringify adds an additional escaping layer.
+  // JIT: compile a function that picks the needed fields, coercing int8/bigint
+  // and json/jsonb columns. Column names are validated against
+  // /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable() time, so they are safe to embed.
+  // JSON.stringify adds an additional escaping layer.
   const assignments = filteredCols
     .map((c) => {
-      const value = bigintCols.has(c) ? bigintAccessor(c) : `r[${JSON.stringify(c)}]`
+      const value = bigintCols.has(c)
+        ? bigintAccessor(c)
+        : jsonCols.has(c)
+          ? jsonAccessor(c)
+          : `r[${JSON.stringify(c)}]`
 
       return `  ${JSON.stringify(c)}: ${value}`
     })

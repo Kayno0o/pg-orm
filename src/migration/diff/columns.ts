@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../../types/index'
 import type { LiveColumn, LiveTable, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { generateColumnDDL, normalizeDefault, normalizeType } from '../ddl'
+import { generateColumnDDL, needsUsingCast, normalizeDefault, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 
 export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): void {
@@ -91,11 +91,15 @@ function diffColumnType(ops: MigrationOp[], tableName: string, colName: string, 
     })
   }
   else {
+    const usingClause = needsUsingCast(ctx.liveType, ctx.desiredType)
+      ? ` USING "${colName}"::${ctx.colDef.pgType}`
+      : ''
+
     ops.push({
       type: 'alter_column',
       table: tableName,
       column: colName,
-      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${ctx.colDef.pgType}`,
+      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${ctx.colDef.pgType}${usingClause}`,
       destructive: true,
       description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
     })

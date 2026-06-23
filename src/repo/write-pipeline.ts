@@ -2,8 +2,10 @@ import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
+import { mapChunk } from '../mapper/index'
+import { createMapperFactory } from './_mapper'
 
 type Where<TColumns extends AnyColumns> = (e: ExprBuilder<TColumns>) => ExprTape
 
@@ -32,10 +34,12 @@ export class WritePipeline<
 > {
   private _executor: Executable
   private _runtime: TableRuntime
+  private _mapperFactory: ReturnType<typeof createMapperFactory>
 
   constructor(ctx: WritePipelineContext) {
     this._executor = ctx.executor
     this._runtime = ctx.runtime
+    this._mapperFactory = createMapperFactory(this._runtime.table)
   }
 
   // --- Insert ---
@@ -236,14 +240,22 @@ export class WritePipeline<
   }
 
   private _projectOne(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any {
-    return opts?.full
-      ? this._runtime.applyVirtuals(rows)[0]
-      : rows[0]![this._runtime.primaryKey]
+    if (!opts?.full)
+      return rows[0]![this._runtime.primaryKey]
+
+    const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
+    const mapped = mapChunk(mapper, rows)
+
+    return this._runtime.applyVirtuals(mapped)[0]
   }
 
   private _projectMany(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any[] {
-    return opts?.full
-      ? this._runtime.applyVirtuals(rows)
-      : rows.map(r => r[this._runtime.primaryKey])
+    if (!opts?.full)
+      return rows.map(r => r[this._runtime.primaryKey])
+
+    const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
+    const mapped = mapChunk(mapper, rows)
+
+    return this._runtime.applyVirtuals(mapped)
   }
 }
