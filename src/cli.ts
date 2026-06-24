@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import type { PgOrmConfig } from './define-config'
 import type { MigrationHistoryEntry } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -15,11 +16,6 @@ import {
   recordMigration,
 } from './migration/index'
 
-interface Config {
-  db: Database
-  migrationsDir?: string
-}
-
 const SQL_EXT_RE = /\.sql$/
 const MIGRATE_DOWN_RE = /\n-- migrate:down\n/
 const MIGRATE_UP_RE = /^-- migrate:up\n/
@@ -32,7 +28,7 @@ async function loadConfig(): Promise<{ db: Database, dir: string }> {
     process.exit(1)
   }
 
-  const mod = (await import(cfgPath)) as { default: Config }
+  const mod = (await import(cfgPath)) as { default: PgOrmConfig }
   const cfg = mod.default
 
   if (!cfg?.db) {

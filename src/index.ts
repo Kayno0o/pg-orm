@@ -9,6 +9,7 @@ export {
   type SubqueryRef,
   type TsQueryRef,
 } from './builder/expr'
+
 // Query builders
 export {
   DeleteBuilder,
@@ -22,6 +23,8 @@ export {
   UpdateBuilder,
   UpsertBuilder,
 } from './builder/query'
+// Config
+export { defineConfig, type PgOrmConfig } from './define-config'
 // Errors
 export {
   AfterHookError,
