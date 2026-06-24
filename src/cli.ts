@@ -139,6 +139,14 @@ async function cmdRollback(db: Database, count: number): Promise<void> {
   for (const name of rolledBack) console.log(`Rolled back: ${name}`)
 }
 
+function cmdNew(dir: string, label: string): void {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const slug = label.trim().replace(/\W+/g, '_').replace(/^_|_$/g, '') || 'migration'
+  const filename = writeMigration(dir, `${timestamp}_${slug}`, '', '')
+
+  console.log(`Created: ${join(dir, filename)}`)
+}
+
 async function cmdSync(db: Database, dir: string): Promise<void> {
   const file = await generateMigration(db, db.getTablesRegistry())
 
@@ -168,6 +176,7 @@ const HELP = `Usage: pg-orm <command>
 Commands:
   status          Show schema drift and pending migration files
   generate        Generate a migration file from current drift
+  new [name]      Create an empty migration file
   apply           Apply pending migration files to the database
   rollback [n]    Roll back the last N applied migrations (default: 1)
   sync            Generate + apply a migration file in one step`
@@ -179,6 +188,14 @@ async function main(): Promise<void> {
 
   if (!cmd || cmd === 'help') {
     console.log(HELP)
+
+    return
+  }
+
+  if (cmd === 'new') {
+    const { dir } = await loadConfig()
+
+    cmdNew(dir, arg ?? '')
 
     return
   }
