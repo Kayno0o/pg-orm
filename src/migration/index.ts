@@ -8,7 +8,7 @@ import { introspectLiveSchema } from './introspect'
 import { generateDownSql } from './reverse'
 
 export { diffSchema } from './diff'
-export { ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
+export { djb2Hash, ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
 export { introspectLiveSchema } from './introspect'
 export { type RollbackContext, rollbackMigrations } from './rollback'
 export { type SyncContext, type SyncOptions, syncSchema } from './sync'
