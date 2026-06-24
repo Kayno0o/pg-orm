@@ -6,18 +6,9 @@ This document tracks confirmed bugs, incomplete features, and potential new feat
 
 ## 1. Confirmed Bugs / Inconsistencies
 
-### 1.1 Benchmark seeding is broken
+### ~~1.1 Benchmark seeding is broken~~ ✅ Fixed
 
-**Files:** `benchmarks/schema.ts:88`, `benchmarks/schema.ts:109`
-
-```ts
-const inserted = await UserRepo.insertMany(batch)
-userIds.push(...inserted.map(u => u.id))  // u is a number (PK), not an object
-```
-
-`insertMany` returns `number[]` by default, not full rows. `.id` is `undefined` at runtime.
-
-**Fix:** `userIds.push(...inserted)` — or pass `{ full: true }` to get rows back.
+`insertMany` returns `number[]` by default. Was calling `.map(u => u.id)` on the numbers. Fixed to `userIds.push(...inserted)` / `postIds.push(...inserted)` directly.
 
 ---
 

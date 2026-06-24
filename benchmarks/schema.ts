@@ -87,7 +87,7 @@ export async function seed(db: Database, userCount = 1000, postsPerUser = 5, com
     }))
     const inserted = await UserRepo.insertMany(batch)
 
-    userIds.push(...inserted.map(u => u.id))
+    userIds.push(...inserted)
   }
 
   // Seed posts in batches
@@ -108,7 +108,7 @@ export async function seed(db: Database, userCount = 1000, postsPerUser = 5, com
     })
     const inserted = await PostRepo.insertMany(batch)
 
-    postIds.push(...inserted.map(p => p.id))
+    postIds.push(...inserted)
   }
 
   // Seed comments in batches
