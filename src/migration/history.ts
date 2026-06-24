@@ -1,8 +1,8 @@
-import type { Executable } from '../sql/executor'
+import type { QueryFn } from './types'
 import { MIGRATION_TABLE } from './types'
 
 /** Ensure the migration history table exists. */
-export async function ensureMigrationTable(executor: Executable): Promise<void> {
+export async function ensureMigrationTable(executor: { query: QueryFn }): Promise<void> {
   await executor.query(`
     CREATE TABLE IF NOT EXISTS "${MIGRATION_TABLE}" (
       id SERIAL PRIMARY KEY,
@@ -18,7 +18,7 @@ export async function ensureMigrationTable(executor: Executable): Promise<void> 
 
 /** Record a migration in the history table. */
 export async function recordMigration(
-  executor: Executable,
+  executor: { query: QueryFn },
   entry: { name: string, sqlHash: string, upSql: string, downSql: string, direction?: 'up' | 'down' },
 ): Promise<void> {
   await executor.query(`
@@ -38,7 +38,7 @@ export interface MigrationHistoryEntry {
 }
 
 /** Get the migration history from the history table. */
-export async function getMigrationHistory(executor: Executable): Promise<MigrationHistoryEntry[]> {
+export async function getMigrationHistory(executor: { query: QueryFn }): Promise<MigrationHistoryEntry[]> {
   await ensureMigrationTable(executor)
   const rows = await executor.query(`
     SELECT id, name, sql_hash, up_sql, down_sql, applied_at, direction
@@ -55,4 +55,14 @@ export async function getMigrationHistory(executor: Executable): Promise<Migrati
     appliedAt: r.applied_at as Date,
     direction: r.direction as 'up' | 'down',
   }))
+}
+
+export function djb2Hash(input: string): string {
+  let hash = 5381
+
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) + hash + input.charCodeAt(i) | 0
+  }
+
+  return (hash >>> 0).toString(36)
 }

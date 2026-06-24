@@ -1,5 +1,6 @@
 import type { MigrationHistoryEntry } from '../../../src/migration/history'
 import type { RollbackContext } from '../../../src/migration/rollback'
+import type { QueryFn } from '../../../src/migration/types'
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { MigrationError } from '../../../src/errors/index'
 import { rollbackMigrations } from '../../../src/migration/rollback'
@@ -13,31 +14,7 @@ function makeContext(history: MigrationHistoryEntry[]) {
 
   let historyServed = false
 
-  // asDriver(ctx.sql) is called for .begin and on the tx for .unsafe.
-  // We give ctx.sql a mock object with both — begin runs the callback with itself.
-  const sqlMock: any = {
-    begin: async (fn: (tx: any) => Promise<unknown>) => fn(sqlMock),
-    unsafe: async (sql: string, params: unknown[]) => {
-      executed.push({ sql, params })
-
-      // Replay INSERT into migration history so tests can assert what was recorded.
-      const m = sql.match(/INSERT INTO[\s\S]+VALUES \(\$1, \$2, \$3, \$4, \$5\)/)
-
-      if (m) {
-        inserted.push({
-          name: String(params[0]),
-          sqlHash: String(params[1]),
-          downSql: String(params[3]),
-          direction: String(params[4]),
-        })
-      }
-
-      return []
-    },
-  }
-
   const ctx: RollbackContext = {
-    sql: sqlMock,
     query: async (sql, params) => {
       ctxQueries.push({ sql, params })
 
@@ -56,6 +33,24 @@ function makeContext(history: MigrationHistoryEntry[]) {
       }
 
       return []
+    },
+    transact: async <T>(fn: (query: QueryFn) => Promise<T>): Promise<T> => {
+      return fn(async (sql, params) => {
+        executed.push({ sql, params })
+
+        const m = sql.match(/INSERT INTO[\s\S]+VALUES \(\$1, \$2, \$3, \$4, \$5\)/)
+
+        if (m) {
+          inserted.push({
+            name: String(params[0]),
+            sqlHash: String(params[1]),
+            downSql: String(params[3]),
+            direction: String(params[4]),
+          })
+        }
+
+        return []
+      })
     },
   }
 

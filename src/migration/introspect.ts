@@ -1,9 +1,8 @@
-import type { Executable } from '../sql/executor'
-import type { LiveEnum, LiveForeignKey, LiveIndex, LiveTable } from './types'
+import type { LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
 import { ARRAY_UDT_PREFIX_RE, SPACE_RE } from './regex'
 import { MIGRATION_TABLE } from './types'
 
-async function runIntrospectionQueries(executor: Executable, schema: string) {
+async function runIntrospectionQueries(executor: { query: QueryFn }, schema: string) {
   const colRows = await executor.query(`
     SELECT
       c.table_name, c.column_name, c.data_type, c.udt_name,
@@ -83,7 +82,7 @@ async function runIntrospectionQueries(executor: Executable, schema: string) {
   return { colRows, pkRows, uqRows, enumRows, fkRows, indexRows }
 }
 
-export async function introspectLiveSchema(executor: Executable, schema = 'public'): Promise<{
+export async function introspectLiveSchema(executor: { query: QueryFn }, schema = 'public'): Promise<{
   tables: LiveTable[]
   enums: LiveEnum[]
   foreignKeys: LiveForeignKey[]

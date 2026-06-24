@@ -1,11 +1,10 @@
-import type { SQL } from 'bun'
+import type { QueryFn } from './types'
 import { MigrationError } from '../errors/index'
-import { asDriver } from '../sql/adapter'
-import { ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
+import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 
 export interface RollbackContext {
-  query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
-  readonly sql: InstanceType<typeof SQL>
+  query: QueryFn
+  transact: <T>(fn: (query: QueryFn) => Promise<T>) => Promise<T>
 }
 
 /** Rollback the last N migrations by executing their down SQL. */
@@ -31,14 +30,8 @@ export async function rollbackMigrations(
   const rolledBack: string[] = []
   const sqlParts: string[] = []
 
-  return asDriver(ctx.sql).begin(async (sqlTx) => {
-    const txDriver = asDriver(sqlTx)
-    const txExecutor = {
-      query: async (sqlStr: string, params: unknown[]) => {
-        return await txDriver.unsafe(sqlStr, params) as Record<string, unknown>[]
-      },
-      sql: sqlTx,
-    }
+  return ctx.transact(async (txQuery) => {
+    const txExecutor = { query: txQuery }
 
     for (const migration of pendingRollbacks) {
       if (!migration.downSql || migration.downSql.trim() === '') {
@@ -51,7 +44,7 @@ export async function rollbackMigrations(
 
       // Execute the entire down SQL as a single call (avoids naive `;` splitting
       // which breaks on semicolons inside string literals or dollar-quoted blocks)
-      await txDriver.unsafe(migration.downSql, [])
+      await txQuery(migration.downSql, [])
 
       await ensureMigrationTable(txExecutor)
       await recordMigration(txExecutor, {
@@ -68,14 +61,4 @@ export async function rollbackMigrations(
 
     return { rolledBack, sql: sqlParts.join('\n\n') }
   })
-}
-
-function djb2Hash(input: string): string {
-  let hash = 5381
-
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash << 5) + hash + input.charCodeAt(i) | 0
-  }
-
-  return (hash >>> 0).toString(36)
 }

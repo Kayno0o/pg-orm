@@ -61,6 +61,9 @@ export interface MigrationFile {
   down: string
 }
 
+/** Minimal query interface shared across migration internals. */
+export type QueryFn = (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
+
 // Typed Object.entries for column maps — shared helper.
 export function columnEntries(columns: AnyColumns): [string, AnyColumnDef][] {
   return Object.entries(columns)
