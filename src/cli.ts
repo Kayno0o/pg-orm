@@ -173,6 +173,8 @@ Commands:
   sync            Generate + apply a migration file in one step`
 
 async function main(): Promise<void> {
+  process.env.REDACT_QUERY_LOGS ??= '0'
+
   const [,, cmd, arg] = process.argv
 
   if (!cmd || cmd === 'help') {
