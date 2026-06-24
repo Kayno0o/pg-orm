@@ -1,20 +1,38 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../../types/index'
 import type { LiveColumn, LiveTable, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { generateColumnDDL, needsUsingCast, normalizeDefault, normalizeType } from '../ddl'
+import {
+  buildAddColumnSql,
+  buildAddUniqueConstraintSql,
+  buildAlterColumnTypeSql,
+  buildDropColumnSql,
+  buildDropConstraintSql,
+  buildDropDefaultSql,
+  buildDropNotNullSql,
+  buildRenameColumnSql,
+  buildSetDefaultSql,
+  buildSetNotNullSql,
+  needsUsingCast,
+  normalizeDefault,
+  normalizeType,
+} from '../ddl'
 import { columnEntries } from '../types'
 
-export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): void {
+export function diffTableColumns(
+  tableName: string,
+  tableDef: AnyTableDef,
+  liveTable: LiveTable,
+): MigrationOp[] {
   const liveColMap = new Map(liveTable.columns.map(c => [c.name, c]))
-
+  const ops: MigrationOp[] = []
   const renameMap = new Map<string, string>()
+  const processedColumns = new Set<string>()
 
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
     const { renamedFrom } = getColumnMeta(colDef)
 
-    if (renamedFrom) {
+    if (renamedFrom)
       renameMap.set(renamedFrom, colName)
-    }
   }
 
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
@@ -29,13 +47,13 @@ export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef
           type: 'rename_column',
           table: tableName,
           column: colName,
-          sql: `ALTER TABLE "${tableName}" RENAME COLUMN "${renamedFrom}" TO "${colName}"`,
+          sql: buildRenameColumnSql(tableName, renamedFrom, colName),
           destructive: false,
           description: `Rename column "${renamedFrom}" to "${colName}" in "${tableName}"`,
         })
-        liveColMap.delete(renamedFrom)
+        processedColumns.add(renamedFrom)
 
-        diffColumn(ops, tableName, colName, colDef, renamedLiveCol)
+        ops.push(...diffColumn(tableName, colName, colDef, renamedLiveCol))
 
         continue
       }
@@ -44,7 +62,7 @@ export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef
         type: 'add_column',
         table: tableName,
         column: colName,
-        sql: `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef)}`,
+        sql: buildAddColumnSql(tableName, colName, colDef),
         destructive: false,
         description: `Add column "${colName}" to "${tableName}"`,
       })
@@ -52,67 +70,82 @@ export function diffTableColumns(ops: MigrationOp[], tableName: string, tableDef
       continue
     }
 
-    diffColumn(ops, tableName, colName, colDef, liveCol)
-    liveColMap.delete(colName)
+    ops.push(...diffColumn(tableName, colName, colDef, liveCol))
+    processedColumns.add(colName)
   }
 
-  for (const [colName] of liveColMap) {
-    if (renameMap.has(colName))
+  for (const liveCol of liveTable.columns) {
+    if (processedColumns.has(liveCol.name))
+      continue
+
+    if (renameMap.has(liveCol.name))
       continue
 
     ops.push({
       type: 'drop_column',
       table: tableName,
-      column: colName,
-      sql: `ALTER TABLE "${tableName}" DROP COLUMN "${colName}"`,
+      column: liveCol.name,
+      sql: buildDropColumnSql(tableName, liveCol.name),
       destructive: true,
-      description: `Drop column "${colName}" from "${tableName}"`,
+      description: `Drop column "${liveCol.name}" from "${tableName}"`,
     })
   }
+
+  return ops
 }
 
-function diffColumnType(ops: MigrationOp[], tableName: string, colName: string, ctx: { colDef: AnyColumnDef, desiredType: string, liveType: string }): void {
+export function diffColumnType(
+  tableName: string,
+  colName: string,
+  ctx: { colDef: AnyColumnDef, desiredType: string, liveType: string },
+): MigrationOp[] {
   if (ctx.desiredType.startsWith('vector') || ctx.liveType.startsWith('vector')) {
-    ops.push({
-      type: 'drop_column',
-      table: tableName,
-      column: colName,
-      sql: `ALTER TABLE "${tableName}" DROP COLUMN "${colName}"`,
-      destructive: true,
-      description: `Drop column "${colName}" from "${tableName}" (vector dimension change)`,
-    })
-    ops.push({
-      type: 'add_column',
-      table: tableName,
-      column: colName,
-      sql: `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, ctx.colDef)}`,
-      destructive: true,
-      description: `Re-add column "${colName}" to "${tableName}" with new vector dimensions`,
-    })
+    return [
+      {
+        type: 'drop_column',
+        table: tableName,
+        column: colName,
+        sql: buildDropColumnSql(tableName, colName),
+        destructive: true,
+        description: `Drop column "${colName}" from "${tableName}" (vector dimension change)`,
+      },
+      {
+        type: 'add_column',
+        table: tableName,
+        column: colName,
+        sql: buildAddColumnSql(tableName, colName, ctx.colDef),
+        destructive: true,
+        description: `Re-add column "${colName}" to "${tableName}" with new vector dimensions`,
+      },
+    ]
   }
-  else {
-    const usingClause = needsUsingCast(ctx.liveType, ctx.desiredType)
-      ? ` USING "${colName}"::${ctx.colDef.pgType}`
-      : ''
 
-    ops.push({
-      type: 'alter_column',
-      table: tableName,
-      column: colName,
-      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${ctx.colDef.pgType}${usingClause}`,
-      destructive: true,
-      description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
-    })
-  }
+  const usingClause = needsUsingCast(ctx.liveType, ctx.desiredType)
+    ? ` USING "${colName}"::${ctx.colDef.pgType}`
+    : ''
+
+  return [{
+    type: 'alter_column',
+    table: tableName,
+    column: colName,
+    sql: buildAlterColumnTypeSql(tableName, colName, ctx.colDef.pgType, usingClause),
+    destructive: true,
+    description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
+  }]
 }
 
-export function diffColumn(ops: MigrationOp[], tableName: string, colName: string, colDef: AnyColumnDef, liveCol: LiveColumn): void {
+export function diffColumn(
+  tableName: string,
+  colName: string,
+  colDef: AnyColumnDef,
+  liveCol: LiveColumn,
+): MigrationOp[] {
+  const ops: MigrationOp[] = []
   const desiredType = normalizeType(colDef.pgType)
   const liveType = normalizeType(liveCol.dataType)
 
-  if (desiredType !== liveType) {
-    diffColumnType(ops, tableName, colName, { colDef, desiredType, liveType })
-  }
+  if (desiredType !== liveType)
+    ops.push(...diffColumnType(tableName, colName, { colDef, desiredType, liveType }))
 
   const desiredUnique = colDef.constraints.some((c: ColumnConstraint) => c.type === 'unique')
 
@@ -121,7 +154,7 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
       type: 'add_constraint',
       table: tableName,
       column: colName,
-      sql: `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_key" UNIQUE ("${colName}")`,
+      sql: buildAddUniqueConstraintSql(tableName, colName),
       destructive: false,
       description: `Add UNIQUE constraint on "${colName}" in "${tableName}"`,
     })
@@ -131,7 +164,7 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
       type: 'drop_constraint',
       table: tableName,
       column: colName,
-      sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${colName}_key"`,
+      sql: buildDropConstraintSql(tableName, `${tableName}_${colName}_key`),
       destructive: true,
       description: `Drop UNIQUE constraint on "${colName}" in "${tableName}"`,
     })
@@ -144,7 +177,7 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
       type: 'alter_column',
       table: tableName,
       column: colName,
-      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET NOT NULL`,
+      sql: buildSetNotNullSql(tableName, colName),
       destructive: false,
       description: `Set NOT NULL on "${colName}" in "${tableName}"`,
     })
@@ -154,7 +187,7 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
       type: 'alter_column',
       table: tableName,
       column: colName,
-      sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP NOT NULL`,
+      sql: buildDropNotNullSql(tableName, colName),
       destructive: false,
       description: `Drop NOT NULL from "${colName}" in "${tableName}"`,
     })
@@ -174,7 +207,7 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
           type: 'alter_column',
           table: tableName,
           column: colName,
-          sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET DEFAULT ${desiredDefault}`,
+          sql: buildSetDefaultSql(tableName, colName, desiredDefault),
           destructive: false,
           description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
         })
@@ -184,11 +217,13 @@ export function diffColumn(ops: MigrationOp[], tableName: string, colName: strin
           type: 'alter_column',
           table: tableName,
           column: colName,
-          sql: `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP DEFAULT`,
+          sql: buildDropDefaultSql(tableName, colName),
           destructive: false,
           description: `Drop default from "${colName}" in "${tableName}"`,
         })
       }
     }
   }
+
+  return ops
 }

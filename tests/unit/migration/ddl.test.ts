@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef } from '../../../src/types/index'
 import { describe, expect, test } from 'bun:test'
 import { defineTable } from '../../../src/index'
-import { generateColumnDDL, generateCreateTable, generateReverseOp, normalizeType } from '../../../src/migration/ddl'
+import { generateColumnDDL, generateCreateTable, normalizeType } from '../../../src/migration/ddl'
 
 function colOf(table: AnyTableDef, name: string) {
   return generateColumnDDL(name, table.columns[name] as AnyColumnDef)
@@ -238,99 +238,5 @@ describe('normalizeType', () => {
 
   test('uppercase input is lowercased', () => {
     expect(normalizeType('SERIAL')).toBe('integer')
-  })
-})
-
-describe('generateReverseOp', () => {
-  test('reverses create_table with DROP TABLE IF EXISTS', () => {
-    expect(generateReverseOp({
-      type: 'create_table',
-      table: 'users',
-      sql: '',
-      destructive: false,
-      description: '',
-    })).toBe('DROP TABLE IF EXISTS "users";')
-  })
-
-  test('drop_table reverse is a comment (irreversible)', () => {
-    const rev = generateReverseOp({
-      type: 'drop_table',
-      table: 'users',
-      sql: '',
-      destructive: true,
-      description: '',
-    })
-
-    expect(rev.startsWith('--')).toBe(true)
-    expect(rev).toContain('Cannot reverse')
-  })
-
-  test('add_column reverses to DROP COLUMN IF EXISTS', () => {
-    expect(generateReverseOp({
-      type: 'add_column',
-      table: 'users',
-      column: 'email',
-      sql: '',
-      destructive: false,
-      description: '',
-    })).toBe('ALTER TABLE "users" DROP COLUMN IF EXISTS "email";')
-  })
-
-  test('drop_column reverse is a comment (cannot recover original type)', () => {
-    const rev = generateReverseOp({
-      type: 'drop_column',
-      table: 'users',
-      column: 'email',
-      sql: '',
-      destructive: true,
-      description: '',
-    })
-
-    expect(rev.startsWith('--')).toBe(true)
-  })
-
-  test('create_index reverses to DROP INDEX IF EXISTS with extracted name', () => {
-    expect(generateReverseOp({
-      type: 'create_index',
-      sql: 'CREATE INDEX "users_email_idx" ON "users" ("email")',
-      destructive: false,
-      description: '',
-    })).toBe('DROP INDEX IF EXISTS "users_email_idx";')
-  })
-
-  test('add_fk reverses to DROP CONSTRAINT with conventional name', () => {
-    expect(generateReverseOp({
-      type: 'add_fk',
-      table: 'posts',
-      column: 'user_id',
-      sql: '',
-      destructive: false,
-      description: '',
-    })).toBe('ALTER TABLE "posts" DROP CONSTRAINT IF EXISTS "posts_user_id_fkey";')
-  })
-
-  test('rename_column reverses to swap directions', () => {
-    const rev = generateReverseOp({
-      type: 'rename_column',
-      table: 'users',
-      sql: 'ALTER TABLE "users" RENAME COLUMN "old" TO "new"',
-      destructive: false,
-      description: '',
-    })
-
-    expect(rev).toBe('ALTER TABLE "users" RENAME COLUMN "new" TO "old";')
-  })
-
-  test('unknown op type returns a comment', () => {
-    const rev = generateReverseOp({
-      type: 'alter_column',
-      table: 'users',
-      sql: '',
-      destructive: false,
-      description: 'set NOT NULL',
-    })
-
-    expect(rev.startsWith('--')).toBe(true)
-    expect(rev).toContain('set NOT NULL')
   })
 })

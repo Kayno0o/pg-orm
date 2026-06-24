@@ -1,12 +1,8 @@
 import type { AnyColumnDef, AnyTableDef } from '../../types/index'
 import type { LiveEnum, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { escapeLiteralBody } from '../../sql/utils'
+import { buildAlterEnumAddSql, buildCreateEnumSql, buildEnumReplacementSqls } from '../ddl'
 import { columnEntries } from '../types'
-
-export function escapeEnumValue(val: string): string {
-  return escapeLiteralBody(val)
-}
 
 export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
   const { enumName, enumValues } = getColumnMeta(colDef)
@@ -18,39 +14,48 @@ export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: s
   return null
 }
 
-export function collectEnumInfo(
-  tableDef: AnyTableDef,
-  tableName: string,
-  neededEnums: Map<string, string[]>,
-  enumUsages: Map<string, { table: string, column: string }[]>,
-): void {
-  for (const [colName, colDef] of columnEntries(tableDef.columns)) {
-    const enumInfo = extractEnumInfo(colDef)
+export function collectEnumRequirements(
+  desired: ReadonlyMap<string, AnyTableDef>,
+): {
+  neededEnums: Map<string, string[]>
+  enumUsages: Map<string, { table: string, column: string }[]>
+} {
+  const neededEnums = new Map<string, string[]>()
+  const enumUsages = new Map<string, { table: string, column: string }[]>()
 
-    if (enumInfo) {
-      neededEnums.set(enumInfo.name, enumInfo.values)
+  for (const [tableName, tableDef] of desired) {
+    for (const [colName, colDef] of columnEntries(tableDef.columns)) {
+      const enumInfo = extractEnumInfo(colDef)
 
-      if (!enumUsages.has(enumInfo.name))
-        enumUsages.set(enumInfo.name, [])
+      if (enumInfo) {
+        neededEnums.set(enumInfo.name, enumInfo.values)
 
-      enumUsages.get(enumInfo.name)!.push({ table: tableName, column: colName })
+        if (!enumUsages.has(enumInfo.name))
+          enumUsages.set(enumInfo.name, [])
+
+        enumUsages.get(enumInfo.name)!.push({ table: tableName, column: colName })
+      }
     }
   }
+
+  return { neededEnums, enumUsages }
 }
 
 export function diffEnums(
-  ops: MigrationOp[],
   neededEnums: Map<string, string[]>,
   enumUsages: Map<string, { table: string, column: string }[]>,
-  liveEnumMap: Map<string, LiveEnum>,
-): void {
+  liveEnums: LiveEnum[],
+): MigrationOp[] {
+  const ops: MigrationOp[] = []
+  const liveEnumMap = new Map(liveEnums.map(e => [e.name, e]))
+
   for (const [enumName, values] of neededEnums) {
     const liveEnum = liveEnumMap.get(enumName)
 
     if (!liveEnum) {
-      ops.unshift({
+      ops.push({
         type: 'create_enum',
-        sql: `CREATE TYPE "${enumName}" AS ENUM (${values.map(v => `'${escapeEnumValue(v)}'`).join(', ')})`,
+        sql: buildCreateEnumSql(enumName, values),
         destructive: false,
         description: `Create enum type "${enumName}"`,
       })
@@ -60,9 +65,9 @@ export function diffEnums(
 
     for (const val of values) {
       if (!liveEnum.values.includes(val)) {
-        ops.unshift({
+        ops.push({
           type: 'alter_enum_add',
-          sql: `ALTER TYPE "${enumName}" ADD VALUE IF NOT EXISTS '${escapeEnumValue(val)}'`,
+          sql: buildAlterEnumAddSql(enumName, val),
           destructive: false,
           description: `Add value '${val}' to enum "${enumName}"`,
         })
@@ -73,48 +78,20 @@ export function diffEnums(
     // alter all columns to use it, drop old type, rename new to old.
     const removedValues = liveEnum.values.filter(v => !values.includes(v))
 
-    if (removedValues.length > 0)
-      pushEnumRemovalOps(ops, enumName, values, removedValues, enumUsages)
-  }
-}
+    if (removedValues.length > 0) {
+      const usages = enumUsages.get(enumName) ?? []
+      const sqls = buildEnumReplacementSqls(enumName, values, usages)
 
-function pushEnumRemovalOps(
-  ops: MigrationOp[],
-  enumName: string,
-  values: string[],
-  removedValues: string[],
-  enumUsages: Map<string, { table: string, column: string }[]>,
-): void {
-  const escapedValues = values.map(v => `'${escapeEnumValue(v)}'`).join(', ')
-  const tmpName = `${enumName}_new`
-  const usages = enumUsages.get(enumName) ?? []
-
-  ops.push({
-    type: 'alter_enum_remove',
-    sql: `CREATE TYPE "${tmpName}" AS ENUM (${escapedValues})`,
-    destructive: true,
-    description: `Create replacement enum "${tmpName}" without values: ${removedValues.join(', ')}`,
-  })
-
-  for (const usage of usages) {
-    ops.push({
-      type: 'alter_enum_remove',
-      sql: `ALTER TABLE "${usage.table}" ALTER COLUMN "${usage.column}" TYPE "${tmpName}" USING "${usage.column}"::text::"${tmpName}"`,
-      destructive: true,
-      description: `Migrate "${usage.table}"."${usage.column}" to replacement enum`,
-    })
+      for (const sql of sqls) {
+        ops.push({
+          type: 'alter_enum_remove',
+          sql,
+          destructive: true,
+          description: `Replace enum "${enumName}" without values: ${removedValues.join(', ')}`,
+        })
+      }
+    }
   }
 
-  ops.push({
-    type: 'alter_enum_remove',
-    sql: `DROP TYPE "${enumName}"`,
-    destructive: true,
-    description: `Drop old enum type "${enumName}"`,
-  })
-  ops.push({
-    type: 'alter_enum_remove',
-    sql: `ALTER TYPE "${tmpName}" RENAME TO "${enumName}"`,
-    destructive: true,
-    description: `Rename "${tmpName}" to "${enumName}"`,
-  })
+  return ops
 }

@@ -1,26 +1,7 @@
 import type { AnyTableDef, IndexDef } from '../../types/index'
 import type { LiveIndex, MigrationOp } from '../types'
+import { buildCreateIndexSql, buildDropIndexSql, buildIndexName } from '../ddl'
 import { WHERE_RE } from '../regex'
-
-function buildIndexName(tableName: string, columns: string[], unique: boolean): string {
-  const suffix = unique ? 'unique' : 'idx'
-
-  return `${tableName}_${columns.join('_')}_${suffix}`
-}
-
-function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
-  const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
-  const method = idx.method ?? 'btree'
-  const unique = idx.unique ? 'UNIQUE ' : ''
-  const cols = idx.columns.map(c => `"${c}"`).join(', ')
-  let sql = `CREATE ${unique}INDEX "${name}" ON "${tableName}" USING ${method} (${cols})`
-
-  if (idx.where) {
-    sql += ` WHERE ${idx.where}`
-  }
-
-  return sql
-}
 
 function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<string, { tableName: string, idx: IndexDef }> {
   const result = new Map<string, { tableName: string, idx: IndexDef }>()
@@ -64,10 +45,11 @@ function indexChanged(liveIdx: LiveIndex, idx: IndexDef): boolean {
 }
 
 export function diffIndexes(
-  ops: MigrationOp[],
   desired: ReadonlyMap<string, AnyTableDef>,
   liveIndexes: LiveIndex[],
-): void {
+  droppedTables: Set<string>,
+): MigrationOp[] {
+  const ops: MigrationOp[] = []
   const desiredIndexes = collectDesiredIndexes(desired)
   const liveIndexMap = new Map(liveIndexes.map(i => [i.name, i]))
 
@@ -79,7 +61,7 @@ export function diffIndexes(
         ops.push({
           type: 'drop_index',
           table: tableName,
-          sql: `DROP INDEX "${name}"`,
+          sql: buildDropIndexSql(name),
           destructive: true,
           description: `Drop index "${name}" from "${tableName}" (changed)`,
         })
@@ -110,15 +92,17 @@ export function diffIndexes(
     if (!desired.has(liveIdx.tableName))
       continue
 
-    if (ops.some(o => o.type === 'drop_table' && o.table === liveIdx.tableName))
+    if (droppedTables.has(liveIdx.tableName))
       continue
 
     ops.push({
       type: 'drop_index',
       table: liveIdx.tableName,
-      sql: `DROP INDEX "${name}"`,
+      sql: buildDropIndexSql(name),
       destructive: true,
       description: `Drop index "${name}" from "${liveIdx.tableName}"`,
     })
   }
+
+  return ops
 }

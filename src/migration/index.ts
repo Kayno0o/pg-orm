@@ -3,9 +3,9 @@ import type { AnyTableDef } from '../types/index'
 import type { MigrationFile, MigrationOp } from './types'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 import { TIMESTAMP_DELIM_RE } from '../utils/regex'
-import { generateReverseOp } from './ddl'
 import { diffSchema } from './diff'
 import { introspectLiveSchema } from './introspect'
+import { generateDownSql } from './reverse'
 
 export { diffSchema } from './diff'
 export { ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
@@ -38,7 +38,7 @@ export async function generateMigration(
 
   const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
   const upSql = ops.map(o => `${o.sql};`).join('\n\n')
-  const downSql = ops.reverse().map((o: MigrationOp) => generateReverseOp(o)).filter(Boolean).join('\n\n')
+  const downSql = generateDownSql(ops)
 
   return {
     name: `${timestamp}_migration`,

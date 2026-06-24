@@ -162,29 +162,43 @@ The runtime knew *that* a trait existed, but the pipelines still knew *when* to 
 
 ---
 
-## Candidate 4: Migration Operation Lifecycle
+## Candidate 4: Migration Operation Lifecycle ✅ completed
 
-**Cluster:**
-- `src/migration/diff.ts`
-- `src/migration/diff/tables.ts`
-- `src/migration/diff/columns.ts`
-- `src/migration/diff/enums.ts`
-- `src/migration/diff/indexes.ts`
-- `src/migration/diff/foreign-keys.ts`
-- `src/migration/ddl.ts`
-- `src/migration/sync.ts`
-- `src/migration/rollback.ts`
-- `src/migration/types.ts`
+**Status:** Implemented.
 
-**Why they're coupled:**  
-`diffSchema` passes a shared mutable `MigrationOp[]` to every sub-differ, plus side-channel maps populated by implicit ordering. DDL generation is split between `ddl.ts` (create table/column) and the differs (index, enum, FK, alter type). Reverse/down SQL is implemented twice (`generateReverseOp` vs `buildSyncDownSql`) with divergent behavior.
+**Cluster (old):**
+- `src/migration/diff.ts` ✅ rewritten as thin composer (returns pure array, no mutable accumulator)
+- `src/migration/diff/tables.ts` ✅ extracted into standalone differ
+- `src/migration/diff/columns.ts` ✅ extracted into standalone differ
+- `src/migration/diff/enums.ts` ✅ extracted into standalone differ
+- `src/migration/diff/indexes.ts` ✅ extracted into standalone differ
+- `src/migration/diff/foreign-keys.ts` ✅ extracted into standalone differ
+- `src/migration/ddl.ts` ✅ kept (pure SQL builders; now sole owner of DDL strings)
+- `src/migration/sync.ts` ✅ updated to use unified `generateDownSql` from `reverse.ts`
+- `src/migration/index.ts` ✅ updated to use unified `generateDownSql` from `reverse.ts`
+- `tests/unit/migration/sync-down-sql.test.ts` ❌ deleted (duplicate coverage; unified reverse tests replace it)
+
+**New deep module:**
+- `src/migration/reverse.ts` — sole owner of reverse/down SQL generation.
+
+**Why they were coupled:**  
+`diffSchema` passed a shared mutable `MigrationOp[]` to every sub-differ, and DDL generation was split between `ddl.ts` and the differs. Reverse/down SQL was implemented twice (`generateReverseOp` vs `buildSyncDownSql`) with divergent behavior — `sync.ts` used a different format than migration file generation.
 
 **Dependency category:**  
 **In-process / local-substitutable.** Needs the desired table registry and an introspected schema; both can be supplied in-memory in tests.
 
-**Test impact:**
-- Individual differs have no unit tests; coverage is only through `diffSchema`.
-- Quoting/type-rendering inconsistencies and reverse-SQL divergence are easy to miss.
+**Outcome:**
+- Each sub-differ (`tables`, `columns`, `enums`, `indexes`, `foreign-keys`) now returns `MigrationOp[]` directly; `diffSchema` is a pure composer.
+- `reverse.ts` is the single source of truth for down SQL — both `sync.ts` and `index.ts` call `generateDownSql` from there.
+- Unified the "cannot reverse" message format: all irreversible ops fall to the `default` case (`-- Cannot reverse: ${op.description}`); removed redundant explicit cases for `drop_table`, `drop_column`, `drop_fk`, `drop_index`.
+- Added unit tests directly targeting each differ boundary: `diff-tables.test.ts`, `diff-columns.test.ts`, `diff-enums.test.ts`, `down-sql.test.ts`.
+- Deleted `tests/unit/migration/sync-down-sql.test.ts` (now redundant with unified `down-sql.test.ts`).
+- All checks green: `just fix` (circular, typecheck, lint, build) + `bun test tests/unit` (953 tests).
+
+**What the refactoring hides:**
+- The mutable accumulator pattern is gone; each differ owns its own slice of ops.
+- DDL string ownership is fully in `ddl.ts`; differs never build SQL strings directly.
+- Reverse SQL format divergence eliminated — one path for migration files and sync history alike.
 
 ---
 

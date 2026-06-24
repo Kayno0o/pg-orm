@@ -1,22 +1,21 @@
 import type { AnyTableDef } from '../../types/index'
 import type { LiveTable, MigrationOp } from '../types'
-import { generateCreateTable } from '../ddl'
+import { buildDropTableSql, generateCreateTable } from '../ddl'
 import { diffTableColumns } from './columns'
 
 /**
  * Diff table-level operations: create, drop, and column-level changes.
- * Mutates `liveTableMap` by deleting entries it processed; remaining entries
- * are treated as live tables not in the desired set (drop candidates).
+ * Returns all table-related ops. Does not mutate inputs.
  */
 export function diffTables(
-  ops: MigrationOp[],
   desired: ReadonlyMap<string, AnyTableDef>,
-  liveTableMap: Map<string, LiveTable>,
-  onTable: (tableName: string, tableDef: AnyTableDef) => void,
-): void {
-  for (const [tableName, tableDef] of desired) {
-    onTable(tableName, tableDef)
+  liveTables: LiveTable[],
+): MigrationOp[] {
+  const liveTableMap = new Map(liveTables.map(t => [t.name, t]))
+  const ops: MigrationOp[] = []
+  const processedTables = new Set<string>()
 
+  for (const [tableName, tableDef] of desired) {
     const liveTable = liveTableMap.get(tableName)
 
     if (!liveTable) {
@@ -31,17 +30,22 @@ export function diffTables(
       continue
     }
 
-    diffTableColumns(ops, tableName, tableDef, liveTable)
-    liveTableMap.delete(tableName)
+    ops.push(...diffTableColumns(tableName, tableDef, liveTable))
+    processedTables.add(tableName)
   }
 
-  for (const [tableName] of liveTableMap) {
+  for (const liveTable of liveTables) {
+    if (processedTables.has(liveTable.name))
+      continue
+
     ops.push({
       type: 'drop_table',
-      table: tableName,
-      sql: `DROP TABLE "${tableName}"`,
+      table: liveTable.name,
+      sql: buildDropTableSql(liveTable.name),
       destructive: true,
-      description: `Drop table "${tableName}"`,
+      description: `Drop table "${liveTable.name}"`,
     })
   }
+
+  return ops
 }

@@ -1,41 +1,17 @@
-import type { AnyTableDef } from '../../types/index'
+import type { AnyTableDef, ForeignKeyRef } from '../../types/index'
 import type { LiveForeignKey, MigrationOp } from '../types'
+import { buildAddFkSql, buildDropFkSql } from '../ddl'
 import { columnEntries } from '../types'
 
-interface FkRef { table: () => AnyTableDef, column: string, onDelete?: string, onUpdate?: string }
-
-function buildAddFkSql(tableName: string, colName: string, ref: FkRef): string {
-  const targetTable = ref.table()
-  let sql = `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_fkey" FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
-
-  if (ref.onDelete)
-    sql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
-
-  if (ref.onUpdate)
-    sql += ` ON UPDATE ${ref.onUpdate.toUpperCase()}`
-
-  return sql
-}
-
-function fkChanged(liveFk: LiveForeignKey, ref: FkRef): boolean {
-  const targetTable = ref.table()
-
-  return liveFk.referencedTable !== targetTable.name
-    || liveFk.referencedColumn !== ref.column
-    || liveFk.onDelete !== (ref.onDelete ?? 'no action').toLowerCase()
-    || liveFk.onUpdate !== (ref.onUpdate ?? 'no action').toLowerCase()
-}
-
 export function diffForeignKeys(
-  ops: MigrationOp[],
   desired: ReadonlyMap<string, AnyTableDef>,
   liveFks: LiveForeignKey[],
-): void {
+): MigrationOp[] {
+  const ops: MigrationOp[] = []
   const liveFkMap = new Map<string, LiveForeignKey>()
 
-  for (const fk of liveFks) {
+  for (const fk of liveFks)
     liveFkMap.set(`${fk.tableName}.${fk.columnName}`, fk)
-  }
 
   for (const [tableName, tableDef] of desired) {
     for (const [colName, colDef] of columnEntries(tableDef.columns)) {
@@ -51,7 +27,7 @@ export function diffForeignKeys(
           type: 'drop_fk',
           table: tableName,
           column: colName,
-          sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT "${liveFk.constraintName}"`,
+          sql: buildDropFkSql(tableName, liveFk.constraintName),
           destructive: true,
           description: `Drop FK constraint "${liveFk.constraintName}" on "${tableName}"."${colName}"`,
         })
@@ -67,7 +43,7 @@ export function diffForeignKeys(
           type: 'drop_fk',
           table: tableName,
           column: colName,
-          sql: `ALTER TABLE "${tableName}" DROP CONSTRAINT "${liveFk.constraintName}"`,
+          sql: buildDropFkSql(tableName, liveFk.constraintName),
           destructive: false,
           description: `Drop FK constraint "${liveFk.constraintName}" on "${tableName}"."${colName}"`,
         })
@@ -92,4 +68,15 @@ export function diffForeignKeys(
       }
     }
   }
+
+  return ops
+}
+
+function fkChanged(liveFk: LiveForeignKey, ref: ForeignKeyRef): boolean {
+  const targetTable = ref.table()
+
+  return liveFk.referencedTable !== targetTable.name
+    || liveFk.referencedColumn !== ref.column
+    || liveFk.onDelete !== (ref.onDelete ?? 'no action').toLowerCase()
+    || liveFk.onUpdate !== (ref.onUpdate ?? 'no action').toLowerCase()
 }
