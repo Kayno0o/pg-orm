@@ -303,33 +303,28 @@ export class StaleRecordError extends OrmError {
   }
 }
 
-function shouldRedact(): boolean {
-  if (process.env.REDACT_QUERY_LOGS === '0')
-    return false
-
-  if (process.env.REDACT_QUERY_LOGS === '1')
-    return true
-
-  return isProduction()
+function shouldHardRedact(): boolean {
+  return process.env.REDACT_QUERY_LOGS === '1'
 }
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
-// 3e + 2f: In production or when REDACT is enabled, strip raw PG error messages
-// which may contain data values from constraint errors (e.g., "Key (email)=(admin@example.com)
-// already exists"). Structured fields (constraint, column, table) are preserved.
+// Full redact only when REDACT_QUERY_LOGS=1. In production, sanitize data values
+// (strip Key (col)=(val) and Detail: lines) but keep the error structure visible.
 function sanitizeMessage(message: string): string {
-  if (shouldRedact())
+  if (shouldHardRedact())
     return '[REDACTED]'
 
-  if (isProduction()) {
-    // Strip PG "Detail:" lines that contain actual data values
-    return message.replace(/\bDetail:.*$/gm, 'Detail: [redacted in production]')
-  }
+  if (isProduction())
+    return sanitizePgErrorMessage(message)
 
   return message
+}
+
+function shouldRedact(): boolean {
+  return shouldHardRedact() || isProduction()
 }
 
 const PG_KEY_VALUE_RE = /Key \(([^)]+)\)=\([^)]*\)/g

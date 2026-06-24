@@ -216,7 +216,16 @@ void (async () => {
     await main()
   }
   catch (err) {
-    console.error(err instanceof Error ? err.message : String(err))
+    if (err instanceof Error) {
+      console.error(`${err.name}: ${err.message}`)
+
+      if (err.cause instanceof Error)
+        console.error(`  caused by: ${err.cause.message}`)
+    }
+    else {
+      console.error(String(err))
+    }
+
     process.exit(1)
   }
 })()
