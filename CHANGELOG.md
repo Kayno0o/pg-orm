@@ -28,6 +28,7 @@
 ### Correctness
 
 - **Virtuals on mutation returns**: `updateMany`, `updateOne`, `updateWithLock`, `deleteMany`, `deleteOne` (both soft and hard paths), and `findOrCreate` now apply virtual getters on returned rows, matching `findMany` and `upsertMany`. Previously these mutation paths returned plain rows even though their return type was `WithVirtuals<...>`.
+- **Array-column defaults no longer re-diff on every sync**: `normalizeDefault` now strips per-element casts and whitespace, not just a single trailing cast. A non-empty array default (e.g. `roles` defaulting to `ARRAY['user']::text[]`) is introspected by Postgres as `ARRAY['user'::text]`, which previously never matched the desired form and emitted a spurious `SET DEFAULT` on every `sync`.
 
 ### Production-readiness — new `DbConfig` knobs
 

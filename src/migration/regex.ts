@@ -20,4 +20,4 @@ export const TIMESTAMPTZ_RE = /^timestamptz$/
 export const TIMETZ_RE = /^timetz$/
 
 // Strips trailing PostgreSQL type casts from column defaults (e.g. `''::text`, `0::integer`, `text[]`).
-export const DEFAULT_CAST_RE = /::[\w ]+(\[\])*$/
+export const DEFAULT_CAST_RE = /::[\w ]+(\[\])*/g

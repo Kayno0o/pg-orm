@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef } from '../../../src/types/index'
 import { describe, expect, test } from 'bun:test'
 import { defineTable } from '../../../src/index'
-import { generateColumnDDL, generateCreateTable, normalizeType } from '../../../src/migration/ddl'
+import { generateColumnDDL, generateCreateTable, normalizeDefault, normalizeType } from '../../../src/migration/ddl'
 
 function colOf(table: AnyTableDef, name: string) {
   return generateColumnDDL(name, table.columns[name] as AnyColumnDef)
@@ -238,5 +238,28 @@ describe('normalizeType', () => {
 
   test('uppercase input is lowercased', () => {
     expect(normalizeType('SERIAL')).toBe('integer')
+  })
+})
+
+describe('normalizeDefault', () => {
+  test('strips trailing cast', () => {
+    expect(normalizeDefault('\'user\'::text')).toBe('\'user\'')
+  })
+
+  test('empty array default matches its live form', () => {
+    expect(normalizeDefault('ARRAY[]::text[]')).toBe(normalizeDefault('ARRAY[]::text[]'))
+  })
+
+  test('non-empty array default matches its per-element-cast live form', () => {
+    // toSQLDefault emits ARRAY['user']::text[]; Postgres introspects it back
+    // with per-element casts, so the two must normalize equal to avoid a
+    // perpetual SET DEFAULT diff.
+    expect(normalizeDefault('ARRAY[\'user\']::text[]'))
+      .toBe(normalizeDefault('ARRAY[\'user\'::text]'))
+  })
+
+  test('multi-element array default matches its live form', () => {
+    expect(normalizeDefault('ARRAY[\'a\',\'b\']::text[]'))
+      .toBe(normalizeDefault('ARRAY[\'a\'::text, \'b\'::text]'))
   })
 })

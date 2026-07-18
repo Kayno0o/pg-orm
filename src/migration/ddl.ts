@@ -2,7 +2,7 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../type
 import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody } from '../sql/utils'
 import { collectConstraints } from './constraint-collector'
-import { BIGSERIAL_RE, BOOL_RE, DEFAULT_CAST_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, SERIAL_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
+import { BIGSERIAL_RE, BOOL_RE, DEFAULT_CAST_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, SERIAL_RE, SPACE_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
   const { colDefs, pkCols, uniqueCols } = collectConstraints(table, generateColumnDDL)
@@ -76,7 +76,7 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
 }
 
 export function normalizeDefault(pgDefault: string): string {
-  return pgDefault.toLowerCase().replace(DEFAULT_CAST_RE, '')
+  return pgDefault.toLowerCase().replace(DEFAULT_CAST_RE, '').replace(SPACE_RE, '')
 }
 
 export function normalizeType(pgType: string): string {
