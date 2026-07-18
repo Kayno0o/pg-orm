@@ -11,27 +11,19 @@ jobs:
     runs-on: alpine
 
     steps:
-      - name: Install lcov
-        run: apk add --no-cache lcov
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install and start PostgreSQL
+      - name: Start PostgreSQL
         run: |
-          apk add --no-cache postgresql postgresql-contrib
+          # Cluster is pre-initialized in the runner image; just start + seed.
           mkdir -p /run/postgresql
           chown postgres:postgres /run/postgresql
-          su postgres -c "initdb -D /var/lib/postgresql/data --auth-host=trust --auth-local=trust"
           su postgres -c "pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql' -w start"
-          # Wait for PostgreSQL to accept connections
-          for i in $(seq 1 30); do su postgres -c "pg_isready" && break || sleep 1; done
-          # Create test user and database
-          su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
+          su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test' SUPERUSER;\""
           su postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
-          su postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
           # Verify connectivity
           PGPASSWORD=test psql -h 127.0.0.1 -U test -d orm_test -c "SELECT 1"
 
