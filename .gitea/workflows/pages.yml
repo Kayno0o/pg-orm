@@ -1,12 +1,6 @@
 name: Deploy TypeDoc to Gitea Pages
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '**/*.ts'
-      - '**/*.js'
   workflow_dispatch:
 
 permissions:
@@ -14,11 +8,11 @@ permissions:
 
 jobs:
   pages:
-    runs-on: debian
+    runs-on: alpine
 
     steps:
-      - name: Install git before checkout
-        run: apt-get update && apt-get install -y git unzip lcov
+      - name: Install lcov
+        run: apk add --no-cache lcov
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,26 +21,19 @@ jobs:
 
       - name: Install and start PostgreSQL
         run: |
-          apt-get update
-          apt-get install -y postgresql postgresql-contrib
-          # Allow password-based local connections
-          PG_HBA=$(find /etc/postgresql -name pg_hba.conf | head -1)
-          sed -i 's/local\s\+all\s\+all\s\+peer/local all all md5/' "$PG_HBA"
-          sed -i 's/host\s\+all\s\+all\s\+127.0.0.1\/32\s\+\(ident\|scram-sha-256\)/host all all 127.0.0.1\/32 md5/' "$PG_HBA"
-          service postgresql start
+          apk add --no-cache postgresql postgresql-contrib
+          mkdir -p /run/postgresql
+          chown postgres:postgres /run/postgresql
+          su postgres -c "initdb -D /var/lib/postgresql/data --auth-host=trust --auth-local=trust"
+          su postgres -c "pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql' -w start"
           # Wait for PostgreSQL to accept connections
-          for i in $(seq 1 30); do su - postgres -c "pg_isready" && break || sleep 1; done
+          for i in $(seq 1 30); do su postgres -c "pg_isready" && break || sleep 1; done
           # Create test user and database
-          su - postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
-          su - postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
-          su - postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
+          su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test';\""
+          su postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
+          su postgres -c "psql -c \"ALTER USER test WITH SUPERUSER;\""
           # Verify connectivity
           PGPASSWORD=test psql -h 127.0.0.1 -U test -d orm_test -c "SELECT 1"
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
 
       - name: Install project deps
         run: bun install --frozen-lockfile
