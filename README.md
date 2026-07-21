@@ -174,6 +174,17 @@ q.where(e => e.and(
   e.or(e.gt('age', 18), e.eq('role', 'admin')),
 ))
 
+// Optional conditions — a falsy callback is skipped, so query-string filters
+// need no branching. `andWhere` also works as the first clause.
+q.andWhere(status && (e => e.eq('status', status)))
+ .andWhere(minAge !== undefined && (e => e.gte('age', minAge)))
+
+// ...or pass them all at once (falsy entries dropped, rest ANDed)
+q.whereAll(
+  search && (e => e.contains('name', search)),
+  onlyActive && (e => e.eq('status', 'active')),
+)
+
 // Pattern matching (auto-escapes user input)
 q.where(e => e.startsWith('name', 'Al'))  // ILIKE 'Al%'
 q.where(e => e.contains('bio', 'dev'))     // ILIKE '%dev%'

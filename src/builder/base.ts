@@ -1,8 +1,8 @@
 import type { AnyColumns } from '../types/index'
-import type { ExprBuilder, ExprTape } from './expr'
+import type { OptionalWhere } from './_where'
 import type { BuilderState, QueryOp } from './state'
+import { appendWhere, replaceWhere } from './_where'
 import { assembleQuery } from './assembler'
-import { createExprBuilder } from './expr'
 import { cloneState, createState } from './state'
 
 export abstract class BaseBuilder {
@@ -47,10 +47,23 @@ export abstract class MutationBuilder extends BaseBuilder {
 }
 
 export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = AnyColumns> extends MutationBuilder {
-  where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
+  /** Set the WHERE clause. Replaces any existing WHERE; a falsy `fn` is a no-op. */
+  where(fn: OptionalWhere<TColumns>): this {
+    replaceWhere<TColumns>(this._state, fn)
 
-    this._state.whereTape = fn(builder)
+    return this
+  }
+
+  /** AND an additional condition onto the WHERE clause. A falsy `fn` is a no-op. */
+  andWhere(fn: OptionalWhere<TColumns>): this {
+    appendWhere<TColumns>(this._state, [fn])
+
+    return this
+  }
+
+  /** AND every truthy condition onto the WHERE clause. Falsy entries are skipped. */
+  whereAll(...conds: OptionalWhere<TColumns>[]): this {
+    appendWhere<TColumns>(this._state, conds)
 
     return this
   }

@@ -88,7 +88,7 @@ replacing it. Redaction is inherited from the error layer via two new helpers in
 (`queryLogsRedacted`, `getParamRedactor`): production / `REDACT_QUERY_LOGS=1` never wires the sink,
 and a `redactParams` redactor is applied before values are inlined.
 
-### 3. Conditional / optional `where` composition
+### 3. Conditional / optional `where` composition - DONE
 
 **Evidence.** `@kaynooo/elysia/src/query.ts` exists purely to work around the `where` vs `andWhere`
 split:
@@ -113,6 +113,13 @@ Used in `dashboard-v2/api/routes/{ports,nginx,feed}.ts` for optional query-strin
 **Proposal.** Make `where()`/`andWhere()` accept `undefined | null | false` (no-op) and let
 `andWhere()` work as the first clause. Optionally add `whereAll(conds: (WhereCb | falsy)[])`. Then
 `applyWhere` can be deleted from `@kaynooo/elysia`. Non-breaking.
+
+**Shipped.** `src/builder/_where.ts` holds the shared composition (`replaceWhere`/`appendWhere`) plus
+the exported `OptionalWhere`/`WhereFn` types. `where`/`andWhere`/`whereAll` are on `SelectBuilder` and
+on `WhereableMutationBuilder` (update + delete), all falsy-tolerant; `whereAll` is variadic, so an
+array of conditions spreads in: `q.whereAll(...conds)`. `andWhere` already worked as a first clause.
+Repo ops that take a bare expression (`deleteMany(e => …)`) deliberately still require it - a falsy
+condition there would silently widen a delete to the whole table.
 
 ---
 

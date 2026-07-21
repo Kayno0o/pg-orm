@@ -18,10 +18,12 @@ export {
   InsertBuilder,
   MergeBuilder,
   OnConflictBuilder,
+  type OptionalWhere,
   SelectBuilder,
   SetOperationBuilder,
   UpdateBuilder,
   UpsertBuilder,
+  type WhereFn,
 } from './builder/query'
 // Config
 export { defineConfig, type PgOrmConfig } from './define-config'

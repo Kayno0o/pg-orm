@@ -36,6 +36,7 @@
 
 ### Features
 
+- **Optional WHERE conditions.** `where()` and `andWhere()` now accept `null | undefined | false | '' | 0` as a no-op, so optional filters can be written inline: `q.andWhere(status && (e => e.eq('status', status)))`. New `whereAll(...conds)` ANDs every truthy condition in one call and is available on `SelectBuilder`, `UpdateBuilder`, and `DeleteBuilder` (which also gain `andWhere`). The public `OptionalWhere<TColumns>` / `WhereFn<TColumns>` types are exported.
 - **`repo.write.upsertOne(values, conflictTarget, updateColumns?, opts?)`** — single-row upsert mirroring `insertOne`/`insertMany`. Returns the primary key, or the full row with `{ full: true }`. Emits the same statement as a one-element `upsertMany`.
 
 ### Debug query logging

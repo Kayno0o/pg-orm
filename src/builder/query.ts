@@ -1,5 +1,6 @@
 // Barrel re-export. Granular files live alongside this one;
 // external code can keep importing from './builder/query'.
+export type { OptionalWhere, WhereFn } from './_where'
 export { assembleQuery } from './assembler'
 export { DeleteBuilder } from './delete'
 export { InsertBuilder, OnConflictBuilder } from './insert'

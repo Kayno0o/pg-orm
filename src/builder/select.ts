@@ -1,10 +1,12 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, InferRelationResult, InferSelect, RelationDef } from '../types/index'
-import type { AggResult, ExprBuilder, ExprOp, ExprTape } from './expr'
+import type { OptionalWhere } from './_where'
+import type { AggResult, ExprBuilder, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
+import { appendWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
-import { createExprBuilder, OP_AND } from './expr'
+import { createExprBuilder } from './expr'
 import { PLACEHOLDER_RE } from './state'
 
 /**
@@ -110,30 +112,27 @@ export class SelectBuilder<
     return this
   }
 
-  /** Set the WHERE clause. Replaces any existing WHERE. */
-  where(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.whereTape = fn(builder)
+  /** Set the WHERE clause. Replaces any existing WHERE; a falsy `fn` is a no-op. */
+  where(fn: OptionalWhere<TColumns>): this {
+    replaceWhere<TColumns>(this._state, fn)
 
     return this
   }
 
-  /** Add an additional AND condition to the existing WHERE clause. */
-  andWhere(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
-    const newTape = fn(builder)
+  /**
+   * AND an additional condition onto the WHERE clause. Works as the first
+   * clause too, and a falsy `fn` is a no-op — so optional filters need no
+   * branching: `q.andWhere(status && (e => e.eq('status', status)))`.
+   */
+  andWhere(fn: OptionalWhere<TColumns>): this {
+    appendWhere<TColumns>(this._state, [fn])
 
-    if (this._state.whereTape) {
-      this._state.whereTape = [
-        { op: OP_AND, count: 2 } as ExprOp,
-        ...this._state.whereTape,
-        ...newTape,
-      ]
-    }
-    else {
-      this._state.whereTape = newTape
-    }
+    return this
+  }
+
+  /** AND every truthy condition onto the WHERE clause. Falsy entries are skipped. */
+  whereAll(...conds: OptionalWhere<TColumns>[]): this {
+    appendWhere<TColumns>(this._state, conds)
 
     return this
   }
