@@ -40,7 +40,7 @@ jobs:
       - name: Combine docs and coverage
         run: |
           mkdir -p combined/docs combined/coverage
-          cp -r docs/* combined/docs/
+          cp -r typedoc/* combined/docs/
           cp -r coverage/* combined/coverage/
 
       - name: Deploy to gitea-pages branch

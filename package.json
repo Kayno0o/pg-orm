@@ -41,7 +41,7 @@
     "build": "rm -rf ./dist && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",
     "test:coverage": "rm -rf coverage coverage-report && bun test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
-    "doc": "typedoc ./src/**/*.ts --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
+    "doc": "typedoc ./src/**/*.ts --out ./typedoc --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
     "check": "tsc --noEmit --strict",
     "lint:fix": "eslint . --fix --cache",
     "db:up": "docker compose up -d",

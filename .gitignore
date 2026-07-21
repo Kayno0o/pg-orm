@@ -37,6 +37,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 migrations
 seeds
 testPkg
-docs
 schema.mermaid
 benchmarks/results
+typedoc
