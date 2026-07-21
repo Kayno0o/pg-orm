@@ -52,6 +52,7 @@ export class Database extends BaseExecutor {
   // @internal — read by stream-suite for the streamWarning channel.
   _onCallbackError?: DbConfig['onCallbackError']
   private _migrations?: MigrationRunner
+  private _repoCache = new WeakMap<AnyTableDef, { version: number, repo: unknown }>()
 
   constructor(config: DbConfig = {}) {
     super()
@@ -116,7 +117,13 @@ export class Database extends BaseExecutor {
     return this._connection.draining
   }
 
-  /** Create a typed Repository for a table definition. */
+  /**
+   * Create a typed Repository for a table definition.
+   *
+   * Repositories are memoized per table def, so calling `db.repo(users)` inline
+   * on every request is free. The cache is keyed weakly and invalidated when the
+   * table def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`).
+   */
   repo<
     TName extends string,
     TColumns extends AnyColumns,
@@ -125,14 +132,24 @@ export class Database extends BaseExecutor {
   >(
     table: TableDef<TName, TColumns, TRelations, TVirtuals>,
   ): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>({
-      table: table as AnyTableDef,
+    const def = table as AnyTableDef
+    const cached = this._repoCache.get(def)
+
+    if (cached && cached.version === def._version)
+      return cached.repo as Repository<TColumns, TRelations, TVirtuals>
+
+    const created = new Repository<TColumns, TRelations, TVirtuals>({
+      table: def,
       executor: this,
       tableRegistry: this._tables,
       maxIncludeDepth: this._maxIncludeDepth,
       defaultLimit: this._defaultLimit,
       batchChunkSize: this._batchChunkSize,
     })
+
+    this._repoCache.set(def, { version: def._version, repo: created })
+
+    return created
   }
 
   /** Lazy-built `MigrationRunner` — owns `sync` / `rollback`. */
@@ -235,16 +252,17 @@ export class Database extends BaseExecutor {
   }
 
   /**
-   * Invalidate process-global JIT mapper caches.
+   * Invalidate process-global JIT mapper caches and this database's memoized
+   * repositories.
    *
-   * Virtual entries are now materialized once per `Repository` at construction
-   * (no cache to clear) — discard the `Repository` (or the `Database`) and
-   * the materialized entries GC with it. The mapper cache remains
-   * module-scoped pending a follow-up; this method clears it across every
-   * `Database` instance in the process.
+   * Virtual entries are materialized once per `Repository` at construction, so
+   * dropping the repository cache re-materializes them on the next `repo()`
+   * call. The mapper cache remains module-scoped pending a follow-up; this
+   * method clears it across every `Database` instance in the process.
    */
   invalidateCache(): void {
     clearMapperCache()
+    this._repoCache = new WeakMap()
   }
 
   /**

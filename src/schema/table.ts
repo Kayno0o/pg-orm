@@ -139,9 +139,11 @@ export function defineTable(
     primaryKey: findPrimaryKey(columns),
     indexes,
     meta,
+    _version: 0,
     hook(event: HookEvent, handler: (...args: unknown[]) => unknown) {
       hooks[event] ||= []
       hooks[event].push(handler)
+      bump()
 
       return table
     },
@@ -151,6 +153,7 @@ export function defineTable(
       const r = createRelationTypes()
 
       table.relations = Object.assign(table.relations ?? {}, builder(r))
+      bump()
 
       return table
     },
@@ -164,6 +167,7 @@ export function defineTable(
       }
 
       table.virtuals = existing
+      bump()
 
       return table
     },
@@ -175,6 +179,7 @@ export function defineTable(
           validateRawSqlFragment(idx.where, `index "${idx.name ?? idx.columns.join('_')}"`)
       }
       ;(table.indexes as IndexDef[]).push(...idxDefs)
+      bump()
 
       return table
     },
@@ -182,9 +187,15 @@ export function defineTable(
     // Apply a trait — merges columns, hooks, virtuals, and meta
     withTrait(trait: Trait<any>) {
       applyTrait(table as unknown as AnyTableDef, trait)
+      bump()
 
       return table
     },
+  }
+
+  // Invalidates repositories cached against this table def (see Database.repo).
+  function bump(): void {
+    table._version = (table._version as number) + 1
   }
 
   // Pre-compile default JIT mapper at defineTable() time

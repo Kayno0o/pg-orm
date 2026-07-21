@@ -26,7 +26,7 @@ Measured usage (both apps, all read/write suite calls):
 
 ## P1 - repeated verbatim in both consumers
 
-### 1. Memoize `db.repo()`
+### 1. Memoize `db.repo()` - DONE
 
 **Evidence.** `dashboard-v2/orm/index.ts:42` and `kaynooo.fr/orm/index.ts:48` contain the *same*
 helper, byte-identical apart from the doc-comment example:
@@ -59,6 +59,12 @@ instance), so caching is safe. Keep `using(tx)` uncached, or cache per-executor 
 
 **Impact.** Deletes ~15 lines + 4 type imports from every consumer; makes `db.repo(User)` the
 idiomatic inline call. Non-breaking.
+
+**Shipped.** `Database` holds a `WeakMap<AnyTableDef, { version, repo }>`. Table defs are mutable in
+place (`withRelations`/`withVirtuals`/`withTrait`/`hook` all mutate and return the same object) while
+`Repository` snapshots virtuals and trait behavior at construction, so each mutator bumps an internal
+`table._version` and a stale entry is rebuilt. `using(tx)` stays uncached; `db.invalidateCache()`
+drops the repo cache too.
 
 ### 2. Built-in query debug logging
 

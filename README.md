@@ -227,6 +227,8 @@ Repository operations are grouped into three lazy suites accessed as properties:
 
 Each suite is constructed on first access; suites you never touch never allocate.
 
+`db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is never cached and always returns a fresh transaction-bound repository.
+
 ### Reads
 
 ```ts

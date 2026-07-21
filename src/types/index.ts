@@ -151,6 +151,8 @@ export interface TableDef<
   readonly primaryKey: string | null
   readonly indexes: IndexDef[]
   readonly meta: Record<string, unknown>
+  /** @internal */
+  readonly _version: number
   hook: <E extends HookEvent>(event: E, handler: HookHandler<TColumns, E>) => this
 
   // Two-phase relation definition — avoids circular references.
