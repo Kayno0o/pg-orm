@@ -213,6 +213,24 @@ export class WritePipeline<
     })
   }
 
+  async upsertOne(
+    values: InferInsert<TColumns>,
+    conflictTarget: (keyof TColumns & string)[],
+    updateColumns?: (keyof TColumns & string)[],
+    opts?: WriteReturnOptions,
+  ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
+    const conflict = new InsertBuilderCtor<TColumns>(this._runtime.table.name).values(v).onConflict(conflictTarget)
+    const builder = updateColumns?.length ? conflict.doUpdate(...updateColumns) : conflict.doUpdate()
+
+    return this._execute({
+      builder,
+      afterEvent: 'afterInsert',
+      project: rows => this._projectOne(rows, opts),
+      opts,
+    })
+  }
+
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
     const pk = this._runtime.primaryKey

@@ -34,6 +34,10 @@
 
 - **`db.repo(table)` is memoized.** Repositories are cached per `Database` in a `WeakMap` keyed on the table def, so calling `db.repo(users)` inline per request no longer rebuilds the table runtime, relation resolver, mapper factory, and three suites every time. Consumers can drop their own `repo()` cache helpers. The cache is invalidated automatically when a table def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`) via a new internal `TableDef._version` counter, and by `db.invalidateCache()`. `repo.using(tx)` is unchanged and still returns a fresh instance.
 
+### Features
+
+- **`repo.write.upsertOne(values, conflictTarget, updateColumns?, opts?)`** — single-row upsert mirroring `insertOne`/`insertMany`. Returns the primary key, or the full row with `{ full: true }`. Emits the same statement as a one-element `upsertMany`.
+
 ### Debug query logging
 
 - **`DbConfig.debug`** — `boolean | ((line: string) => void)`. Logs every query as `[1.234ms] SELECT … WHERE "id" = 42`, with `$n` placeholders replaced by the bound values. `true` writes to `console.log` (colorized on a TTY); a function receives the line. Composes with `onQuery` instead of replacing it, and is **ignored entirely** under `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`.

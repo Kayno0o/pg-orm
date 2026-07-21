@@ -249,13 +249,17 @@ untouched for the other 57%.
 
 Non-breaking.
 
-### 9. `upsertOne`
+### 9. `upsertOne` - DONE
 
 **Evidence.** The only upsert in dashboard-v2 is a single-row call
 (`api/utils/settings.ts:38`): `repo(Setting).write.upsertMany([{ key, value, updatedAt }], ['key'])`.
 
 **Proposal.** `upsertOne(values, conflictTarget, updateColumns?, opts?)` returning
 `InferPrimaryKey | row`, mirroring `insertOne`/`insertMany`. Trivial wrapper. Non-breaking.
+
+**Shipped.** `WritePipeline.upsertOne` + `WriteSuite.upsertOne`; runs the `beforeUpsert` hook on the
+single row and projects one result. Emits byte-identical SQL to a one-element `upsertMany` (asserted
+in `tests/unit/repo/ops/upsert-foc.test.ts`).
 
 ### 10. Transaction ergonomics
 

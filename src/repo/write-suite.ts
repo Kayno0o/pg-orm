@@ -70,6 +70,13 @@ export class WriteSuite<
     return this._pipeline.upsertMany(values, conflictTarget, updateColumns, opts)
   }
 
+  /** Insert one row, updating it on conflict. Single-row `upsertMany`. */
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns: (keyof TColumns & string)[] | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    return this._pipeline.upsertOne(values, conflictTarget, updateColumns, opts)
+  }
+
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>>
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {

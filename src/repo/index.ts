@@ -32,7 +32,7 @@ export interface RepositoryConfig {
  * - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`,
  *   `exists`, `paginate`, `paginateCursor`, and the `select()` builder.
  * - `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`,
- *   `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`,
+ *   `deleteOne/Many`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`,
  *   and the `insert/update/delete/merge/upsert` builders.
  * - `repo.stream` — `stream` (LIMIT/OFFSET chunked) and `streamCursor` (keyset).
  *
@@ -64,7 +64,7 @@ export class Repository<
 
   /** Read suite — `findMany`, `findOne`, `count`, `paginate*`, `select()`, etc. */
   readonly read: ReadSuite<TColumns, TRelations, TVirtuals>
-  /** Write suite — `insert*`, `update*`, `delete*`, `upsertMany`, builders, etc. */
+  /** Write suite — `insert*`, `update*`, `delete*`, `upsert*`, builders, etc. */
   readonly write: WriteSuite<TColumns, TRelations, TVirtuals>
   /** Stream suite — `stream` and `streamCursor`. */
   readonly stream: StreamSuite<TColumns, TRelations, TVirtuals>

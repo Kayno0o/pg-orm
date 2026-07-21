@@ -222,7 +222,7 @@ q.groupBy('department').having(e => e.gt('count', 5))
 Repository operations are grouped into three lazy suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertMany`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
+- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
 - `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
 
 Each suite is constructed on first access; suites you never touch never allocate.
@@ -263,9 +263,20 @@ const updated = await repo.write.updateOne({ name: 'Bob' }, e => e.eq('id', 1), 
 await repo.write.deleteOne(e => e.eq('id', 1))
 await repo.write.deleteMany(e => e.lt('createdAt', cutoff))
 
-// Upsert
+// Upsert — INSERT ... ON CONFLICT (conflictTarget) DO UPDATE
+await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
+await repo.write.upsertMany([{ ... }, { ... }], ['key'])
+
+// ...restricting which columns the conflicting row gets updated with
+await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], ['value'])
+
+// Insert if missing, return the existing row otherwise — never overwrites
 await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
+const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'], { full: true })
 ```
+
+`conflictTarget` must be covered by a unique index (a unique column, or a composite
+unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
 ## Traits
 
