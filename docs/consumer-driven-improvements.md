@@ -66,7 +66,7 @@ place (`withRelations`/`withVirtuals`/`withTrait`/`hook` all mutate and return t
 `table._version` and a stale entry is rebuilt. `using(tx)` stays uncached; `db.invalidateCache()`
 drops the repo cache too.
 
-### 2. Built-in query debug logging
+### 2. Built-in query debug logging - DONE
 
 **Evidence.** Both apps ship the same `onQuery` handler that inlines `$n` params back into the SQL,
 gated on `DB_DEBUG=1`; kaynooo.fr keeps `SQL_PARAM_RE` in `common/regex.ts` solely for it.
@@ -81,6 +81,12 @@ onQuery: process.env.DB_DEBUG === '1'
 and honour a `debug?: boolean | ((line: string) => void)` config flag that wires it to `onQuery`
 (default off; respects the existing redaction rules so it can never be enabled in production by
 accident). Non-breaking.
+
+**Shipped.** `src/sql/format-query.ts` exports `formatQuery(event, { colors, duration, maxParamLength })`
+and `composeQueryLogger`, which `Database` uses to layer `debug` on top of a user `onQuery` without
+replacing it. Redaction is inherited from the error layer via two new helpers in `errors/index.ts`
+(`queryLogsRedacted`, `getParamRedactor`): production / `REDACT_QUERY_LOGS=1` never wires the sink,
+and a `redactParams` redactor is applied before values are inlined.
 
 ### 3. Conditional / optional `where` composition
 

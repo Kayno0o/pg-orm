@@ -13,3 +13,6 @@ export const RENAME_COLUMN_RE = /RENAME COLUMN "(\w+)" TO "(\w+)"/
 
 // Matches `:` or `.` — used to sanitize ISO timestamps for filenames.
 export const TIMESTAMP_DELIM_RE = /[:.]/g
+
+// Captures the index of a positional bind placeholder: `$12` → `["$12", "12"]`.
+export const SQL_PLACEHOLDER_RE = /\$(\d+)/g

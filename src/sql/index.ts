@@ -10,3 +10,4 @@ export {
   TransactionClient,
   type TransactionOptions,
 } from './executor'
+export { formatQuery, type FormatQueryOptions } from './format-query'

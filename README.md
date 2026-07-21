@@ -474,6 +474,11 @@ const db = new Database({
   // and PG logs for filtering and incident attribution.
   application_name: 'my-service',
 
+  // Debug logging — prints every query with its $n placeholders filled in.
+  // `true` logs to the console; pass a function to route lines elsewhere.
+  // Ignored under NODE_ENV=production / REDACT_QUERY_LOGS=1.
+  debug: process.env.DB_DEBUG === '1',
+
   // Query logging
   onQuery: (event) => console.log(event.sql, event.durationMs),
   onSlowQuery: (event) => console.warn(`Slow query: ${event.durationMs}ms`),
@@ -487,6 +492,12 @@ const db = new Database({
 
 // Health check
 const ok = await db.ping()
+
+// Format a QueryEvent yourself — same renderer the `debug` flag uses
+import { formatQuery } from '@kaynooo/pg-orm'
+
+formatQuery(event) // [0.412ms] SELECT * FROM "users" WHERE "email" = 'alice@example.com'
+formatQuery(event, { colors: true, duration: false, maxParamLength: 40 })
 
 // Graceful close — drain: wait for in-flight queries before closing the pool.
 await db.close({ drain: true, timeout: 5000 })

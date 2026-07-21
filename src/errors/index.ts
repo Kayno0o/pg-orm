@@ -38,6 +38,20 @@ export function setParamRedactor(fn: ParamRedactor | undefined): void {
   paramRedactor = fn
 }
 
+/** The redactor registered via `setParamRedactor`, if any. */
+export function getParamRedactor(): ParamRedactor | undefined {
+  return paramRedactor
+}
+
+/**
+ * True when SQL and params must never be rendered into logs — i.e.
+ * `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`. Query-log formatting
+ * (`formatQuery`) and the `debug` config flag both honour this.
+ */
+export function queryLogsRedacted(): boolean {
+  return shouldRedact()
+}
+
 /**
  * Query execution error. Contains the SQL and params.
  *

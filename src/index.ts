@@ -87,6 +87,8 @@ export {
   Database,
   type DbConfig,
   type Executable,
+  formatQuery,
+  type FormatQueryOptions,
   type QueryErrorEvent,
   type QueryEvent,
   SavepointClient,

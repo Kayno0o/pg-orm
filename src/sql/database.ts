@@ -12,6 +12,7 @@ import { Repository } from '../repo/index'
 import { BaseExecutor, queryContextStorage } from './base-executor'
 import { normalizeDbConfig, validateDbConfig } from './config'
 import { ConnectionLifecycle } from './connection-lifecycle'
+import { composeQueryLogger } from './format-query'
 import { MigrationRunner } from './migration-runner'
 import { RawRunner } from './raw-runner'
 import { TransactionRunner } from './transaction-runner'
@@ -62,7 +63,7 @@ export class Database extends BaseExecutor {
       setParamRedactor(config.redactParams)
 
     const hooks = {
-      onQuery: config.onQuery,
+      onQuery: composeQueryLogger(config.debug, config.onQuery),
       onSlowQuery: config.onSlowQuery,
       onError: config.onError,
       onCallbackError: config.onCallbackError,

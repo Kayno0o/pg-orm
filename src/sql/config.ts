@@ -43,6 +43,23 @@ export interface DbConfig {
    * when multiple apps share a database.
    */
   application_name?: string
+  /**
+   * Log every query as `[1.234ms] SELECT … WHERE "id" = 42` — the SQL with its
+   * `$n` placeholders filled in. `true` writes to `console.log` (colorized when
+   * stdout is a TTY); pass a function to route the line into your own logger.
+   *
+   * Off by default, and **ignored entirely** when `NODE_ENV=production` or
+   * `REDACT_QUERY_LOGS=1`, so it cannot leak query data by accident. A
+   * `redactParams` redactor is applied to the values before they are inlined.
+   * Composes with `onQuery` rather than replacing it.
+   *
+   * @example
+   * ```ts
+   * new Database({ debug: process.env.DB_DEBUG === '1' })
+   * new Database({ debug: line => logger.debug(line) })
+   * ```
+   */
+  debug?: boolean | ((line: string) => void)
   /** Query logging callback — called after every query */
   onQuery?: (event: QueryEvent) => void
   /** Slow query callback — called when a query exceeds the threshold */
@@ -138,6 +155,7 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     schema: _schema,
     statementTimeout: _statementTimeout,
     idleInTransactionTimeout: _idleInTransactionTimeout,
+    debug: _debug,
     onQuery: _onQuery,
     onSlowQuery: _onSlowQuery,
     onError: _onError,

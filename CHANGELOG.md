@@ -34,6 +34,11 @@
 
 - **`db.repo(table)` is memoized.** Repositories are cached per `Database` in a `WeakMap` keyed on the table def, so calling `db.repo(users)` inline per request no longer rebuilds the table runtime, relation resolver, mapper factory, and three suites every time. Consumers can drop their own `repo()` cache helpers. The cache is invalidated automatically when a table def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`) via a new internal `TableDef._version` counter, and by `db.invalidateCache()`. `repo.using(tx)` is unchanged and still returns a fresh instance.
 
+### Debug query logging
+
+- **`DbConfig.debug`** — `boolean | ((line: string) => void)`. Logs every query as `[1.234ms] SELECT … WHERE "id" = 42`, with `$n` placeholders replaced by the bound values. `true` writes to `console.log` (colorized on a TTY); a function receives the line. Composes with `onQuery` instead of replacing it, and is **ignored entirely** under `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`.
+- **`formatQuery(event, opts?)`** is exported for wiring the same rendering into your own `onQuery` handler. Options: `colors`, `duration`, `maxParamLength`. Honours the `redactParams` redactor and the redaction env vars.
+
 ### Production-readiness — new `DbConfig` knobs
 
 - `application_name?: string` — forwarded as the PG connection's `application_name`. Visible in `pg_stat_activity` and PG logs for incident attribution.
