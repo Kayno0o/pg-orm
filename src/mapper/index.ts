@@ -175,6 +175,7 @@ export function compileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
   omit?: string[],
+  computed?: string[],
 ): RowMapper<Record<string, unknown>> {
   const colNames = pick ?? Object.keys(columns)
   const filteredCols = omit ? colNames.filter(c => !omit.includes(c)) : colNames
@@ -186,7 +187,8 @@ export function compileMapper<TColumns extends AnyColumns>(
     allKeys.filter(c => needsJsonParse(columns[c]!.pgType)),
   )
 
-  // Fast path: full identity only when no coercion is needed.
+  // Fast path: full identity only when no coercion is needed. Computed aliases ride
+  // along untouched, since identity hands the whole row back.
   if (!pick && !omit && filteredCols.length === allKeys.length && bigintCols.size === 0 && jsonCols.size === 0) {
     return identityMapper
   }
@@ -205,6 +207,10 @@ export function compileMapper<TColumns extends AnyColumns>(
 
       return `  ${JSON.stringify(c)}: ${value}`
     })
+    // A computed alias names an expression, not a column, so nothing is known about
+    // its type and it is carried through as the driver returned it. Aliases pass
+    // validateIdentifier() at build time, same as column names.
+    .concat((computed ?? []).filter(alias => !filteredCols.includes(alias)).map(alias => `  ${JSON.stringify(alias)}: r[${JSON.stringify(alias)}]`))
     .join(',\n')
   const body = `return {\n${assignments}\n}`
 
@@ -247,8 +253,9 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
   omit?: string[],
+  computed?: string[],
 ): RowMapper<Record<string, unknown>> {
-  const key = `${tableName}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}`
+  const key = `${tableName}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
   const cached = _mapperCache.get(key)
 
   if (cached !== undefined) {
@@ -259,7 +266,7 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
     return cached
   }
 
-  const mapper = compileMapper(columns, pick, omit)
+  const mapper = compileMapper(columns, pick, omit, computed)
 
   _mapperCache.set(key, mapper)
 

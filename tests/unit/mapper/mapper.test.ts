@@ -126,3 +126,33 @@ describe('clearMapperCache', () => {
     expect(m2).toBeDefined()
   })
 })
+
+describe('computed aliases', () => {
+  it('carries a computed alias through a picked projection', () => {
+    const mapper = compileMapper(columns, ['id'], undefined, ['n'])
+
+    expect(mapper({ id: 1, n: '42' })).toEqual({ id: 1, n: '42' })
+  })
+
+  it('drops a row key that is neither picked nor computed', () => {
+    const mapper = compileMapper(columns, ['id'], undefined, ['n'])
+
+    expect(mapper({ id: 1, n: 2, name: 'x' })).toEqual({ id: 1, n: 2 })
+  })
+
+  it('does not emit an alias twice when it shadows a picked column', () => {
+    const mapper = compileMapper(columns, ['id', 'name'], undefined, ['name'])
+
+    expect(mapper({ id: 1, name: 'x' })).toEqual({ id: 1, name: 'x' })
+  })
+
+  it('keys the cache on the aliases, so the same pick with different ones recompiles', () => {
+    clearMapperCache()
+
+    const withN = getOrCompileMapper('computed_cache', columns, ['id'], undefined, ['n'])
+    const withTotal = getOrCompileMapper('computed_cache', columns, ['id'], undefined, ['total'])
+
+    expect(withN({ id: 1, n: 5, total: 9 })).toEqual({ id: 1, n: 5 })
+    expect(withTotal({ id: 1, n: 5, total: 9 })).toEqual({ id: 1, total: 9 })
+  })
+})

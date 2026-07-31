@@ -14,6 +14,7 @@ export function createMapperFactory(table: AnyTableDef): MapperFactory {
       table.columns,
       s.columns ?? undefined,
       s.omitColumns.length ? s.omitColumns : undefined,
+      s.computedColumns.length ? s.computedColumns.map(c => c.alias) : undefined,
     )
   }
 }
