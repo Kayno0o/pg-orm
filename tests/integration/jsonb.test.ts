@@ -130,3 +130,121 @@ describe('JSONB — insertMany & batch', () => {
     expect(docs.map(d => d.data)).toEqual(shapes)
   })
 })
+
+describe('JSONB — SQL NULL versus the JSON null scalar', () => {
+  const typeOf = async (id: number): Promise<{ sqlNull: boolean, kind: string | null }> => {
+    const [row] = await db.raw<{ sql_null: boolean, kind: string | null }>(
+      'SELECT optional IS NULL AS sql_null, jsonb_typeof(optional) AS kind FROM documents WHERE id = $1',
+      [id],
+    )
+
+    return { sqlNull: row!.sql_null, kind: row!.kind }
+  }
+
+  it('stores SQL NULL on insert, not the string "null"', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: null })
+
+    expect(await typeOf(id)).toEqual({ sqlNull: true, kind: null })
+  })
+
+  it('stores SQL NULL when an update clears the column', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: { a: 1 } })
+
+    await repo.write.updateOne({ optional: null }, e => e.eq('id', id))
+
+    expect(await typeOf(id)).toEqual({ sqlNull: true, kind: null })
+  })
+
+  it('leaves a cleared column usable by jsonb functions expecting an array', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: { a: 1 } })
+
+    await repo.write.updateOne({ optional: null }, e => e.eq('id', id))
+
+    const [row] = await db.raw<{ n: number | null }>(
+      'SELECT jsonb_array_length(optional) AS n FROM documents WHERE id = $1',
+      [id],
+    )
+
+    expect(row!.n).toBeNull()
+  })
+})
+
+describe('JSONB — clearing a column inside a transaction', () => {
+  it('stores SQL NULL through a transaction-bound repo', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: { a: 1 } })
+
+    await db.transaction(async (tx) => {
+      await db.repo(documentsTable).using(tx).write.updateOne({ optional: null }, e => e.eq('id', id))
+    })
+
+    const [row] = await db.raw<{ kind: string | null }>(
+      'SELECT jsonb_typeof(optional) AS kind FROM documents WHERE id = $1',
+      [id],
+    )
+
+    expect(row!.kind).toBeNull()
+  })
+})
+
+describe('JSONB — a nullable column the insert never names', () => {
+  it('defaults to SQL NULL, not the JSON null scalar', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] } })
+
+    const [row] = await db.raw<{ kind: string | null, def: string | null }>(
+      `SELECT jsonb_typeof(optional) AS kind,
+              (SELECT column_default FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'optional') AS def
+       FROM documents WHERE id = $1`,
+      [id],
+    )
+
+    expect(row!.def).toBeNull()
+    expect(row!.kind).toBeNull()
+  })
+})
+
+describe('JSONB — stored as a structure, not as an encoded string', () => {
+  const kindOf = async (id: number): Promise<string | null> => {
+    const [row] = await db.raw<{ kind: string | null }>(
+      'SELECT jsonb_typeof(optional) AS kind FROM documents WHERE id = $1',
+      [id],
+    )
+
+    return row!.kind
+  }
+
+  it('stores an object as a jsonb object', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: { a: 1 } })
+
+    expect(await kindOf(id)).toBe('object')
+  })
+
+  it('stores an array as a jsonb array, countable by jsonb_array_length', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] }, optional: [1, 2, 3] as never })
+
+    expect(await kindOf(id)).toBe('array')
+
+    const [row] = await db.raw<{ n: number }>(
+      'SELECT jsonb_array_length(optional) AS n FROM documents WHERE id = $1',
+      [id],
+    )
+
+    expect(row!.n).toBe(3)
+  })
+
+  it('stores an array written by an update as a jsonb array', async () => {
+    const repo = db.repo(documentsTable)
+    const id = await repo.write.insertOne({ data: { name: 'doc', tags: [] } })
+
+    await repo.write.updateOne({ optional: [1, 2] as never }, e => e.eq('id', id))
+
+    expect(await kindOf(id)).toBe('array')
+  })
+})

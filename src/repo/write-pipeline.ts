@@ -5,6 +5,7 @@ import type { TableRuntime } from './table-runtime'
 import { DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
+import { jsonParam } from '../sql/json-param'
 import { createMapperFactory } from './_mapper'
 
 type Where<TColumns extends AnyColumns> = (e: ExprBuilder<TColumns>) => ExprTape
@@ -43,12 +44,12 @@ export class WritePipeline<
   }
 
   /**
-   * Serialize json/jsonb values to JSON strings before parameter binding.
-   * bun:sql's unsafe() path does not know column types, and the ORM's
-   * serializeParams() blindly converts every JS array into a PostgreSQL array
-   * literal (e.g. {"a","b"}). For json/jsonb columns that produces invalid
-   * storage, so we pre-stringify arrays/objects here and let normal text
-   * parameter binding send them as JSON.
+   * Mark json/jsonb values before parameter binding. bun:sql's unsafe() path does not
+   * know column types, and serializeParams() would otherwise turn every JS array into a
+   * PostgreSQL array literal (e.g. {"a","b"}), which is not JSON. Marking them leaves the
+   * value untouched all the way to the driver, which encodes it to JSON itself - stringifying
+   * here instead would arrive as a string and be encoded a second time, storing a JSON string
+   * scalar that reads back correctly and answers `string` to jsonb_typeof.
    */
   private _normalizeJsonValues(values: Record<string, unknown>): Record<string, unknown> {
     const cols = this._runtime.table.columns
@@ -64,7 +65,7 @@ export class WritePipeline<
         && val !== undefined
         && (Array.isArray(val) || typeof val === 'object')
       ) {
-        out[key] = JSON.stringify(val)
+        out[key] = jsonParam(val)
       }
       else {
         out[key] = val

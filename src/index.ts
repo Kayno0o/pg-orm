@@ -91,6 +91,8 @@ export {
   type Executable,
   formatQuery,
   type FormatQueryOptions,
+  type JsonParam,
+  jsonParam,
   type QueryErrorEvent,
   type QueryEvent,
   SavepointClient,

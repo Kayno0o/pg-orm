@@ -1,6 +1,7 @@
 import type { SQL } from 'bun'
 import { wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
+import { isJsonParam } from './json-param'
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -48,7 +49,14 @@ export function serializePgArray(val: unknown[]): string {
 }
 
 export function serializeParams(params: unknown[]): unknown[] {
-  return params.map(p => Array.isArray(p) ? serializePgArray(p) : p)
+  return params.map((p) => {
+    // A json/jsonb value goes to the driver as it is: bun encodes objects and arrays to JSON
+    // itself, and anything done to it here would be encoded a second time.
+    if (isJsonParam(p))
+      return p.value
+
+    return Array.isArray(p) ? serializePgArray(p) : p
+  })
 }
 
 /**

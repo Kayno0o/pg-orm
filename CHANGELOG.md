@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fixes
+
+- **`json` / `jsonb` values were stored as JSON string scalars, not as JSON.** The write pipeline
+  pre-stringified them, the driver encoded that string a second time, and what landed in the
+  column was `"[1,2]"` rather than `[1,2]`. Nothing noticed, because reading parses whatever it
+  is handed back - but in SQL the column answered `string` to `jsonb_typeof`, `->` and `->>`
+  found nothing, `@>` never matched, `jsonb_array_length` and `jsonb_array_elements` raised
+  `22023 cannot ... a scalar`, and any GIN index on the column was useless. Values now reach the
+  driver unmodified and are stored as real JSON.
+
+  **Existing rows are not migrated.** A column written by an earlier version holds the encoded
+  form and stays wrong until rewritten; `UPDATE t SET c = (c #>> '{}')::jsonb WHERE
+  jsonb_typeof(c) = 'string'` repairs one, and is only safe on columns that never legitimately
+  hold a JSON string.
+
+- New `jsonParam(value)` export, for statements built through `repo.write.insert()` and the other
+  raw builders. Those take a table name rather than its columns, so they cannot tell which values
+  are JSON; wrapping one marks it. Callers working around this by stringifying by hand were hitting
+  the same double-encoding and should now wrap instead.
+
 ### Breaking changes — production-readiness sweep (P4)
 
 - `ValidationError extends OrmError` is the new error class for all ORM-side input validation. Sites previously throwing plain `Error` / `TypeError` now throw `ValidationError`:
