@@ -4,6 +4,12 @@
 
 ### Fixes
 
+- **An `update()` with nothing to set emitted `UPDATE "t" SET  WHERE ...`.** Postgres answered
+  `syntax error at or near "WHERE"`, which says nothing about the empty payload that caused it.
+  This is easy to hit behind a CRUD layer, where a PATCH body filtered down to zero writable
+  columns reaches the builder as `{}`. It now throws `ValidationError: update() on "t" has no
+  columns to set` before any SQL is built.
+
 - **`json` / `jsonb` values were stored as JSON string scalars, not as JSON.** The write pipeline
   pre-stringified them, the driver encoded that string a second time, and what landed in the
   column was `"[1,2]"` rather than `[1,2]`. Nothing noticed, because reading parses whatever it

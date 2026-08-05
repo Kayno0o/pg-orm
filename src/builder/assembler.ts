@@ -276,7 +276,14 @@ function printSetClauses(sb: SqlBuilder, values: Record<string, unknown>): strin
 }
 
 function printUpdate(sb: SqlBuilder, state: BuilderState): void {
-  const setClauses = printSetClauses(sb, state.setValues!)
+  if (!state.setValues || Object.keys(state.setValues).length === 0) {
+    throw new ValidationError(
+      `update() on "${state.table}" has no columns to set`,
+      'update',
+    )
+  }
+
+  const setClauses = printSetClauses(sb, state.setValues)
 
   sb.push(`UPDATE ${quote(state.table)} SET ${setClauses}`)
   printWhere(sb, state.whereTape)

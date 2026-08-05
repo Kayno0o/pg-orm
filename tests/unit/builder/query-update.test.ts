@@ -91,6 +91,11 @@ describe('UpdateBuilder', () => {
     expect(sql).toBe('UPDATE "users" SET "name" = $1')
   })
 
+  it('rejects an empty SET instead of emitting "SET WHERE"', () => {
+    expect(() => update().set({}).where(e => e.eq('id', 1)).toSQL()).toThrow(/no columns to set/)
+    expect(() => update().toSQL()).toThrow(/no columns to set/)
+  })
+
   it('multiple SET values', () => {
     const { sql, params } = update()
       .set({ name: 'Bob', age: 30 })
