@@ -1,8 +1,8 @@
-import typescript from '@kaynooo/eslint/typescript'
+import { defineConfig } from '@kaynooo/eslint'
 
-export default typescript({
+export default defineConfig({
   strict: false,
-  mergeOptions: {
+  overrides: {
     rules: {
       'unused-imports/no-unused-vars': [
         'error',
