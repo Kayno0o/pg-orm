@@ -50,10 +50,10 @@ export class SelectBuilder<
    * Add a computed column built from the safe `ExprBuilder` aggregate API.
    * Example: `.computed(e => e.countCol(), 'total')`
    */
-  computed<T>(
+  computed<T, TAlias extends string = string>(
     fn: (e: ExprBuilder<TColumns>) => AggResult<T>,
-    alias: string,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, T>> {
+    alias: TAlias,
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>> {
     validateIdentifier(alias, 'computed alias')
 
     const builder = createExprBuilder<TColumns>()
@@ -78,10 +78,10 @@ export class SelectBuilder<
    * copy-paste, dynamic column lists) without lifting the "developer-authored
    * only" rule. See README "Security model".
    */
-  computedRaw<TComputed = unknown>(
+  computedRaw<TComputed = unknown, TAlias extends string = string>(
     expr: string,
-    alias: string,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<typeof alias, TComputed>> {
+    alias: TAlias,
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>> {
     validateIdentifier(alias, 'computed alias')
 
     if (!expr || !expr.trim()) {

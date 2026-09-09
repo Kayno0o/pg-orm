@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **`computed()` and `computedRaw()` typed their alias as a plain `string`, so the column they add was lost.** The return type read `Record<typeof alias, T>`, and with `alias: string` that widens to `Record<string, T>` - an index signature, which satisfies no specific property. A row carrying `.computedRaw<number>(sql, 'total')` therefore would not assign to `{ total: number }`, and every caller wanting a named result had to cast through `unknown`. The alias is now a generic parameter inferred from the argument, so the result type gains `{ total: number }`.
+
 - **An `update()` with nothing to set emitted `UPDATE "t" SET  WHERE ...`.** Postgres answered
   `syntax error at or near "WHERE"`, which says nothing about the empty payload that caused it.
   This is easy to hit behind a CRUD layer, where a PATCH body filtered down to zero writable
