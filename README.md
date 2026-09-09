@@ -34,7 +34,7 @@ const users = defineTable('users', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull(),
   email: t.varchar(255).notNull().unique(),
-  role: t.text().notNull().default("'user'"),
+  role: t.text().notNull().default('user'),
 }))
   .withTrait(softDelete())
   .withTrait(timestamps())
@@ -65,24 +65,25 @@ const db = new Database({
 // 4. Auto-migrate
 await db.sync()
 
-// 5. CRUD
+// 5. CRUD — operations live on the `read`, `write` and `stream` suites.
+// `db.repo()` is memoized per table, so calling it inline costs nothing.
 const UserRepo = db.repo(users)
 const PostRepo = db.repo(posts)
 
 // Write ops return the primary key by default; pass `{ full: true }` for the full row.
-const aliceId = await UserRepo.insertOne({ name: 'Alice', email: 'alice@example.com' })
+const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'alice@example.com' })
 
-const allUsers = await UserRepo.findMany()
+const allUsers = await UserRepo.read.findMany()
 
-const filtered = await PostRepo.findMany(q =>
-  q.where(e => e.eq('authorId', aliceId))
+const filtered = await PostRepo.read.findMany(q =>
+  q.where({ authorId: aliceId })
    .orderBy('id', 'desc')
    .limit(10),
 )
 
-await UserRepo.updateMany({ name: 'Alice Updated' }, e => e.eq('id', aliceId))
+await UserRepo.write.updateById(aliceId, { name: 'Alice Updated' })
 
-await UserRepo.deleteOne(e => e.eq('id', aliceId))
+await UserRepo.write.deleteById(aliceId)
 ```
 
 ## Schema Definition
@@ -94,7 +95,7 @@ const items = defineTable('items', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull().unique(),
   price: t.numeric(10, 2).notNull(),
-  tags: t.textArray().nullable(),
+  tags: t.array(t.text()).nullable(),
   status: t.enum('item_status', ['active', 'archived'] as const).notNull(),
   metadata: t.jsonb().nullable(),
   embedding: t.vector(1536).nullable(),
@@ -104,7 +105,9 @@ const items = defineTable('items', t => ({
 
 ### Column Types
 
-`serial`, `bigserial`, `integer`, `int4`, `int8`, `smallint`, `real`, `doublePrecision`, `numeric`, `text`, `varchar`, `char`, `boolean`, `bool`, `date`, `timestamp`, `timestamptz`, `time`, `timetz`, `uuid`, `jsonb`, `json`, `bytea`, `inet`, `cidr`, `macaddr`, `interval`, `point`, `line`, `circle`, `box`, `path`, `polygon`, `tsvector`, `tsquery`, `xml`, `money`, `bit`, `varbit`, `textArray`, `intArray`, `vector`, `enum`
+`serial`, `bigserial`, `int2`, `int4`, `int8`, `smallint`, `integer`, `bigint`, `float4`, `float8`, `real`, `doublePrecision`, `numeric`, `text`, `varchar`, `char`, `citext`, `boolean`, `bool`, `date`, `timestamp`, `timestamptz`, `time`, `timetz`, `interval`, `uuid`, `json`, `jsonb`, `bytea`, `inet`, `cidr`, `macaddr`, `point`, `line`, `circle`, `box`, `path`, `polygon`, `tsvector`, `tsquery`, `xml`, `money`, `bit`, `varbit`, `vector`, `enum`, `array`
+
+`smallint`/`integer`/`bigint`/`real`/`doublePrecision`/`boolean` are SQL-standard aliases for `int2`/`int4`/`int8`/`float4`/`float8`/`bool` — pick one spelling per project. Arrays are `t.array(t.text())`; `numeric` and `money` infer `string` to keep full precision, `int8`/`bigserial` infer `bigint`.
 
 ### Constraints
 
@@ -113,7 +116,8 @@ t.text().notNull()        // NOT NULL
 t.text().nullable()       // explicit nullable
 t.text().unique()         // UNIQUE constraint
 t.text().primaryKey()     // PRIMARY KEY
-t.text().default("'val'") // DEFAULT (raw SQL expression)
+t.text().default('val')   // DEFAULT, from a JS value
+t.timestamptz().defaultRaw('now()') // DEFAULT, from raw SQL
 t.int4().check('val > 0') // CHECK constraint
 t.int4().generated('col1 + col2') // GENERATED ALWAYS AS ... STORED
 ```
@@ -153,7 +157,7 @@ const postsWithAll = await PostRepo.read.findMany(q =>
 
 // Relation filtering
 const usersWithPublished = await UserRepo.read.findMany(q =>
-  q.include('posts', sq => sq.where(e => e.eq('published', true))),
+  q.include('posts', sq => sq.where({ published: true })),
 )
 ```
 
@@ -161,28 +165,48 @@ const usersWithPublished = await UserRepo.read.findMany(q =>
 
 ### WHERE Expressions
 
-```ts
-// Comparison
-q.where(e => e.eq('status', 'active'))
-q.where(e => e.gt('age', 18))
-q.where(e => e.between('price', 10, 100))
-q.where(e => e.in('role', ['admin', 'mod']))
+Every WHERE takes one of two forms: an **object shorthand** for the common case, or an
+`ExprBuilder` **callback** for anything the shorthand can't express (`OR`, subqueries,
+raw fragments). Both are fully typed against the table's columns and both parameterize
+their values. The two mix freely.
 
-// Logical combinators
+```ts
+// Object shorthand — every entry ANDed
+q.where({ status: 'active' })
+q.where({ status: 'active', role: 'admin' })
+q.where({ deletedAt: null })          // IS NULL
+q.where({ role: ['admin', 'mod'] })   // IN (…), and an empty array matches nothing
+q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equality
+
+// ...with operators, several of which AND together
+q.where({ age: { gte: 18, lt: 65 } })
+q.where({ name: { contains: 'dev' } })       // ILIKE '%dev%', metacharacters escaped
+q.where({ price: { between: [10, 100] } })
+q.where({ deletedAt: { isNull: false } })
+q.where({ tags: { eq: ['a', 'b'] } })        // an array column takes no bare array
+```
+
+Operators: `eq neq gt gte lt lte in notIn like ilike contains startsWith endsWith between isNull`.
+
+`undefined` as a value and `{}` as a whole clause both throw `ValidationError` — a typo
+must not silently widen a `deleteMany` to every row.
+
+```ts
+// Callback form — the full expression builder
 q.where(e => e.and(
   e.eq('status', 'active'),
   e.or(e.gt('age', 18), e.eq('role', 'admin')),
 ))
 
-// Optional conditions — a falsy callback is skipped, so query-string filters
+// Optional conditions — a falsy clause is skipped, so query-string filters
 // need no branching. `andWhere` also works as the first clause.
-q.andWhere(status && (e => e.eq('status', status)))
- .andWhere(minAge !== undefined && (e => e.gte('age', minAge)))
+q.andWhere(status && { status })
+ .andWhere(minAge !== undefined && { age: { gte: minAge } })
 
 // ...or pass them all at once (falsy entries dropped, rest ANDed)
 q.whereAll(
-  search && (e => e.contains('name', search)),
-  onlyActive && (e => e.eq('status', 'active')),
+  search && { name: { contains: search } },
+  onlyActive && { status: 'active' },
 )
 
 // Pattern matching (auto-escapes user input)
@@ -224,30 +248,40 @@ q.aggregate(e => ({
   avgScore: e.avg('score'),
 }))
 
-// GROUP BY + HAVING
+// GROUP BY + HAVING — takes both WHERE forms
 q.groupBy('department').having(e => e.gt('count', 5))
 ```
 
 ### Repository operation suites
 
-Repository operations are grouped into three lazy suites accessed as properties:
+Repository operations are grouped into three suites accessed as properties:
 
-- `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`, `deleteOne/Many`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
+- `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findManyBy`, `findOneBy`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
+- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
 - `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
 
-Each suite is constructed on first access; suites you never touch never allocate.
-
-`db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is never cached and always returns a fresh transaction-bound repository.
+`db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
 
 ### Reads
 
 ```ts
-await repo.read.findMany(q => q.where(e => e.eq('status', 'active')))
-await repo.read.findOne(q => q.where(e => e.eq('id', 1)))
+await repo.read.findMany(q => q.where({ status: 'active' }).pick('id', 'name').limit(10))
+await repo.read.count({ status: 'active' })
+await repo.read.exists({ email: 'a@test.com' })
+
+// Nothing but a WHERE — the shape count/exists/deleteMany already take
+await repo.read.findManyBy({ status: 'active' })
+await repo.read.findOneBy({ email: 'a@test.com' })
+
+// By primary key — a composite key takes an object holding each part
 await repo.read.findById(1)
-await repo.read.count(e => e.eq('status', 'active'))
-await repo.read.exists(e => e.eq('email', 'a@test.com'))
+await repo.read.findById(1, q => q.pick('id', 'name').include('posts'))
+await repo.read.findByIdOrThrow(1)      // throws NotFoundError instead of returning null
+await repo.read.existsById(1)
+await repo.read.findById({ userId: 1, groupId: 2 })
+
+// Soft-delete tables: count/exists/paginate skip trashed rows unless asked
+await repo.read.count({ status: 'active' }, { withTrashed: true })
 ```
 
 ### Mutations
@@ -266,13 +300,14 @@ const ids = await repo.write.insertMany([{ ... }, { ... }])
 // ...or the full entity with `{ full: true }`
 const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { full: true })
 
-// Update
-await repo.write.updateMany({ status: 'active' }, e => e.eq('id', 1))
-const updated = await repo.write.updateOne({ name: 'Bob' }, e => e.eq('id', 1), { full: true })
+// Update — the where takes both forms, and `updateById` spells out the common one
+await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
+const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
+await repo.write.updateById(1, { name: 'Bob' })
 
 // Delete
-await repo.write.deleteOne(e => e.eq('id', 1))
-await repo.write.deleteMany(e => e.lt('createdAt', cutoff))
+await repo.write.deleteById(1)
+await repo.write.deleteMany({ createdAt: { lt: cutoff } })
 
 // Upsert — INSERT ... ON CONFLICT (conflictTarget) DO UPDATE
 await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
@@ -304,11 +339,26 @@ const users = defineTable('users', t => ({ ... }))
 // Use .forceDelete() for real DELETE
 
 // Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict
-await repo.write.updateWithLock(
-  { name: 'Updated' },
-  e => e.eq('id', 1),
-  currentVersion,
-)
+await repo.write.updateWithLock({ name: 'Updated' }, { id: 1 }, currentVersion)
+```
+
+### Schema introspection
+
+Table and column metadata, typed — for generic code that derives request schemas, admin
+UIs or CRUD routes from a table definition instead of restating its shape.
+
+```ts
+import { columnBaseType, hasTrait, tableMeta, traitColumns, writableColumns } from '@kaynooo/pg-orm'
+
+tableMeta(users).softDelete?.column   // 'deletedAt' — same for optimisticLock / timestamps
+hasTrait(users, 'softDelete')         // true; works for custom traits by their `name`
+
+traitColumns(users)                   // every column any trait added, custom traits included
+writableColumns(users)                // all columns except the pk, generated and trait-managed ones
+writableColumns(users, { exclude: ['ownerId'] })
+
+columnBaseType(users.columns.tags)    // { base: 'text', isArray: true } — from 'text[]'
+columnBaseType(users.columns.email)   // { base: 'varchar', isArray: false } — from 'varchar(255)'
 ```
 
 ## Hooks
@@ -358,6 +408,13 @@ await db.transaction(
 const page = await repo.read.paginate({ page: 1, perPage: 20 })
 // { data, total, page, perPage, totalPages }
 
+// The optional callback shapes the page. A filter it adds is reflected in `total`,
+// so `data` and `total` always describe the same row set.
+const shaped = await repo.read.paginate(
+  { page: 1, perPage: 20, where: { status: 'active' } },
+  q => q.pick('id', 'name').orderBy('createdAt', 'desc').include('posts'),
+)
+
 // Cursor-based (efficient for large datasets)
 const page1 = await repo.read.paginateCursor({ take: 20, column: 'id' })
 const page2 = await repo.read.paginateCursor({
@@ -369,7 +426,7 @@ const page2 = await repo.read.paginateCursor({
 ## Streaming
 
 ```ts
-for await (const row of repo.stream.stream(q => q.where(e => e.eq('active', true)), { chunkSize: 500 })) {
+for await (const row of repo.stream.stream(q => q.where({ active: true }), { chunkSize: 500 })) {
   // process row
 }
 

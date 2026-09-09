@@ -47,16 +47,19 @@ export abstract class MutationBuilder extends BaseBuilder {
 }
 
 export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = AnyColumns> extends MutationBuilder {
-  /** Set the WHERE clause. Replaces any existing WHERE; a falsy `fn` is a no-op. */
-  where(fn: OptionalWhere<TColumns>): this {
-    replaceWhere<TColumns>(this._state, fn)
+  /**
+   * Set the WHERE clause, as either `{ col: value }` (entries ANDed) or an
+   * `ExprBuilder` callback. Replaces any existing WHERE; a falsy `cond` is a no-op.
+   */
+  where(cond: OptionalWhere<TColumns>): this {
+    replaceWhere<TColumns>(this._state, cond)
 
     return this
   }
 
-  /** AND an additional condition onto the WHERE clause. A falsy `fn` is a no-op. */
-  andWhere(fn: OptionalWhere<TColumns>): this {
-    appendWhere<TColumns>(this._state, [fn])
+  /** AND an additional condition onto the WHERE clause. A falsy `cond` is a no-op. */
+  andWhere(cond: OptionalWhere<TColumns>): this {
+    appendWhere<TColumns>(this._state, [cond])
 
     return this
   }

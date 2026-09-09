@@ -1,8 +1,9 @@
-import type { ExprBuilder, ExprTape } from '../builder/expr'
-import type { InsertBuilder, SelectBuilder, UpdateBuilder } from '../builder/query'
+import type { ExprBuilder } from '../builder/expr'
+import type { InsertBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
 import type { AnyColumns, AnyTableDef, InferUpdate } from '../types/index'
-import { UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { OrmError } from '../errors/index'
+import { tableMeta } from '../schema/inspect'
 import { quote } from '../sql/utils'
 
 /**
@@ -32,7 +33,7 @@ export interface TableBehavior {
 
   /** Rewrite a DELETE into an UPDATE for soft-delete tables, or return `null`. */
   rewriteDelete: <TColumns extends AnyColumns>(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
+    where: WhereInput<TColumns>,
   ) => UpdateBuilder<TColumns> | null
 
   /**
@@ -44,7 +45,7 @@ export interface TableBehavior {
    */
   buildRestoreUpdate: <TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
+    where: WhereInput<TColumns>,
   ) => UpdateBuilder<TColumns>
 
   /** Return the optimistic-lock column name, or `null` if the trait is absent. */
@@ -56,11 +57,9 @@ export interface TableBehavior {
 
 /** Build the consolidated behavior object for a single table. */
 export function buildTableBehavior(table: AnyTableDef): TableBehavior {
-  const meta = table.meta as Record<string, unknown> | undefined
-  const softDelete = meta?.softDelete as { column: string } | undefined
-  const optimisticLock = meta?.optimisticLock as { column: string } | undefined
-  const softDeleteColumn = softDelete?.column ?? null
-  const optimisticLockColumn = optimisticLock?.column ?? null
+  const meta = tableMeta(table)
+  const softDeleteColumn = meta.softDelete?.column ?? null
+  const optimisticLockColumn = meta.optimisticLock?.column ?? null
   const hasSoftDelete = softDeleteColumn !== null
   const hasOptimisticLock = optimisticLockColumn !== null
 
@@ -84,7 +83,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   }
 
   function rewriteDelete<TColumns extends AnyColumns>(
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
+    where: WhereInput<TColumns>,
   ): UpdateBuilder<TColumns> | null {
     if (!hasSoftDelete)
       return null
@@ -97,7 +96,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
 
   function buildRestoreUpdate<TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
-    where: (e: ExprBuilder<TColumns>) => ExprTape,
+    where: WhereInput<TColumns>,
   ): UpdateBuilder<TColumns> {
     if (softDeleteColumn === null) {
       throw new OrmError(
@@ -107,7 +106,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
 
     const builder = new UpdateBuilderCtor<TColumns>(table.name)
       .set(set)
-      .where((e: ExprBuilder<TColumns>) => e.and(where(e), e.isNotNull(softDeleteColumn)))
+      .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where), e.isNotNull(softDeleteColumn)))
 
     prepareUpdate(builder, set as Record<string, unknown>)
 

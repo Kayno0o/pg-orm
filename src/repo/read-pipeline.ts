@@ -1,5 +1,4 @@
-import type { ExprBuilder, ExprTape } from '../builder/expr'
-import type { SelectBuilder } from '../builder/query'
+import type { OptionalWhere, SelectBuilder, WhereInput } from '../builder/query'
 import type { IncludeEntry } from '../builder/state'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
@@ -9,13 +8,18 @@ import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
-import { NotFoundError } from '../errors/index'
+import { NotFoundError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
 
 type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult>
-type Where<TC extends AnyColumns> = (e: ExprBuilder<TC>) => ExprTape
+type Where<TC extends AnyColumns> = WhereInput<TC>
+
+/** Opt in to rows the softDelete trait has hidden. */
+export interface TrashedOptions {
+  withTrashed?: boolean
+}
 
 export interface ReadPipelineContext {
   executor: Executable
@@ -29,10 +33,10 @@ export interface SelectOptions {
   defaultLimit?: number
 }
 
-export interface PaginateOptions<TColumns extends AnyColumns> {
+export interface PaginateOptions<TColumns extends AnyColumns> extends TrashedOptions {
   page: number
   perPage: number
-  where?: Where<TColumns>
+  where?: OptionalWhere<TColumns>
 }
 
 export interface PaginateResult<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals> {
@@ -48,7 +52,7 @@ export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends ke
   column?: K
   cursor?: InferSelect<TColumns>[K] | null
   direction?: 'forward' | 'backward'
-  where?: Where<TColumns>
+  where?: OptionalWhere<TColumns>
 }
 
 export interface PaginateCursorResult<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals, K extends keyof TColumns & string> {
@@ -142,31 +146,43 @@ export class ReadPipeline<
     return row
   }
 
-  async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    const pk = this._runtime.primaryKey
-
-    if (pk.includes(',')) {
-      const pkCols = pk.split(',')
-
-      return this.findOne(q =>
-        q.where((e) => {
-          const conditions = pkCols.map(col =>
-            e.eq(col.trim(), (id as Record<string, unknown>)[col.trim()]),
-          )
-
-          return e.and(...conditions)
-        }))
-    }
-
-    return this.findOne(q => q.where(e => e.eq(pk, id)))
+  async findManyBy(where: OptionalWhere<TColumns>): Promise<any[]> {
+    return this.findMany(q => q.where(where) as SelectBuilder<TColumns, TRelations, any>)
   }
 
-  async count(where?: Where<TColumns>): Promise<number> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).count()
+  async findOneBy(where: OptionalWhere<TColumns>): Promise<any | null> {
+    return this.findOne(q => q.where(where) as SelectBuilder<TColumns, TRelations, any>)
+  }
 
-    if (where)
-      builder.where(where)
+  async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
+    const where = this._runtime.pkWhere(id) as Where<TColumns>
 
+    return this.findOne(q => (cb ? cb(q) : q).where(where) as SelectBuilder<TColumns, TRelations, any>)
+  }
+
+  async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
+    const row = await this.findById(id, cb)
+
+    if (row === null)
+      throw new NotFoundError(this._runtime.table.name)
+
+    return row
+  }
+
+  async existsById(id: unknown): Promise<boolean> {
+    return this.exists(this._runtime.pkWhere(id) as Where<TColumns>)
+  }
+
+  async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).count().where(where)
+
+    if (opts?.withTrashed)
+      builder.withTrashed()
+
+    return this._runCount(builder)
+  }
+
+  private async _runCount(builder: SelectBuilder<TColumns, any, any>): Promise<number> {
     this._runtime.behavior.prepareSelect(builder)
 
     const { sql, params } = builder.toSQL()
@@ -175,11 +191,11 @@ export class ReadPipeline<
     return Number(rows[0]?.count ?? 0)
   }
 
-  async exists(where: Where<TColumns>): Promise<boolean> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).asExists().limit(1)
+  async exists(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<boolean> {
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).asExists().limit(1).where(where)
 
-    if (where)
-      builder.where(where)
+    if (opts?.withTrashed)
+      builder.withTrashed()
 
     this._runtime.behavior.prepareSelect(builder)
 
@@ -189,19 +205,35 @@ export class ReadPipeline<
     return rows.length > 0
   }
 
-  async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>> {
-    const { page, perPage, where } = opts
+  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateResult<TColumns, TVirtuals>> {
+    const { page, perPage, where, withTrashed } = opts
+
+    if (!Number.isInteger(page) || page < 1)
+      throw new ValidationError(`paginate() requires page >= 1, got ${page}`, 'paginate', { value: page })
+
+    if (!Number.isInteger(perPage) || perPage < 1)
+      throw new ValidationError(`paginate() requires perPage >= 1, got ${perPage}`, 'paginate', { value: perPage })
+
+    const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
+    const rows = (cb ? cb(base) : base).andWhere(where)
+
+    if (withTrashed)
+      rows.withTrashed()
+
+    // Branch before paging so `total` counts the same rows the page is drawn from, including any filter the callback added.
+    const counted = rows.branch().count()
+    const countState = counted.getState()
+
+    countState.orderBy = []
+    countState.limit = null
+    countState.offset = null
+    countState.includes = []
+
+    rows.limit(perPage).offset((page - 1) * perPage)
 
     const [data, total] = await Promise.all([
-      this.findMany((q) => {
-        let b = q.limit(perPage).offset((page - 1) * perPage)
-
-        if (where)
-          b = b.where(where)
-
-        return b
-      }),
-      this.count(where),
+      this.findMany(() => rows as SelectBuilder<TColumns, TRelations, any>),
+      this._runCount(counted as SelectBuilder<TColumns, any, any>),
     ])
 
     return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
@@ -215,14 +247,10 @@ export class ReadPipeline<
     const isForward = direction === 'forward'
 
     const data = await this.findMany((q) => {
-      let b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc')
+      const b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc').where(where)
 
-      if (where)
-        b = b.where(where)
-
-      if (cursor != null) {
-        b = b.andWhere(e => isForward ? e.gt(col, cursor) : e.lt(col, cursor))
-      }
+      if (cursor != null)
+        b.andWhere(e => isForward ? e.gt(col, cursor) : e.lt(col, cursor))
 
       return b
     })
@@ -309,7 +337,7 @@ export class ReadPipeline<
     chunkSize?: number
     column?: keyof TColumns & string
     direction?: 'forward' | 'backward'
-    where?: Where<TColumns>
+    where?: OptionalWhere<TColumns>
   } = {}): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     return this._streamCursor(opts)
   }
@@ -318,7 +346,7 @@ export class ReadPipeline<
     chunkSize?: number
     column?: keyof TColumns & string
     direction?: 'forward' | 'backward'
-    where?: Where<TColumns>
+    where?: OptionalWhere<TColumns>
   }): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const col = opts.column ?? (this._runtime.primaryKey as keyof TColumns & string)

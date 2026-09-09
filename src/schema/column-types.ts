@@ -7,6 +7,7 @@ export interface ColumnTypes {
   uuid: () => ColumnBuilder<string>
   text: <T extends string = string>() => ColumnBuilder<T>
   varchar: <T extends string = string>(n: number) => ColumnBuilder<T>
+  char: <T extends string = string>(n: number) => ColumnBuilder<T>
   citext: () => ColumnBuilder<string>
 
   // Numeric types
@@ -93,6 +94,7 @@ export function createColumnTypes(): ColumnTypes {
     uuid: () => new ColumnBuilder('uuid'),
     text: () => new ColumnBuilder('text'),
     varchar: n => new ColumnBuilder(`varchar(${n})`),
+    char: n => new ColumnBuilder(`char(${n})`),
     citext: () => new ColumnBuilder('citext'),
 
     int2: () => new ColumnBuilder('int2'),

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Ergonomics — object WHERE shorthand, by-id operations, schema introspection
+
+Driven by an audit of the four consumers (`dashboard-v2`, `kaynooo.fr`, `kloe-couture`, `@kaynooo/elysia`): 402 of ~600 expression calls were `e.eq`, and 131 WHERE clauses existed only to wrap a single equality. Everything below is additive - the callback form is unchanged and still the way to write `OR`, subqueries and raw fragments.
+
+- **Every WHERE now also takes an object.** `q.where({ status: 'active', role: 'admin' })` ANDs its entries; `null` means `IS NULL`, an array means `IN` (empty matches nothing), and a `{ gte, lt, contains, between, isNull, … }` map spells out the operator. It applies everywhere a WHERE is accepted - `where`/`andWhere`/`whereAll`/`having` on every builder, and `count`, `exists`, `paginate`, `paginateCursor`, `streamCursor`, `updateOne/Many`, `deleteOne/Many`, `updateWithLock`, `restore`, `forceDelete`. Values stay parameterized and column names stay type-checked against the table.
+
+  `undefined` as a value and `{}` as a whole clause throw `ValidationError` rather than matching every row - a `deleteMany({ id: undefined })` typo must not empty a table. An array-typed column takes no bare array (`IN` on it would be indistinguishable from equality); it uses `{ eq: [...] }`. A plain object whose keys are not all operators is treated as a json/jsonb value.
+
+  `compileWhere(input)` is exported for callers composing a caller-supplied clause with their own: `e => e.and(compileWhere(base), e.eq('tenant', id))`.
+
+- **`read.findManyBy(where)` / `read.findOneBy(where)`** take nothing but a WHERE, the shape `count`, `exists`, `updateMany` and `deleteMany` already took. 56 of the consumers' 129 find sites were `q => q.where(…)` and nothing else.
+
+- **By-primary-key operations.** `read.findByIdOrThrow`, `read.existsById`, `write.updateById`, `write.deleteById`, and `read.findById` now takes an optional select callback (`findById(1, q => q.pick('id').include('posts'))`). A composite primary key takes an object holding each part, and a missing part throws instead of silently matching.
+
+- **`paginate` takes a select callback**: `paginate({ page, perPage }, q => q.pick(…).orderBy(…).include(…))`. `total` is counted off the same builder, so a filter added inside the callback is reflected in it - `data` and `total` always describe the same row set. `page`/`perPage` below 1 now throw instead of producing a negative OFFSET or dividing by zero.
+
+- **Soft-delete parity on aggregates.** `count`, `exists` and `paginate` take `{ withTrashed: true }`; previously only `findMany` could see trashed rows, and counting them meant hand-rolling a builder. `exists()` also takes no predicate now, matching `count()`.
+
+- **Schema introspection**: `tableMeta`, `hasTrait`, `traitColumns`, `writableColumns`, `columnBaseType` - typed access to what previously required reading `table.meta` through `as Record<string, any>` and regex-parsing `pgType`. `applyTrait` records every column a trait adds, so `traitColumns` covers custom traits too.
+
+- **`t.char(n)`** was documented but did not exist. Added.
+
+- `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop no longer rebuilds the table runtime, relation resolver and mapper factory each time.
+
 ### Fixes
 
 - **`computed()` and `computedRaw()` typed their alias as a plain `string`, so the column they add was lost.** The return type read `Record<typeof alias, T>`, and with `alias: string` that widens to `Record<string, T>` - an index signature, which satisfies no specific property. A row carrying `.computedRaw<number>(sql, 'total')` therefore would not assign to `{ total: number }`, and every caller wanting a named result had to cast through `unknown`. The alias is now a generic parameter inferred from the argument, so the result type gains `{ total: number }`.

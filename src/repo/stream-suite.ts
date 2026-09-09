@@ -1,5 +1,4 @@
-import type { ExprBuilder, ExprTape } from '../builder/expr'
-import type { SelectBuilder } from '../builder/query'
+import type { OptionalWhere, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
@@ -42,7 +41,7 @@ export class StreamSuite<
     chunkSize?: number
     column?: keyof TColumns & string
     direction?: 'forward' | 'backward'
-    where?: (e: ExprBuilder<TColumns>) => ExprTape
+    where?: OptionalWhere<TColumns>
   } = {}): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     return this._pipeline.streamCursor(opts)
   }

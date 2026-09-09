@@ -12,6 +12,7 @@ export {
 
 // Query builders
 export {
+  compileWhere,
   DeleteBuilder,
   type IncludeCallback,
   type IncludeEntry,
@@ -24,6 +25,9 @@ export {
   UpdateBuilder,
   UpsertBuilder,
   type WhereFn,
+  type WhereInput,
+  type WhereObject,
+  type WhereOps,
 } from './builder/query'
 // Config
 export { defineConfig, type PgOrmConfig } from './define-config'
@@ -74,13 +78,31 @@ export {
   recordMigration,
 } from './migration/index'
 
-// Repository
 export { Repository } from './repo/index'
+
+// Repository
+export {
+  type PaginateCursorOptions,
+  type PaginateCursorResult,
+  type PaginateOptions,
+  type PaginateResult,
+  type TrashedOptions,
+} from './repo/read-pipeline'
 
 export { type ColumnTypes } from './schema/column-types'
 
 // Schema
 export { defineTable } from './schema/index'
+
+// Schema introspection — typed access to trait metadata and column types.
+export {
+  columnBaseType,
+  hasTrait,
+  type TableMeta,
+  tableMeta,
+  traitColumns,
+  writableColumns,
+} from './schema/inspect'
 
 export { createRelationTypes, type RelationTypes } from './schema/relations'
 

@@ -1,8 +1,8 @@
-import type { ExprBuilder, ExprTape } from '../builder/expr'
-import type { SelectBuilder } from '../builder/query'
+import type { OptionalWhere, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
+import type { PaginateCursorOptions, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -50,29 +50,52 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return cb ? this._pipeline.findOneOrThrow(cb) : this._pipeline.findOneOrThrow()
   }
 
-  async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    return this._pipeline.findById(id)
+  /** `findMany` with nothing but a WHERE — the shape `count`, `exists` and `deleteMany` already take. */
+  async findManyBy(where: OptionalWhere<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._pipeline.findManyBy(where)
   }
 
-  async count(where?: (e: ExprBuilder<TColumns>) => ExprTape): Promise<number> {
-    return this._pipeline.count(where)
+  /** `findOne` with nothing but a WHERE. */
+  async findOneBy(where: OptionalWhere<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
+    return this._pipeline.findOneBy(where)
   }
 
-  async exists(where: (e: ExprBuilder<TColumns>) => ExprTape): Promise<boolean> {
-    return this._pipeline.exists(where)
+  /** Load one row by primary key. A composite key takes an object holding each part. */
+  async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async findById<TResult>(id: unknown, cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
+  async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
+    return this._pipeline.findById(id, cb)
   }
 
-  async paginate(opts: { page: number, perPage: number, where?: (e: ExprBuilder<TColumns>) => ExprTape }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], total: number, page: number, perPage: number, totalPages: number }> {
-    return this._pipeline.paginate(opts)
+  /** `findById`, throwing `NotFoundError` instead of returning null. */
+  async findByIdOrThrow(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async findByIdOrThrow<TResult>(id: unknown, cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
+  async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
+    return this._pipeline.findByIdOrThrow(id, cb)
   }
 
-  async paginateCursor<K extends keyof TColumns & string>(opts: {
-    take: number
-    column?: K
-    cursor?: InferSelect<TColumns>[K] | null
-    direction?: 'forward' | 'backward'
-    where?: (e: ExprBuilder<TColumns>) => ExprTape
-  }): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
+  async existsById(id: unknown): Promise<boolean> {
+    return this._pipeline.existsById(id)
+  }
+
+  async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {
+    return this._pipeline.count(where, opts)
+  }
+
+  async exists(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<boolean> {
+    return this._pipeline.exists(where, opts)
+  }
+
+  /** Offset pagination. The optional callback shapes the page (`pick`, `orderBy`, `include`, …) and any filter it adds is reflected in `total`. */
+  async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>>
+  async paginate<TResult>(opts: PaginateOptions<TColumns>, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginateResult<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
+  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
+    return this._pipeline.paginate(opts, cb)
+  }
+
+  async paginateCursor<K extends keyof TColumns & string>(
+    opts: PaginateCursorOptions<TColumns, K>,
+  ): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
     return this._pipeline.paginateCursor(opts)
   }
 

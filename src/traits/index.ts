@@ -25,6 +25,7 @@ export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals
 }
 
 const APPLIED_TRAITS_KEY = '_appliedTraits'
+const TRAIT_COLUMNS_KEY = '_traitColumns'
 
 // Apply a trait to a table definition (mutates the table)
 export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
@@ -42,11 +43,13 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
     applied.add(trait.name)
   }
 
-  // Merge columns
+  // Merge columns, recording their names so `traitColumns()` can report every trait-managed column, custom traits included.
   if (trait.columns) {
     const t = createColumnTypes()
     const builders = trait.columns(t)
     const columns = table.columns as Record<string, unknown>
+    const meta = table.meta as Record<string, unknown>
+    const managed = (meta[TRAIT_COLUMNS_KEY] ??= new Set<string>()) as Set<string>
 
     for (const key in builders) {
       validateIdentifier(key, 'column')
@@ -54,6 +57,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
 
       if (b instanceof ColumnBuilder) {
         columns[key] = b._build()
+        managed.add(key)
       }
     }
   }

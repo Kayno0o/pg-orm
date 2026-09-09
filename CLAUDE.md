@@ -30,18 +30,22 @@ Row-to-object mappers are compiled once per column-shape via `new Function()` an
 
 ### Query & expression builders (`src/builder/`)
 - `expr.ts` is the public WHERE/expression DSL; `_tape.ts` is its internal **flat-array IR** ("tape" of opcodes — `OP_EQ`, `OP_AND`, etc.) with no heap-allocated tree. `assembler.ts`/`assembleExpr` prints the tape to parameterized SQL.
+- `_where.ts` owns the **two WHERE forms** and is the single place both compile: `WhereFn` (the `ExprBuilder` callback) and `WhereObject` (the `{ col: value }` shorthand, with a `WhereOps` operator map per column). `compileWhere` turns either into a tape and is exported publicly so callers can compose a caller-supplied clause with their own. Anything that accepts a WHERE takes `OptionalWhere` — never a bare callback type — so the two forms and the falsy no-op stay uniform across select, mutation builders and every repo op.
 - `query.ts` re-exports the statement builders (`SelectBuilder`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder`, `MergeBuilder`, `UpsertBuilder`, `SetOperationBuilder`). `state.ts` holds immutable builder state; `assembler.ts` assembles the final query.
 - Everything is parameterized. Raw escape hatches (`e.raw`, `q.computedRaw`, `.check`, `.defaultRaw`, `db.raw`) are the *only* unparameterized paths and are marked `@trusted` — treat any change there as security-sensitive.
 
 ### Repository (`src/repo/`)
-`db.repo(table)` → `Repository`, which exposes three **lazily-constructed operation suites** (each allocates only on first property access):
-- `repo.read` (`read-suite.ts`) — finds, count, exists, paginate, paginateCursor, `select()`.
-- `repo.write` (`write-suite.ts`) — inserts, updates, `updateWithLock`, deletes, upserts, `findOrCreate`, `restore`, `forceDelete`, plus statement builders.
+`db.repo(table)` → `Repository`, which exposes three operation suites:
+- `repo.read` (`read-suite.ts`) — finds, `findManyBy`/`findOneBy` (bare WHERE), `findById`/`findByIdOrThrow`/`existsById`, count, exists, paginate, paginateCursor, `select()`.
+- `repo.write` (`write-suite.ts`) — inserts, updates, `updateById`, `updateWithLock`, deletes, `deleteById`, upserts, `findOrCreate`, `restore`, `forceDelete`, plus statement builders.
 - `repo.stream` (`stream-suite.ts`) — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset).
 
-Each individual operation lives in its own file under `src/repo/ops/` (e.g. `insert-many.ts`, `update-with-lock.ts`). Cross-cutting per-table logic (trait behavior, hook running, virtuals, primary-key resolution) is consolidated in `table-runtime.ts` (`buildTableRuntime`). Relation eager-loading (`include()`, batched to avoid N+1) lives in `relation-resolver.ts`. Repositories rebind to a transaction via `repo.using(tx)`.
+The suites are thin façades that only adapt public type signatures; the behavior lives in `read-pipeline.ts` / `write-pipeline.ts`. Cross-cutting per-table logic (trait behavior, hook running, virtuals, primary-key resolution, `pkWhere`) is consolidated in `table-runtime.ts` (`buildTableRuntime`). Relation eager-loading (`include()`, batched to avoid N+1) lives in `relation-resolver.ts`. `db.repo(table)` is memoized per table def and `repo.using(tx)` per transaction client.
 
 > **Note:** `insertOne`/`insertMany` must explicitly call `_applyVirtuals()` on results (`findMany` does it automatically). Don't assume mutations apply virtuals for free.
+
+### Schema introspection (`src/schema/inspect.ts`)
+Typed reads of a table definition for consumers that generate code from a schema (`@kaynooo/elysia`'s CRUD routes): `tableMeta`, `hasTrait`, `traitColumns`, `writableColumns`, `columnBaseType`. `applyTrait` records every column a trait adds in `meta._traitColumns`, so `traitColumns` covers custom traits without them registering anything. Prefer these over reading `table.meta` with a cast — that cast is exactly what this module exists to remove.
 
 ### SQL execution (`src/sql/`)
 `Database` is a thin **facade** over four collaborators — keep this split when editing:

@@ -1,14 +1,14 @@
-import type { ExprBuilder, ExprTape } from '../builder/expr'
+import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { jsonParam } from '../sql/json-param'
 import { createMapperFactory } from './_mapper'
 
-type Where<TColumns extends AnyColumns> = (e: ExprBuilder<TColumns>) => ExprTape
+type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
@@ -142,7 +142,7 @@ export class WritePipeline<
 
     const rows = await this.updateMany(
       set,
-      e => e.and(where(e), e.eq(lockCol, currentVersion)),
+      e => e.and(compileWhere<TColumns>(where), e.eq(lockCol, currentVersion)),
       opts,
     )
 

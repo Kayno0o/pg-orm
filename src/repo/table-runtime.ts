@@ -1,7 +1,8 @@
-import type { AnyTableDef, HookEvent } from '../types/index'
+import type { WhereObject } from '../builder/query'
+import type { AnyColumns, AnyTableDef, HookEvent } from '../types/index'
 import type { TableBehavior } from './table-behavior'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
-import { AfterHookError, BeforeHookError, OrmError } from '../errors/index'
+import { AfterHookError, BeforeHookError, OrmError, ValidationError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
 import { buildTableBehavior } from './table-behavior'
 
@@ -20,6 +21,9 @@ export interface TableRuntime {
   // Trait behavior surface
   readonly behavior: TableBehavior
 
+  /** WHERE matching one row by primary key. A composite key takes an object holding each part. */
+  pkWhere: (id: unknown) => WhereObject<AnyColumns>
+
   // Hook surface
   runBefore: <T>(event: HookEvent, value: T) => Promise<T>
   runBeforeMany: <T>(event: HookEvent, values: T[]) => Promise<T[]>
@@ -33,6 +37,7 @@ export interface TableRuntime {
 export function buildTableRuntime(table: AnyTableDef): TableRuntime {
   const primaryKey = table.primaryKey ?? DEFAULT_PRIMARY_KEY
   const behavior = buildTableBehavior(table)
+  const pkColumns = primaryKey.split(',').map(col => col.trim())
 
   // Pre-compute virtual entries once — table.virtuals is frozen at schema
   // declaration, so re-defining a table produces a new runtime and there is
@@ -118,10 +123,42 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
     return rows
   }
 
+  function pkWhere(id: unknown): WhereObject<AnyColumns> {
+    if (pkColumns.length === 1)
+      return { [pkColumns[0]!]: id }
+
+    if (typeof id !== 'object' || id === null) {
+      throw new ValidationError(
+        `Table "${table.name}" has the composite primary key (${pkColumns.join(', ')}); pass an object holding each part.`,
+        'primaryKey',
+        { value: id },
+      )
+    }
+
+    const where: Record<string, unknown> = {}
+
+    for (const col of pkColumns) {
+      const part = (id as Record<string, unknown>)[col]
+
+      if (part === undefined) {
+        throw new ValidationError(
+          `Composite primary key on "${table.name}" is missing part "${col}".`,
+          'primaryKey',
+          { field: col, value: id },
+        )
+      }
+
+      where[col] = part
+    }
+
+    return where
+  }
+
   return Object.freeze({
     table,
     primaryKey,
     behavior,
+    pkWhere,
     runBefore,
     runBeforeMany,
     runAfter,

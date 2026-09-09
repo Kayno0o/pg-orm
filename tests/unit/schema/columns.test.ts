@@ -78,6 +78,10 @@ describe('ColumnTypes factory', () => {
     expect(t.varchar(255)._build().pgType).toBe('varchar(255)')
   })
 
+  it('creates char with length', () => {
+    expect(t.char(2)._build().pgType).toBe('char(2)')
+  })
+
   it('creates int types', () => {
     expect(t.int2()._build().pgType).toBe('int2')
     expect(t.int4()._build().pgType).toBe('int4')

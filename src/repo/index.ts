@@ -61,6 +61,8 @@ export class Repository<
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
+  // One rebound repository per transaction client, so `repo.using(tx)` in a loop does not rebuild the runtime, resolver and mapper each time.
+  private _boundCache = new WeakMap<object, Repository<TColumns, TRelations, TVirtuals>>()
 
   /** Read suite — `findMany`, `findOne`, `count`, `paginate*`, `select()`, etc. */
   readonly read: ReadSuite<TColumns, TRelations, TVirtuals>
@@ -99,7 +101,12 @@ export class Repository<
    * ```
    */
   using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
-    return new Repository<TColumns, TRelations, TVirtuals>({
+    const cached = this._boundCache.get(tx)
+
+    if (cached)
+      return cached as Repository<TColumns, TRelations, TVirtuals>
+
+    const bound = new Repository<TColumns, TRelations, TVirtuals>({
       table: this._table,
       executor: tx as Executable,
       tableRegistry: this._tableRegistry,
@@ -107,5 +114,9 @@ export class Repository<
       defaultLimit: this._defaultLimit,
       batchChunkSize: this._batchChunkSize,
     })
+
+    this._boundCache.set(tx, bound)
+
+    return bound
   }
 }

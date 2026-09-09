@@ -1,10 +1,10 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, InferRelationResult, InferSelect, RelationDef } from '../types/index'
-import type { OptionalWhere } from './_where'
+import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
-import { appendWhere, replaceWhere } from './_where'
+import { appendWhere, compileWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { PLACEHOLDER_RE } from './state'
@@ -112,20 +112,23 @@ export class SelectBuilder<
     return this
   }
 
-  /** Set the WHERE clause. Replaces any existing WHERE; a falsy `fn` is a no-op. */
-  where(fn: OptionalWhere<TColumns>): this {
-    replaceWhere<TColumns>(this._state, fn)
+  /**
+   * Set the WHERE clause, as either `{ col: value }` (entries ANDed) or an
+   * `ExprBuilder` callback. Replaces any existing WHERE; a falsy `cond` is a no-op.
+   */
+  where(cond: OptionalWhere<TColumns>): this {
+    replaceWhere<TColumns>(this._state, cond)
 
     return this
   }
 
   /**
    * AND an additional condition onto the WHERE clause. Works as the first
-   * clause too, and a falsy `fn` is a no-op — so optional filters need no
-   * branching: `q.andWhere(status && (e => e.eq('status', status)))`.
+   * clause too, and a falsy `cond` is a no-op — so optional filters need no
+   * branching: `q.andWhere(status && { status })`.
    */
-  andWhere(fn: OptionalWhere<TColumns>): this {
-    appendWhere<TColumns>(this._state, [fn])
+  andWhere(cond: OptionalWhere<TColumns>): this {
+    appendWhere<TColumns>(this._state, [cond])
 
     return this
   }
@@ -218,10 +221,8 @@ export class SelectBuilder<
   }
 
   /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
-  having(fn: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.havingTape = fn(builder)
+  having(cond: WhereInput<TColumns>): this {
+    this._state.havingTape = compileWhere<TColumns>(cond)
 
     return this
   }
