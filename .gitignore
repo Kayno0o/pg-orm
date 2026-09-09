@@ -40,3 +40,6 @@ testPkg
 schema.mermaid
 benchmarks/results
 typedoc
+
+.claude
+.serena
