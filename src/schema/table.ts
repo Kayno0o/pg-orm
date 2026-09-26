@@ -84,7 +84,7 @@ function buildVirtualDefs(virtuals?: Record<string, (row: any) => any>): AnyVirt
 // Overload 1: columns only
 export function defineTable<
   TName extends string,
-  TBuilders extends Record<string, ColumnBuilder<any, any, any, any, any>>,
+  TBuilders extends Record<string, ColumnBuilder<unknown, any, any, any, any>>,
 >(
   name: TName,
   columnBuilder: (t: ColumnTypes) => TBuilders,
@@ -93,7 +93,7 @@ export function defineTable<
 // Overload 2: columns + relations
 export function defineTable<
   TName extends string,
-  TBuilders extends Record<string, ColumnBuilder<any, any, any, any, any>>,
+  TBuilders extends Record<string, ColumnBuilder<unknown, any, any, any, any>>,
   TRelBuilders extends Record<string, AnyRelationDef>,
 >(
   name: TName,
@@ -104,7 +104,7 @@ export function defineTable<
 // Overload 3: columns + relations + virtuals
 export function defineTable<
   TName extends string,
-  TBuilders extends Record<string, ColumnBuilder<any, any, any, any, any>>,
+  TBuilders extends Record<string, ColumnBuilder<unknown, any, any, any, any>>,
   TRelBuilders extends Record<string, AnyRelationDef>,
   TVirtBuilders extends Record<string, (row: InferSelect<ExtractColumns<TBuilders>>) => any>,
 >(
