@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import { describe, expect, it } from 'bun:test'
+import { OrmError, UniqueError } from '../../../src/errors/index'
 import { queryContextStorage } from '../../../src/sql/base-executor'
 import { TransactionRunner } from '../../../src/sql/transaction-runner'
 
@@ -169,5 +170,69 @@ describe('TransactionRunner', () => {
     })
 
     expect(txContext).toEqual({ traceId: 't-1' })
+  })
+
+  describe('a nested call', () => {
+    // A begin whose transaction handle opens savepoints through `savepoint`.
+    function runnerWithSavepoint(savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>): TransactionRunner {
+      return new TransactionRunner(makeSqlFake(async fn => fn({ savepoint } as unknown as InstanceType<typeof SQL>)), {})
+    }
+
+    it('maps a driver failure opening the savepoint to a typed error', async () => {
+      const runner = runnerWithSavepoint(async () => {
+        throw Object.assign(new Error('savepoint failed'), { errno: '08006' })
+      })
+
+      await runner.run(async () => {
+        let caught: unknown
+
+        try {
+          await runner.run(async () => 'never runs')
+        }
+        catch (err) {
+          caught = err
+        }
+
+        expect(caught).toBeInstanceOf(OrmError)
+      })
+    })
+
+    it('maps a driver failure releasing the savepoint, and hands the mapped error to onRollback', async () => {
+      const seen: unknown[] = []
+      const runner = runnerWithSavepoint(async (fn) => {
+        await fn({} as InstanceType<typeof SQL>)
+
+        throw Object.assign(new Error('release failed'), { errno: '08006' })
+      })
+
+      await runner.run(async () => {
+        let caught: unknown
+
+        try {
+          await runner.run(async (inner) => {
+            inner.onRollback((err) => {
+              seen.push(err)
+            })
+          })
+        }
+        catch (err) {
+          caught = err
+        }
+
+        expect(caught).toBeInstanceOf(OrmError)
+        expect(seen).toEqual([caught])
+      })
+    })
+
+    it('passes the body\'s own error through untouched', async () => {
+      const bodyError = new UniqueError('dup', 'INSERT', [], { constraint: 'k', table: 't', column: 'c' })
+      const runner = runnerWithSavepoint(async fn => fn({} as InstanceType<typeof SQL>))
+
+      await runner.run(async () => {
+        await expect(runner.run(async () => {
+          throw bodyError
+        })).rejects.toBe(bodyError)
+      })
+    })
   })
 })

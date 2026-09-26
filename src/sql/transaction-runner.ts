@@ -135,6 +135,7 @@ export class TransactionRunner {
 
   private async _savepoint<T>(outer: TransactionClient, fn: (tx: TransactionClient) => Promise<T>, opts?: TransactionOptions): Promise<T> {
     let tx: TransactionClient | undefined
+    let phase = 'open' as 'open' | 'body' | 'release'
 
     try {
       const out = await asDriver(outer.sql).savepoint<T>(async (sqlSp) => {
@@ -142,8 +143,13 @@ export class TransactionRunner {
 
         inner._context = opts?.context ?? outer._context
         tx = inner
+        phase = 'body'
 
-        return this._active.run(inner, () => fn(inner))
+        const result = await this._active.run(inner, () => fn(inner))
+
+        phase = 'release'
+
+        return result
       })
 
       outer._onCommitCallbacks.push(...tx!._onCommitCallbacks)
@@ -151,7 +157,12 @@ export class TransactionRunner {
 
       return out
     }
-    catch (err) {
+    catch (caught) {
+      // As for BEGIN and COMMIT: the body's own errors pass through, a driver failure on SAVEPOINT or RELEASE gets the typed mapping.
+      const err = phase === 'body' || caught instanceof OrmError
+        ? caught
+        : wrapPgError(caught, phase === 'open' ? 'SAVEPOINT' : 'RELEASE SAVEPOINT', [])
+
       if (tx)
         await this._fireTxCallbacks('onRollback', tx._onRollbackCallbacks, err)
 
