@@ -1,5 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { ConnectionError, UniqueError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
 
@@ -148,5 +149,41 @@ describe('Transactions', () => {
     const count = await db.repo(usersTable).read.count()
 
     expect(count).toBe(2)
+  })
+})
+
+describe('Transaction settlement', () => {
+  it('maps a constraint that fails at COMMIT to its typed error', async () => {
+    await db.raw('CREATE TABLE IF NOT EXISTS "tx_deferred" ("v" int UNIQUE DEFERRABLE INITIALLY DEFERRED)')
+
+    try {
+      const run = db.transaction(async (tx) => {
+        await tx.query('INSERT INTO "tx_deferred" ("v") VALUES (1), (1)', [])
+      })
+
+      await expect(run).rejects.toBeInstanceOf(UniqueError)
+    }
+    finally {
+      await db.raw('DROP TABLE "tx_deferred"')
+    }
+  })
+
+  it('close({ drain }) rejects new transactions and waits for the running one', async () => {
+    const draining = createTestDb()
+    let committed = false
+
+    const running = draining.transaction(async (tx) => {
+      await tx.query('SELECT pg_sleep(0.2)', [])
+      committed = true
+    })
+
+    await Bun.sleep(20)
+    const closing = draining.close({ drain: true, timeout: 5000 })
+
+    await expect(draining.transaction(async () => 'never runs')).rejects.toBeInstanceOf(ConnectionError)
+    await running
+    await closing
+
+    expect(committed).toBe(true)
   })
 })

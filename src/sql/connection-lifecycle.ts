@@ -56,7 +56,12 @@ export class ConnectionLifecycle extends BaseExecutor {
     this._instanceRef = registerInstance(this)
   }
 
-  override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+  override query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    return this.track(() => this._retry.run(() => super.query(sqlStr, params)))
+  }
+
+  /** Run a unit of work the drain waits for: rejected once draining has begun, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */
+  async track<T>(fn: () => Promise<T>): Promise<T> {
     if (this._drain.draining) {
       throw new ConnectionError('Database is draining — no new queries accepted')
     }
@@ -64,7 +69,7 @@ export class ConnectionLifecycle extends BaseExecutor {
     this._drain.enter()
 
     try {
-      return await this._retry.run(() => super.query(sqlStr, params))
+      return await fn()
     }
     finally {
       this._drain.exit()

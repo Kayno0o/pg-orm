@@ -1,6 +1,7 @@
 import type { SQL } from 'bun'
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { TransactionOptions } from './transaction'
+import { OrmError, wrapPgError } from '../errors/index'
 import { asDriver } from './adapter'
 import { queryContextStorage } from './base-executor'
 import { TransactionClient } from './transaction'
@@ -39,6 +40,7 @@ export class TransactionRunner {
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
 
     let txRef: TransactionClient | undefined
+    let phase = 'begin' as 'begin' | 'body' | 'commit'
 
     // Capture the ALS-bound context at the call site so the tx body re-enters
     // the same scope. bun:sql's `begin()` schedules its callback through a path
@@ -71,8 +73,13 @@ export class TransactionRunner {
           tx._context = opts.context
 
         txRef = tx
+        phase = 'body'
 
-        return fn(tx)
+        const out = await fn(tx)
+
+        phase = 'commit'
+
+        return out
       }))
 
       if (txRef)
@@ -80,7 +87,12 @@ export class TransactionRunner {
 
       return result
     }
-    catch (err) {
+    catch (caught) {
+      // The body's own errors pass through untouched; a driver failure on BEGIN, SET LOCAL or COMMIT (a deferred constraint) gets the same typed mapping as any query.
+      const err = phase === 'body' || caught instanceof OrmError
+        ? caught
+        : wrapPgError(caught, phase === 'begin' ? 'BEGIN' : 'COMMIT', [])
+
       if (txRef)
         await this._fireTxCallbacks('onRollback', txRef._onRollbackCallbacks, err)
 

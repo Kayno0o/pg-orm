@@ -160,6 +160,7 @@ export class Database extends BaseExecutor {
       this._connection.sql,
       this._connection.schema,
       this._tables,
+      fn => this._connection.track(fn),
     )
   }
 
@@ -219,9 +220,9 @@ export class Database extends BaseExecutor {
     fnOrOpts: ((tx: TransactionClient) => Promise<T>) | TransactionOptions,
     maybeFn?: (tx: TransactionClient) => Promise<T>,
   ): Promise<T> {
-    return typeof fnOrOpts === 'function'
+    return this._connection.track(() => typeof fnOrOpts === 'function'
       ? this._txRunner.run(fnOrOpts)
-      : this._txRunner.run(fnOrOpts, maybeFn!)
+      : this._txRunner.run(fnOrOpts, maybeFn!))
   }
 
   /** Health check — returns true if the database is reachable. */
@@ -269,8 +270,9 @@ export class Database extends BaseExecutor {
   /**
    * Close the database connection pool.
    *
-   * - `drain: true` rejects *new* queries (with `ConnectionError`) and waits for
-   *   in-flight queries to settle before invoking the driver close.
+   * - `drain: true` rejects *new* queries, transactions and migrations (with
+   *   `ConnectionError`) and waits for in-flight ones to settle before invoking
+   *   the driver close.
    * - `timeout` (ms) acts as a hard ceiling on the drain wait. If the timeout
    *   fires before the in-flight count reaches zero, the driver close is invoked
    *   anyway with the same `timeout` forwarded.

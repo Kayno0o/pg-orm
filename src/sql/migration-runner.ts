@@ -17,14 +17,15 @@ export class MigrationRunner {
     private readonly sql: InstanceType<typeof SQL>,
     private readonly schema: string,
     private readonly tables: ReadonlyMap<string, AnyTableDef>,
+    private readonly track: <T>(fn: () => Promise<T>) => Promise<T>,
   ) {}
 
   private _transact<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
-    return asDriver(this.sql).begin(async (sqlTx) => {
+    return this.track(() => asDriver(this.sql).begin(async (sqlTx) => {
       const txDriver = asDriver(sqlTx)
 
       return fn(async (sqlStr, params) => txDriver.unsafe(sqlStr, params) as Promise<Record<string, unknown>[]>)
-    })
+    }))
   }
 
   sync(opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {
