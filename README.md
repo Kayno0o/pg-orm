@@ -246,7 +246,7 @@ q.withRecursive('tree', 'SELECT ... UNION ALL SELECT ...')
 
 // Window
 q.window('w', { partitionBy: ['department'], orderBy: [{ col: 'salary', dir: 'desc' }] })
-  .computed('ROW_NUMBER() OVER w', 'rank')
+  .computedRaw(rawExpr<number>('ROW_NUMBER() OVER w'), 'rank') // rows get a typed `rank: number`
 
 // Aggregates
 q.aggregate(e => ({
@@ -669,7 +669,7 @@ input. They are explicitly marked `@trusted` in JSDoc:
 | `t.int().generated(expr)` | `GENERATED ALWAYS AS (expr) STORED` in DDL |
 | `t.text().defaultRaw(sql)` | `DEFAULT sql` in DDL |
 | `t.text().index({ where })` | `WHERE` clause of a partial index. Validated at `defineTable()` to reject `;` / `--` / `/*` outside string literals. |
-| `q.computedRaw(expr, alias)` | SELECT-list expression |
+| `q.computedRaw(expr, alias)`, `rawExpr(sql)` | SELECT-list expression |
 | `e.raw(sql, ...params)` | WHERE/ON fragment (positional `?` params are bound; the surrounding SQL is verbatim) |
 | `db.raw(sql, params)` / tagged template | full query body |
 

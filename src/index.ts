@@ -20,6 +20,8 @@ export {
   MergeBuilder,
   OnConflictBuilder,
   type OptionalWhere,
+  type RawExpr,
+  rawExpr,
   SelectBuilder,
   SetOperationBuilder,
   UpdateBuilder,

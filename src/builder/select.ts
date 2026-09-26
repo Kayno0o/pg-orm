@@ -9,6 +9,17 @@ import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { PLACEHOLDER_RE } from './state'
 
+/** A raw SQL expression tagged with the type its value reads back as, for `computedRaw`. @trusted like every raw fragment. */
+export interface RawExpr<T> {
+  readonly sql: string
+  readonly _type?: T
+}
+
+/** Tag a raw SQL expression with the type its value reads back as: `rawExpr<number>('count(*)')`. */
+export function rawExpr<T>(sql: string): RawExpr<T> {
+  return { sql }
+}
+
 /**
  * Builder for `SELECT` statements. Composable, fluent, returns `this`-typed
  * chains. The three generics drive end-to-end type inference; reshaping methods
@@ -50,7 +61,7 @@ export class SelectBuilder<
    * Add a computed column built from the safe `ExprBuilder` aggregate API.
    * Example: `.computed(e => e.countCol(), 'total')`
    */
-  computed<T, TAlias extends string = string>(
+  computed<TAlias extends string, T>(
     fn: (e: ExprBuilder<TColumns>) => AggResult<T>,
     alias: TAlias,
   ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>> {
@@ -77,12 +88,16 @@ export class SelectBuilder<
    * quotes. This blocks the realistic injection path (analytics-dashboard
    * copy-paste, dynamic column lists) without lifting the "developer-authored
    * only" rule. See README "Security model".
+   *
+   * Type the value with `rawExpr`, which keeps the alias as a named property: `.computedRaw(rawExpr<number>('count(*)'), 'total')`.
    */
-  computedRaw<TComputed = unknown, TAlias extends string = string>(
-    expr: string,
+  computedRaw<TAlias extends string, TComputed = unknown>(
+    raw: string | RawExpr<TComputed>,
     alias: TAlias,
   ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>> {
     validateIdentifier(alias, 'computed alias')
+
+    const expr = typeof raw === 'string' ? raw : raw.sql
 
     if (!expr || !expr.trim()) {
       throw new ValidationError(

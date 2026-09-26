@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { SelectBuilder, SetOperationBuilder } from '../../../src/builder/query'
+import { rawExpr, SelectBuilder, SetOperationBuilder } from '../../../src/builder/query'
 import { ValidationError } from '../../../src/errors/index'
 
 interface Cols {
@@ -155,6 +155,20 @@ describe('SelectBuilder', () => {
     const { sql } = select().computedRaw('1 + 1', 'two').toSQL()
 
     expect(sql).toContain('1 + 1 AS "two"')
+  })
+
+  it('computedRaw types a rawExpr value under its alias', () => {
+    const q = select().pick('id').computedRaw(rawExpr<number>('1 + 1'), 'two')
+    const row: typeof q extends SelectBuilder<any, any, infer R> ? R : never = { id: 1, two: 2 }
+
+    // @ts-expect-error a value type alone must not widen the alias to string
+    select().computedRaw<number>('1 + 1', 'two')
+
+    // @ts-expect-error only the declared alias exists, not every string key
+    const missing = row.three
+
+    expect(q.toSQL().sql).toContain('1 + 1 AS "two"')
+    expect([row.two, missing]).toEqual([2, undefined])
   })
 
   it('forUpdate adds FOR UPDATE', () => {
