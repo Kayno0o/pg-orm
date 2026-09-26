@@ -2,7 +2,8 @@ import type { ExprTape } from './_tape'
 import type { BuilderState, MergeWhen } from './state'
 import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
-import { assembleExpr } from './_tape'
+import { assembleExpr, OP_RAW } from './_tape'
+import { isConflictValue } from './conflict'
 import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols } from './state'
 
 const RAW_PARAM_RE = /\?/g
@@ -28,8 +29,8 @@ class SqlBuilder {
   }
 
   /** Splice an expression tape into the running SQL stream, bumping param state. */
-  inlineExpr(tape: ExprTape): string {
-    const result = assembleExpr(tape, this.pidx - 1)
+  inlineExpr(tape: ExprTape, qualifier?: string): string {
+    const result = assembleExpr(tape, this.pidx - 1, qualifier)
 
     this.params.push(...result.params)
     this.pidx += result.params.length
@@ -81,35 +82,45 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
 
   const target = quoteCols(state.conflictTarget)
 
-  if (state.conflictAction === 'nothing') {
-    sb.push(`ON CONFLICT (${target}) DO NOTHING`)
+  if (state.conflictAction !== 'update') {
+    if (state.conflictAction === 'nothing')
+      sb.push(`ON CONFLICT (${target}) DO NOTHING`)
 
     return
   }
 
-  if (state.conflictAction === 'update' && state.conflictUpdateCols) {
-    let updateCols = state.conflictUpdateCols
+  const set = state.conflictSet ?? {}
+  // `[]` copies every incoming column but the target, `null` copies none.
+  let copies = state.conflictUpdateCols ?? []
 
-    if (updateCols.length === 0) {
-      const conflictSet = new Set(state.conflictTarget)
-      const valueKeys = state.insertValues
-        ? Object.keys(state.insertValues)
-        : state.insertManyValues?.[0]
-          ? Object.keys(state.insertManyValues[0])
-          : []
+  if (state.conflictUpdateCols?.length === 0) {
+    const conflictSet = new Set(state.conflictTarget)
+    const valueKeys = state.insertValues
+      ? Object.keys(state.insertValues)
+      : state.insertManyValues?.[0]
+        ? Object.keys(state.insertManyValues[0])
+        : []
 
-      updateCols = valueKeys.filter(k => !conflictSet.has(k))
-    }
-
-    if (updateCols.length > 0) {
-      const setClauses = updateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
-
-      sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
-    }
-    else {
-      sb.push(`ON CONFLICT (${target}) DO NOTHING`)
-    }
+    copies = valueKeys.filter(k => !conflictSet.has(k))
   }
+
+  const clauses = copies.filter(c => !(c in set)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
+
+  for (const [col, value] of Object.entries(set)) {
+    const rendered = isConflictValue(value)
+      ? sb.inlineExpr([{ op: OP_RAW, sql: value.sql, params: [...value.params] }])
+      : sb.pushParam(value)
+
+    clauses.push(`${quote(col)} = ${rendered}`)
+  }
+
+  // Nothing to write still updates the target to itself, so the conflicting row comes back through RETURNING like an updated one.
+  if (clauses.length === 0)
+    clauses.push(...state.conflictTarget.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`))
+
+  const guard = state.conflictWhere ? ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table)}` : ''
+
+  sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${clauses.join(', ')}${guard}`)
 }
 
 function printWhere(sb: SqlBuilder, tape: ExprTape | null): void {

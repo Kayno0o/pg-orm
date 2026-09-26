@@ -327,6 +327,17 @@ await repo.write.upsertMany([{ ... }, { ... }], ['key'])
 // ...restricting which columns the conflicting row gets updated with
 await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], ['value'])
 
+// ...computing columns from the existing row: `u.existing(col)`, `u.excluded(col)`, `u.add`, `u.sub`, `u.coalesce`, `u.raw`
+await repo.write.upsertOne({ uuid, name, sessions: 1, firstSeen: now }, ['uuid'], {
+  set: u => ({
+    sessions: u.add(u.existing('sessions'), 1),
+    firstSeen: u.coalesce(u.existing('firstSeen'), u.excluded('firstSeen')),
+  }),
+})
+
+// ...only when a guard holds (bare columns name the existing row); `null` when it skipped the update
+const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { where: { value: '' } })
+
 // Insert if missing, return the existing row otherwise — never overwrites
 await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
 const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'], { full: true })
@@ -334,6 +345,8 @@ const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice'
 
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
+
+An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row.
 
 ## Traits
 

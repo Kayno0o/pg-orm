@@ -1,4 +1,6 @@
 import type { BulkUpdateRow } from '../builder/bulk-update'
+import type { ConflictSet, ConflictValue } from '../builder/conflict'
+import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
@@ -11,6 +13,9 @@ import { jsonParam } from '../sql/json-param'
 import { createMapperFactory } from './_mapper'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
+
+/** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
+export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
 
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
@@ -239,7 +244,7 @@ export class WritePipeline<
   async upsertMany(
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
-    updateColumns?: (keyof TColumns & string)[],
+    update?: UpsertUpdate<TColumns>,
     opts?: WriteReturnOptions,
   ): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
@@ -247,11 +252,10 @@ export class WritePipeline<
 
     const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const ib = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(v)
-    const conflict = ib.onConflict(conflictTarget)
-    const builder = updateColumns?.length
-      ? conflict.doUpdate(...updateColumns)
-      : conflict.doUpdate()
+    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
+      .many(v)
+      .onConflict(conflictTarget)
+      .doUpdateWith(await this._conflictUpdate(update))
 
     return this._execute({
       builder,
@@ -264,19 +268,31 @@ export class WritePipeline<
   async upsertOne(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
-    updateColumns?: (keyof TColumns & string)[],
+    update?: UpsertUpdate<TColumns>,
     opts?: WriteReturnOptions,
-  ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    const conflict = new InsertBuilderCtor<TColumns>(this._runtime.table.name).values(v).onConflict(conflictTarget)
-    const builder = updateColumns?.length ? conflict.doUpdate(...updateColumns) : conflict.doUpdate()
+  ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const rows = await this.upsertMany([values], conflictTarget, update, opts)
 
-    return this._execute({
-      builder,
-      afterEvent: 'afterInsert',
-      project: rows => this._projectOne(rows, opts),
-      opts,
-    })
+    return rows[0] ?? null
+  }
+
+  // The row an upsert updates is updated like any other: `beforeUpdate` hooks (timestamps) and the version bump apply to it.
+  private async _conflictUpdate(update?: UpsertUpdate<TColumns>): Promise<ConflictUpdate<TColumns>> {
+    const spec: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
+    const hooked = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', {}))
+    const lock = this._runtime.behavior.getOptimisticLockColumn()
+
+    if (Object.keys(hooked).length === 0 && !lock)
+      return spec
+
+    return {
+      ...spec,
+      set: u => ({
+        ...hooked,
+        ...spec.set?.(u),
+        ...lock ? { [lock]: u.add(u.existing(lock) as ConflictValue<number>, 1) } : {},
+      }) as ConflictSet<TColumns>,
+    }
   }
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {

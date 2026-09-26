@@ -92,6 +92,9 @@ export interface BuilderState {
   conflictTarget: string[] | null
   conflictAction: 'nothing' | 'update' | null
   conflictUpdateCols: string[] | null
+  // Conflict-update values beyond plain EXCLUDED copies: per column a value or a ConflictValue, and the guard on the update.
+  conflictSet: Record<string, unknown> | null
+  conflictWhere: ExprTape | null
   // MERGE
   mergeOn: ExprTape | null
   mergeWhen: MergeWhen[]
@@ -135,6 +138,8 @@ export function createState(op: QueryOp, table: string): BuilderState {
     conflictTarget: null,
     conflictAction: null,
     conflictUpdateCols: null,
+    conflictSet: null,
+    conflictWhere: null,
     mergeOn: null,
     mergeWhen: [],
     ctes: [],
@@ -163,6 +168,8 @@ export function cloneState(s: BuilderState): BuilderState {
     returning: s.returning ? [...s.returning] : null,
     conflictTarget: s.conflictTarget ? [...s.conflictTarget] : null,
     conflictUpdateCols: s.conflictUpdateCols ? [...s.conflictUpdateCols] : null,
+    conflictSet: s.conflictSet ? { ...s.conflictSet } : null,
+    conflictWhere: s.conflictWhere ? [...s.conflictWhere] : null,
     mergeOn: s.mergeOn ? [...s.mergeOn] : null,
     mergeWhen: s.mergeWhen.map(w => ({ ...w })),
     ctes: s.ctes.map(c => ({ ...c, params: [...c.params] })),

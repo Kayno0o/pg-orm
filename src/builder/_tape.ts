@@ -95,7 +95,8 @@ class ExprAssembler {
   private params: unknown[] = []
   private pidx: number
 
-  constructor(tape: ExprTape, paramOffset: number) {
+  // `qualifier` prefixes every bare column with a table name, for a clause where an unqualified column is ambiguous (ON CONFLICT DO UPDATE sees both the existing row and EXCLUDED).
+  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string) {
     this.tape = tape
     this.pidx = paramOffset + 1
   }
@@ -129,7 +130,7 @@ class ExprAssembler {
 
   private walkCol(col: string | ExprTape): string {
     if (typeof col === 'string')
-      return quote(col)
+      return this.qualifier ? `${quote(this.qualifier)}.${quote(col)}` : quote(col)
 
     return this.walkSubTape(col)
   }
@@ -301,6 +302,6 @@ class ExprAssembler {
   }
 }
 
-export function assembleExpr(tape: ExprTape, paramOffset = 0): AssembledExpr {
-  return new ExprAssembler(tape, paramOffset).assemble()
+export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string): AssembledExpr {
+  return new ExprAssembler(tape, paramOffset, qualifier).assemble()
 }

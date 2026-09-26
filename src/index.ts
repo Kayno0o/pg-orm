@@ -13,6 +13,10 @@ export {
 // Query builders
 export {
   compileWhere,
+  type ConflictExprBuilder,
+  type ConflictSet,
+  type ConflictUpdate,
+  type ConflictValue,
   DeleteBuilder,
   type IncludeCallback,
   type IncludeEntry,
@@ -81,7 +85,6 @@ export {
 } from './migration/index'
 
 export { Repository } from './repo/index'
-
 // Repository
 export {
   type PaginateCursorOptions,
@@ -90,6 +93,8 @@ export {
   type PaginateResult,
   type TrashedOptions,
 } from './repo/read-pipeline'
+
+export { type UpsertUpdate } from './repo/write-pipeline'
 
 export { type ColumnTypes } from './schema/column-types'
 

@@ -2,8 +2,9 @@
 // external code can keep importing from './builder/query'.
 export { compileWhere, type OptionalWhere, type WhereFn, type WhereInput, type WhereObject, type WhereOps } from './_where'
 export { assembleQuery } from './assembler'
+export type { ConflictExprBuilder, ConflictSet, ConflictValue } from './conflict'
 export { DeleteBuilder } from './delete'
-export { InsertBuilder, OnConflictBuilder } from './insert'
+export { type ConflictUpdate, InsertBuilder, OnConflictBuilder } from './insert'
 export { MergeBuilder } from './merge'
 export { type RawExpr, rawExpr, SelectBuilder } from './select'
 export { SetOperationBuilder } from './set-op'

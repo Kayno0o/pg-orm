@@ -1,11 +1,15 @@
+import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
+import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
 import { WritePipeline } from './write-pipeline'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
+type GuardedUpsert<TColumns extends AnyColumns> = ConflictUpdate<TColumns> & { where: Where<TColumns> }
+type UnguardedUpsert<TColumns extends AnyColumns> = (keyof TColumns & string)[] | Omit<ConflictUpdate<TColumns>, 'where'>
 
 /** Write coordinator — delegates to the deep `WritePipeline`. */
 export class WriteSuite<
@@ -87,17 +91,23 @@ export class WriteSuite<
     return this._pipeline.deleteOne(this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>[]>
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns: (keyof TColumns & string)[] | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    return this._pipeline.upsertMany(values, conflictTarget, updateColumns, opts)
+  /**
+   * Insert rows, updating each one that conflicts on `conflictTarget`. `update` lists the columns to copy from the incoming row (default: all of them), or is a `ConflictUpdate`:
+   * `set` computes columns from the existing row (`u => ({ visits: u.add(u.existing('visits'), 1) })`) and `where` guards the update, a row it skips being left out of the result.
+   */
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>): Promise<InferPrimaryKey<TColumns>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update: UpsertUpdate<TColumns> | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._pipeline.upsertMany(values, conflictTarget, update, opts)
   }
 
-  /** Insert one row, updating it on conflict. Single-row `upsertMany`. */
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns: (keyof TColumns & string)[] | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], updateColumns?: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    return this._pipeline.upsertOne(values, conflictTarget, updateColumns, opts)
+  /** Single-row `upsertMany`. With a `where` guard it returns `null` when the guard skipped the update. */
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>): Promise<InferPrimaryKey<TColumns> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UnguardedUpsert<TColumns>): Promise<InferPrimaryKey<TColumns>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: UnguardedUpsert<TColumns> | undefined, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    return this._pipeline.upsertOne(values, conflictTarget, update, opts)
   }
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<InferPrimaryKey<TColumns>>
