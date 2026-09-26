@@ -316,9 +316,10 @@ await repo.write.updateById(1, { name: 'Bob' })
 // One statement, a different value per row (reorders, tallies, sync diffs). Rows may write different columns.
 await repo.write.updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1, title: 'Renamed' }])
 
-// Delete
+// Delete: a write refuses a missing WHERE, so clearing a table is its own op
 await repo.write.deleteById(1)
 await repo.write.deleteMany({ createdAt: { lt: cutoff } })
+await repo.write.deleteAll()
 
 // Upsert — INSERT ... ON CONFLICT (conflictTarget) DO UPDATE
 await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])

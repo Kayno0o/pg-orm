@@ -122,6 +122,13 @@ export class WriteSuite<
     return this._pipeline.restore(where, opts)
   }
 
+  /** Delete every row, trashing them on a soft-delete table. `deleteMany` refuses a missing WHERE, so clearing a table is spelled out. */
+  async deleteAll(): Promise<InferPrimaryKey<TColumns>[]>
+  async deleteAll(opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async deleteAll(opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._pipeline.deleteAll(opts)
+  }
+
   async forceDelete(where: Where<TColumns>): Promise<InferPrimaryKey<TColumns>[]>
   async forceDelete(where: Where<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
   async forceDelete(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {

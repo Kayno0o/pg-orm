@@ -24,6 +24,14 @@ interface ReturnableBuilder {
   toSQL: () => { sql: string, params: unknown[] }
 }
 
+// The builders read a falsy WHERE as "no WHERE", which on a write is every row: only `deleteAll` may ask for that, by name.
+function requireWhere<T>(where: T, op: string): T {
+  if (!where)
+    throw new ValidationError(`${op}() needs a WHERE: a missing one would reach every row (deleteAll() clears a table on purpose).`, op, { value: where })
+
+  return where
+}
+
 /** Frozen dependencies for a single write pipeline. */
 export interface WritePipelineContext {
   executor: Executable
@@ -116,6 +124,8 @@ export class WritePipeline<
   // --- Update ---
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    requireWhere(where, 'updateMany')
+
     const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table.name)
       .set(s)
@@ -205,20 +215,7 @@ export class WritePipeline<
   // --- Delete ---
 
   async deleteMany(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._runtime.runBefore('beforeDelete', undefined)
-
-    // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
-    const softSet = this._runtime.behavior.softDeleteSet<TColumns>()
-    const builder = softSet
-      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet), where)
-      : new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
-
-    return this._execute({
-      builder,
-      afterEvent: 'afterDelete',
-      project: rows => this._projectMany(rows, opts),
-      opts,
-    })
+    return this._delete(requireWhere(where, 'deleteMany'), false, opts)
   }
 
   async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
@@ -227,10 +224,23 @@ export class WritePipeline<
     return rows[0] ?? null
   }
 
+  async deleteAll(opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._delete(null, false, opts)
+  }
+
   async forceDelete(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._delete(requireWhere(where, 'forceDelete'), true, opts)
+  }
+
+  // A `null` where is every row, which only `deleteAll` passes.
+  private async _delete(where: Where<TColumns> | null, force: boolean, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runtime.runBefore('beforeDelete', undefined)
 
-    const builder = new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
+    // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
+    const softSet = force ? null : this._runtime.behavior.softDeleteSet<TColumns>()
+    const builder = softSet
+      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet), where)
+      : new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
 
     return this._execute({
       builder,

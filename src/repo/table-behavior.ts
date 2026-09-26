@@ -39,10 +39,10 @@ export interface TableBehavior {
   /** The SET a soft delete writes (the deletion timestamp), or `null` when the table hard-deletes. Run it through `beforeUpdate` hooks, then hand it to `rewriteDelete`. */
   softDeleteSet: <TColumns extends AnyColumns>() => InferUpdate<TColumns> | null
 
-  /** Build the UPDATE a soft delete runs: restricted to rows not already trashed, post-SET transforms (version bump) included. */
+  /** Build the UPDATE a soft delete runs: restricted to rows not already trashed, post-SET transforms (version bump) included. A `null` where trashes every row. */
   rewriteDelete: <TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
-    where: WhereInput<TColumns>,
+    where: WhereInput<TColumns> | null,
   ) => UpdateBuilder<TColumns>
 
   /**
@@ -97,11 +97,11 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
 
   function rewriteDelete<TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
-    where: WhereInput<TColumns>,
+    where: WhereInput<TColumns> | null,
   ): UpdateBuilder<TColumns> {
     const builder = new UpdateBuilderCtor<TColumns>(table.name)
       .set(set)
-      .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where), e.isNull(softDeleteColumn!)))
+      .where((e: ExprBuilder<TColumns>) => where ? e.and(compileWhere<TColumns>(where), e.isNull(softDeleteColumn!)) : e.isNull(softDeleteColumn!))
 
     prepareUpdate(builder, set as Record<string, unknown>)
 
