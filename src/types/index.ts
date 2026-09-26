@@ -233,8 +233,13 @@ export type PrimaryKeyColumn<TColumns extends AnyColumns> = {
   [K in keyof TColumns]: IsColumnPrimaryKey<TColumns[K]> extends true ? K : never
 }[keyof TColumns]
 
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
+
+// One key column gives its value; a composite key gives an object holding each part, the shape the by-id ops take.
 export type InferPrimaryKey<TColumns extends AnyColumns>
-  = ExtractColumnType<TColumns[PrimaryKeyColumn<TColumns>]>
+  = true extends IsUnion<PrimaryKeyColumn<TColumns>>
+    ? { [K in PrimaryKeyColumn<TColumns>]: ExtractColumnType<TColumns[K]> }
+    : ExtractColumnType<TColumns[PrimaryKeyColumn<TColumns>]>
 
 /** Options controlling what a write operation returns. */
 export interface WriteReturnOptions {

@@ -295,6 +295,7 @@ await repo.read.count({ status: 'active' }, { withTrashed: true })
 
 By default, write operations return the **primary key** (a single id, or an array of
 ids for the `*Many` variants — `null` for the `*One` variants when nothing matched).
+A composite key comes back as an object holding each part, the shape the by-id ops take.
 Pass `{ full: true }` as the final argument to get the full row(s) back, with virtuals
 applied. Returning only the key keeps the common case cheap: `RETURNING "id"` instead of
 `RETURNING *`.

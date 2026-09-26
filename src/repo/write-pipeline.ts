@@ -281,11 +281,11 @@ export class WritePipeline<
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    const pk = this._runtime.primaryKey
+    // A no-op update on the key so the existing row comes back through RETURNING.
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
       .values(v)
       .onConflict(conflictTarget)
-      .doUpdate(pk as keyof TColumns & string)
+      .doUpdate(...this._runtime.pkColumns as (keyof TColumns & string)[])
 
     return this._execute({
       builder,
@@ -327,7 +327,7 @@ export class WritePipeline<
     project: (rows: Record<string, unknown>[]) => TResult
     opts?: WriteReturnOptions
   }): Promise<TResult> {
-    const retCols = args.opts?.full ? [] : [this._runtime.primaryKey]
+    const retCols = args.opts?.full ? [] : [...this._runtime.pkColumns]
 
     args.builder.returning(...retCols)
 
@@ -341,7 +341,7 @@ export class WritePipeline<
 
   private _projectOne(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any {
     if (!opts?.full)
-      return rows[0]![this._runtime.primaryKey]
+      return this._keys(rows)[0]
 
     const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
     const mapped = mapChunk(mapper, rows)
@@ -351,11 +351,22 @@ export class WritePipeline<
 
   private _projectMany(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any[] {
     if (!opts?.full)
-      return rows.map(r => r[this._runtime.primaryKey])
+      return this._keys(rows)
 
     const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
     const mapped = mapChunk(mapper, rows)
 
     return this._runtime.applyVirtuals(mapped)
+  }
+
+  // Keys go through the row mapper like any read, so a bigserial key comes back as a bigint; a composite key is an object holding each part.
+  private _keys(rows: Record<string, unknown>[]): unknown[] {
+    const { pkColumns, table } = this._runtime
+    const mapped = mapChunk(this._mapperFactory(new SelectBuilderCtor<AnyColumns>(table.name).pick(...pkColumns)), rows)
+
+    if (pkColumns.length === 1)
+      return mapped.map(row => row[pkColumns[0]!])
+
+    return mapped.map(row => Object.fromEntries(pkColumns.map(col => [col, row[col]])))
   }
 }
