@@ -459,6 +459,89 @@ const page2 = await repo.read.paginateCursor({
 })
 ```
 
+## Recipes
+
+Which op fits which write. Each one is a single statement or a transaction, so two requests racing on the same row cannot both win.
+
+**Get or create**: one statement, needs a unique index on the target.
+
+```ts
+const tag = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'], { full: true })
+```
+
+**Insert or update**: `upsertOne` copies the incoming columns on conflict; `set` computes from the existing row instead, `where` skips the update (and returns `null`).
+
+```ts
+await StatRepo.write.upsertOne({ userId, day, visits: 1 }, ['userId', 'day'], {
+  columns: [],
+  set: u => ({ visits: u.add(u.existing('visits'), 1) }),
+})
+```
+
+**Claim once** (redeem an invite, consume a token): put the condition in the WHERE, `null` means someone else got there first.
+
+```ts
+const claimed = await InviteRepo.write.updateOne({ usedBy: userId, usedAt: new Date() }, { token, usedAt: null })
+if (!claimed)
+  throw new Error('invite already used')
+```
+
+**Read, modify, write**: with the `optimisticLock` trait, `updateWithLock` throws `StaleRecordError` if the row changed since it was read. Without it, lock the row for the transaction with `forUpdate()`.
+
+```ts
+const doc = await DocRepo.read.findByIdOrThrow(id)
+await DocRepo.write.updateWithLock({ body: edit(doc.body) }, { id }, doc.version)
+
+await db.transaction(async (tx) => {
+  const wallets = WalletRepo.using(tx)
+  const wallet = await wallets.read.findOne(q => q.where({ id }).forUpdate())
+  await wallets.write.updateById(id, { balance: wallet!.balance - amount })
+})
+```
+
+**Several writes that must succeed together**: every repo in the body goes through `.using(tx)`; one that does not writes outside the transaction.
+
+```ts
+const listId = await db.transaction(async (tx) => {
+  const id = await ListRepo.using(tx).write.insertOne({ ownerId, title })
+  await TierRepo.using(tx).write.insertMany(names.map((name, position) => ({ listId: id, name, position })))
+  return id
+})
+```
+
+**Replace a child collection**: delete and reinsert in one transaction (`forceDelete` on a soft-delete table), or reorder in place with `updateManyById`, one statement for every row.
+
+```ts
+await db.transaction(async (tx) => {
+  const tiers = TierRepo.using(tx)
+  await tiers.write.deleteMany({ listId })
+  await tiers.write.insertMany(names.map((name, position) => ({ listId, name, position })))
+})
+
+await TierRepo.write.updateManyById(order.map((id, position) => ({ id, position })))
+```
+
+**Page a list**: `paginate` for numbered pages (its `total` follows the callback's filters), `paginateCursor` for infinite scroll. `withCount` adds child counts without a query per row.
+
+```ts
+const listing = await ListRepo.read.paginate({ page, perPage: 20, where: { ownerId } }, q => q.withCount('tiers').orderBy('id', 'desc'))
+const next = await ListRepo.read.paginateCursor({ take: 20, column: 'id', direction: 'backward', cursor })
+```
+
+**Retry on a unique token collision**: needs a unique index on the token.
+
+```ts
+for (let attempt = 1; ; attempt++) {
+  try {
+    return await ShareRepo.write.insertOne({ listId, token: randomToken() })
+  }
+  catch (err) {
+    if (!(err instanceof UniqueError) || attempt === 5)
+      throw err
+  }
+}
+```
+
 ## Streaming
 
 ```ts
