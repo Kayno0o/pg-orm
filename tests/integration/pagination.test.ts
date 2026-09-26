@@ -30,6 +30,10 @@ async function seedUsers(count: number) {
   )
 }
 
+async function seedAges(ages: number[]) {
+  await db.repo(usersTable).write.insertMany(ages.map((age, i) => ({ name: `U${i}`, email: `age${i}@test.com`, age })))
+}
+
 describe('Offset Pagination', () => {
   it('returns correct page', async () => {
     await seedUsers(15)
@@ -80,6 +84,25 @@ describe('Offset Pagination', () => {
 
     expect(result.total).toBe(5) // ages 25-29
     expect(result.data).toHaveLength(5)
+  })
+
+  it.failing('counts groups, not rows, when the callback groups', async () => {
+    await seedAges([20, 20, 21, 21, 22])
+
+    const result = await db.repo(usersTable).read.paginate({ page: 1, perPage: 2 }, q => q.pick('age').groupBy('age').orderBy('age'))
+
+    expect(result.data).toHaveLength(2)
+    expect(result.total).toBe(3)
+    expect(result.totalPages).toBe(2)
+  })
+
+  it.failing('counts distinct rows when the callback selects distinct', async () => {
+    await seedAges([20, 20, 21, 21, 22])
+
+    const result = await db.repo(usersTable).read.paginate({ page: 1, perPage: 2 }, q => q.pick('age').distinct().orderBy('age'))
+
+    expect(result.data).toHaveLength(2)
+    expect(result.total).toBe(3)
   })
 })
 

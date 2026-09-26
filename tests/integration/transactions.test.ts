@@ -187,3 +187,30 @@ describe('Transaction settlement', () => {
     expect(committed).toBe(true)
   })
 })
+
+describe('db.transaction() called inside a transaction body', () => {
+  it.failing('sees the outer transaction\'s uncommitted writes', async () => {
+    await db.transaction(async (tx) => {
+      await db.repo(usersTable).using(tx).write.insertOne({ name: 'Outer', email: 'outer@test.com' })
+
+      const seen = await db.transaction(async inner => db.repo(usersTable).using(inner).read.count({ email: 'outer@test.com' }))
+
+      expect(seen).toBe(1)
+    })
+  })
+
+  it.failing('rolls back with the outer transaction', async () => {
+    try {
+      await db.transaction(async () => {
+        await db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Inner', email: 'inner@test.com' }))
+
+        throw new Error('outer fails after the inner one returned')
+      })
+    }
+    catch {
+      // expected
+    }
+
+    expect(await db.repo(usersTable).read.count({ email: 'inner@test.com' })).toBe(0)
+  })
+})
