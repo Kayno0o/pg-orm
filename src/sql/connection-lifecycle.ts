@@ -57,7 +57,7 @@ export class ConnectionLifecycle extends BaseExecutor {
   }
 
   override query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    return this.track(() => this._retry.run(() => super.query(sqlStr, params)))
+    return this.track(() => this._retry.runStatement(sqlStr, () => super.query(sqlStr, params)))
   }
 
   /** Run a unit of work the drain waits for: rejected once draining has begun, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */

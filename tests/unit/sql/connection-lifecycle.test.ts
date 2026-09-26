@@ -35,7 +35,7 @@ function makeLifecycle(driver: FakeDriver, hooks: ConnectionHooks = {}): Connect
   const lc = new ConnectionLifecycle(
     { url: 'postgres://localhost:1/test' },
     'public',
-    { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 5 },
+    { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 5, writes: false },
     hooks,
   )
 
@@ -112,7 +112,7 @@ describe('ConnectionLifecycle', () => {
     const lc = new ConnectionLifecycle(
       { url: 'postgres://localhost:1/test' },
       'public',
-      { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 5 },
+      { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 5, writes: false },
       {},
     )
 

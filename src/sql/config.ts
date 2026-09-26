@@ -105,7 +105,7 @@ export interface DbConfig {
    */
   defaultLimit?: number
   /**
-   * Retry transient connection errors (PG codes 08xxx, 57P01) with exponential backoff.
+   * Retry a statement outside a transaction with exponential backoff: any statement after a deadlock or serialization failure, and a SELECT after a dropped connection (PG codes 08xxx, 57P01).
    *  Disabled by default. Set `maxRetries` to enable.
    */
   retry?: {
@@ -115,6 +115,8 @@ export interface DbConfig {
     baseDelayMs?: number
     /** Maximum delay between retries in milliseconds (default: 5000) */
     maxDelayMs?: number
+    /** Also retry writes after a dropped connection, which can apply one twice when it had committed before the reply was lost (default: false) */
+    writes?: boolean
   }
 }
 

@@ -77,6 +77,7 @@ export class Database extends BaseExecutor {
         maxRetries: config.retry?.maxRetries ?? 0,
         baseDelayMs: config.retry?.baseDelayMs ?? 100,
         maxDelayMs: config.retry?.maxDelayMs ?? 5000,
+        writes: config.retry?.writes ?? false,
       },
       { ...hooks, onPingError: config.onPingError },
     )
