@@ -150,8 +150,8 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
   return cols.join(', ') || '*'
 }
 
-function printSelectHead(sb: SqlBuilder, state: BuilderState): void {
-  if (state.op === 'count') {
+function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean): void {
+  if (counted) {
     sb.push('SELECT count(*)')
 
     return
@@ -222,7 +222,13 @@ function printLock(sb: SqlBuilder, state: BuilderState): void {
 }
 
 function printSelect(sb: SqlBuilder, state: BuilderState): void {
-  printSelectHead(sb, state)
+  // A grouped or distinct query has fewer result rows than matched rows, so its count wraps the query instead of replacing its column list.
+  const wrapCount = state.op === 'count' && (state.groupBy.length > 0 || state.distinct || state.distinctOn.length > 0)
+
+  if (wrapCount)
+    sb.push('SELECT count(*) FROM (')
+
+  printSelectHead(sb, state, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
   printJoins(sb, state)
   printWhere(sb, state.whereTape)
@@ -230,6 +236,9 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   printWindows(sb, state.windows)
   printOrderLimit(sb, state)
   printLock(sb, state)
+
+  if (wrapCount)
+    sb.push(') AS "__counted"')
 }
 
 // --- INSERT / UPDATE / DELETE ---

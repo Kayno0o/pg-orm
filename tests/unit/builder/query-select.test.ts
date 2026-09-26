@@ -215,6 +215,11 @@ describe('SelectBuilder', () => {
     expect(sql).toContain('SELECT count(*)')
   })
 
+  it('count wraps a grouped or distinct query to count its result rows', () => {
+    expect(select().pick('age').groupBy('age').count().toSQL().sql).toBe('SELECT count(*) FROM ( SELECT "age" FROM "users" GROUP BY "age" ) AS "__counted"')
+    expect(select().pick('age').distinct().count().toSQL().sql).toStartWith('SELECT count(*) FROM ( SELECT DISTINCT "age" FROM')
+  })
+
   it('aggregate uses computed columns', () => {
     const { sql } = select().aggregate(e => ({
       total: e.sum('age'),
