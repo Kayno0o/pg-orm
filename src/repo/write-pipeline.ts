@@ -3,7 +3,7 @@ import type { ConflictSet, ConflictValue } from '../builder/conflict'
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
@@ -124,7 +124,7 @@ export class WritePipeline<
 
   // --- Update ---
 
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     requireWhere(where, 'updateMany')
 
     const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
@@ -133,6 +133,7 @@ export class WritePipeline<
       .where(where)
 
     this._runtime.behavior.prepareUpdate(builder, s)
+    this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
 
     return this._execute({
       builder,
@@ -142,13 +143,13 @@ export class WritePipeline<
     })
   }
 
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.updateMany(set, where, opts)
 
     return rows[0] ?? null
   }
 
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const lockCol = this._runtime.behavior.getOptimisticLockColumn()
 
     if (!lockCol) {
@@ -171,7 +172,7 @@ export class WritePipeline<
     return rows[0]!
   }
 
-  async updateManyById(rows: Record<string, unknown>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async updateManyById(rows: Record<string, unknown>[], opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (rows.length === 0)
       return []
 
@@ -204,6 +205,7 @@ export class WritePipeline<
     const builder = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], prepared)
 
     this._runtime.behavior.prepareUpdate(builder, {})
+    this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
 
     return this._execute({
       builder,

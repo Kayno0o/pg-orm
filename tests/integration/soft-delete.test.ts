@@ -158,3 +158,33 @@ describe('Soft Delete', () => {
     expect(second!.deletedAt).toEqual(first!.deletedAt)
   })
 })
+
+describe('Updates on soft-deleted rows', () => {
+  async function seed() {
+    const users = db.repo(usersTable)
+    const [live, trashed] = await users.write.insertMany([
+      { name: 'Live', email: 'live@test.com' },
+      { name: 'Trashed', email: 'trashed@test.com' },
+    ])
+
+    await users.write.deleteById(trashed!)
+
+    return { users, live: live!, trashed: trashed! }
+  }
+
+  it('skips them unless asked', async () => {
+    const { users, live, trashed } = await seed()
+
+    expect(await users.write.updateMany({ name: 'Renamed' }, { email: { endsWith: '@test.com' } })).toEqual([live])
+    expect(await users.write.updateById(trashed, { name: 'Renamed' })).toBeNull()
+    expect(await users.write.updateById(trashed, { name: 'Restored name' }, { withTrashed: true })).toBe(trashed)
+    expect((await users.read.findById(trashed, q => q.withTrashed()))?.name).toBe('Restored name')
+  })
+
+  it('skips them in a bulk update by id', async () => {
+    const { users, live, trashed } = await seed()
+
+    expect(await users.write.updateManyById([{ id: live, name: 'a' }, { id: trashed, name: 'b' }])).toEqual([live])
+    expect(await users.write.updateManyById([{ id: trashed, name: 'b' }], { withTrashed: true })).toEqual([trashed])
+  })
+})

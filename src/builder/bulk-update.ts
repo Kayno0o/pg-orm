@@ -20,6 +20,7 @@ export interface BulkUpdateRow {
 export class BulkUpdateBuilder {
   private _returning: string[] = []
   private _raw = new Map<string, string>()
+  private _nullColumns: string[] = []
 
   constructor(
     private readonly table: string,
@@ -35,6 +36,13 @@ export class BulkUpdateBuilder {
    */
   setRaw(column: string, sqlExpression: string): this {
     this._raw.set(column, sqlExpression)
+
+    return this
+  }
+
+  /** Only update rows where this column is null. */
+  whereNull(column: string): this {
+    this._nullColumns.push(column)
 
     return this
   }
@@ -83,7 +91,10 @@ export class BulkUpdateBuilder {
     for (const [col, expr] of this._raw)
       sets.push(`${quote(col)} = ${expr}`)
 
-    const match = this.keyColumns.map((col, i) => `${target}.${quote(col)} = "v"."k${i}"`).join(' AND ')
+    const match = [
+      ...this.keyColumns.map((col, i) => `${target}.${quote(col)} = "v"."k${i}"`),
+      ...this._nullColumns.map(col => `${target}.${quote(col)} IS NULL`),
+    ].join(' AND ')
     const returning = this._returning.length
       ? this._returning.map(col => `${target}.${quote(col)}`).join(', ')
       : `${target}.*`

@@ -174,7 +174,9 @@ export type {
   RelationDef,
   RelationKind,
   TableDef,
+  UpdateOptions,
   VirtualDef,
   WithIncludes,
   WithVirtuals,
+  WriteReturnOptions,
 } from './types/index'

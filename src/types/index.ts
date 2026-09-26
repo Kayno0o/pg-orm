@@ -250,6 +250,11 @@ export interface WriteReturnOptions {
   full?: boolean
 }
 
+export interface UpdateOptions extends WriteReturnOptions {
+  /** Also update soft-deleted rows, which an update skips by default. */
+  withTrashed?: boolean
+}
+
 // InferSelect: all columns, nullable columns get | null
 export type InferSelect<TColumns extends AnyColumns> = {
   [K in keyof TColumns]: IsColumnNullable<TColumns[K]> extends true

@@ -1,6 +1,7 @@
 import type { ExprBuilder } from '../builder/expr'
 import type { InsertBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
 import type { AnyColumns, AnyTableDef, InferUpdate } from '../types/index'
+import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { OrmError } from '../errors/index'
 import { tableMeta } from '../schema/inspect'
@@ -35,6 +36,9 @@ export interface TableBehavior {
    * safely inject `setRaw` values that cannot be smuggled through user payloads.
    */
   prepareUpdate: (builder: RawSettable, set: Record<string, unknown>) => void
+
+  /** Keep an UPDATE off soft-deleted rows, unless `withTrashed`. */
+  excludeTrashed: (builder: UpdateBuilder<any> | BulkUpdateBuilder, withTrashed?: boolean) => void
 
   /** The SET a soft delete writes (the deletion timestamp), or `null` when the table hard-deletes. Run it through `beforeUpdate` hooks, then hand it to `rewriteDelete`. */
   softDeleteSet: <TColumns extends AnyColumns>() => InferUpdate<TColumns> | null
@@ -91,6 +95,16 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     }
   }
 
+  function excludeTrashed(b: UpdateBuilder<any> | BulkUpdateBuilder, withTrashed?: boolean): void {
+    if (!hasSoftDelete || withTrashed)
+      return
+
+    if (b instanceof BulkUpdateBuilder)
+      b.whereNull(softDeleteColumn!)
+    else
+      b.andWhere(e => e.isNull(softDeleteColumn!))
+  }
+
   function softDeleteSet<TColumns extends AnyColumns>(): InferUpdate<TColumns> | null {
     return hasSoftDelete ? { [softDeleteColumn!]: new Date() } as InferUpdate<TColumns> : null
   }
@@ -139,6 +153,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     prepareSelect,
     prepareInsert,
     prepareUpdate,
+    excludeTrashed,
     softDeleteSet,
     rewriteDelete,
     buildRestoreUpdate,

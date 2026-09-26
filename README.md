@@ -370,6 +370,7 @@ const users = defineTable('users', t => ({ ... }))
 
 // Soft-delete: deleteMany/deleteOne sets deletedAt instead of DELETE
 // Use .withTrashed() to include soft-deleted rows
+// Updates skip soft-deleted rows; pass { withTrashed: true } to reach them
 // Use .forceDelete() for real DELETE
 
 // Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict

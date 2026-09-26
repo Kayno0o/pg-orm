@@ -1,7 +1,7 @@
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
@@ -40,35 +40,35 @@ export class WriteSuite<
     return this._pipeline.insertMany(values, opts)
   }
 
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>): Promise<InferPrimaryKey<TColumns>[]>
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._pipeline.updateMany(set, where, opts)
   }
 
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>): Promise<InferPrimaryKey<TColumns> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateOne(set, where, opts)
   }
 
   /** Update the row with this primary key. A composite key takes an object holding each part. */
-  async updateById(id: unknown, set: InferUpdate<TColumns>): Promise<InferPrimaryKey<TColumns> | null>
-  async updateById(id: unknown, set: InferUpdate<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateOne(set, this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
   /** Update many rows in one statement, each with its own values: `updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1 }])`. Rows may write different columns; a row whose key matches nothing is skipped. */
-  async updateManyById(rows: InferUpdateById<TColumns>[]): Promise<InferPrimaryKey<TColumns>[]>
-  async updateManyById(rows: InferUpdateById<TColumns>[], opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async updateManyById(rows: InferUpdateById<TColumns>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async updateManyById(rows: InferUpdateById<TColumns>[], opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns>[]>
+  async updateManyById(rows: InferUpdateById<TColumns>[], opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async updateManyById(rows: InferUpdateById<TColumns>[], opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._pipeline.updateManyById(rows as Record<string, unknown>[], opts)
   }
 
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number): Promise<InferPrimaryKey<TColumns>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     return this._pipeline.updateWithLock(set, where, currentVersion, opts)
   }
 
