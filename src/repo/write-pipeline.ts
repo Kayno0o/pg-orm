@@ -9,6 +9,7 @@ import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
+import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { jsonParam } from '../sql/json-param'
 import { createMapperFactory } from './_mapper'
@@ -363,46 +364,37 @@ export class WritePipeline<
     project: (rows: Record<string, unknown>[]) => TResult
     opts?: WriteReturnOptions
   }): Promise<TResult> {
-    const retCols = args.opts?.full ? [] : [...this._runtime.pkColumns]
+    const { pkColumns, table } = this._runtime
+    // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys.
+    const whole = args.opts?.full || hasHooks(table, args.afterEvent)
+    const shape = new SelectBuilderCtor<AnyColumns>(table.name)
 
-    args.builder.returning(...retCols)
+    args.builder.returning(...whole ? [] : pkColumns)
 
     const { sql, params } = args.builder.toSQL()
-    const rows = await this._executor.query(sql, params)
+    const rows = mapChunk(this._mapperFactory(whole ? shape : shape.pick(...pkColumns)), await this._executor.query(sql, params))
 
     await this._runtime.runAfter(args.afterEvent, rows)
 
     return args.project(rows)
   }
 
+  // `rows` arrive mapped; the full form installs virtuals.
   private _projectOne(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any {
-    if (!opts?.full)
-      return this._keys(rows)[0]
-
-    const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
-    const mapped = mapChunk(mapper, rows)
-
-    return this._runtime.applyVirtuals(mapped)[0]
+    return this._projectMany(rows.slice(0, 1), opts)[0]
   }
 
   private _projectMany(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any[] {
-    if (!opts?.full)
-      return this._keys(rows)
-
-    const mapper = this._mapperFactory(new SelectBuilderCtor(this._runtime.table.name))
-    const mapped = mapChunk(mapper, rows)
-
-    return this._runtime.applyVirtuals(mapped)
+    return opts?.full ? this._runtime.applyVirtuals(rows) : this._keys(rows)
   }
 
-  // Keys go through the row mapper like any read, so a bigserial key comes back as a bigint; a composite key is an object holding each part.
+  // A composite key is an object holding each part.
   private _keys(rows: Record<string, unknown>[]): unknown[] {
-    const { pkColumns, table } = this._runtime
-    const mapped = mapChunk(this._mapperFactory(new SelectBuilderCtor<AnyColumns>(table.name).pick(...pkColumns)), rows)
+    const { pkColumns } = this._runtime
 
     if (pkColumns.length === 1)
-      return mapped.map(row => row[pkColumns[0]!])
+      return rows.map(row => row[pkColumns[0]!])
 
-    return mapped.map(row => Object.fromEntries(pkColumns.map(col => [col, row[col]])))
+    return rows.map(row => Object.fromEntries(pkColumns.map(col => [col, row[col]])))
   }
 }

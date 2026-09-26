@@ -413,6 +413,8 @@ users.hook('afterSelect', (rows) => {
 
 Available hooks: `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `afterSelect`, `beforeUpsert`
 
+The `after*` hooks receive every written row whole and mapped, the same shape `afterSelect` gets, so a table with an after-write hook returns all its columns from each write.
+
 ## Transactions
 
 ```ts

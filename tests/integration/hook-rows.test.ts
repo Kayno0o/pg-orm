@@ -39,13 +39,13 @@ afterAll(async () => {
 describe('After-write hook rows', () => {
   const expected = { name: 'a', big: 10n, data: { n: 1 } }
 
-  it.failing('afterInsert receives the full mapped row', async () => {
+  it('afterInsert receives the full mapped row', async () => {
     await db.repo(hookRows).write.insertOne({ name: 'a', big: 10n, data: { n: 1 } })
 
     expect(seen.afterInsert?.[0]).toMatchObject(expected)
   })
 
-  it.failing('afterUpdate receives the full mapped row', async () => {
+  it('afterUpdate receives the full mapped row', async () => {
     const id = await db.repo(hookRows).write.insertOne({ name: 'a', big: 1n, data: { n: 1 } })
 
     await db.repo(hookRows).write.updateById(id, { big: 10n })
@@ -53,7 +53,7 @@ describe('After-write hook rows', () => {
     expect(seen.afterUpdate?.[0]).toMatchObject(expected)
   })
 
-  it.failing('afterDelete receives the full mapped row', async () => {
+  it('afterDelete receives the full mapped row', async () => {
     const id = await db.repo(hookRows).write.insertOne({ name: 'a', big: 10n, data: { n: 1 } })
 
     await db.repo(hookRows).write.deleteById(id)
@@ -61,7 +61,7 @@ describe('After-write hook rows', () => {
     expect(seen.afterDelete?.[0]).toMatchObject(expected)
   })
 
-  it.failing('afterSelect and afterInsert see the same row shape', async () => {
+  it('afterSelect and afterInsert see the same row shape', async () => {
     const id = await db.repo(hookRows).write.insertOne({ name: 'a', big: 10n, data: { n: 1 } })
 
     await db.repo(hookRows).read.findById(id)
