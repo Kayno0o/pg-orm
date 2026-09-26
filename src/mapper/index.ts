@@ -17,6 +17,21 @@ export type RowMapper<T> = (row: Record<string, unknown>) => T
 // Compile a mapper for a specific set of columns (cached per shape fingerprint)
 const MAPPER_CACHE_MAX = 1000
 const _mapperCache = new Map<string, RowMapper<Record<string, unknown>>>()
+// Two table defs may share a name (a test redefining a table, one name in two schemas), so the cache key carries which columns object it was compiled from.
+const _columnsIds = new WeakMap<object, number>()
+let _nextColumnsId = 0
+
+function columnsId(columns: object): number {
+  let id = _columnsIds.get(columns)
+
+  if (id === undefined) {
+    id = _nextColumnsId++
+    _columnsIds.set(columns, id)
+  }
+
+  return id
+}
+
 const WS_RE = /\s/
 
 // Build a JIT-compiled mapper for a set of columns.
@@ -255,7 +270,7 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   omit?: string[],
   computed?: string[],
 ): RowMapper<Record<string, unknown>> {
-  const key = `${tableName}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
+  const key = `${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
   const cached = _mapperCache.get(key)
 
   if (cached !== undefined) {

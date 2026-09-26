@@ -217,3 +217,15 @@ describe('getOrCompileMapper cache key fingerprint', () => {
     expect(seedAfter).toBe(original)
   })
 })
+
+describe('getOrCompileMapper cache key', () => {
+  it('does not share a mapper between two tables that reuse one name', () => {
+    clearMapperCache()
+
+    const first = getOrCompileMapper('shared', makeCols({ id: 'int4', amount: 'int8' }))
+    const second = getOrCompileMapper('shared', makeCols({ id: 'int4', label: 'jsonb' }))
+
+    expect(second).not.toBe(first)
+    expect(second({ id: 2, label: { a: 1 } })).toEqual({ id: 2, label: { a: 1 } })
+  })
+})
