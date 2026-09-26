@@ -312,6 +312,9 @@ await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
 await repo.write.updateById(1, { name: 'Bob' })
 
+// One statement, a different value per row (reorders, tallies, sync diffs). Rows may write different columns.
+await repo.write.updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1, title: 'Renamed' }])
+
 // Delete
 await repo.write.deleteById(1)
 await repo.write.deleteMany({ createdAt: { lt: cutoff } })

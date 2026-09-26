@@ -270,6 +270,10 @@ export type InferInsert<TColumns extends AnyColumns>
         ? ExtractColumnType<TColumns[K]> | null
         : ExtractColumnType<TColumns[K]> }
 
+/** One row of `updateManyById`: its primary key, required, plus the columns it writes. */
+export type InferUpdateById<TColumns extends AnyColumns>
+  = InferUpdate<TColumns> & { [K in PrimaryKeyColumn<TColumns>]-?: ExtractColumnType<TColumns[K]> }
+
 // InferUpdate: all columns optional, generated excluded
 export type InferUpdate<TColumns extends AnyColumns> = {
   [K in keyof TColumns as IsColumnGenerated<TColumns[K]> extends true ? never : K]?:

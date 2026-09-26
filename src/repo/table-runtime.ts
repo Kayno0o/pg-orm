@@ -17,6 +17,8 @@ type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
 export interface TableRuntime {
   readonly table: AnyTableDef
   readonly primaryKey: string
+  /** The primary key split into its columns: one entry, or one per part of a composite key. */
+  readonly pkColumns: readonly string[]
 
   // Trait behavior surface
   readonly behavior: TableBehavior
@@ -157,6 +159,7 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
   return Object.freeze({
     table,
     primaryKey,
+    pkColumns,
     behavior,
     pkWhere,
     runBefore,

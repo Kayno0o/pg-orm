@@ -155,6 +155,7 @@ export type {
   InferSelect,
   InferSelectFromTable,
   InferUpdate,
+  InferUpdateById,
   InferUpdateFromTable,
   InferVirtuals,
   InferWhere,

@@ -6,6 +6,11 @@ import { OrmError } from '../errors/index'
 import { tableMeta } from '../schema/inspect'
 import { quote } from '../sql/utils'
 
+/** Any UPDATE a trait can add a raw SET to: the single-statement builder or the per-row bulk one. */
+interface RawSettable {
+  setRaw: (column: string, sqlExpression: string) => unknown
+}
+
 /**
  * Deep module that owns the per-table, per-operation behavior introduced by
  * traits. The read/write pipelines delegate to this object instead of
@@ -29,7 +34,7 @@ export interface TableBehavior {
    * Callers must invoke this **after** `.set()` and `.where()` so traits can
    * safely inject `setRaw` values that cannot be smuggled through user payloads.
    */
-  prepareUpdate: (builder: UpdateBuilder<any>, set: Record<string, unknown>) => void
+  prepareUpdate: (builder: RawSettable, set: Record<string, unknown>) => void
 
   /** The SET a soft delete writes (the deletion timestamp), or `null` when the table hard-deletes. Run it through `beforeUpdate` hooks, then hand it to `rewriteDelete`. */
   softDeleteSet: <TColumns extends AnyColumns>() => InferUpdate<TColumns> | null
@@ -78,7 +83,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     // for future traits that need to inspect or mutate insert builders.
   }
 
-  function prepareUpdate(b: UpdateBuilder<any>, _set: Record<string, unknown>): void {
+  function prepareUpdate(b: RawSettable, _set: Record<string, unknown>): void {
     if (hasOptimisticLock) {
       // Internal — runs AFTER `.set()` validation so user payloads can't
       // smuggle `__raw` through and the version bump itself bypasses the check.

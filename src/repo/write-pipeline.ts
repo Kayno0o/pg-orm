@@ -1,7 +1,9 @@
+import type { BulkUpdateRow } from '../builder/bulk-update'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
+import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
@@ -150,6 +152,48 @@ export class WritePipeline<
       throw new StaleRecordError(this._runtime.table.name, currentVersion)
 
     return rows[0]!
+  }
+
+  async updateManyById(rows: Record<string, unknown>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    if (rows.length === 0)
+      return []
+
+    const { pkColumns, table } = this._runtime
+    const seen = new Set<string>()
+    const prepared: BulkUpdateRow[] = []
+
+    for (const row of rows) {
+      const key: Record<string, unknown> = {}
+      const patch: Record<string, unknown> = {}
+
+      for (const [col, value] of Object.entries(row))
+        (pkColumns.includes(col) ? key : patch)[col] = value
+
+      for (const col of pkColumns) {
+        if (key[col] === undefined || key[col] === null)
+          throw new ValidationError(`updateManyById(): a row on "${table.name}" is missing its primary key "${col}".`, 'updateManyById', { field: col, value: row })
+      }
+
+      // Two patches for one row would leave which one wins up to the planner.
+      const identity = pkColumns.map(col => `${col}=${String(key[col])}`).join(', ')
+
+      if (seen.has(identity))
+        throw new ValidationError(`updateManyById(): the row ${identity} on "${table.name}" appears twice.`, 'updateManyById', { value: key })
+
+      seen.add(identity)
+      prepared.push({ key, set: this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', patch)) })
+    }
+
+    const builder = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], prepared)
+
+    this._runtime.behavior.prepareUpdate(builder, {})
+
+    return this._execute({
+      builder,
+      afterEvent: 'afterUpdate',
+      project: result => this._projectMany(result, opts),
+      opts,
+    })
   }
 
   // --- Delete ---
