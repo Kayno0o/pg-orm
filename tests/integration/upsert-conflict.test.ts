@@ -11,6 +11,7 @@ const players = defineTable('uc_players', t => ({
   first_seen: t.timestamptz().nullable(),
   last_seen: t.timestamptz().nullable(),
   meta: t.jsonb<{ tag: string }>().nullable(),
+  list: t.jsonb<string[]>().nullable(),
 })).withTrait(timestamps()).withTrait(optimisticLock())
 
 const kv = defineTable('uc_kv', t => ({
@@ -67,11 +68,12 @@ describe('upsert set from the existing row', () => {
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ name: 'Kept', sessions: 2 })
   })
 
-  it('writes a plain object to a json column as a value', async () => {
+  it('writes a plain object or array to a json column as a value', async () => {
     await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' })
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: () => ({ meta: { tag: 'x' } }) })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: () => ({ meta: { tag: 'x' }, list: ['a', 'b'] }) })
 
-    expect((await db.repo(players).read.findByIdOrThrow('p1')).meta).toEqual({ tag: 'x' })
+    expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ meta: { tag: 'x' }, list: ['a', 'b'] })
+    expect(await db.raw('SELECT jsonb_typeof("meta") AS meta, jsonb_typeof("list") AS list FROM "uc_players"')).toEqual([{ meta: 'object', list: 'array' }])
   })
 
   it('bumps updatedAt and the version on the updated row, as any update does', async () => {

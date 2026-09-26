@@ -6,6 +6,7 @@ import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
+import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { StaleRecordError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
@@ -279,19 +280,28 @@ export class WritePipeline<
   // The row an upsert updates is updated like any other: `beforeUpdate` hooks (timestamps) and the version bump apply to it.
   private async _conflictUpdate(update?: UpsertUpdate<TColumns>): Promise<ConflictUpdate<TColumns>> {
     const spec: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
-    const hooked = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', {}))
+    const hooked = await this._runtime.runBefore('beforeUpdate', {})
     const lock = this._runtime.behavior.getOptimisticLockColumn()
 
-    if (Object.keys(hooked).length === 0 && !lock)
+    if (!spec.set && Object.keys(hooked).length === 0 && !lock)
       return spec
 
     return {
       ...spec,
-      set: u => ({
-        ...hooked,
-        ...spec.set?.(u),
-        ...lock ? { [lock]: u.add(u.existing(lock) as ConflictValue<number>, 1) } : {},
-      }) as ConflictSet<TColumns>,
+      set: (u) => {
+        const set: Record<string, unknown> = { ...hooked, ...spec.set?.(u) }
+
+        if (lock)
+          set[lock] = u.add(u.existing(lock) as ConflictValue<number>, 1)
+
+        // Plain values are bound like any write's, so a json value is marked; an expression is left to render itself.
+        for (const [col, value] of Object.entries(set)) {
+          if (!isConflictValue(value))
+            Object.assign(set, this._normalizeJsonValues({ [col]: value }))
+        }
+
+        return set as ConflictSet<TColumns>
+      },
     }
   }
 
