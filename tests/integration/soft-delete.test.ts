@@ -129,4 +129,32 @@ describe('Soft Delete', () => {
 
     expect(deleted[0]!.isDeleted).toBe(true)
   })
+
+  it('deleteMany bumps updatedAt like any other update', async () => {
+    const repo = db.repo(usersTable)
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    const before = await repo.read.findByIdOrThrow(userId)
+
+    await Bun.sleep(5)
+    await repo.write.deleteById(userId)
+
+    const [after] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
+
+    expect(after!.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime())
+  })
+
+  it('deleteMany leaves an already trashed row untouched', async () => {
+    const repo = db.repo(usersTable)
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+
+    await repo.write.deleteById(userId)
+    const [first] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
+
+    await Bun.sleep(5)
+    const again = await repo.write.deleteMany({ id: userId })
+    const [second] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
+
+    expect(again).toEqual([])
+    expect(second!.deletedAt).toEqual(first!.deletedAt)
+  })
 })

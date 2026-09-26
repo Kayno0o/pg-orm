@@ -157,8 +157,11 @@ export class WritePipeline<
   async deleteMany(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runtime.runBefore('beforeDelete', undefined)
 
-    const rewritten = this._runtime.behavior.rewriteDelete(where)
-    const builder = rewritten ?? new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
+    // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
+    const softSet = this._runtime.behavior.softDeleteSet<TColumns>()
+    const builder = softSet
+      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet), where)
+      : new DeleteBuilderCtor<TColumns>(this._runtime.table.name).where(where)
 
     return this._execute({
       builder,

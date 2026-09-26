@@ -31,10 +31,14 @@ export interface TableBehavior {
    */
   prepareUpdate: (builder: UpdateBuilder<any>, set: Record<string, unknown>) => void
 
-  /** Rewrite a DELETE into an UPDATE for soft-delete tables, or return `null`. */
+  /** The SET a soft delete writes (the deletion timestamp), or `null` when the table hard-deletes. Run it through `beforeUpdate` hooks, then hand it to `rewriteDelete`. */
+  softDeleteSet: <TColumns extends AnyColumns>() => InferUpdate<TColumns> | null
+
+  /** Build the UPDATE a soft delete runs: restricted to rows not already trashed, post-SET transforms (version bump) included. */
   rewriteDelete: <TColumns extends AnyColumns>(
+    set: InferUpdate<TColumns>,
     where: WhereInput<TColumns>,
-  ) => UpdateBuilder<TColumns> | null
+  ) => UpdateBuilder<TColumns>
 
   /**
    * Build the UPDATE used by `restore()`.
@@ -82,16 +86,21 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     }
   }
 
-  function rewriteDelete<TColumns extends AnyColumns>(
-    where: WhereInput<TColumns>,
-  ): UpdateBuilder<TColumns> | null {
-    if (!hasSoftDelete)
-      return null
+  function softDeleteSet<TColumns extends AnyColumns>(): InferUpdate<TColumns> | null {
+    return hasSoftDelete ? { [softDeleteColumn!]: new Date() } as InferUpdate<TColumns> : null
+  }
 
-    return new UpdateBuilderCtor<TColumns>(table.name)
-      .set({ [softDeleteColumn!]: new Date() } as InferUpdate<TColumns>)
-      .where(where)
-      .returning()
+  function rewriteDelete<TColumns extends AnyColumns>(
+    set: InferUpdate<TColumns>,
+    where: WhereInput<TColumns>,
+  ): UpdateBuilder<TColumns> {
+    const builder = new UpdateBuilderCtor<TColumns>(table.name)
+      .set(set)
+      .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where), e.isNull(softDeleteColumn!)))
+
+    prepareUpdate(builder, set as Record<string, unknown>)
+
+    return builder
   }
 
   function buildRestoreUpdate<TColumns extends AnyColumns>(
@@ -125,6 +134,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     prepareSelect,
     prepareInsert,
     prepareUpdate,
+    softDeleteSet,
     rewriteDelete,
     buildRestoreUpdate,
     getOptimisticLockColumn,

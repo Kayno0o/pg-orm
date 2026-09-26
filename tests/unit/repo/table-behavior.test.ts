@@ -126,21 +126,24 @@ describe('buildTableBehavior.prepareUpdate', () => {
 })
 
 describe('buildTableBehavior.rewriteDelete', () => {
-  it('returns null on a plain table', () => {
-    const behavior = buildTableBehavior(makePlain())
-
-    expect(behavior.rewriteDelete(e => e.eq('id', 1))).toBeNull()
+  it('has no soft-delete SET on a plain table', () => {
+    expect(buildTableBehavior(makePlain()).softDeleteSet()).toBeNull()
   })
 
-  it('returns an UpdateBuilder that sets the soft-delete column when the trait is applied', () => {
+  it('returns an UpdateBuilder that sets the soft-delete column on rows not already trashed', () => {
     const behavior = buildTableBehavior(makeSoft())
-    const ub = behavior.rewriteDelete(e => e.eq('id', 1))
-
-    expect(ub).not.toBeNull()
-    const { sql } = ub!.toSQL()
+    const ub = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1))
+    const { sql } = ub.toSQL()
 
     expect(sql).toContain('UPDATE "soft" SET "deletedAt" =')
-    expect(sql).toContain('RETURNING')
+    expect(sql).toContain('"deletedAt" IS NULL')
+  })
+
+  it('bumps the optimistic-lock version', () => {
+    const behavior = buildTableBehavior(makeSoftOpt())
+    const { sql } = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1)).toSQL()
+
+    expect(sql).toContain('"version" = "version" + 1')
   })
 })
 
