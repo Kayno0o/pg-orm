@@ -267,6 +267,42 @@ describe('db.transaction() called inside a transaction body', () => {
     expect(events).toEqual(['failed inner rolled back', 'outer body done', 'inner committed'])
   })
 
+  it('runs sibling nested calls one after the other, each undone on its own', async () => {
+    const users = db.repo(usersTable)
+
+    await db.transaction(async () => {
+      const results = await Promise.allSettled([
+        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'A', email: 'a@sibling.com' })),
+        db.transaction(async (inner) => {
+          await users.using(inner).write.insertOne({ name: 'B', email: 'b@sibling.com' })
+
+          throw new Error('b fails')
+        }),
+        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'C', email: 'c@sibling.com' })),
+      ])
+
+      expect(results.map(r => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled'])
+    })
+
+    expect((await users.read.findManyBy({ email: { endsWith: '@sibling.com' } })).map(u => u.name).sort()).toEqual(['A', 'C'])
+  })
+
+  it('never joins a transaction of another Database', async () => {
+    const other = createTestDb()
+
+    try {
+      await db.transaction(async (tx) => {
+        const [outer] = await tx.query('SELECT pg_backend_pid() AS pid', [])
+        const inner = await other.transaction(async otherTx => (await otherTx.query('SELECT pg_backend_pid() AS pid', []))[0])
+
+        expect(inner!.pid).not.toBe(outer!.pid)
+      })
+    }
+    finally {
+      await other.close({ timeout: 5000 })
+    }
+  })
+
   it('refuses an isolation level it cannot apply', async () => {
     await db.transaction(async () => {
       await expect(db.transaction({ isolation: 'serializable' }, async () => 1)).rejects.toThrow('cannot change inside a running transaction')

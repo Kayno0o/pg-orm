@@ -16,9 +16,6 @@ export interface TransactionHooks {
   slowQueryThreshold?: number
 }
 
-// The transaction whose body is running, so a `db.transaction()` called from inside it joins it instead of opening a second connection.
-const activeTransaction = new AsyncLocalStorage<TransactionClient>()
-
 /**
  * Owns `transaction()` overloads, transaction-local SET LOCAL statements,
  * and the post-settlement onCommit/onRollback callback dispatch. Holds the
@@ -34,9 +31,14 @@ export class TransactionRunner {
     private readonly idleInTransactionTimeout?: number,
   ) {}
 
+  // The transaction whose body is running, so a `db.transaction()` called from inside it joins it instead of opening a second connection. Per runner: a body of one Database never joins another's.
+  private readonly _active = new AsyncLocalStorage<TransactionClient>()
+  // The last nested call started on each outer transaction: the next one waits for it, since two savepoints cannot interleave on one connection.
+  private readonly _nestedTail = new WeakMap<TransactionClient, Promise<unknown>>()
+
   /** Whether a `transaction()` call with these options joins a transaction body running in this async context. */
   joins(opts?: TransactionOptions): boolean {
-    return !opts?.independent && activeTransaction.getStore() !== undefined
+    return !opts?.independent && this._active.getStore() !== undefined
   }
 
   async run<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
@@ -47,7 +49,7 @@ export class TransactionRunner {
   ): Promise<T> {
     const fn = typeof fnOrOpts === 'function' ? fnOrOpts : maybeFn!
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
-    const outer = activeTransaction.getStore()
+    const outer = this._active.getStore()
 
     if (outer && this.joins(opts))
       return this._runNested(outer, fn, opts)
@@ -82,7 +84,7 @@ export class TransactionRunner {
         txRef = tx
         phase = 'body'
 
-        const out = await activeTransaction.run(tx, () => fn(tx))
+        const out = await this._active.run(tx, () => fn(tx))
 
         phase = 'commit'
 
@@ -112,6 +114,26 @@ export class TransactionRunner {
     if (opts?.isolation || opts?.accessMode)
       throw new ValidationError('transaction(): isolation and accessMode cannot change inside a running transaction, which this call joins (pass independent: true for a separate one).', 'transaction', { value: opts })
 
+    const previous = this._nestedTail.get(outer)
+    const current = this._afterSettled(previous, () => this._savepoint(outer, fn, opts))
+
+    this._nestedTail.set(outer, current)
+
+    return current
+  }
+
+  private async _afterSettled<T>(previous: Promise<unknown> | undefined, run: () => Promise<T>): Promise<T> {
+    try {
+      await previous
+    }
+    catch {
+      // an earlier sibling's failure is its caller's to handle
+    }
+
+    return run()
+  }
+
+  private async _savepoint<T>(outer: TransactionClient, fn: (tx: TransactionClient) => Promise<T>, opts?: TransactionOptions): Promise<T> {
     let tx: TransactionClient | undefined
 
     try {
@@ -121,7 +143,7 @@ export class TransactionRunner {
         inner._context = opts?.context ?? outer._context
         tx = inner
 
-        return activeTransaction.run(inner, () => fn(inner))
+        return this._active.run(inner, () => fn(inner))
       })
 
       outer._onCommitCallbacks.push(...tx!._onCommitCallbacks)

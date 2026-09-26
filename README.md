@@ -749,7 +749,7 @@ const db = new Database({
   // before they hit production.
   defaultLimit: 1000,
 
-  // Auto-retry deadlocks and serialization failures, and SELECTs after a dropped connection.
+  // Auto-retry deadlocks and serialization failures, and SELECTs after a dropped connection (judged by the leading keyword, so a raw SELECT calling a side-effecting function retries too).
   // A write is not retried after a drop, since it may have committed before the reply was lost; `writes: true` retries it anyway.
   // Does NOT retry inside a transaction: those bubble up.
   retry: { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 5_000 },
