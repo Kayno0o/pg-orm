@@ -358,16 +358,16 @@ export class SelectBuilder<
 
   /**
    * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
-   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children are not counted.
+   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children are counted only with `withDeleted`.
    */
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
     relation: K,
-    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>> },
+    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean },
   ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>> {
     const alias = opts?.as ?? `${relation}Count`
 
     validateIdentifier(alias, 'withCount alias')
-    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null })
+    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null, withDeleted: opts?.withDeleted ?? false })
 
     return this as never
   }

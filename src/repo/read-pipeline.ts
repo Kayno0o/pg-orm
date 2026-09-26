@@ -446,7 +446,7 @@ export class ReadPipeline<
     const state = builder.getState()
     const { table, pkColumns } = this._runtime
 
-    for (const { relation, alias, where } of state.relationCounts.splice(0)) {
+    for (const { relation, alias, where, withDeleted } of state.relationCounts.splice(0)) {
       const rel = (table.relations as AnyRelations)[relation]
 
       if (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough'))
@@ -457,7 +457,7 @@ export class ReadPipeline<
 
       const parentKey = `${quote(state.alias ?? table.name)}.${quote(pkColumns[0]!)}`
       const target = this._tableRegistry?.get(rel.targetTable)
-      const trashed = target ? tableMeta(target).softDelete?.column : undefined
+      const trashed = target && !withDeleted ? tableMeta(target).softDelete?.column : undefined
       const child = '"__count"'
       const live = trashed ? ` AND ${child}.${quote(trashed)} IS NULL` : ''
       const from = rel.type === 'hasMany'

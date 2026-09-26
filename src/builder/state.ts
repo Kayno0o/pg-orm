@@ -126,6 +126,7 @@ export interface RelationCount {
   relation: string
   alias: string
   where: ExprTape | null
+  withDeleted: boolean
 }
 
 export function createState(op: QueryOp, table: string): BuilderState {
