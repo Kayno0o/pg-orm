@@ -51,10 +51,11 @@ export const usersTable = usersTableDef.withRelations(r => ({
   posts: r.hasMany<InferEntity<typeof postsTableDef>>('posts', 'authorId'),
 }))
 
+// posts wires its relations through table thunks, the others by name and type argument, so both forms stay covered.
 export const postsTable = postsTableDef.withRelations(r => ({
-  author: r.belongsTo<InferEntity<typeof usersTable>>('users', 'authorId'),
-  comments: r.hasMany<InferEntity<typeof commentsTableDef>>('comments', 'postId'),
-  tags: r.hasManyThrough<InferEntity<typeof tagsTable>>('tags', 'post_tags', { from: 'postId', to: 'tagId' }),
+  author: r.belongsTo(() => usersTable, 'authorId'),
+  comments: r.hasMany(() => commentsTableDef, 'postId'),
+  tags: r.hasManyThrough(() => tagsTable, () => postTagsTable, { from: 'postId', to: 'tagId' }),
 }))
 
 export const commentsTable = commentsTableDef.withRelations(r => ({

@@ -130,18 +130,25 @@ t.int4().generated('col1 + col2') // GENERATED ALWAYS AS ... STORED
 
 ## Relations
 
+Pass the target table behind a thunk: the included rows are typed from it, `hasMany`/`hasOne` check the foreign key against its columns, and the thunk survives circular imports. Declare each table's columns first and wire relations in a second statement pointing at the other tables' column-only definitions, so two tables referencing each other do not make TypeScript infer a circular type.
+
 ```ts
-// After all tables are defined:
-users.withRelations(r => ({
-  posts:    r.hasMany('posts', 'authorId'),
-  profile:  r.hasOne('profiles', 'userId'),
+// users.ts
+export const UsersBase = defineTable('users', t => ({ id: t.serial().primaryKey(), name: t.text() }))
+export const Users = UsersBase.withRelations(r => ({
+  posts:    r.hasMany(() => PostsBase, 'authorId'),
+  profile:  r.hasOne(() => Profiles, 'userId'),
 }))
 
-posts.withRelations(r => ({
-  author:   r.belongsTo('users', 'authorId'),
-  tags:     r.hasManyThrough('tags', 'post_tags', { from: 'postId', to: 'tagId' }),
+// posts.ts
+export const PostsBase = defineTable('posts', t => ({ id: t.serial().primaryKey(), authorId: t.int4() }))
+export const Posts = PostsBase.withRelations(r => ({
+  author:   r.belongsTo(() => UsersBase, 'authorId'),
+  tags:     r.hasManyThrough(() => Tags, () => PostTags, { from: 'postId', to: 'tagId' }),
 }))
 ```
+
+The target can also be named, with its row type as a type argument: `r.hasMany<InferEntity<typeof PostsBase>>('posts', 'authorId')`. Every table a relation reaches must be registered in `new Database({ tables })`.
 
 ### Eager Loading (No N+1)
 

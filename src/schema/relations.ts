@@ -1,21 +1,28 @@
-import type { RelationTypes } from '../types/index'
+import type { AnyTableDef, RelationTypes } from '../types/index'
 import { validateIdentifier } from './validate'
 
 // Re-export the interface from types
 export type { RelationTypes } from '../types/index'
 
+type TableRef = string | (() => AnyTableDef)
+
+// A thunk is read on first use rather than at definition time, so it survives circular imports the way `.references(() => Table)` does. Its name was validated by `defineTable`.
+function withTableName<T extends object>(rel: T, key: 'targetTable' | 'throughTable', ref: TableRef, context: string): T {
+  if (typeof ref === 'string') {
+    validateIdentifier(ref, context)
+
+    return Object.assign(rel, { [key]: ref })
+  }
+
+  return Object.defineProperty(rel, key, { get: () => ref().name, enumerable: true })
+}
+
 // Factory for simple relations (belongsTo, hasOne, hasMany) — identical structure
 function simpleRelation<T extends 'belongsTo' | 'hasOne' | 'hasMany'>(type: T) {
-  return (targetTable: string, foreignKey: string, _opts?: { nullable: boolean }) => {
-    validateIdentifier(targetTable, 'relation target table')
+  return (target: TableRef, foreignKey: string, _opts?: { nullable: boolean }) => {
     validateIdentifier(foreignKey, 'relation foreign key')
 
-    return {
-      _kind: 'relation' as const,
-      type,
-      targetTable,
-      foreignKey,
-    }
+    return withTableName({ _kind: 'relation' as const, type, foreignKey }, 'targetTable', target, 'relation target table')
   }
 }
 
@@ -26,21 +33,21 @@ export function createRelationTypes(): RelationTypes {
     hasOne: simpleRelation('hasOne'),
     hasMany: simpleRelation('hasMany'),
 
-    hasManyThrough(targetTable, pivotTable, opts) {
-      validateIdentifier(targetTable, 'relation target table')
-      validateIdentifier(pivotTable, 'relation pivot table')
+    hasManyThrough(target: TableRef, pivot: TableRef, opts: { from: string, to: string }) {
       validateIdentifier(opts.from, 'relation throughFrom')
       validateIdentifier(opts.to, 'relation throughTo')
 
-      return {
+      const rel = {
         _kind: 'relation' as const,
         type: 'hasManyThrough' as const,
-        targetTable,
         foreignKey: '',
-        throughTable: pivotTable,
         throughFrom: opts.from,
         throughTo: opts.to,
       }
+
+      withTableName(rel, 'targetTable', target, 'relation target table')
+
+      return withTableName(rel, 'throughTable', pivot, 'relation pivot table')
     },
-  }
+  } as unknown as RelationTypes
 }

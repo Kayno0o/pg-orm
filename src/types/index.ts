@@ -85,29 +85,57 @@ export interface RelationDef<
 
 // Relation builder interface — the `r` param in .withRelations() and defineTable()
 // Pure type definition (no runtime code) — safe to keep in types module.
+// The target is either the table itself, behind a thunk so circular imports resolve (the row type is then inferred), or its name plus the row type as a type argument.
 export interface RelationTypes {
-  belongsTo: <TResult = Record<string, any>, TNullable extends boolean = false>(
-    targetTable: string,
-    foreignKey: string,
-    opts?: { nullable: TNullable },
-  ) => RelationDef<'belongsTo', TResult, TNullable>
+  belongsTo: {
+    <TTable extends AnyTableDef, TNullable extends boolean = false>(
+      target: () => TTable,
+      foreignKey: string,
+      opts?: { nullable: TNullable },
+    ): RelationDef<'belongsTo', InferEntity<TTable>, NoInfer<TNullable>>
+    <TResult = Record<string, any>, TNullable extends boolean = false>(
+      targetTable: string,
+      foreignKey: string,
+      opts?: { nullable: TNullable },
+    ): RelationDef<'belongsTo', TResult, NoInfer<TNullable>>
+  }
 
-  hasOne: <TResult = Record<string, any>, TNullable extends boolean = true>(
-    targetTable: string,
-    foreignKey: string,
-    opts?: { nullable: TNullable },
-  ) => RelationDef<'hasOne', TResult, TNullable>
+  hasOne: {
+    <TTable extends AnyTableDef, TNullable extends boolean = true>(
+      target: () => TTable,
+      foreignKey: keyof TTable['columns'] & string,
+      opts?: { nullable: TNullable },
+    ): RelationDef<'hasOne', InferEntity<TTable>, NoInfer<TNullable>>
+    <TResult = Record<string, any>, TNullable extends boolean = true>(
+      targetTable: string,
+      foreignKey: string,
+      opts?: { nullable: TNullable },
+    ): RelationDef<'hasOne', TResult, NoInfer<TNullable>>
+  }
 
-  hasMany: <TResult = Record<string, any>>(
-    targetTable: string,
-    foreignKey: string,
-  ) => RelationDef<'hasMany', TResult>
+  hasMany: {
+    <TTable extends AnyTableDef>(
+      target: () => TTable,
+      foreignKey: keyof TTable['columns'] & string,
+    ): RelationDef<'hasMany', InferEntity<TTable>>
+    <TResult = Record<string, any>>(
+      targetTable: string,
+      foreignKey: string,
+    ): RelationDef<'hasMany', TResult>
+  }
 
-  hasManyThrough: <TResult = Record<string, any>>(
-    targetTable: string,
-    pivotTable: string,
-    opts: { from: string, to: string },
-  ) => RelationDef<'hasManyThrough', TResult>
+  hasManyThrough: {
+    <TTable extends AnyTableDef, TPivot extends AnyTableDef>(
+      target: () => TTable,
+      pivot: () => TPivot,
+      opts: { from: keyof TPivot['columns'] & string, to: keyof TPivot['columns'] & string },
+    ): RelationDef<'hasManyThrough', InferEntity<TTable>>
+    <TResult = Record<string, any>>(
+      targetTable: string,
+      pivotTable: string,
+      opts: { from: string, to: string },
+    ): RelationDef<'hasManyThrough', TResult>
+  }
 }
 
 // --- Index Definitions ---

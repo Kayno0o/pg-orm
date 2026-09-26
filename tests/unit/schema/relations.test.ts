@@ -1,4 +1,6 @@
+import type { InferRelationResult } from '../../../src/index'
 import { describe, expect, it } from 'bun:test'
+import { defineTable } from '../../../src/index'
 import { createRelationTypes } from '../../../src/schema/relations'
 
 describe('Relations', () => {
@@ -60,5 +62,54 @@ describe('Relations', () => {
     expect(r.hasOne('users', 'fk')._kind).toBe('relation')
     expect(r.hasMany('users', 'fk')._kind).toBe('relation')
     expect(r.hasManyThrough('tags', 'pivot', { from: 'a', to: 'b' })._kind).toBe('relation')
+  })
+})
+
+describe('relations built from a table thunk', () => {
+  const r = createRelationTypes()
+  const Parent = defineTable('thunk_parent', t => ({ id: t.serial().primaryKey(), name: t.text() }))
+  const Child = defineTable('thunk_child', t => ({ id: t.serial().primaryKey(), parent_id: t.int4() }))
+  const Pivot = defineTable('thunk_pivot', t => ({ parent_id: t.int4(), child_id: t.int4() }))
+
+  it('reads the target name from the table', () => {
+    expect(r.hasMany(() => Child, 'parent_id').targetTable).toBe('thunk_child')
+    expect(r.belongsTo(() => Parent, 'parent_id').targetTable).toBe('thunk_parent')
+
+    const through = r.hasManyThrough(() => Child, () => Pivot, { from: 'parent_id', to: 'child_id' })
+
+    expect(through.targetTable).toBe('thunk_child')
+    expect(through.throughTable).toBe('thunk_pivot')
+  })
+
+  it('does not call the thunk until the name is read, so a not-yet-initialised import is fine', () => {
+    let late: typeof Child | undefined
+    const rel = r.hasMany(() => late!, 'parent_id')
+
+    late = Child
+    expect(rel.targetTable).toBe('thunk_child')
+  })
+
+  it('infers the row type and checks the foreign key against the target', () => {
+    const rel = r.hasMany(() => Child, 'parent_id')
+    const row: NonNullable<typeof rel._result> = { id: 1, parent_id: 2 }
+
+    // @ts-expect-error not a column of the target
+    r.hasMany(() => Child, 'nope')
+
+    expect([rel.type, row.parent_id]).toEqual(['hasMany', 2])
+  })
+
+  it('types a belongsTo as nullable only when asked', () => {
+    const Wired = defineTable('thunk_wired', t => ({ id: t.serial().primaryKey(), parent_id: t.int4() })).withRelations(rel => ({
+      parent: rel.belongsTo(() => Parent, 'parent_id'),
+      maybe: rel.belongsTo(() => Parent, 'parent_id', { nullable: true }),
+    }))
+    const parent: InferRelationResult<typeof Wired.relations.parent> = { id: 1, name: 'p' }
+    const maybe: InferRelationResult<typeof Wired.relations.maybe> = null
+
+    // @ts-expect-error a non-nullable belongsTo is never null
+    const never: InferRelationResult<typeof Wired.relations.parent> = null
+
+    expect([Wired.relations.maybe.targetTable, parent.name, maybe, never]).toEqual(['thunk_parent', 'p', null, null])
   })
 })
