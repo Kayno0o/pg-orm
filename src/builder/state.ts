@@ -64,7 +64,9 @@ export interface BuilderState {
   // SELECT
   columns: string[] | null // null = *, explicit list = pick
   omitColumns: string[]
-  computedColumns: { expr: string, alias: string }[]
+  computedColumns: ComputedColumn[]
+  // `withCount` requests, turned into computed columns by the repository, which knows the related tables.
+  relationCounts: RelationCount[]
   distinct: boolean
   distinctOn: string[]
   // WHERE
@@ -113,6 +115,19 @@ export interface BuilderState {
   streamChunkSize?: number
 }
 
+export interface ComputedColumn {
+  expr: string
+  alias: string
+  /** A WHERE ANDed onto `expr` and the whole wrapped in parentheses, with bare columns qualified: how a filtered relation count carries its params. */
+  filter?: { tape: ExprTape, qualifier: string }
+}
+
+export interface RelationCount {
+  relation: string
+  alias: string
+  where: ExprTape | null
+}
+
 export function createState(op: QueryOp, table: string): BuilderState {
   return {
     op,
@@ -120,6 +135,7 @@ export function createState(op: QueryOp, table: string): BuilderState {
     columns: null,
     omitColumns: [],
     computedColumns: [],
+    relationCounts: [],
     distinct: false,
     distinctOn: [],
     whereTape: null,
@@ -156,6 +172,7 @@ export function cloneState(s: BuilderState): BuilderState {
     ...s,
     omitColumns: [...s.omitColumns],
     computedColumns: s.computedColumns.map(c => ({ ...c })),
+    relationCounts: s.relationCounts.map(c => ({ ...c })),
     distinctOn: [...s.distinctOn],
     whereTape: s.whereTape ? [...s.whereTape] : null,
     joins: s.joins.map(j => ({ ...j })),

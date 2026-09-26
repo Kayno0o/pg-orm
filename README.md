@@ -168,6 +168,15 @@ const usersWithPublished = await UserRepo.read.findMany(q =>
 )
 ```
 
+`withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
+
+```ts
+const posts = await PostRepo.read.findMany(q =>
+  q.withCount('comments').withCount('comments', { as: 'approvedCount', where: { approved: true } }),
+)
+// posts[0].commentsCount: number, posts[0].approvedCount: number
+```
+
 ## Query Builder
 
 ### WHERE Expressions

@@ -130,7 +130,7 @@ function printWhere(sb: SqlBuilder, tape: ExprTape | null): void {
 
 // --- SELECT pieces ---
 
-function printSelectColumns(state: BuilderState): string {
+function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
   const cols: string[] = state.columns
     ? state.columns.filter(c => !state.omitColumns.includes(c)).map(quote)
     : ['*']
@@ -142,7 +142,9 @@ function printSelectColumns(state: BuilderState): string {
     // (rejects `;`, `--`, `/*`, dollar-quotes, unterminated strings). The
     // alias is bound by `validateIdentifier`. Do not introduce a new caller
     // here without applying both.
-    cols.push(`${cc.expr} AS ${quote(cc.alias)}`)
+    const expr = cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier)})` : cc.expr
+
+    cols.push(`${expr} AS ${quote(cc.alias)}`)
   }
 
   return cols.join(', ') || '*'
@@ -159,7 +161,7 @@ function printSelectHead(sb: SqlBuilder, state: BuilderState): void {
     ? 'DISTINCT '
     : state.distinctOn.length ? `DISTINCT ON (${quoteCols(state.distinctOn)}) ` : ''
 
-  sb.push(`SELECT ${distinct}${printSelectColumns(state)}`)
+  sb.push(`SELECT ${distinct}${printSelectColumns(sb, state)}`)
 }
 
 function printFrom(sb: SqlBuilder, state: BuilderState): void {

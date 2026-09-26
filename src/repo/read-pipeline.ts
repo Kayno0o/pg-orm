@@ -7,9 +7,11 @@ import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
-import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
+import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { NotFoundError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
+import { tableMeta } from '../schema/inspect'
+import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
 
@@ -104,6 +106,7 @@ export class ReadPipeline<
     const finalBuilder = cb ? cb(builder) : builder
 
     this._runtime.behavior.prepareSelect(finalBuilder)
+    this._resolveCounts(finalBuilder)
 
     const state = finalBuilder.getState()
 
@@ -295,6 +298,9 @@ export class ReadPipeline<
 
     const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
     const finalBuilder = cb ? cb(builder) : builder
+
+    this._resolveCounts(finalBuilder)
+
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const mapperFn = this._mapper(finalBuilder)
 
@@ -433,5 +439,33 @@ export class ReadPipeline<
       return (row: Record<string, unknown>) => row
 
     return createMapperFactory(table)(new SelectBuilderCtor<any, any>(tableName))
+  }
+
+  // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.
+  private _resolveCounts(builder: SelectBuilder<any, any, any>): void {
+    const state = builder.getState()
+    const { table, pkColumns } = this._runtime
+
+    for (const { relation, alias, where } of state.relationCounts.splice(0)) {
+      const rel = (table.relations as AnyRelations)[relation]
+
+      if (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough'))
+        throw new ValidationError(`withCount(): "${relation}" is not a hasMany or hasManyThrough relation of "${table.name}".`, 'withCount', { field: relation })
+
+      if (pkColumns.length !== 1)
+        throw new ValidationError(`withCount(): "${table.name}" has a composite primary key, which a relation count cannot join on.`, 'withCount', { field: relation })
+
+      const parentKey = `${quote(state.alias ?? table.name)}.${quote(pkColumns[0]!)}`
+      const target = this._tableRegistry?.get(rel.targetTable)
+      const trashed = target ? tableMeta(target).softDelete?.column : undefined
+      const child = '"__count"'
+      const live = trashed ? ` AND ${child}.${quote(trashed)} IS NULL` : ''
+      const from = rel.type === 'hasMany'
+        ? `FROM ${quote(rel.targetTable)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
+        : `FROM ${quote(rel.throughTable!)} AS "__pivot" JOIN ${quote(rel.targetTable)} AS ${child} ON ${child}.${quote(target?.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
+      const expr = `SELECT count(*)::int ${from}${live}`
+
+      state.computedColumns.push(where ? { expr, alias, filter: { tape: where, qualifier: '__count' } } : { expr: `(${expr})`, alias })
+    }
   }
 }

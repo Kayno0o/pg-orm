@@ -65,10 +65,12 @@ export type RelationKind = 'belongsTo' | 'hasOne' | 'hasMany' | 'hasManyThrough'
 // TResult is the row type of the target table (e.g. { id: number, title: string }).
 // Defaults to Record<string, any> when no type param is provided.
 // TNullable controls whether the resolved relation can be null (e.g. nullable FK in belongsTo).
+// TTable is the target table when the relation was built from a thunk, so a filter on it can be typed against its columns.
 export interface RelationDef<
   TKind extends RelationKind = RelationKind,
   TResult = Record<string, any>,
   TNullable extends boolean = false,
+  TTable extends AnyTableDef = AnyTableDef,
 > {
   readonly _kind: 'relation'
   readonly type: TKind
@@ -81,6 +83,7 @@ export interface RelationDef<
   // Phantom type for result inference
   readonly _result?: TResult
   readonly _nullable?: TNullable
+  readonly _table?: TTable
 }
 
 // Relation builder interface — the `r` param in .withRelations() and defineTable()
@@ -92,7 +95,7 @@ export interface RelationTypes {
       target: () => TTable,
       foreignKey: string,
       opts?: { nullable: TNullable },
-    ): RelationDef<'belongsTo', InferEntity<TTable>, NoInfer<TNullable>>
+    ): RelationDef<'belongsTo', InferEntity<TTable>, NoInfer<TNullable>, TTable>
     <TResult = Record<string, any>, TNullable extends boolean = false>(
       targetTable: string,
       foreignKey: string,
@@ -105,7 +108,7 @@ export interface RelationTypes {
       target: () => TTable,
       foreignKey: keyof TTable['columns'] & string,
       opts?: { nullable: TNullable },
-    ): RelationDef<'hasOne', InferEntity<TTable>, NoInfer<TNullable>>
+    ): RelationDef<'hasOne', InferEntity<TTable>, NoInfer<TNullable>, TTable>
     <TResult = Record<string, any>, TNullable extends boolean = true>(
       targetTable: string,
       foreignKey: string,
@@ -117,7 +120,7 @@ export interface RelationTypes {
     <TTable extends AnyTableDef>(
       target: () => TTable,
       foreignKey: keyof TTable['columns'] & string,
-    ): RelationDef<'hasMany', InferEntity<TTable>>
+    ): RelationDef<'hasMany', InferEntity<TTable>, false, TTable>
     <TResult = Record<string, any>>(
       targetTable: string,
       foreignKey: string,
@@ -129,7 +132,7 @@ export interface RelationTypes {
       target: () => TTable,
       pivot: () => TPivot,
       opts: { from: keyof TPivot['columns'] & string, to: keyof TPivot['columns'] & string },
-    ): RelationDef<'hasManyThrough', InferEntity<TTable>>
+    ): RelationDef<'hasManyThrough', InferEntity<TTable>, false, TTable>
     <TResult = Record<string, any>>(
       targetTable: string,
       pivotTable: string,
@@ -159,7 +162,7 @@ export interface VirtualDef<TRow = any, TResult = any> {
 
 export type AnyColumnDef = ColumnDef<any, any, any, any, any>
 export type AnyColumns = Record<string, AnyColumnDef>
-export type AnyRelationDef = RelationDef<any, any, any>
+export type AnyRelationDef = RelationDef<any, any, any, any>
 export type AnyRelations = Record<string, AnyRelationDef>
 export type AnyVirtuals = Record<string, VirtualDef<any, any>>
 export type AnyTableDef = TableDef<string, any, any, any>

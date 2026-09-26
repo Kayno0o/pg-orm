@@ -9,6 +9,12 @@ import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { PLACEHOLDER_RE } from './state'
 
+type CountableRelations<TRelations extends AnyRelations> = {
+  [K in keyof TRelations]: TRelations[K] extends RelationDef<'hasMany' | 'hasManyThrough', any, any, any> ? K : never
+}[keyof TRelations] & string
+
+type RelationColumns<R> = R extends RelationDef<any, any, any, infer T> ? T['columns'] : AnyColumns
+
 /** A raw SQL expression tagged with the type its value reads back as, for `computedRaw`. @trusted like every raw fragment. */
 export interface RawExpr<T> {
   readonly sql: string
@@ -346,6 +352,22 @@ export class SelectBuilder<
     callback?: IncludeCallback,
   ): SelectBuilder<TColumns, TRelations, any> {
     this._state.includes.push({ relation, strategy: 'batch', callback })
+
+    return this as never
+  }
+
+  /**
+   * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
+   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children are not counted.
+   */
+  withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
+    relation: K,
+    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>> },
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>> {
+    const alias = opts?.as ?? `${relation}Count`
+
+    validateIdentifier(alias, 'withCount alias')
+    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null })
 
     return this as never
   }
