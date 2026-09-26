@@ -246,6 +246,11 @@ describe('normalizeDefault', () => {
     expect(normalizeDefault('\'user\'::text')).toBe('\'user\'')
   })
 
+  test('a numeric default given as a string matches its unquoted live form', () => {
+    expect(normalizeDefault('\'0.00\'')).toBe(normalizeDefault('0.00'))
+    expect(normalizeDefault('\'-1.5\'')).toBe(normalizeDefault('\'-1.5\'::numeric'))
+  })
+
   test('empty array default matches its live form', () => {
     expect(normalizeDefault('ARRAY[]::text[]')).toBe(normalizeDefault('ARRAY[]::text[]'))
   })

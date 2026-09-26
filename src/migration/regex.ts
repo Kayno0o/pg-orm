@@ -21,3 +21,6 @@ export const TIMETZ_RE = /^timetz$/
 
 // Strips trailing PostgreSQL type casts from column defaults (e.g. `''::text`, `0::integer`, `text[]`).
 export const DEFAULT_CAST_RE = /::[\w ]+(\[\])*/g
+
+// A quoted plain number (`'0.00'`): Postgres reflects a numeric column's default back unquoted, so both sides drop the quotes before comparing.
+export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?)'$/

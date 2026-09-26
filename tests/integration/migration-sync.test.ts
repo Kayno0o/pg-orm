@@ -65,6 +65,10 @@ describe('Migration Sync', () => {
     const table = defineTable('sync_test_nodrift', t => ({
       id: t.serial().primaryKey(),
       name: t.text().notNull(),
+      price: t.numeric(10, 2).default('0.00'),
+      stock: t.int4().default(0),
+      label: t.text().default('none'),
+      tags: t.array(t.text()).default(['a']),
     }))
     const db = createSyncDb([table])
 
