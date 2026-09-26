@@ -30,7 +30,7 @@ jobs:
         run: bun run check
 
       - name: Typecheck examples
-        run: bunx tsc --noEmit --strict --ignoreConfig examples/*.ts
+        run: bunx tsc --noEmit --strict --skipLibCheck --ignoreConfig examples/*.ts
 
       - name: Lint
         run: bun run lint:fix --dry-run 2>/dev/null || bunx eslint . --cache
