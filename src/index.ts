@@ -99,7 +99,7 @@ export { type UpsertUpdate } from './repo/write-pipeline'
 export { type ColumnTypes } from './schema/column-types'
 
 // Schema
-export { defineTable } from './schema/index'
+export { defineTable, isTableDef } from './schema/index'
 
 // Schema introspection — typed access to trait metadata and column types.
 export {

@@ -8,6 +8,14 @@ import { ColumnBuilder, getColumnIndex } from './columns'
 import { createRelationTypes } from './relations'
 import { validateIdentifier, validateRawSqlFragment } from './validate'
 
+// Registered globally so a table defined by another copy of the lib (a bundled dependency) still passes `isTableDef`.
+const TABLE_DEF: unique symbol = Symbol.for('pg-orm.TableDef') as never
+
+/** Whether `value` was built by `defineTable`, for code that discovers tables among a module's exports. */
+export function isTableDef(value: unknown): value is AnyTableDef {
+  return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[TABLE_DEF] === true
+}
+
 // Type-level: extract column definitions from the builder callback return type
 type ExtractColumns<T extends Record<string, ColumnBuilder>> = {
   [K in keyof T]: T[K] extends ColumnBuilder<infer TType, infer TNullable, infer TDefault, infer TPrimary, infer TGenerated>
@@ -197,6 +205,8 @@ export function defineTable(
   function bump(): void {
     table._version = (table._version as number) + 1
   }
+
+  Object.defineProperty(table, TABLE_DEF, { value: true })
 
   // Pre-compile default JIT mapper at defineTable() time
   compileMapper(columns)

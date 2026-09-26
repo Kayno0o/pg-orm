@@ -382,7 +382,9 @@ Table and column metadata, typed — for generic code that derives request schem
 UIs or CRUD routes from a table definition instead of restating its shape.
 
 ```ts
-import { columnBaseType, hasTrait, tableMeta, traitColumns, writableColumns } from '@kaynooo/pg-orm'
+import { columnBaseType, hasTrait, isTableDef, tableMeta, traitColumns, writableColumns } from '@kaynooo/pg-orm'
+
+Object.values(await import('./schema')).filter(isTableDef) // the tables among a module's exports
 
 tableMeta(users).softDelete?.column   // 'deletedAt' — same for optimisticLock / timestamps
 hasTrait(users, 'softDelete')         // true; works for custom traits by their `name`
