@@ -1,7 +1,7 @@
 import type { MigrationOp } from './types'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
-import { QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
+import { ADD_CONSTRAINT_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 
 export interface DownSqlOptions {
   /** Enable defense-in-depth identifier validation at the down-SQL boundary. */
@@ -81,6 +81,18 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       validateOptional(constraint, 'down.add_fk.constraint', opts)
 
       return `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${constraint}";`
+    }
+
+    case 'add_constraint': {
+      const table = requireIdent(op.table, 'down.add_constraint.table', opts)
+      const name = op.sql.match(ADD_CONSTRAINT_RE)?.[1]
+
+      if (!name)
+        return `-- Cannot reverse: ${op.description}`
+
+      validateOptional(name, 'down.add_constraint.name', opts)
+
+      return `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${name}";`
     }
 
     case 'rename_column': {

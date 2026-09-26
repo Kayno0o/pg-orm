@@ -1,11 +1,11 @@
 import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../types/index'
-import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody } from '../sql/utils'
+import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
 import { BIGSERIAL_RE, BOOL_RE, DEFAULT_CAST_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, QUOTED_NUMBER_RE, SERIAL_RE, SPACE_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
-  const { colDefs, pkCols, uniqueCols } = collectConstraints(table, generateColumnDDL)
+  const { colDefs, pkCols, uniqueCols } = collectConstraints(table, (col, def) => generateColumnDDL(col, def, name))
   const constraints: string[] = []
 
   if (pkCols.length)
@@ -22,7 +22,8 @@ export function generateCreateTable(name: string, table: AnyTableDef): string {
   return `CREATE TABLE "${name}" (\n${all}\n)`
 }
 
-export function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
+/** A column's DDL. Given the table name, its CHECKs are named as `sync()` diffs them; without it they are left for PG to name. */
+export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?: string): string {
   const parts: string[] = [`"${name}"`, colDef.pgType]
 
   for (const c of colDef.constraints) {
@@ -36,41 +37,12 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef): string {
       case 'generated': parts.push(`GENERATED ALWAYS AS (${c.value}) STORED`)
 
         break
-      case 'check': parts.push(`CHECK (${c.value})`)
-
-        break
-      // primary_key, unique, references handled at table level
+      // check, primary_key, unique, references handled below or at table level
     }
   }
 
-  const meta = getColumnMeta(colDef)
-  const checks: string[] = []
-
-  if (meta.min != null)
-    checks.push(`"${name}" >= ${meta.min}`)
-
-  if (meta.max != null)
-    checks.push(`"${name}" <= ${meta.max}`)
-
-  if (meta.minLength != null)
-    checks.push(`length("${name}") >= ${meta.minLength}`)
-
-  if (meta.maxLength != null)
-    checks.push(`length("${name}") <= ${meta.maxLength}`)
-
-  if (meta.pattern != null)
-    checks.push(`"${name}" ~ '${escapeLiteralBody(meta.pattern)}'`)
-
-  if (meta.oneOf != null) {
-    const vals = meta.oneOf.map(v =>
-      typeof v === 'string' ? `'${escapeLiteralBody(v)}'` : String(v),
-    ).join(', ')
-
-    checks.push(`"${name}" IN (${vals})`)
-  }
-
-  if (checks.length > 0)
-    parts.push(`CHECK (${checks.join(' AND ')})`)
+  for (const check of columnChecks(tableName ?? '', name, colDef))
+    parts.push(tableName ? `CONSTRAINT "${check.name}" CHECK (${check.expr})` : `CHECK (${check.expr})`)
 
   return parts.join(' ')
 }
@@ -111,7 +83,7 @@ export function buildDropTableSql(name: string): string {
 // --- Column lifecycle ---
 
 export function buildAddColumnSql(tableName: string, colName: string, colDef: AnyColumnDef): string {
-  return `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef)}`
+  return `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef, tableName)}`
 }
 
 export function buildDropColumnSql(tableName: string, colName: string): string {
@@ -151,6 +123,10 @@ export function buildDropDefaultSql(tableName: string, colName: string): string 
 
 export function buildAddUniqueConstraintSql(tableName: string, colName: string): string {
   return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_key" UNIQUE ("${colName}")`
+}
+
+export function buildAddCheckSql(tableName: string, name: string, expr: string): string {
+  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${name}" CHECK (${expr})`
 }
 
 export function buildDropConstraintSql(tableName: string, constraintName: string): string {

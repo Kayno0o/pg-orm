@@ -33,6 +33,11 @@ export interface LiveForeignKey {
   onDelete: string
 }
 
+export interface LiveCheck {
+  name: string
+  tableName: string
+}
+
 export interface LiveIndex {
   name: string
   tableName: string

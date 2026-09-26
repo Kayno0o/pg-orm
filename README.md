@@ -584,6 +584,10 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 // { name, up, down }
 ```
 
+### CHECK constraints
+
+Each column's CHECKs (`.check()`, `.min()`, `.pattern()`, ...) are named `<table>_<column>_check_<hash>`, the hash taken from the expression, so `sync()` drops and re-adds a check whose expression changed. The first sync after upgrading renames the unnamed checks earlier versions created (`<table>_<column>_check`); checks named any other way are left alone.
+
 ### Foreign keys
 
 Foreign key constraints are emitted as separate `add_fk` operations *after* all

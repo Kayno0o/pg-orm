@@ -8,6 +8,9 @@ export const BACKSLASH_RE = /\\/g
 // Captures the inner word of a quoted SQL identifier: `"foo"` → `["foo", "foo"]`.
 export const QUOTED_IDENT_RE = /"(\w+)"/
 
+// Captures the constraint name from an `ADD CONSTRAINT "x"` fragment.
+export const ADD_CONSTRAINT_RE = /ADD CONSTRAINT "(\w+)"/
+
 // Captures old and new column names from a `RENAME COLUMN "x" TO "y"` fragment.
 export const RENAME_COLUMN_RE = /RENAME COLUMN "(\w+)" TO "(\w+)"/
 

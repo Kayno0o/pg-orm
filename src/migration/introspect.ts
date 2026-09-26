@@ -1,4 +1,4 @@
-import type { LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
+import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
 import { ARRAY_UDT_PREFIX_RE, SPACE_RE } from './regex'
 import { MIGRATION_TABLE } from './types'
 
@@ -79,7 +79,15 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     GROUP BY i.relname, t.relname, am.amname, ix.indisunique, ix.indexrelid
   `, [schema])
 
-  return { colRows, pkRows, uqRows, enumRows, fkRows, indexRows }
+  const checkRows = await executor.query(`
+    SELECT c.conname AS name, t.relname AS table_name
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.contype = 'c' AND n.nspname = $1
+  `, [schema])
+
+  return { colRows, pkRows, uqRows, enumRows, fkRows, indexRows, checkRows }
 }
 
 export async function introspectLiveSchema(executor: { query: QueryFn }, schema = 'public'): Promise<{
@@ -87,8 +95,9 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
   enums: LiveEnum[]
   foreignKeys: LiveForeignKey[]
   indexes: LiveIndex[]
+  checks: LiveCheck[]
 }> {
-  const { colRows, pkRows, uqRows, enumRows, fkRows, indexRows } = await runIntrospectionQueries(executor, schema)
+  const { colRows, pkRows, uqRows, enumRows, fkRows, indexRows, checkRows } = await runIntrospectionQueries(executor, schema)
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
@@ -113,6 +122,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       method: r.method as string,
       definition: r.definition as string,
     })),
+    checks: checkRows.map(r => ({ name: r.name as string, tableName: r.table_name as string })),
   }
 }
 
