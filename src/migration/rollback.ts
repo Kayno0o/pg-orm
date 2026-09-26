@@ -1,5 +1,5 @@
 import type { QueryFn } from './types'
-import { MigrationError } from '../errors/index'
+import { MigrationError, ValidationError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 
 export interface RollbackContext {
@@ -12,6 +12,10 @@ export async function rollbackMigrations(
   ctx: RollbackContext,
   count = 1,
 ): Promise<{ rolledBack: string[], sql: string }> {
+  // `slice(-0)` and `slice(-NaN)` are the whole array, so a zero or a CLI typo would roll back every migration.
+  if (!Number.isInteger(count) || count < 1)
+    throw new ValidationError(`rollback count must be a positive integer, got ${count}`, 'rollback', { value: count })
+
   const history = await getMigrationHistory(ctx)
 
   const upMigrations = history.filter(m => m.direction === 'up')

@@ -2,7 +2,7 @@ import type { MigrationHistoryEntry } from '../../../src/migration/history'
 import type { RollbackContext } from '../../../src/migration/rollback'
 import type { QueryFn } from '../../../src/migration/types'
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { MigrationError } from '../../../src/errors/index'
+import { MigrationError, ValidationError } from '../../../src/errors/index'
 import { rollbackMigrations } from '../../../src/migration/rollback'
 
 interface ExecutedQuery { sql: string, params: unknown[] }
@@ -74,6 +74,15 @@ describe('rollbackMigrations', () => {
 
   beforeEach(() => {
     lastResult = { rolledBack: [], sql: '' }
+  })
+
+  it('rejects a count that is not a positive integer rather than rolling back everything', async () => {
+    for (const count of [0, -1, Number.NaN, 1.5]) {
+      const { ctx, executed } = makeContext([entry({ id: 1, name: 'm1' })])
+
+      await expect(rollbackMigrations(ctx, count)).rejects.toThrow(ValidationError)
+      expect(executed).toEqual([])
+    }
   })
 
   it('returns empty when no migrations exist', async () => {
