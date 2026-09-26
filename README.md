@@ -432,6 +432,14 @@ await db.transaction(async (tx) => {
   }
 })
 
+// Called from inside a transaction body, db.transaction() joins it in a savepoint:
+// a helper that opens its own transaction commits or rolls back with its caller's.
+await db.transaction(async (tx) => {
+  await createListWithTiers(input) // runs db.transaction() itself
+  throw new Error('undoes the list too')
+})
+// { independent: true } opens a separate transaction on its own connection instead.
+
 // With isolation level
 await db.transaction(
   { isolation: 'serializable', accessMode: 'read write' },

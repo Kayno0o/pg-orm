@@ -189,7 +189,7 @@ describe('Transaction settlement', () => {
 })
 
 describe('db.transaction() called inside a transaction body', () => {
-  it.failing('sees the outer transaction\'s uncommitted writes', async () => {
+  it('sees the outer transaction\'s uncommitted writes', async () => {
     await db.transaction(async (tx) => {
       await db.repo(usersTable).using(tx).write.insertOne({ name: 'Outer', email: 'outer@test.com' })
 
@@ -199,7 +199,7 @@ describe('db.transaction() called inside a transaction body', () => {
     })
   })
 
-  it.failing('rolls back with the outer transaction', async () => {
+  it('rolls back with the outer transaction', async () => {
     try {
       await db.transaction(async () => {
         await db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Inner', email: 'inner@test.com' }))
@@ -212,5 +212,78 @@ describe('db.transaction() called inside a transaction body', () => {
     }
 
     expect(await db.repo(usersTable).read.count({ email: 'inner@test.com' })).toBe(0)
+  })
+
+  it('undoes only its own writes when it fails and the outer body carries on', async () => {
+    const users = db.repo(usersTable)
+
+    await db.transaction(async (tx) => {
+      await users.using(tx).write.insertOne({ name: 'Outer', email: 'kept@test.com' })
+
+      try {
+        await db.transaction(async (inner) => {
+          await users.using(inner).write.insertOne({ name: 'Inner', email: 'undone@test.com' })
+
+          throw new Error('inner fails')
+        })
+      }
+      catch {
+        // the outer transaction is still usable
+      }
+
+      await users.using(tx).write.insertOne({ name: 'After', email: 'after@test.com' })
+    })
+
+    expect(await users.read.count({ email: ['kept@test.com', 'after@test.com'] })).toBe(2)
+    expect(await users.read.count({ email: 'undone@test.com' })).toBe(0)
+  })
+
+  it('fires its onCommit only once the outer transaction commits, and its onRollback when it fails', async () => {
+    const events: string[] = []
+
+    await db.transaction(async () => {
+      await db.transaction(async (inner) => {
+        inner.onCommit(() => {
+          events.push('inner committed')
+        })
+      })
+
+      try {
+        await db.transaction(async (inner) => {
+          inner.onRollback(() => {
+            events.push('failed inner rolled back')
+          })
+
+          throw new Error('inner fails')
+        })
+      }
+      catch {
+        // expected
+      }
+
+      events.push('outer body done')
+    })
+
+    expect(events).toEqual(['failed inner rolled back', 'outer body done', 'inner committed'])
+  })
+
+  it('refuses an isolation level it cannot apply', async () => {
+    await db.transaction(async () => {
+      await expect(db.transaction({ isolation: 'serializable' }, async () => 1)).rejects.toThrow('cannot change inside a running transaction')
+    })
+  })
+
+  it('opens a transaction of its own from an onCommit callback, once the outer one has settled', async () => {
+    let followUp: Promise<unknown> | undefined
+
+    await db.transaction(async (tx) => {
+      tx.onCommit(() => {
+        followUp = db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Later', email: 'later@test.com' }))
+      })
+    })
+
+    await followUp
+
+    expect(await db.repo(usersTable).read.count({ email: 'later@test.com' })).toBe(1)
   })
 })

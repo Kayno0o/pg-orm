@@ -8,6 +8,8 @@ export interface TransactionOptions {
   accessMode?: 'read write' | 'read only'
   /** Optional context propagated to all QueryEvents within this transaction. */
   context?: Record<string, unknown>
+  /** Open a separate transaction on its own connection even when called from inside a running one, which it would otherwise join. */
+  independent?: boolean
 }
 
 export class TransactionClient extends BaseExecutor {

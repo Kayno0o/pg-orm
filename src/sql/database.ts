@@ -206,6 +206,7 @@ export class Database extends BaseExecutor {
 
   /**
    * Run a callback inside a database transaction. Auto-commits on success, rolls back on error.
+   * Called from inside a running transaction body, it joins that transaction in a savepoint: its writes commit or roll back with the outer one, and its onCommit callbacks wait for the outer commit. `independent: true` opens a separate transaction instead.
    * @example
    * ```ts
    * await db.transaction({ isolation: 'serializable' }, async (tx) => {
@@ -220,9 +221,12 @@ export class Database extends BaseExecutor {
     fnOrOpts: ((tx: TransactionClient) => Promise<T>) | TransactionOptions,
     maybeFn?: (tx: TransactionClient) => Promise<T>,
   ): Promise<T> {
-    return this._connection.track(() => typeof fnOrOpts === 'function'
+    const run = (): Promise<T> => typeof fnOrOpts === 'function'
       ? this._txRunner.run(fnOrOpts)
-      : this._txRunner.run(fnOrOpts, maybeFn!))
+      : this._txRunner.run(fnOrOpts, maybeFn!)
+
+    // A nested call joins the running transaction, which the drain already tracks.
+    return this._txRunner.joins(typeof fnOrOpts === 'function' ? undefined : fnOrOpts) ? run() : this._connection.track(run)
   }
 
   /** Health check — returns true if the database is reachable. */

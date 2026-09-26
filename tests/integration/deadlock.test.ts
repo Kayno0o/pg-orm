@@ -77,8 +77,8 @@ describe('Deadlock detection', () => {
         ['Alice'],
       )
 
-      // Nested: tx2 tries to lock all users with SKIP LOCKED
-      await db.transaction(async (tx2) => {
+      // A separate transaction tries to lock all users with SKIP LOCKED
+      await db.transaction({ independent: true }, async (tx2) => {
         const rows = await tx2.query(
           'SELECT * FROM "users" FOR UPDATE SKIP LOCKED',
           [],

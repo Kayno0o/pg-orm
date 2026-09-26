@@ -1,7 +1,8 @@
 import type { SQL } from 'bun'
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { TransactionOptions } from './transaction'
-import { OrmError, wrapPgError } from '../errors/index'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { OrmError, ValidationError, wrapPgError } from '../errors/index'
 import { asDriver } from './adapter'
 import { queryContextStorage } from './base-executor'
 import { TransactionClient } from './transaction'
@@ -14,6 +15,9 @@ export interface TransactionHooks {
   onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
   slowQueryThreshold?: number
 }
+
+// The transaction whose body is running, so a `db.transaction()` called from inside it joins it instead of opening a second connection.
+const activeTransaction = new AsyncLocalStorage<TransactionClient>()
 
 /**
  * Owns `transaction()` overloads, transaction-local SET LOCAL statements,
@@ -30,6 +34,11 @@ export class TransactionRunner {
     private readonly idleInTransactionTimeout?: number,
   ) {}
 
+  /** Whether a `transaction()` call with these options joins a transaction body running in this async context. */
+  joins(opts?: TransactionOptions): boolean {
+    return !opts?.independent && activeTransaction.getStore() !== undefined
+  }
+
   async run<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async run<T>(opts: TransactionOptions, fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async run<T>(
@@ -38,6 +47,10 @@ export class TransactionRunner {
   ): Promise<T> {
     const fn = typeof fnOrOpts === 'function' ? fnOrOpts : maybeFn!
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
+    const outer = activeTransaction.getStore()
+
+    if (outer && this.joins(opts))
+      return this._runNested(outer, fn, opts)
 
     let txRef: TransactionClient | undefined
     let phase = 'begin' as 'begin' | 'body' | 'commit'
@@ -61,13 +74,7 @@ export class TransactionRunner {
         if (this.idleInTransactionTimeout !== undefined)
           await applyIdleInTransactionTimeout(sqlTx, this.idleInTransactionTimeout)
 
-        const tx = new TransactionClient(
-          sqlTx,
-          this.hooks.onQuery,
-          this.hooks.onSlowQuery,
-          this.hooks.slowQueryThreshold,
-          this.hooks.onError,
-        )
+        const tx = this._client(sqlTx)
 
         if (opts?.context)
           tx._context = opts.context
@@ -75,7 +82,7 @@ export class TransactionRunner {
         txRef = tx
         phase = 'body'
 
-        const out = await fn(tx)
+        const out = await activeTransaction.run(tx, () => fn(tx))
 
         phase = 'commit'
 
@@ -98,6 +105,40 @@ export class TransactionRunner {
 
       throw err
     }
+  }
+
+  // A nested call runs in a savepoint of the outer transaction: its writes commit or roll back with the outer one, and its own failure undoes only them. Its onCommit callbacks wait for the outer commit.
+  private async _runNested<T>(outer: TransactionClient, fn: (tx: TransactionClient) => Promise<T>, opts?: TransactionOptions): Promise<T> {
+    if (opts?.isolation || opts?.accessMode)
+      throw new ValidationError('transaction(): isolation and accessMode cannot change inside a running transaction, which this call joins (pass independent: true for a separate one).', 'transaction', { value: opts })
+
+    let tx: TransactionClient | undefined
+
+    try {
+      const out = await asDriver(outer.sql).savepoint<T>(async (sqlSp) => {
+        const inner = this._client(sqlSp)
+
+        inner._context = opts?.context ?? outer._context
+        tx = inner
+
+        return activeTransaction.run(inner, () => fn(inner))
+      })
+
+      outer._onCommitCallbacks.push(...tx!._onCommitCallbacks)
+      outer._onRollbackCallbacks.push(...tx!._onRollbackCallbacks)
+
+      return out
+    }
+    catch (err) {
+      if (tx)
+        await this._fireTxCallbacks('onRollback', tx._onRollbackCallbacks, err)
+
+      throw err
+    }
+  }
+
+  private _client(sqlTx: InstanceType<typeof SQL>): TransactionClient {
+    return new TransactionClient(sqlTx, this.hooks.onQuery, this.hooks.onSlowQuery, this.hooks.slowQueryThreshold, this.hooks.onError)
   }
 
   /**
