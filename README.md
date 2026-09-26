@@ -512,6 +512,8 @@ A `redactParams` redactor **must not throw** — a throwing redactor propagates 
 `QueryError` constructor by design, so the bug surfaces loudly instead of silently
 producing empty params.
 
+The `onQuery` / `onSlowQuery` / `onError` events follow the same rules for `params`, except that with no `redactParams` they carry the raw values outside hard-redact mode, so a local debug hook can still render them.
+
 ## Configuration
 
 ```ts

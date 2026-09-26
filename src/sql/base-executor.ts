@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { getParamRedactor, queryLogsRedacted } from '../errors/index'
 import { unsafeQuery } from './adapter'
 
 /**
@@ -36,6 +37,16 @@ export interface Executable {
   query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
   /** bun:sql tagged template interface */
   sql: InstanceType<typeof SQL>
+}
+
+// Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
+function eventParams(params: unknown[]): unknown[] {
+  if (queryLogsRedacted())
+    return []
+
+  const redactor = getParamRedactor()
+
+  return redactor && process.env.REDACT_QUERY_LOGS !== '0' ? redactor(params) : params
 }
 
 // --- Base Executor (shared query logic) ---
@@ -78,13 +89,13 @@ export abstract class BaseExecutor implements Executable {
       catch (err) {
         const ctx = this._currentContext()
 
-        this._onError?.({ error: err, sql: sqlStr, params, ...ctx ? { context: ctx } : {} })
+        this._onError?.({ error: err, sql: sqlStr, params: eventParams(params), ...ctx ? { context: ctx } : {} })
 
         throw err
       }
 
       const durationMs = performance.now() - start
-      const event: QueryEvent = { sql: sqlStr, params, durationMs }
+      const event: QueryEvent = { sql: sqlStr, params: eventParams(params), durationMs }
       const ctx = this._currentContext()
 
       if (ctx)
@@ -105,7 +116,7 @@ export abstract class BaseExecutor implements Executable {
     catch (err) {
       const ctx = this._currentContext()
 
-      this._onError?.({ error: err, sql: sqlStr, params, ...ctx ? { context: ctx } : {} })
+      this._onError?.({ error: err, sql: sqlStr, params: eventParams(params), ...ctx ? { context: ctx } : {} })
 
       throw err
     }
