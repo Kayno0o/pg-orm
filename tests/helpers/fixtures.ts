@@ -27,9 +27,11 @@ const commentsTableDef = defineTable('comments', t => ({
   authorId: t.int4().notNull(),
 }))
 
+// `weight` is a bigint so tags go through a compiled mapper rather than the identity pass-through, which hasManyThrough has to survive.
 export const tagsTable = defineTable('tags', t => ({
   id: t.serial().primaryKey(),
   name: t.text().notNull().unique(),
+  weight: t.bigint().nullable(),
 }))
 
 export const postTagsTable = defineTable('post_tags', t => ({

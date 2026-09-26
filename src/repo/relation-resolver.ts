@@ -276,12 +276,29 @@ export class RelationResolver {
 
     let rows = await this._batchThroughQuery(rel, targetPk, parentIds)
 
+    // The pivot key is read off before the row is mapped: a compiled mapper keeps only the target's own columns and would drop it. Mapping keeps row order, so the index still pairs each row with its key.
+    const pivotKeys = rows.map((row) => {
+      const key = row.__pgorm_pivot_fk__
+
+      delete row.__pgorm_pivot_fk__
+
+      return key
+    })
+
     if (processor && rows.length > 0)
       rows = await processor.processRows(rows, rel.targetTable, 'select')
 
-    const grouped = groupBy(rows, '__pgorm_pivot_fk__')
+    const grouped = new Map<unknown, Record<string, unknown>[]>()
 
-    for (const row of rows) delete row.__pgorm_pivot_fk__
+    for (const [i, row] of rows.entries()) {
+      const key = pivotKeys[i]
+      const group = grouped.get(key)
+
+      if (group)
+        group.push(row)
+      else
+        grouped.set(key, [row])
+    }
 
     for (const parent of parentRows) {
       parent[relationName] = grouped.get(parent[sourcePk]) ?? []
