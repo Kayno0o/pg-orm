@@ -57,7 +57,7 @@
     "bun-types": "1.3.14"
   },
   "dependencies": {
-    "@kaynooo/utils": "^2.14.1"
+    "@kaynooo/utils": "^2.24.1"
   },
   "devDependencies": {
     "@kaynooo/changelogitea": "^1.6.3",
