@@ -19,17 +19,14 @@ bench:
 # v0.0.X
 patch:
 	npm version patch
-	git push
-	git push --tags
+	git push --follow-tags
 
 # v0.X.0
 minor:
 	npm version minor
-	git push
-	git push --tags
+	git push --follow-tags
 
 # vX.0.0
 major:
 	npm version major
-	git push
-	git push --tags
+	git push --follow-tags
