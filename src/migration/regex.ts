@@ -22,5 +22,9 @@ export const TIMETZ_RE = /^timetz$/
 // Strips trailing PostgreSQL type casts from column defaults (e.g. `''::text`, `0::integer`, `text[]`).
 export const DEFAULT_CAST_RE = /::[\w ]+(\[\])*/g
 
+// Pieces Postgres adds or drops when it prints an index predicate back (`WHERE ((kind = 'x'::text))` for `"kind" = 'x'`): casts, identifier quotes, parentheses and spacing.
+export const PREDICATE_CAST_RE = /::\w+(?: varying| precision| with(?:out)? time zone)?(?:\[\])*/g
+export const PREDICATE_NOISE_RE = /["()\s]/g
+
 // A quoted plain number (`'0.00'`): Postgres reflects a numeric column's default back unquoted, so both sides drop the quotes before comparing.
 export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?)'$/
