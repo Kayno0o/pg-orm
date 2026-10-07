@@ -134,6 +134,24 @@ describe('testDatabase', () => {
     // The server ended its session; Bun's client neither settles a close() nor fails a query after that, so it is left alone.
   })
 
+  it('names a missing migrations folder', async () => {
+    await expect(testDatabase({ url: serverUrl(`${prefix}_missing`), migrationsDir: join(tmpdir(), 'pg-orm-no-such-folder') })).rejects.toThrow('testDatabase: no migrations folder at')
+  })
+
+  it('copies a database whose name is longer than Postgres allows, under a name it accepts', async () => {
+    const app = project({ '0001_member': MEMBER })
+    const long = { ...app, url: serverUrl(`${prefix}_${'x'.repeat(80)}`) }
+    const database = await testDatabase(long)
+
+    try {
+      expect(new URL(database.url).pathname.length - 1).toBeLessThanOrEqual(63)
+      expect(await names(database.url)).toEqual([])
+    }
+    finally {
+      await database.drop()
+    }
+  })
+
   it('leaves no half-built template behind when a migration fails', async () => {
     const app = project({ '0001_broken': 'CREATE TABLE member (id serial PRIMARY KEY, name nonsense);' })
 

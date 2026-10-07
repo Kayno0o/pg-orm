@@ -1,6 +1,6 @@
 import type { AnyTableDef } from '../types/index'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { SQL } from 'bun'
 import { applyMigrationFiles } from '../migration/files'
 import { Database } from '../sql/database'
@@ -24,8 +24,8 @@ export interface TestDatabase {
 }
 
 const NOT_IDENTIFIER = /\W+/g
-// Postgres cuts identifiers at 63 bytes, so the name copies are made under leaves room for what follows it.
-const MAX_BASE = 40
+// Postgres cuts identifiers at 63 bytes; the longest name made from it, a template being built, adds 26: `_tpl_`, a 10-character hash, `_` and a 10-character suffix.
+const MAX_BASE = 37
 // Losing the race to the name: 42P04 when the name was taken before the rename started, 23505 on the catalog's unique index when both ran at once.
 const DUPLICATE_DATABASE = new Set(['42P04', '23505'])
 const TEMPLATE_HASH = /^[a-z0-9]+$/
@@ -48,6 +48,10 @@ function randomSuffix(): string {
 
 // The template's name changes with every migration file and with the seed, so an edit to either builds a new one rather than reusing one that no longer matches.
 function templateName(base: string, options: TestDatabaseOptions): string {
+  // Relative to where the tests run, which is the project's root for `bun test` there.
+  if (!existsSync(options.migrationsDir))
+    throw new Error(`testDatabase: no migrations folder at ${resolve(options.migrationsDir)}`)
+
   const files = readdirSync(options.migrationsDir).filter(file => file.endsWith('.sql')).sort()
   const content = files.map(file => `${file}\n${readFileSync(join(options.migrationsDir, file), 'utf8')}`).join('\n')
   const hash = Bun.hash(`${content}\n${options.seed?.toString() ?? ''}`).toString(36).slice(0, 10)
@@ -95,7 +99,11 @@ async function buildTemplate(admin: SQL, url: string, base: string, name: string
     await admin.unsafe(`ALTER DATABASE ${quote(building)} RENAME TO ${quote(name)}`)
   }
   catch (error) {
-    await admin.unsafe(`DROP DATABASE IF EXISTS ${quote(building)} WITH (FORCE)`)
+    // A failing cleanup must not hide why the build failed.
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS ${quote(building)} WITH (FORCE)`)
+    }
+    catch {}
 
     if (!DUPLICATE_DATABASE.has((error as { errno?: string }).errno ?? ''))
       throw error

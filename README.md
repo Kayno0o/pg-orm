@@ -608,7 +608,8 @@ afterAll(() => database.drop())
 - The template is named after the database and a hash of the migration files and the seed function's source, so an edit to either builds a new one on the next run, which drops the one it replaces. Data the seed reads from elsewhere is not part of the hash.
 - Runs racing to build the template each build their own and keep the first renamed into place.
 - `drop()` drops the copy with `WITH (FORCE)`, closing the app's connections to it. A run that crashed leaves its copies, named `<database>_t<suffix>`.
-- The user in `url` needs `CREATEDB`, and the server a `postgres` database to connect to while creating them.
+- The user in `url` needs `CREATEDB`, and the server, Postgres 13 or later for `WITH (FORCE)`, a `postgres` database to connect to while creating them.
+- Each file needs modules of its own for `DATABASE_URL` to differ between files: under plain `bun test` the preload runs once, and every file shares that one copy.
 
 ### CHECK constraints
 
