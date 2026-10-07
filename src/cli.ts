@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
 import type { PgOrmConfig } from './define-config'
-import type { MigrationHistoryEntry } from './migration/index'
 import type { Database } from './sql/database'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { applyMigrationFiles, pendingMigrationFiles } from './migration/files'
 import {
   applyMigration,
   djb2Hash,
@@ -15,10 +15,6 @@ import {
 
   recordMigration,
 } from './migration/index'
-
-const SQL_EXT_RE = /\.sql$/
-const MIGRATE_DOWN_RE = /\n-- migrate:down\n/
-const MIGRATE_UP_RE = /^-- migrate:up\n/
 
 async function loadConfig(): Promise<{ db: Database, dir: string }> {
   const cfgPath = resolve(process.cwd(), 'pg-orm.config.ts')
@@ -39,12 +35,6 @@ async function loadConfig(): Promise<{ db: Database, dir: string }> {
   return { db: cfg.db, dir: cfg.migrationsDir ?? 'migrations' }
 }
 
-function parseFile(content: string): { up: string, down: string } {
-  const [up = '', down = ''] = content.split(MIGRATE_DOWN_RE)
-
-  return { up: up.replace(MIGRATE_UP_RE, ''), down }
-}
-
 function writeMigration(dir: string, name: string, up: string, down: string): string {
   mkdirSync(dir, { recursive: true })
   const filename = `${name}.sql`
@@ -52,22 +42,6 @@ function writeMigration(dir: string, name: string, up: string, down: string): st
   writeFileSync(join(dir, filename), `-- migrate:up\n${up}\n\n-- migrate:down\n${down}`, 'utf8')
 
   return filename
-}
-
-function pendingFiles(dir: string, history: MigrationHistoryEntry[]): string[] {
-  if (!existsSync(dir))
-    return []
-
-  return readdirSync(dir)
-    .filter(f => f.endsWith('.sql'))
-    .sort()
-    .filter((f) => {
-      const name = f.replace(SQL_EXT_RE, '')
-      const ups = history.filter(h => h.name === name && h.direction === 'up').length
-      const downs = history.filter(h => h.name === name && h.direction === 'down').length
-
-      return ups <= downs
-    })
 }
 
 async function cmdStatus(db: Database, dir: string): Promise<void> {
@@ -83,7 +57,7 @@ async function cmdStatus(db: Database, dir: string): Promise<void> {
   }
 
   const history = await getMigrationHistory(db)
-  const pending = pendingFiles(dir, history)
+  const pending = pendingMigrationFiles(dir, history)
 
   if (pending.length > 0) {
     console.log(`\nPending files (${pending.length}):`)
@@ -107,24 +81,13 @@ async function cmdGenerate(db: Database, dir: string): Promise<void> {
 }
 
 async function cmdApply(db: Database, dir: string): Promise<void> {
-  await ensureMigrationTable(db)
-  const history = await getMigrationHistory(db)
-  const pending = pendingFiles(dir, history)
+  const applied = await applyMigrationFiles(db, dir)
 
-  if (pending.length === 0) {
+  if (applied.length === 0)
     console.log('Nothing to apply')
 
-    return
-  }
-
-  for (const filename of pending) {
-    const name = filename.replace(SQL_EXT_RE, '')
-    const { up, down } = parseFile(readFileSync(join(dir, filename), 'utf8'))
-
-    await applyMigration(db, up)
-    await recordMigration(db, { name, sqlHash: djb2Hash(up), upSql: up, downSql: down, direction: 'up' })
+  for (const filename of applied)
     console.log(`Applied: ${filename}`)
-  }
 }
 
 async function cmdRollback(db: Database, count: number): Promise<void> {

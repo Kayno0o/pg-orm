@@ -584,6 +584,32 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 // { name, up, down }
 ```
 
+### Test databases
+
+`testDatabase()` gives a test file a database of its own: a copy of one migrated from your migration files and seeded once, made with `CREATE DATABASE ... TEMPLATE`, which takes milliseconds. Tests run on the same schema production gets from `pg-orm apply`, and two files never see each other's rows, even when they run at once.
+
+```ts
+// tests/preload.ts, run before each file with `bun test --isolate --preload ./tests/preload.ts`
+import { afterAll } from 'bun:test'
+import { testDatabase } from '@kaynooo/pg-orm'
+import { Member } from '../src/db/member'
+
+const database = await testDatabase({
+  url: process.env.DATABASE_URL!,   // the server's test database, from .env.test; it need not exist
+  migrationsDir: 'migrations',
+  tables: [Member],
+  seed: async db => void await db.repo(Member).write.insertOne({ name: 'Ada' }),
+})
+
+process.env.DATABASE_URL = database.url // read by the app's Database, imported after this
+afterAll(() => database.drop())
+```
+
+- The template is named after the database and a hash of the migration files and the seed function's source, so an edit to either builds a new one on the next run, which drops the one it replaces. Data the seed reads from elsewhere is not part of the hash.
+- Runs racing to build the template each build their own and keep the first renamed into place.
+- `drop()` drops the copy with `WITH (FORCE)`, closing the app's connections to it. A run that crashed leaves its copies, named `<database>_t<suffix>`.
+- The user in `url` needs `CREATEDB`, and the server a `postgres` database to connect to while creating them.
+
 ### CHECK constraints
 
 Each column's CHECKs (`.check()`, `.min()`, `.pattern()`, ...) are named `<table>_<column>_check_<hash>`, the hash taken from the expression, so `sync()` drops and re-adds a check whose expression changed. The first sync after upgrading renames the unnamed checks earlier versions created (`<table>_<column>_check`); checks named any other way are left alone.

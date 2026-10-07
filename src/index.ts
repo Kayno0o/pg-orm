@@ -131,6 +131,9 @@ export {
   type TransactionOptions,
 } from './sql/index'
 
+// Testing: a database of its own per test file, copied from one migrated and seeded once
+export { type TestDatabase, testDatabase, type TestDatabaseOptions } from './testing/test-database'
+
 // Traits
 export { optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
 
