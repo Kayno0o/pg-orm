@@ -1,9 +1,10 @@
 import type { AnyColumns, AnyTableDef, InferSelect } from '../types/index'
 import type { Joined } from './select'
+import type { TableTarget } from './state'
 import { WhereableMutationBuilder } from './base'
 
 export class DeleteBuilder<TColumns extends AnyColumns, _TResult = void, TJoined extends AnyColumns = {}> extends WhereableMutationBuilder<TColumns, TJoined> {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('delete', table)
   }
 

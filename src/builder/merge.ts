@@ -1,11 +1,12 @@
 import type { AnyColumns } from '../types/index'
 import type { ExprBuilder, ExprTape } from './expr'
+import type { TableTarget } from './state'
 import { MutationBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { validateValues } from './state'
 
 export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('merge', table)
   }
 

@@ -117,7 +117,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     set: InferUpdate<TColumns>,
     where: WhereInput<TColumns> | null,
   ): UpdateBuilder<TColumns> {
-    const builder = new UpdateBuilderCtor<TColumns>(table.name)
+    const builder = new UpdateBuilderCtor<TColumns>(table)
       .set(set)
       .where((e: ExprBuilder<TColumns>) => where ? e.and(compileWhere<TColumns>(where), e.isNull(softDeleteColumn!)) : e.isNull(softDeleteColumn!))
 
@@ -136,7 +136,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
       )
     }
 
-    const builder = new UpdateBuilderCtor<TColumns>(table.name)
+    const builder = new UpdateBuilderCtor<TColumns>(table)
       .set(set)
       .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where), e.isNotNull(softDeleteColumn)))
 

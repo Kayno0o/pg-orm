@@ -1,9 +1,10 @@
 import type { AnyColumns, InferInsert, InferSelect } from '../types/index'
+import type { TableTarget } from './state'
 import { MutationBuilder } from './base'
 import { validateValues } from './state'
 
 export class UpsertBuilder<TColumns extends AnyColumns, _TResult = void> extends MutationBuilder {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('upsert', table)
   }
 

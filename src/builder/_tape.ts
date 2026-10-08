@@ -3,7 +3,7 @@
 // Public DSL lives in `./expr.ts`; this file is the implementation detail.
 
 import type { Dialect } from '../dialect'
-import { DialectError } from '../errors/index'
+import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { qualifyCol } from '../sql/utils'
 import { bindRawParams } from './_placeholders'
@@ -154,7 +154,8 @@ class ExprAssembler {
   private pidx: number
 
   // `qualifier` prefixes every bare column with a table name, for a clause where an unqualified column is ambiguous (ON CONFLICT DO UPDATE sees both the existing row and EXCLUDED).
-  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string, private readonly dialect: Dialect = 'postgres') {
+  // `columns` are the table's own, when known: a bare name outside them is refused.
+  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string, private readonly dialect: Dialect = 'postgres', private readonly columns?: ReadonlySet<string>) {
     this.tape = tape
     this.pidx = paramOffset + 1
   }
@@ -207,9 +208,15 @@ class ExprAssembler {
 
   private walkCol(col: string | ExprTape): string {
     if (typeof col === 'string')
-      return qualifyCol(col, this.qualifier)
+      return this.column(col)
 
     return this.walkSubTape(col)
+  }
+
+  private column(name: string): string {
+    assertColumn(name, this.columns)
+
+    return qualifyCol(name, this.qualifier)
   }
 
   private walkSubTape(tape: ExprTape): string {
@@ -347,7 +354,7 @@ class ExprAssembler {
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
       }
       case OP_REF:
-        return { sql: qualifyCol(op.path, this.qualifier), next: pos + 1 }
+        return { sql: this.column(op.path), next: pos + 1 }
       case OP_SCALAR:
         return { sql: `(${this.walkSubquery(op.subquery)})`, next: pos + 1 }
       case OP_IN_SUBQUERY: {
@@ -398,6 +405,15 @@ class ExprAssembler {
   }
 }
 
-export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string, dialect: Dialect = 'postgres'): AssembledExpr {
-  return new ExprAssembler(tape, paramOffset, qualifier, dialect).assemble()
+export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string, dialect: Dialect = 'postgres', columns?: ReadonlySet<string>): AssembledExpr {
+  return new ExprAssembler(tape, paramOffset, qualifier, dialect, columns).assemble()
+}
+
+/**
+ * Refuse a bare column name the table does not have, when its columns are known; an `alias.col` names another table and is left alone.
+ * SQLite reads a double-quoted unknown name as a string literal, so `WHERE "nme" = 'nme'` would match every row instead of failing.
+ */
+export function assertColumn(name: string, columns: ReadonlySet<string> | undefined): void {
+  if (columns && !columns.has(name) && !name.includes('.'))
+    throw new ValidationError(`Unknown column "${name}"`, 'column', { field: name })
 }

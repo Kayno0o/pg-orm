@@ -119,7 +119,7 @@ export class ReadPipeline<
 
   /** Builder accessor for advanced SELECT. Auto-applies the soft-delete filter. */
   select(): SelectBuilder<TColumns, TRelations> {
-    const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
+    const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
 
     this._runtime.behavior.prepareSelect(builder)
 
@@ -127,7 +127,7 @@ export class ReadPipeline<
   }
 
   async findMany(arg?: FindArg<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
-    const finalBuilder = asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
+    const finalBuilder = asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
 
     this._runtime.behavior.prepareSelect(finalBuilder)
     this._resolveCounts(finalBuilder)
@@ -187,7 +187,7 @@ export class ReadPipeline<
   }
 
   async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).count().where(where)
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(where)
 
     if (opts?.withTrashed)
       builder.withTrashed()
@@ -205,7 +205,7 @@ export class ReadPipeline<
   }
 
   async exists(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<boolean> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).asExists().limit(1).where(where)
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).asExists().limit(1).where(where)
 
     if (opts?.withTrashed)
       builder.withTrashed()
@@ -227,7 +227,7 @@ export class ReadPipeline<
     if (!Number.isInteger(perPage) || perPage < 1)
       throw new ValidationError(`paginate() requires perPage >= 1, got ${perPage}`, 'paginate', { value: perPage })
 
-    const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
+    const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
     const rows = (cb ? cb(base) : base).andWhere(where)
 
     if (withTrashed)
@@ -364,7 +364,7 @@ export class ReadPipeline<
         console.warn(msg)
     }
 
-    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
+    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
 
     // OFFSET pages are only disjoint over a total order, so an unordered stream walks the primary key.
     if (finalBuilder.getState().orderBy.length === 0) {

@@ -4,7 +4,7 @@ import type { BuilderState, MergeWhen, OrderEntry } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
-import { assembleExpr, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
+import { assembleExpr, assertColumn, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
 import { isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
 
@@ -17,9 +17,23 @@ class SqlBuilder {
   readonly params: unknown[] = []
   pidx: number
   readonly parts: string[] = []
+  // The table's own columns and the select's output aliases, when known: a bare name outside them is refused.
+  columns?: ReadonlySet<string>
+  outputs?: ReadonlySet<string>
 
   constructor(readonly dialect: Dialect, paramOffset: number) {
     this.pidx = paramOffset + 1
+  }
+
+  column(name: string, qualifier?: string): string {
+    assertColumn(name, this.columns)
+
+    return qualifyCol(name, qualifier)
+  }
+
+  // An output alias (a computed column, a count) sorts unqualified; anything else is a column.
+  orderColumn(name: string, qualifier?: string): string {
+    return this.outputs?.has(name) ? quote(name) : this.column(name, qualifier)
   }
 
   postgresOnly(feature: string): void {
@@ -37,9 +51,9 @@ class SqlBuilder {
     this.parts.push(part)
   }
 
-  /** Splice an expression tape into the running SQL stream, bumping param state. */
-  inlineExpr(tape: ExprTape, qualifier?: string): string {
-    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect)
+  /** Splice an expression tape into the running SQL stream, bumping param state. `columns: null` checks no name, for a clause naming other tables' columns or aliases. */
+  inlineExpr(tape: ExprTape, qualifier?: string, columns: ReadonlySet<string> | null = this.columns ?? null): string {
+    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect, columns ?? undefined)
 
     this.params.push(...result.params)
     this.pidx += result.params.length
@@ -99,7 +113,7 @@ function printReturning(sb: SqlBuilder, state: BuilderState): void {
   const q = state.fromTables?.length ? state.table : undefined
   const all = q && sb.dialect === 'postgres' ? `${quote(q)}.*` : '*'
 
-  sb.push(`RETURNING ${returning.length ? quoteCols(returning, q) : all}${extra ? `, ${extra}` : ''}`)
+  sb.push(`RETURNING ${returning.length ? returning.map(col => sb.column(col, q)).join(', ') : all}${extra ? `, ${extra}` : ''}`)
 }
 
 // The columns an insert writes. Rows writing different ones are refused: copying them on conflict would overwrite a column a row left out with its default.
@@ -173,7 +187,10 @@ function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): 
 // A joined column comes back under its `alias.col` name, so it neither collides with the table's own nor is lost.
 function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
   const q = joinQualifier(state)
-  const cols: string[] = selectedColumns(state)?.map(col => col.includes('.') ? `${quotePath(col)} AS ${quote(col)}` : qualifyCol(col, q)) ?? [q ? `${quote(q)}.*` : '*']
+
+  for (const col of state.omitColumns) assertColumn(col, sb.columns)
+
+  const cols: string[] = selectedColumns(state)?.map(col => col.includes('.') ? `${quotePath(col)} AS ${quote(col)}` : sb.column(col, q)) ?? [q ? `${quote(q)}.*` : '*']
 
   for (const cc of state.computedColumns) {
     // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
@@ -182,7 +199,7 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
     // (rejects `;`, `--`, `/*`, dollar-quotes, unterminated strings). The
     // alias is bound by `validateIdentifier`. Do not introduce a new caller
     // here without applying both.
-    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier)})` : cc.expr
+    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier, null)})` : cc.expr
 
     cols.push(`${expr} AS ${quote(cc.alias)}`)
   }
@@ -207,7 +224,7 @@ function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean):
 
   const distinct = state.distinct
     ? 'DISTINCT '
-    : state.distinctOn.length ? `DISTINCT ON (${quoteCols(state.distinctOn, joinQualifier(state))}) ` : ''
+    : state.distinctOn.length ? `DISTINCT ON (${state.distinctOn.map(col => sb.column(col, joinQualifier(state))).join(', ')}) ` : ''
 
   sb.push(`SELECT ${distinct}${printSelectColumns(sb, state)}`)
 }
@@ -227,25 +244,25 @@ function printJoins(sb: SqlBuilder, state: BuilderState): void {
 
 // An ORDER BY list, an entry naming a column or holding an expression whose params bind in place.
 function printOrder(sb: SqlBuilder, entries: OrderEntry[], qualifier?: string): string {
-  return entries.map(o => `${o.expr ? sb.inlineExpr(o.expr, qualifier) : qualifyCol(o.col, qualifier)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+  return entries.map(o => `${o.expr ? sb.inlineExpr(o.expr, qualifier) : sb.orderColumn(o.col, qualifier)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
 }
 
 function printGroupHaving(sb: SqlBuilder, state: BuilderState): void {
   const q = joinQualifier(state)
-  const groups = [...state.groupBy.map(col => qualifyCol(col, q)), ...(state.groupByExprs ?? []).map(expr => sb.inlineExpr(expr, q))]
+  const groups = [...state.groupBy.map(col => sb.column(col, q)), ...(state.groupByExprs ?? []).map(expr => sb.inlineExpr(expr, q))]
 
   if (groups.length)
     sb.push(`GROUP BY ${groups.join(', ')}`)
 
   if (state.havingTape)
-    sb.push(`HAVING ${sb.inlineExpr(state.havingTape, q)}`)
+    sb.push(`HAVING ${sb.inlineExpr(state.havingTape, q, null)}`)
 }
 
 function printWindows(sb: SqlBuilder, state: BuilderState): void {
   const q = joinQualifier(state)
 
   for (const w of state.windows) {
-    const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy, q)}` : ''
+    const partBy = w.partitionBy.length ? `PARTITION BY ${w.partitionBy.map(col => sb.column(col, q)).join(', ')}` : ''
     const ordBy = w.orderBy.length ? `ORDER BY ${printOrder(sb, w.orderBy, q)}` : ''
 
     sb.push(`WINDOW ${quote(w.name)} AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
@@ -610,10 +627,30 @@ function printRaw(sb: SqlBuilder, state: BuilderState): void {
 
 // --- Dispatcher ---
 
+const columnSets = new WeakMap<readonly string[], ReadonlySet<string>>()
+
+// One set per table's column list, which the repository shares between its queries.
+function columnSet(columns: readonly string[]): ReadonlySet<string> {
+  let set = columnSets.get(columns)
+
+  if (!set) {
+    set = new Set(columns)
+    columnSets.set(columns, set)
+  }
+
+  return set
+}
+
 export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres', paramOffset = 0): { sql: string, params: unknown[] } {
   const sb = new SqlBuilder(dialect, paramOffset)
 
   printCtes(sb, state.ctes)
+
+  // MERGE names its source's columns bare too, so only the other statements check theirs.
+  if (state.tableColumns?.length && state.op !== 'merge' && state.op !== 'raw') {
+    sb.columns = columnSet(state.tableColumns)
+    sb.outputs = new Set(state.computedColumns.map(c => c.alias))
+  }
 
   switch (state.op) {
     case 'select':

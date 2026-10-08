@@ -2,6 +2,7 @@ import type { AnyColumns, InferInsert, InferSelect } from '../types/index'
 import type { SubqueryRef } from './_tape'
 import type { OptionalWhere } from './_where'
 import type { ConflictExprBuilder, ConflictSet } from './conflict'
+import type { TableTarget } from './state'
 import { compileWhere } from './_where'
 import { MutationBuilder } from './base'
 import { createConflictExprBuilder } from './conflict'
@@ -18,7 +19,7 @@ export interface ConflictUpdate<TColumns extends AnyColumns> {
 }
 
 export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends MutationBuilder {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('insert', table)
   }
 

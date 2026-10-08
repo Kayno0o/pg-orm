@@ -210,6 +210,17 @@ function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[]):
 }
 
 /** Replace `state.whereTape` with `where`'s tape. A falsy `where` leaves it untouched. */
+/**
+ * `{ [column]: condition }` for a column named at runtime (a query string, a route config), typed for the table without a cast.
+ * `condition` is what the object form takes for a column: a value, an array, null or an operator map. A name the table does not have throws `ValidationError`.
+ */
+export function whereColumn<TColumns extends AnyColumns>(table: { readonly name: string, readonly columns: TColumns }, column: string, condition: unknown): WhereObject<TColumns> {
+  if (!Object.hasOwn(table.columns, column))
+    throw new ValidationError(`"${table.name}" has no column "${column}"`, 'whereColumn', { field: column })
+
+  return { [column]: condition } as WhereObject<TColumns>
+}
+
 export function replaceWhere<TColumns extends AnyColumns>(state: BuilderState, where: OptionalWhere<TColumns>): void {
   if (where)
     state.whereTape = compileWhere<TColumns>(where)

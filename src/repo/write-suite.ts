@@ -137,9 +137,9 @@ export class WriteSuite<
   }
 
   // Builder accessors — skip the hook/trait dispatch applied by the methods above.
-  insert(): InsertBuilder<TColumns> { return new InsertBuilder<TColumns>(this._rt.table.name) }
-  update(): UpdateBuilder<TColumns> { return new UpdateBuilder<TColumns>(this._rt.table.name) }
-  delete(): DeleteBuilder<TColumns> { return new DeleteBuilder<TColumns>(this._rt.table.name) }
-  merge(): MergeBuilder<TColumns> { return new MergeBuilder<TColumns>(this._rt.table.name) }
-  upsert(): UpsertBuilder<TColumns> { return new UpsertBuilder<TColumns>(this._rt.table.name) }
+  insert(): InsertBuilder<TColumns> { return new InsertBuilder<TColumns>(this._rt.table) }
+  update(): UpdateBuilder<TColumns> { return new UpdateBuilder<TColumns>(this._rt.table) }
+  delete(): DeleteBuilder<TColumns> { return new DeleteBuilder<TColumns>(this._rt.table) }
+  merge(): MergeBuilder<TColumns> { return new MergeBuilder<TColumns>(this._rt.table) }
+  upsert(): UpsertBuilder<TColumns> { return new UpsertBuilder<TColumns>(this._rt.table) }
 }

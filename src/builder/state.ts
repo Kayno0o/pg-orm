@@ -209,6 +209,26 @@ export function selectedColumns(s: BuilderState): string[] | null {
   return kept
 }
 
+/** What a builder is built on: a table name, or a table definition, every column name then checked against its columns. */
+export type TableTarget = string | { readonly name: string, readonly columns: object }
+
+const columnLists = new WeakMap<object, readonly string[]>()
+
+/** The state for a builder on `table`, knowing its columns when given its definition. */
+export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
+  if (typeof table === 'string')
+    return createState(op, table)
+
+  let columns = columnLists.get(table.columns)
+
+  if (!columns) {
+    columns = Object.keys(table.columns)
+    columnLists.set(table.columns, columns)
+  }
+
+  return { ...createState(op, table.name), tableColumns: columns }
+}
+
 export function cloneState(s: BuilderState): BuilderState {
   return {
     ...s,

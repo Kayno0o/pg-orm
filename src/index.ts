@@ -34,6 +34,7 @@ export {
   type SetValues,
   UpdateBuilder,
   UpsertBuilder,
+  whereColumn,
   type WhereFn,
   type WhereInput,
   type WhereObject,
@@ -118,6 +119,7 @@ export { defineTable, isTableDef } from './schema/index'
 export {
   columnBaseType,
   hasTrait,
+  isColumn,
   type TableMeta,
   tableMeta,
   traitColumns,

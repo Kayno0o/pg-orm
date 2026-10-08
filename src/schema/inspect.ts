@@ -1,4 +1,4 @@
-import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint } from '../types/index'
 
 const ARRAY_SUFFIX_RE = /\[\]$/
 const TYPE_MODIFIER_RE = /\(.*\)$/
@@ -45,6 +45,11 @@ export function writableColumns(table: AnyTableDef, opts: { exclude?: Iterable<s
 
     return !table.columns[name]!.constraints.some((c: ColumnConstraint) => c.type === 'primary_key' || c.type === 'generated')
   })
+}
+
+/** Whether `name` is one of the table's columns, narrowing a runtime string for `pick`, `orderBy` or `groupBy`: `if (isColumn(repo.table, sort)) q.orderBy(sort)`. */
+export function isColumn<TColumns extends AnyColumns>(table: { readonly columns: TColumns }, name: string): name is keyof TColumns & string {
+  return Object.hasOwn(table.columns, name)
 }
 
 /** Split a column's `pgType` into its bare type and array-ness: `varchar(255)` -> `varchar`, `int4[]` -> `int4` + `isArray`. */

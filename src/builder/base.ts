@@ -1,18 +1,18 @@
 import type { Dialect } from '../dialect'
 import type { AnyColumns, AnyTableDef } from '../types/index'
 import type { OptionalWhere } from './_where'
-import type { BuilderState, QueryOp } from './state'
+import type { BuilderState, QueryOp, TableTarget } from './state'
 import { DialectError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
 import { appendWhere, replaceWhere } from './_where'
 import { assembleQuery } from './assembler'
-import { cloneState, createState } from './state'
+import { cloneState, stateFor } from './state'
 
 export abstract class BaseBuilder {
   /** @internal */ _state: BuilderState
 
-  constructor(op: QueryOp, table: string) {
-    this._state = createState(op, table)
+  constructor(op: QueryOp, table: TableTarget) {
+    this._state = stateFor(op, table)
   }
 
   getState(): BuilderState {

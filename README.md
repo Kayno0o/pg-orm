@@ -483,6 +483,20 @@ columnBaseType(users.columns.tags)    // { base: 'text', isArray: true } — fro
 columnBaseType(users.columns.email)   // { base: 'varchar', isArray: false } — from 'varchar(255)'
 ```
 
+**Column names known only at runtime** (a query string, a route config) go through without a cast. `repo.table` is the repository's table, typed for generic code; `isColumn` narrows a string to its column names and `whereColumn` builds a where object for one, throwing `ValidationError` on a name the table lacks.
+
+```ts
+async function list<C extends AnyColumns>(repo: Repository<C>, sort: string, field: string, search: string) {
+  return repo.read.findMany(q => {
+    if (isColumn(repo.table, sort))
+      q.orderBy(sort)
+    return q.where(whereColumn(repo.table, field, { iContains: search }))
+  })
+}
+```
+
+Every statement a repository runs checks its bare column names (WHERE, pick, omit, ORDER BY, GROUP BY, windows, RETURNING) against the table, and throws `ValidationError` before sending one it lacks: SQLite would read a double-quoted unknown name as a string literal, so `deleteMany({ nme: 'nme' })` would delete every row. A builder constructed on a table definition (`new SelectBuilder(users)`) checks the same way; one given only a table name checks nothing.
+
 ## Hooks
 
 ```ts

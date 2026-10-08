@@ -99,7 +99,7 @@ export class WritePipeline<
 
   // A SQLite multi-row insert spells out the default of each column a row leaves out.
   private _insertMany(rows: InferInsert<TColumns>[]): InsertBuilderCtor<TColumns> {
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(rows)
+    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table).many(rows)
 
     if (dialectOf(this._executor) === 'sqlite')
       builder.getState().defaultSql = this._sqliteDefaults ??= sqliteInsertDefaults(this._runtime.table.columns)
@@ -111,7 +111,7 @@ export class WritePipeline<
 
   async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).values(v)
+    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table).values(v)
 
     return this._execute({
       builder,
@@ -172,7 +172,7 @@ export class WritePipeline<
     requireWhere(where, 'updateMany')
 
     const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
-    const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table.name)
+    const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
       .where(where)
 
@@ -216,7 +216,7 @@ export class WritePipeline<
     }
 
     if (onMany === 'throw') {
-      const matches = live(new SelectBuilderCtor<TColumns>(table.name).count().where(where))
+      const matches = live(new SelectBuilderCtor<TColumns>(table).count().where(where))
 
       return {
         where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_EQ, col: [{ op: OP_SCALAR, subquery: matches }], val: 1 }],
@@ -231,7 +231,7 @@ export class WritePipeline<
       }
     }
 
-    const first = live(new SelectBuilderCtor<TColumns>(table.name)
+    const first = live(new SelectBuilderCtor<TColumns>(table)
       .pick(...pkColumns as (keyof TColumns & string)[])
       .where(where)
       .limit(1))
@@ -262,7 +262,7 @@ export class WritePipeline<
     if (rows.length > 0)
       return rows[0]!
 
-    const matches = new SelectBuilderCtor<TColumns>(this._runtime.table.name).count().where(where)
+    const matches = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(where)
 
     if (!opts?.withTrashed)
       this._runtime.behavior.prepareSelect(matches)
@@ -352,7 +352,7 @@ export class WritePipeline<
 
     // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
     const softSet = force ? null : this._runtime.behavior.softDeleteSet<TColumns>()
-    const hardDelete = new DeleteBuilderCtor<TColumns>(this._runtime.table.name)
+    const hardDelete = new DeleteBuilderCtor<TColumns>(this._runtime.table)
     const builder = softSet
       ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet), where)
       : where ? hardDelete.where(where) : hardDelete.allRows()
@@ -421,7 +421,7 @@ export class WritePipeline<
     if (conflicting.length === 0)
       return () => true
 
-    const present = new SelectBuilderCtor<TColumns>(table.name)
+    const present = new SelectBuilderCtor<TColumns>(table)
       .pick(...target as (keyof TColumns & string)[])
       .where(e => e.or(...conflicting.map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
     const { sql, params } = present.toSQL(dialectOf(this._executor))
@@ -486,7 +486,7 @@ export class WritePipeline<
 
     for (let attempt = 0; attempt < FIND_OR_CREATE_ATTEMPTS; attempt++) {
       const [created] = await this._execute({
-        builder: new InsertBuilderCtor<TColumns>(table.name).values(v as InferInsert<TColumns>).onConflict(conflictTarget).doNothing(),
+        builder: new InsertBuilderCtor<TColumns>(table).values(v as InferInsert<TColumns>).onConflict(conflictTarget).doNothing(),
         afterEvent: 'afterInsert',
         project: rows => this._projectMany(rows),
       })
@@ -510,7 +510,7 @@ export class WritePipeline<
 
   // Rows matching `where`, trashed ones included, mapped and with virtuals like a write's.
   private async _select(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).where(where)
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where)
     const { sql, params } = builder.toSQL(dialectOf(this._executor))
 
     return this._runtime.applyVirtuals(mapChunk(this._mapperFactory(builder), await this._executor.query(sql, params))) as WithVirtuals<TColumns, TVirtuals>[]
@@ -553,7 +553,7 @@ export class WritePipeline<
     const { pkColumns, table } = this._runtime
     // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys.
     const whole = !args.opts?.pk || hasHooks(table, args.afterEvent) || args.inserted !== undefined
-    const shape = new SelectBuilderCtor<AnyColumns>(table.name)
+    const shape = new SelectBuilderCtor<AnyColumns>(table)
 
     args.builder.returning(...whole ? [] : pkColumns)
 

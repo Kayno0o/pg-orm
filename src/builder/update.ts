@@ -1,6 +1,7 @@
 import type { AnyColumns, AnyTableDef, InferSelect, InferUpdate } from '../types/index'
 import type { ColumnRef, ExprBuilder } from './expr'
 import type { Joined } from './select'
+import type { TableTarget } from './state'
 import { WhereableMutationBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { rawSql, validateValues } from './state'
@@ -9,7 +10,7 @@ import { rawSql, validateValues } from './state'
 export type SetValues<TColumns extends AnyColumns> = { [K in keyof InferUpdate<TColumns>]?: InferUpdate<TColumns>[K] | ColumnRef }
 
 export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void, TJoined extends AnyColumns = {}> extends WhereableMutationBuilder<TColumns, TJoined> {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('update', table)
   }
 

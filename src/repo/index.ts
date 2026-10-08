@@ -1,5 +1,5 @@
 import type { Database, Executable, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -87,6 +87,11 @@ export class Repository<
     this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry)
     this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
     this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry)
+  }
+
+  /** The table definition this repository reads and writes, typed for generic code: `isColumn(repo.table, name)`, `whereColumn(repo.table, name, value)`. */
+  get table(): TableDef<string, TColumns, TRelations, TVirtuals> {
+    return this._table as TableDef<string, TColumns, TRelations, TVirtuals>
   }
 
   /**

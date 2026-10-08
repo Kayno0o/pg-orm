@@ -1,7 +1,7 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape, SubqueryRef, TypedExpr } from './expr'
-import type { IncludeCallback, OrderDir, OrderEntry } from './state'
+import type { IncludeCallback, OrderDir, OrderEntry, TableTarget } from './state'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { placeholderNumbers } from './_placeholders'
@@ -59,7 +59,7 @@ export class SelectBuilder<
   TGroup extends keyof (TColumns & TJoined) & string = never,
   TJoined extends AnyColumns = {},
 > extends BaseBuilder {
-  constructor(table: string) {
+  constructor(table: TableTarget) {
     super('select', table)
   }
 
