@@ -1,7 +1,7 @@
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
@@ -46,9 +46,10 @@ export class WriteSuite<
     return this._pipeline.updateMany(set, where, opts)
   }
 
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  /** Update the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & SingleRowOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateOne(set, where, opts)
   }
 
@@ -78,9 +79,10 @@ export class WriteSuite<
     return this._pipeline.deleteMany(where, opts)
   }
 
-  async deleteOne(where: Where<TColumns>): Promise<InferPrimaryKey<TColumns> | null>
-  async deleteOne(where: Where<TColumns>, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  /** Delete the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
+  async deleteOne(where: Where<TColumns>, opts?: SingleRowOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
+  async deleteOne(where: Where<TColumns>, opts: SingleRowOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.deleteOne(where, opts)
   }
 

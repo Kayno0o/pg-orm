@@ -316,6 +316,18 @@ export class NotFoundError extends OrmError {
   }
 }
 
+/** Thrown by `updateOne()`/`deleteOne()` with `onMany: 'throw'` when the WHERE matches more than one row: nothing was changed. */
+export class MultipleRowsError extends OrmError {
+  readonly table: string
+  readonly operation: string
+  constructor(table: string, operation: string) {
+    super(`${operation}() matched more than one row in "${table}"; nothing was changed`)
+    this.name = 'MultipleRowsError'
+    this.table = table
+    this.operation = operation
+  }
+}
+
 /** Thrown by `updateWithLock()` when the row version doesn't match (optimistic lock failure). */
 export class StaleRecordError extends OrmError {
   readonly table: string

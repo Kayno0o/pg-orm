@@ -1,5 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { MultipleRowsError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
 
@@ -245,6 +246,44 @@ describe('CRUD - deleteOne', () => {
     expect(await repo.write.deleteOne({ age: 5 })).toBe(second!)
     expect(await repo.read.count({ age: 5 })).toBe(1)
     expect((await repo.read.findById(third!))?.age).toBe(5)
+  })
+})
+
+describe('CRUD - updateOne/deleteOne with onMany: \'throw\'', () => {
+  async function seed() {
+    const repo = db.repo(usersTable)
+    const [first, second, third] = await repo.write.insertMany([
+      { name: 'Twin', email: 'twin1@test.com', age: 5 },
+      { name: 'Twin', email: 'twin2@test.com', age: 5 },
+      { name: 'Solo', email: 'solo@test.com', age: 7 },
+    ])
+
+    return { repo, first: first!, second: second!, third: third! }
+  }
+
+  it('throws and changes nothing when several rows match', async () => {
+    const { repo } = await seed()
+
+    await expect(repo.write.updateOne({ age: 9 }, { age: 5 }, { onMany: 'throw' })).rejects.toBeInstanceOf(MultipleRowsError)
+    await expect(repo.write.deleteOne({ age: 5 }, { onMany: 'throw' })).rejects.toBeInstanceOf(MultipleRowsError)
+    expect(await repo.read.count({ age: 5 })).toBe(2)
+  })
+
+  it('changes the one row that matches, and answers null when none does', async () => {
+    const { repo, third } = await seed()
+
+    expect(await repo.write.updateOne({ age: 8 }, { age: 7 }, { onMany: 'throw' })).toBe(third)
+    expect(await repo.write.updateOne({ age: 1 }, { age: 99 }, { onMany: 'throw' })).toBeNull()
+    expect(await repo.write.deleteOne({ age: 8 }, { onMany: 'throw' })).toBe(third)
+    expect(await repo.write.deleteOne({ age: 8 }, { onMany: 'throw' })).toBeNull()
+  })
+
+  it('counts only live rows on a soft-delete table', async () => {
+    const { repo, first, second } = await seed()
+
+    await repo.write.deleteById(first)
+
+    expect(await repo.write.updateOne({ age: 6 }, { age: 5 }, { onMany: 'throw' })).toBe(second)
   })
 })
 

@@ -255,6 +255,11 @@ export interface UpdateOptions extends WriteReturnOptions {
   withTrashed?: boolean
 }
 
+/** How `updateOne`/`deleteOne` treat a WHERE matching several rows: change the first by primary key (default), or throw `MultipleRowsError` and change none. */
+export interface SingleRowOptions {
+  onMany?: 'first' | 'throw'
+}
+
 // InferSelect: all columns, nullable columns get | null
 export type InferSelect<TColumns extends AnyColumns> = {
   [K in keyof TColumns]: IsColumnNullable<TColumns[K]> extends true

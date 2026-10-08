@@ -327,6 +327,8 @@ const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' },
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
 // updateOne/deleteOne change only the first matching row by primary key, however many match
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
+// ...or throw MultipleRowsError, changing nothing, when several match
+await repo.write.updateOne({ name: 'Bob' }, { email }, { onMany: 'throw' })
 await repo.write.updateById(1, { name: 'Bob' })
 
 // One statement, a different value per row (reorders, tallies, sync diffs). Rows may write different columns.
@@ -684,6 +686,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `ConnectionError` | 08xxx, 57P01 | Connection / server shutdown |
 | `TimeoutError` | 57014 | Statement timeout |
 | `StaleRecordError` | — | Optimistic lock version mismatch |
+| `MultipleRowsError` | - | `updateOne`/`deleteOne` with `onMany: 'throw'` matched several rows; nothing changed |
 | `DestructiveOpError` | — | Blocked destructive migration |
 
 ```ts

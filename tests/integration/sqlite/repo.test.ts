@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { CheckError, ConnectionError, Database, defineTable, DialectError, ForeignKeyError, NotNullError, optimisticLock, softDelete, timestamps, UniqueError, ValidationError } from '../../../src/index'
+import { CheckError, ConnectionError, Database, defineTable, DialectError, ForeignKeyError, MultipleRowsError, NotNullError, optimisticLock, softDelete, timestamps, UniqueError, ValidationError } from '../../../src/index'
 
 const authors = defineTable('authors', t => ({
   id: t.serial().primaryKey(),
@@ -226,6 +226,13 @@ describe('SQLite single-row writes', () => {
     expect((await db.repo(authorsTable).read.findById(b!))?.rank).toBe(1)
     expect(await db.repo(shelfBooks).write.deleteOne({ shelfId })).toEqual({ shelfId, bookId: [first!, second!].sort()[0]! })
     expect(await db.repo(shelfBooks).read.count({ shelfId })).toBe(1)
+  })
+
+  it('throws on several matches with onMany: \'throw\', changing nothing', async () => {
+    await db.repo(authorsTable).write.insertMany([{ name: 'C', rank: 3 }, { name: 'D', rank: 3 }])
+
+    await expect(db.repo(authorsTable).write.updateOne({ rank: 4 }, { rank: 3 }, { onMany: 'throw' })).rejects.toBeInstanceOf(MultipleRowsError)
+    expect(await db.repo(authorsTable).read.count({ rank: 3 })).toBe(2)
   })
 })
 

@@ -4,14 +4,14 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { OP_IN_SUBQUERY } from '../builder/_tape'
+import { OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { dialectOf } from '../dialect'
-import { StaleRecordError, ValidationError } from '../errors/index'
+import { MultipleRowsError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
@@ -158,10 +158,11 @@ export class WritePipeline<
     })
   }
 
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this.updateMany(set, this._firstMatch(requireWhere(where, 'updateOne'), opts?.withTrashed), opts)
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const single = this._singleRow(requireWhere(where, 'updateOne'), opts?.withTrashed, opts?.onMany)
+    const rows = await this.updateMany(set, single.where, opts)
 
-    return rows[0] ?? null
+    return rows[0] ?? await single.noMatch('updateOne')
   }
 
   /** Update the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
@@ -171,21 +172,44 @@ export class WritePipeline<
     return rows[0] ?? null
   }
 
-  // The first row by primary key that `where` matches, as a WHERE of its own: `updateOne` and `deleteOne` change that one row, however many match. Trashed rows are passed over unless `withTrashed`, as the outer statement would skip them.
-  private _firstMatch(where: Where<TColumns>, withTrashed?: boolean): Where<TColumns> {
+  /**
+   * The WHERE `updateOne` and `deleteOne` run, reaching one row however many match, and what to answer when it changed none. Trashed rows are passed over unless `withTrashed`, as the statement itself skips them.
+   * By default it is the first match by primary key. With `onMany: 'throw'` it is `where` holding only while exactly one row matches, so several change nothing, and a statement that changed nothing then counts the matches to tell none from several.
+   */
+  private _singleRow(where: Where<TColumns>, withTrashed?: boolean, onMany?: SingleRowOptions['onMany']): { where: Where<TColumns>, noMatch: (op: string) => Promise<null> } {
     const { pkColumns, table } = this._runtime
-    const first = new SelectBuilderCtor<TColumns>(table.name)
+    const live = <B extends SelectBuilderCtor<TColumns>>(builder: B): B => {
+      if (!withTrashed)
+        this._runtime.behavior.prepareSelect(builder)
+
+      return builder
+    }
+
+    if (onMany === 'throw') {
+      const matches = live(new SelectBuilderCtor<TColumns>(table.name).count().where(where))
+
+      return {
+        where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_EQ, col: [{ op: OP_SCALAR, subquery: matches }], val: 1 }],
+        noMatch: async (op) => {
+          const { sql, params } = matches.toSQL(dialectOf(this._executor))
+
+          if (Number((await this._executor.query(sql, params))[0]?.count ?? 0) > 1)
+            throw new MultipleRowsError(table.name, op)
+
+          return null
+        },
+      }
+    }
+
+    const first = live(new SelectBuilderCtor<TColumns>(table.name)
       .pick(...pkColumns as (keyof TColumns & string)[])
       .where(where)
-      .limit(1)
+      .limit(1))
 
     for (const col of pkColumns)
       first.orderBy(col as keyof TColumns & string)
 
-    if (!withTrashed)
-      this._runtime.behavior.prepareSelect(first)
-
-    return () => [{ op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }]
+    return { where: () => [{ op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
@@ -260,10 +284,11 @@ export class WritePipeline<
     return this._delete(requireWhere(where, 'deleteMany'), false, opts)
   }
 
-  async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this._delete(this._firstMatch(requireWhere(where, 'deleteOne')), false, opts)
+  async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const single = this._singleRow(requireWhere(where, 'deleteOne'), false, opts?.onMany)
+    const rows = await this._delete(single.where, false, opts)
 
-    return rows[0] ?? null
+    return rows[0] ?? await single.noMatch('deleteOne')
   }
 
   /** Delete the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
