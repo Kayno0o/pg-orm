@@ -779,7 +779,8 @@ import { formatQuery } from '@kaynooo/pg-orm'
 formatQuery(event) // [0.412ms] SELECT * FROM "users" WHERE "email" = 'alice@example.com'
 formatQuery(event, { colors: true, duration: false, maxParamLength: 40 })
 
-// Graceful close — drain: wait for in-flight queries before closing the pool.
+// Graceful close — drain: wait for in-flight queries (at most `timeout` ms, 10 s by default) before closing the pool.
+// New queries fail with ConnectionError as soon as close() starts, and are never retried; a transaction begun before still runs its queries.
 await db.close({ drain: true, timeout: 5000 })
 ```
 

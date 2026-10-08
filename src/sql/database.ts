@@ -95,6 +95,7 @@ export class Database extends BaseExecutor {
       config.statementTimeout,
       config.idleInTransactionTimeout,
       this._dialect,
+      () => this._connection.captureWork(),
     )
 
     this._rawRunner = new RawRunner((s, p) => this.query(s, p))
@@ -286,14 +287,10 @@ export class Database extends BaseExecutor {
   }
 
   /**
-   * Close the database connection pool.
+   * Close the database connection pool. From the start, *new* queries, transactions and migrations fail with `ConnectionError` and are not retried; work begun before keeps running its own queries.
    *
-   * - `drain: true` rejects *new* queries, transactions and migrations (with
-   *   `ConnectionError`) and waits for in-flight ones to settle before invoking
-   *   the driver close.
-   * - `timeout` (ms) acts as a hard ceiling on the drain wait. If the timeout
-   *   fires before the in-flight count reaches zero, the driver close is invoked
-   *   anyway with the same `timeout` forwarded.
+   * - `drain: true` waits for in-flight work to settle, at most `timeout` ms (10 s when unset), then closes the pool at once.
+   * - Without `drain`, the driver waits `timeout` ms for running queries before cutting them off, or for all of them when unset.
    */
   close(opts?: { timeout?: number, drain?: boolean }): Promise<void> {
     return this._connection.close(opts)

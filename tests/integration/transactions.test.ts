@@ -186,6 +186,41 @@ describe('Transaction settlement', () => {
 
     expect(committed).toBe(true)
   })
+
+  it('close({ drain }) still runs the queries a transaction begun before it issues on the pool', async () => {
+    const draining = createTestDb()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const running = draining.transaction(async () => {
+      await gate
+
+      return draining.query('SELECT 1 AS one', [])
+    })
+
+    await Bun.sleep(20)
+    const closing = draining.close({ drain: true, timeout: 5000 })
+
+    release()
+
+    expect(await running).toEqual([{ one: 1 }])
+    await closing
+  })
+
+  it('close() without drain fails a later query at once, without retrying it', async () => {
+    const closing = createTestDb({ retry: { maxRetries: 5, baseDelayMs: 200, maxDelayMs: 1000 } })
+
+    await closing.query('SELECT 1', [])
+
+    const closed = closing.close({ timeout: 1000 })
+    const started = performance.now()
+
+    await expect(closing.query('SELECT 1', [])).rejects.toBeInstanceOf(ConnectionError)
+    expect(performance.now() - started).toBeLessThan(100)
+    await closed
+  })
 })
 
 describe('db.transaction() called inside a transaction body', () => {

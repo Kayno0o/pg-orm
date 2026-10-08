@@ -80,14 +80,15 @@ export async function withRetry<T>(
  * just call `policy.run(fn)`.
  */
 export class RetryPolicy {
-  constructor(private readonly cfg: RetryConfig) {}
+  // `stopped` turns retrying off for good, once the pool is closing and a dropped connection is no longer transient.
+  constructor(private readonly cfg: RetryConfig, private readonly stopped: () => boolean = () => false) {}
 
-  run<T>(fn: () => Promise<T>, retryable?: (err: unknown) => boolean): Promise<T> {
-    return withRetry(fn, this.cfg, retryable)
+  run<T>(fn: () => Promise<T>, retryable: (err: unknown) => boolean = isRetryable): Promise<T> {
+    return withRetry(fn, this.cfg, err => !this.stopped() && retryable(err))
   }
 
   /** Run one SQL statement, retrying only what `retryableFor` allows for it. */
   runStatement<T>(sql: string, fn: () => Promise<T>): Promise<T> {
-    return withRetry(fn, this.cfg, retryableFor(sql, this.cfg.writes))
+    return this.run(fn, retryableFor(sql, this.cfg.writes))
   }
 }

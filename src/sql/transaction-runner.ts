@@ -31,6 +31,8 @@ export class TransactionRunner {
     private readonly statementTimeout?: number,
     private readonly idleInTransactionTimeout?: number,
     private readonly dialect: Dialect = 'postgres',
+    // Captures a scope of the caller's that the body re-enters, as it does `withContext`'s: the drain's mark letting this transaction's own pool queries through.
+    private readonly captureScope: () => <R>(body: () => Promise<R>) => Promise<R> = () => body => body(),
   ) {}
 
   // The transaction whose body is running, so a `db.transaction()` called from inside it joins it instead of opening a second connection. Per runner: a body of one Database never joins another's.
@@ -64,8 +66,9 @@ export class TransactionRunner {
     // that may not preserve `AsyncLocalStorage` propagation; pinning the scope
     // here keeps `Database.withContext` working inside transactions.
     const ambientContext = queryContextStorage.getStore()
+    const inScope = this.captureScope()
     const runInContext = <R>(body: () => Promise<R>): Promise<R> =>
-      ambientContext ? queryContextStorage.run(ambientContext, body) : body()
+      inScope(() => ambientContext ? queryContextStorage.run(ambientContext, body) : body())
 
     try {
       const result = await asDriver(this.sql).begin<T>(async sqlTx => runInContext(async () => {

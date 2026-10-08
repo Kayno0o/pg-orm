@@ -1,7 +1,8 @@
 import type { ConnectionHooks } from '../../../src/sql/connection-lifecycle'
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { ConnectionError } from '../../../src/errors/index'
 import { ConnectionLifecycle } from '../../../src/sql/connection-lifecycle'
+import { DrainCoordinator } from '../../../src/sql/drain'
 
 interface FakeDriver {
   unsafe: (sql: string, params: unknown[]) => Promise<unknown[]>
@@ -94,7 +95,7 @@ describe('ConnectionLifecycle', () => {
     await lc.close()
   })
 
-  it('close() forwards the timeout to the driver', async () => {
+  it('close() forwards the timeout to the driver in the seconds it counts in', async () => {
     let captured: { timeout?: number } | undefined
     const lc = makeLifecycle(makeFake({
       close: async (opts) => {
@@ -104,7 +105,98 @@ describe('ConnectionLifecycle', () => {
 
     await lc.close({ timeout: 250 })
 
-    expect(captured).toEqual({ timeout: 250 })
+    expect(captured).toEqual({ timeout: 0.25 })
+  })
+
+  it('fails a query issued once close() started, without reaching the driver', async () => {
+    let calls = 0
+    let finishClose!: () => void
+    const lc = makeLifecycle(makeFake({
+      unsafe: async () => {
+        calls++
+
+        return []
+      },
+      close: () => new Promise<void>((resolve) => {
+        finishClose = resolve
+      }),
+    }))
+
+    const closing = lc.close()
+
+    await expect(lc.query('SELECT 1', [])).rejects.toThrow('Database is closed')
+    expect(calls).toBe(0)
+
+    finishClose()
+    await closing
+  })
+
+  it('does not retry a query the closing driver cut off', async () => {
+    let calls = 0
+    let cutOff!: (err: Error) => void
+    const lc = new ConnectionLifecycle(
+      { url: 'postgres://localhost:1/test' },
+      'public',
+      { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 5, writes: false },
+      {},
+    )
+
+    instrumentSql(lc, makeFake({
+      unsafe: () => {
+        calls++
+
+        return new Promise((_resolve, reject) => {
+          cutOff = reject
+        })
+      },
+      close: async () => cutOff(Object.assign(new Error('connection closed'), { errno: '08006' })),
+    }))
+
+    const running = lc.query('SELECT 1', [])
+
+    await lc.close()
+    await expect(running).rejects.toBeInstanceOf(ConnectionError)
+    expect(calls).toBe(1)
+  })
+
+  it('bounds a drain with no timeout, then closes at once', async () => {
+    const wait = spyOn(DrainCoordinator.prototype, 'waitForIdle')
+    let captured: { timeout?: number } | undefined
+    const lc = makeLifecycle(makeFake({
+      close: async (opts) => {
+        captured = opts
+      },
+    }))
+
+    try {
+      await lc.close({ drain: true })
+
+      expect(wait).toHaveBeenCalledWith(10_000)
+      expect(captured).toEqual({ timeout: 0 })
+    }
+    finally {
+      wait.mockRestore()
+    }
+  })
+
+  it('lets work already running issue queries while draining', async () => {
+    let release!: () => void
+    const lc = makeLifecycle(makeFake({ unsafe: async () => [{ ok: 1 }] }))
+    const running = lc.track(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+
+      return lc.query('SELECT 1', [])
+    })
+
+    const closing = lc.close({ drain: true })
+
+    await expect(lc.query('SELECT 1', [])).rejects.toThrow('draining')
+    release()
+
+    expect(await running).toEqual([{ ok: 1 }])
+    await closing
   })
 
   it('retries transient errors before succeeding', async () => {

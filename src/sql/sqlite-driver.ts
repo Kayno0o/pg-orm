@@ -45,6 +45,19 @@ function toBinding(value: unknown): SQLQueryBindings {
   return JSON.stringify(value)
 }
 
+async function settledWithin(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    await Promise.race([work, new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    })])
+  }
+  finally {
+    clearTimeout(timer)
+  }
+}
+
 function isBusy(err: unknown): boolean {
   return err instanceof Error && (err as { code?: string }).code === 'SQLITE_BUSY'
 }
@@ -150,8 +163,12 @@ export class SqliteDriver implements SqliteHandle {
     })
   }
 
-  async close(): Promise<void> {
-    await this._tail
+  // Waits for the queued work as a Bun SQL pool does: `timeout` (seconds) bounds the wait, 0 closes at once, and work still running then fails with ConnectionError.
+  async close(opts?: { timeout?: number }): Promise<void> {
+    if (opts?.timeout === undefined)
+      await this._tail
+    else if (opts.timeout > 0)
+      await settledWithin(this._tail, opts.timeout * 1000)
 
     for (const statement of this._statements.values())
       statement.finalize()

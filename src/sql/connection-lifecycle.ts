@@ -1,6 +1,7 @@
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { RetryConfig } from './retry'
 import type { SqliteDriver } from './sqlite-driver'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { SQL } from 'bun'
 import { requirePostgres } from '../dialect'
 import { ConnectionError } from '../errors/index'
@@ -9,6 +10,8 @@ import { BaseExecutor } from './base-executor'
 import { registerInstance, unregisterInstance } from './cleanup'
 import { DrainCoordinator } from './drain'
 import { RetryPolicy } from './retry'
+
+const DEFAULT_DRAIN_TIMEOUT_MS = 10_000
 
 export interface ConnectionHooks {
   onQuery?: (event: QueryEvent) => void
@@ -31,6 +34,9 @@ export class ConnectionLifecycle extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
   private _schema: string
   private _drain = new DrainCoordinator()
+  // Set inside each tracked unit of work, so a query it issues while the drain waits for it is let through.
+  private _work = new AsyncLocalStorage<true>()
+  private _closed = false
   private _retry: RetryPolicy
   private _pingErrorHandler?: (error: unknown) => void
   private _instanceRef: ReturnType<typeof registerInstance>
@@ -48,7 +54,7 @@ export class ConnectionLifecycle extends BaseExecutor {
     this.sql = sqlite ? sqlite as unknown as InstanceType<typeof SQL> : new SQL(sqlOpts)
     this._dialect = sqlite ? 'sqlite' : 'postgres'
     this._schema = schema
-    this._retry = new RetryPolicy(retryCfg)
+    this._retry = new RetryPolicy(retryCfg, () => this._closed)
     this._pingErrorHandler = hooks.onPingError
     this._onCallbackError = hooks.onCallbackError
     this._onQuery = hooks.onQuery
@@ -65,20 +71,31 @@ export class ConnectionLifecycle extends BaseExecutor {
     return this.track(() => this._retry.runStatement(sqlStr, () => super.query(sqlStr, params)))
   }
 
-  /** Run a unit of work the drain waits for: rejected once draining has begun, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */
+  /** Run a unit of work the drain waits for: rejected once closing has begun unless issued from inside work already running, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */
   async track<T>(fn: () => Promise<T>): Promise<T> {
-    if (this._drain.draining) {
-      throw new ConnectionError('Database is draining — no new queries accepted')
-    }
+    const nested = this._work.getStore() === true
+
+    if (this._closed && !nested)
+      throw new ConnectionError('Database is closed: no new queries accepted')
+
+    if (this._drain.draining && !nested)
+      throw new ConnectionError('Database is draining: no new queries accepted')
 
     this._drain.enter()
 
     try {
-      return await fn()
+      return await this._work.run(true, fn)
     }
     finally {
       this._drain.exit()
     }
+  }
+
+  /** The tracked-work scope the caller runs in, as a function re-entering it: a transaction body, which bun:sql runs outside it, gets it back. */
+  captureWork(): <R>(body: () => Promise<R>) => Promise<R> {
+    const store = this._work.getStore()
+
+    return body => store ? this._work.run(store, body) : body()
   }
 
   get schema(): string {
@@ -104,18 +121,22 @@ export class ConnectionLifecycle extends BaseExecutor {
   }
 
   /**
-   * Close the connection pool. `drain: true` rejects new queries and waits
-   * for in-flight queries to settle (bounded by `timeout`) before invoking
-   * the driver close.
+   * Close the connection pool. New queries fail with `ConnectionError` from the start, and none is retried once the driver closes.
+   * `drain: true` waits for in-flight work to settle, at most `timeout` ms (default 10 s), then closes at once; without it, the driver waits `timeout` ms for running queries, or for all of them when unset.
    */
   async close(opts?: { timeout?: number, drain?: boolean }): Promise<void> {
+    let timeout = opts?.timeout
+
     if (opts?.drain) {
       this._drain.beginDrain()
-      await this._drain.waitForIdle(opts.timeout)
+      await this._drain.waitForIdle(timeout ?? DEFAULT_DRAIN_TIMEOUT_MS)
+      timeout = 0
     }
 
+    this._closed = true
     unregisterInstance(this._instanceRef)
-    await asDriver(this.sql).close({ timeout: opts?.timeout })
+    // Bun's SQL counts the close timeout in seconds.
+    await asDriver(this.sql).close(timeout === undefined ? undefined : { timeout: timeout / 1000 })
   }
 
   /**

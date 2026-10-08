@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { CheckError, Database, defineTable, DialectError, ForeignKeyError, NotNullError, optimisticLock, softDelete, timestamps, UniqueError, ValidationError } from '../../../src/index'
+import { CheckError, ConnectionError, Database, defineTable, DialectError, ForeignKeyError, NotNullError, optimisticLock, softDelete, timestamps, UniqueError, ValidationError } from '../../../src/index'
 
 const authors = defineTable('authors', t => ({
   id: t.serial().primaryKey(),
@@ -296,5 +296,60 @@ describe('SQLite transactions', () => {
   it('checks an isolation level though SQLite is always serializable', async () => {
     await expect(db.transaction({ isolation: 'snapshot' as 'serializable' }, noop)).rejects.toThrow(ValidationError)
     await db.transaction({ isolation: 'read committed' }, noop)
+  })
+})
+
+describe('SQLite shutdown', () => {
+  function closable(name: string): Database {
+    return new Database({ url: `sqlite://${join(dir, `${name}.db`)}`, tables: [shelves] })
+  }
+
+  it('close() gives a long transaction no more than its timeout, then fails what it runs next', async () => {
+    const own = closable('close-timeout')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    await own.sync()
+
+    const running = own.transaction(async (tx) => {
+      await held
+      await own.repo(shelves).using(tx).write.insertOne({ label: 'too late' })
+    })
+
+    await Bun.sleep(10)
+
+    const started = performance.now()
+
+    await own.close({ timeout: 100 })
+
+    expect(performance.now() - started).toBeLessThan(1000)
+    release()
+    await expect(running).rejects.toBeInstanceOf(ConnectionError)
+  })
+
+  it('close({ drain }) lets a transaction begun before it run its pool queries', async () => {
+    const own = closable('drain-nested')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    await own.sync()
+
+    const running = own.transaction(async () => {
+      await held
+
+      return own.repo(shelves).write.insertOne({ label: 'during drain' })
+    })
+
+    await Bun.sleep(10)
+
+    const closing = own.close({ drain: true, timeout: 5000 })
+
+    release()
+    expect(await running).toBe(1)
+    await closing
   })
 })
