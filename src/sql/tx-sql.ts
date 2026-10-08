@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { Dialect } from '../dialect'
 import { ValidationError } from '../errors/index'
 import { asDriver } from './adapter'
 
@@ -21,22 +22,23 @@ const ACCESS_MODE_SQL = {
 export type IsolationLevel = keyof typeof ISOLATION_SQL
 export type AccessMode = keyof typeof ACCESS_MODE_SQL
 
-/** The `SET TRANSACTION ISOLATION LEVEL …` the options ask for, undefined without an isolation. Throws `ValidationError` for unknown values. */
-export function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {
-  if (!opts.isolation)
-    return undefined
+/** The `SET TRANSACTION …` the options ask for, undefined when they set neither isolation nor access mode. Throws `ValidationError` for unknown values. */
+function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {
+  const modes: string[] = []
 
-  const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
+  if (opts.isolation) {
+    const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
 
-  if (!isolationSql) {
-    throw new ValidationError(
-      `Invalid isolation level: "${opts.isolation}"`,
-      'transaction.isolation',
-      { value: opts.isolation },
-    )
+    if (!isolationSql) {
+      throw new ValidationError(
+        `Invalid isolation level: "${opts.isolation}"`,
+        'transaction.isolation',
+        { value: opts.isolation },
+      )
+    }
+
+    modes.push(`ISOLATION LEVEL ${isolationSql}`)
   }
-
-  let stmt = `SET TRANSACTION ISOLATION LEVEL ${isolationSql}`
 
   if (opts.accessMode) {
     const accessSql = ACCESS_MODE_SQL[opts.accessMode as AccessMode]
@@ -49,48 +51,28 @@ export function isolationStatement(opts: { isolation?: string, accessMode?: stri
       )
     }
 
-    stmt += ` ${accessSql}`
+    modes.push(accessSql)
   }
 
-  return stmt
+  return modes.length ? `SET TRANSACTION ${modes.join(' ')}` : undefined
 }
 
-/** Emit the isolation the options ask for on a per-tx sql tag; a no-op without one. */
+/**
+ * Apply the isolation and access mode the options ask for at the start of a transaction.
+ * A SQLite transaction is serializable whatever was asked, which every weaker level is satisfied by, so only a read-only access mode is applied there, as `query_only`, which the caller turns off before the commit.
+ */
 export async function applyIsolation(
   sqlTx: InstanceType<typeof SQL>,
   opts: { isolation?: string, accessMode?: string },
+  dialect: Dialect,
 ): Promise<void> {
   const stmt = isolationStatement(opts)
 
-  if (stmt)
+  if (dialect === 'sqlite') {
+    if (opts.accessMode === 'read only')
+      await asDriver(sqlTx).unsafe('PRAGMA query_only = ON', [])
+  }
+  else if (stmt) {
     await asDriver(sqlTx).unsafe(stmt, [])
-}
-
-/**
- * Emit transaction-local `statement_timeout` via `set_config(..., true)`.
- * The PG setting name is a bound param, so the value can never be injected
- * as SQL text.
- */
-export async function applyStatementTimeout(
-  sqlTx: InstanceType<typeof SQL>,
-  ms: number,
-): Promise<void> {
-  await asDriver(sqlTx).unsafe(
-    'SELECT set_config($1, $2, true)',
-    ['statement_timeout', String(Math.floor(ms))],
-  )
-}
-
-/**
- * Emit transaction-local `idle_in_transaction_session_timeout`. Same shape as
- * `applyStatementTimeout`.
- */
-export async function applyIdleInTransactionTimeout(
-  sqlTx: InstanceType<typeof SQL>,
-  ms: number,
-): Promise<void> {
-  await asDriver(sqlTx).unsafe(
-    'SELECT set_config($1, $2, true)',
-    ['idle_in_transaction_session_timeout', String(Math.floor(ms))],
-  )
+  }
 }

@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import type { ExecutorHooks } from './base-executor'
-import { asDriver } from './adapter'
+import { ValidationError } from '../errors/index'
 import { BaseExecutor } from './base-executor'
 
 export interface TransactionOptions {
@@ -11,15 +11,27 @@ export interface TransactionOptions {
   context?: Record<string, unknown>
   /** Open a separate transaction on its own connection even when called from inside a running one, which it would otherwise join. */
   independent?: boolean
+  /**
+   * Run the whole transaction again, body included, when it fails on a serialization failure or a deadlock, which retrying can resolve.
+   * Only the last attempt's onCommit or onRollback callbacks run. Not allowed on a call joining a running transaction.
+   */
+  retry?: {
+    maxRetries: number
+    /** Initial delay in milliseconds before the first retry (default: 100) */
+    baseDelayMs?: number
+    /** Maximum delay between retries in milliseconds (default: 5000) */
+    maxDelayMs?: number
+  }
 }
 
 export class TransactionClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
 
-  private _savepointCounter = 0
   /** @internal */ _onCommitCallbacks: (() => void | Promise<void>)[] = []
   /** @internal */ _onRollbackCallbacks: ((err: unknown) => void | Promise<void>)[] = []
   /** @internal */ declare _context?: Record<string, unknown>
+  /** @internal */ _settled = false
+  /** @internal */ _nest?: <T>(fn: (tx: TransactionClient) => Promise<T>) => Promise<T>
 
   constructor(sqlTx: InstanceType<typeof SQL>, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
     super()
@@ -54,38 +66,24 @@ export class TransactionClient extends BaseExecutor {
     this._onRollbackCallbacks.push(fn)
   }
 
-  async savepoint<T>(fn: (sp: SavepointClient) => Promise<T>): Promise<T> {
-    const name = `sp_${++this._savepointCounter}`
+  /** Run `fn` in a savepoint of this transaction: the same as a `db.transaction()` called from inside its body. Throw to roll the savepoint back. */
+  async savepoint<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    if (!this._nest)
+      throw new ValidationError('savepoint() needs a transaction opened by db.transaction()', 'savepoint')
 
-    return asDriver(this.sql).savepoint<T>(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp, name, this.hooks, this._dialect)
+    this._assertOpen()
 
-      return fn(sp)
-    })
-  }
-}
-
-export class SavepointClient extends BaseExecutor {
-  readonly sql: InstanceType<typeof SQL>
-  readonly name: string
-
-  constructor(sqlSp: InstanceType<typeof SQL>, name: string, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
-    super()
-    this.sql = sqlSp
-    this._dialect = dialect
-    this.name = name
-    this._useHooks(hooks)
+    return this._nest(fn)
   }
 
-  async rollback(): Promise<void> {
-    // bun:sql's savepoint handles rollback on throw — to explicitly rollback, throw
-    throw new SavepointRollback(this.name)
-  }
-}
+  override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    this._assertOpen()
 
-export class SavepointRollback extends Error {
-  constructor(name: string) {
-    super(`Savepoint ${name} rollback`)
-    this.name = 'SavepointRollback'
+    return super.query(sqlStr, params)
+  }
+
+  private _assertOpen(): void {
+    if (this._settled)
+      throw new ValidationError('A query on a transaction that already committed or rolled back: work started in its body outlived it', 'transaction')
   }
 }

@@ -90,8 +90,6 @@ export class Database extends BaseExecutor {
     this._txRunner = new TransactionRunner(
       this._connection.sql,
       hooks,
-      config.statementTimeout,
-      config.idleInTransactionTimeout,
       this._dialect,
       () => this._connection.captureWork(),
     )

@@ -133,12 +133,17 @@ export abstract class BaseExecutor implements Executable {
     return { ...ambient, ...this._context }
   }
 
-  async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+  query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    return this._observed(sqlStr, params, () => unsafeQuery(this.sql, sqlStr, params, this._dialect))
+  }
+
+  // Runs `run` as one query for the hooks: a retried statement reports once, its outcome after the last attempt.
+  protected async _observed(sqlStr: string, params: unknown[], run: () => Promise<Record<string, unknown>[]>): Promise<Record<string, unknown>[]> {
     const start = performance.now()
     let result: Record<string, unknown>[]
 
     try {
-      result = await unsafeQuery(this.sql, sqlStr, params, this._dialect)
+      result = await run()
     }
     catch (err) {
       this._report(sqlStr, params, performance.now() - start, err)

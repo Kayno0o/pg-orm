@@ -15,8 +15,6 @@ export {
 export { Database, type DbConfig } from './database'
 
 export {
-  SavepointClient,
-  SavepointRollback,
   TransactionClient,
   type TransactionOptions,
 } from './transaction'

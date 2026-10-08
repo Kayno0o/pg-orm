@@ -232,6 +232,35 @@ describe('ConnectionLifecycle', () => {
     await lc.close()
   })
 
+  it('reports a retried statement once, with its final outcome', async () => {
+    const errors: unknown[] = []
+    const queries: unknown[] = []
+    let calls = 0
+    const lc = new ConnectionLifecycle(
+      { url: 'postgres://localhost:1/test' },
+      'public',
+      { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 5, writes: false },
+      { onError: e => void errors.push(e), onQuery: e => void queries.push(e) },
+    )
+
+    instrumentSql(lc, makeFake({
+      unsafe: async () => {
+        if (++calls === 1)
+          throw Object.assign(new Error('deadlock detected'), { errno: '40P01' })
+
+        return [{ ok: 1 }]
+      },
+    }))
+
+    await lc.query('SELECT 1', [])
+
+    expect(calls).toBe(2)
+    expect(errors).toHaveLength(0)
+    expect(queries).toHaveLength(1)
+
+    await lc.close()
+  })
+
   it('getPoolStats coerces driver row to numbers', async () => {
     const lc = makeLifecycle(makeFake({
       unsafe: async () => [{ active: '3', idle: '5', total: '8', max_connections: '100' }],

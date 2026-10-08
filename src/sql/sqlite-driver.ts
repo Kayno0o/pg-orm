@@ -87,13 +87,13 @@ export class SqliteDriver implements SqliteHandle {
   private _tail: Promise<void> = Promise.resolve()
   private _queued = 0
   private _savepoints = 0
-  // Set for the async scope of a transaction body, whose statements skip the queue it holds.
-  private readonly _inTransaction = new AsyncLocalStorage<true>()
+  // Set for the async scope of a transaction body, whose statements skip the queue it holds; `open` clears at its end, so work the body started that outlives it queues like any other.
+  private readonly _transactionScope = new AsyncLocalStorage<{ open: boolean }>()
 
   constructor(readonly filename: string) {}
 
   async unsafe(sql: string, params: unknown[]): Promise<unknown[]> {
-    if (this._inTransaction.getStore())
+    if (this._inTransaction())
       return this._run(sql, params)
 
     if (this._queued === 0)
@@ -103,14 +103,14 @@ export class SqliteDriver implements SqliteHandle {
   }
 
   async begin<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
-    if (this._inTransaction.getStore())
+    if (this._inTransaction())
       throw new DialectError('A transaction opened from inside another one (independent: true)', 'sqlite')
 
     return this._exclusive(() => this._transaction(fn))
   }
 
   async savepoint<T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
-    if (!this._inTransaction.getStore())
+    if (!this._inTransaction())
       throw new ValidationError('savepoint() needs a running transaction', 'savepoint')
 
     const name = `"pgorm_sp_${++this._savepoints}"`
@@ -137,7 +137,7 @@ export class SqliteDriver implements SqliteHandle {
    * SQLite ignores the pragma inside a transaction, so it is set around it.
    */
   async migrate<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
-    if (this._inTransaction.getStore())
+    if (this._inTransaction())
       throw new DialectError('A migration (sync, rollback, applyMigration) run from inside a transaction', 'sqlite')
 
     return this._exclusive(async () => {
@@ -183,8 +183,10 @@ export class SqliteDriver implements SqliteHandle {
     // IMMEDIATE takes the write lock up front: a deferred transaction that reads, then writes, fails with SQLITE_BUSY when another process wrote in between, which no busy timeout can wait out.
     await this._waitBusy(() => this._run('BEGIN IMMEDIATE', []))
 
+    const scope = { open: true }
+
     try {
-      const result = await this._inTransaction.run(true, () => fn(this as unknown as InstanceType<typeof SQL>))
+      const result = await this._transactionScope.run(scope, () => fn(this as unknown as InstanceType<typeof SQL>))
 
       this._run('COMMIT', [])
 
@@ -197,6 +199,13 @@ export class SqliteDriver implements SqliteHandle {
 
       throw err
     }
+    finally {
+      scope.open = false
+    }
+  }
+
+  private _inTransaction(): boolean {
+    return this._transactionScope.getStore()?.open === true
   }
 
   private async _exclusive<T>(fn: () => Promise<T>): Promise<T> {

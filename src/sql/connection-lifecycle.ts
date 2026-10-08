@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { SQL } from 'bun'
 import { requirePostgres } from '../dialect'
 import { ConnectionError } from '../errors/index'
-import { asDriver } from './adapter'
+import { asDriver, unsafeQuery } from './adapter'
 import { BaseExecutor } from './base-executor'
 import { registerInstance, unregisterInstance } from './cleanup'
 import { DrainCoordinator } from './drain'
@@ -23,7 +23,7 @@ export interface ConnectionHooks extends ExecutorHooks {
  * off the `Database` facade so each is testable in isolation.
  *
  * Extends `BaseExecutor` so it provides the event-emitting `query` path. The
- * override here wraps `super.query` with drain rejection and retry.
+ * override here wraps the query with drain rejection and retry, reported once.
  */
 export class ConnectionLifecycle extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
@@ -56,7 +56,7 @@ export class ConnectionLifecycle extends BaseExecutor {
   }
 
   override query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    return this.track(() => this._retry.runStatement(sqlStr, () => super.query(sqlStr, params)))
+    return this.track(() => this._observed(sqlStr, params, () => this._retry.runStatement(sqlStr, () => unsafeQuery(this.sql, sqlStr, params, this._dialect))))
   }
 
   /** Run a unit of work the drain waits for: rejected once closing has begun unless issued from inside work already running, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */

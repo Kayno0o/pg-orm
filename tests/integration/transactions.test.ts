@@ -340,7 +340,7 @@ describe('db.transaction() called inside a transaction body', () => {
 
   it('refuses an isolation level it cannot apply', async () => {
     await db.transaction(async () => {
-      await expect(db.transaction({ isolation: 'serializable' }, async () => 1)).rejects.toThrow('cannot change inside a running transaction')
+      await expect(db.transaction({ isolation: 'serializable' }, async () => 1)).rejects.toThrow('cannot apply inside a running transaction')
     })
   })
 

@@ -70,8 +70,6 @@ describe('normalizeDbConfig', () => {
     const out = normalizeDbConfig({
       tables: [],
       schema: 'public',
-      statementTimeout: 100,
-      idleInTransactionTimeout: 200,
       onQuery: noop,
       onSlowQuery: noop,
       onError: noop,
@@ -88,6 +86,12 @@ describe('normalizeDbConfig', () => {
     })
 
     expect(out).toEqual({ url: 'postgres://localhost/test' })
+  })
+
+  it('sends the timeouts as connection startup parameters, so they hold outside transactions too', () => {
+    const out = normalizeDbConfig({ url: 'postgres://localhost/test', statementTimeout: 100.7, idleInTransactionTimeout: 200 })
+
+    expect(out).toEqual({ url: 'postgres://localhost/test', connection: { statement_timeout: 100, idle_in_transaction_session_timeout: 200 } })
   })
 
   it('flattens pool options onto the top-level', () => {

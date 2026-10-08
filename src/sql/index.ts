@@ -5,8 +5,6 @@ export {
   type Executable,
   type QueryErrorEvent,
   type QueryEvent,
-  SavepointClient,
-  SavepointRollback,
   type SlowQueryEvent,
   TransactionClient,
   type TransactionOptions,

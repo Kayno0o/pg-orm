@@ -131,8 +131,6 @@ export {
   jsonParam,
   type QueryErrorEvent,
   type QueryEvent,
-  SavepointClient,
-  SavepointRollback,
   type SlowQueryEvent,
   TransactionClient,
   type TransactionOptions,

@@ -30,13 +30,11 @@ export interface DbConfig {
   maxIncludeDepth?: number
   /** Rows per IN (...) chunk in batched relation loading (default: 5000) */
   batchChunkSize?: number
-  /** Statement timeout in milliseconds — applied to each connection */
+  /** `statement_timeout` in milliseconds, set on every connection of the pool: plain queries and transactions alike. */
   statementTimeout?: number
   /**
-   * `idle_in_transaction_session_timeout` in milliseconds. Applied transaction-locally
-   * via `SET LOCAL` at the start of each `transaction()` call. Kills server-side
-   * connections that hold a transaction open without activity past the timeout —
-   * the prod safety net for forgotten `await`s inside a `tx => ...` callback.
+   * `idle_in_transaction_session_timeout` in milliseconds, set on every connection of the pool.
+   * Kills server-side connections that hold a transaction open without activity past the timeout: the prod safety net for forgotten `await`s inside a `tx => ...` callback.
    */
   idleInTransactionTimeout?: number
   /**
@@ -105,7 +103,8 @@ export interface DbConfig {
   defaultLimit?: number
   /**
    * Retry a statement outside a transaction with exponential backoff: any statement after a deadlock or serialization failure, and a SELECT after a dropped connection (PG codes 08xxx, 57P01).
-   *  Disabled by default. Set `maxRetries` to enable.
+   * A SELECT is judged by its leading keyword and assumed side-effect free, so one calling a side-effecting function retries too. A retried statement reaches the query hooks once, with its final outcome.
+   * Disabled by default. Set `maxRetries` to enable.
    */
   retry?: {
     /** Maximum number of retry attempts (default: 0, disabled) */
@@ -162,8 +161,8 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     tables: _tables,
     cacheSize: _cacheSize,
     schema: _schema,
-    statementTimeout: _statementTimeout,
-    idleInTransactionTimeout: _idleInTransactionTimeout,
+    statementTimeout,
+    idleInTransactionTimeout,
     debug: _debug,
     onQuery: _onQuery,
     onSlowQuery: _onSlowQuery,
@@ -199,6 +198,18 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     if (pool.connectionTimeout !== undefined)
       sqlOpts.connectionTimeout = pool.connectionTimeout
   }
+
+  // Startup parameters, so they hold on every pooled connection from its first query.
+  const startup: Record<string, number> = {}
+
+  if (statementTimeout !== undefined)
+    startup.statement_timeout = Math.floor(statementTimeout)
+
+  if (idleInTransactionTimeout !== undefined)
+    startup.idle_in_transaction_session_timeout = Math.floor(idleInTransactionTimeout)
+
+  if (Object.keys(startup).length)
+    sqlOpts.connection = { ...sqlOpts.connection as Record<string, unknown> | undefined, ...startup }
 
   return sqlOpts
 }

@@ -3,16 +3,17 @@ import type { Dialect } from '../dialect'
 import type { ExecutorHooks } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { OrmError, ValidationError, wrapPgError } from '../errors/index'
+import { DeadlockError, OrmError, SerializationError, ValidationError, wrapPgError } from '../errors/index'
 import { asDriver } from './adapter'
 import { queryContextStorage, reportCallbackError } from './base-executor'
+import { computeBackoff } from './retry'
 import { TransactionClient } from './transaction'
-import { applyIdleInTransactionTimeout, applyIsolation, applyStatementTimeout, isolationStatement } from './tx-sql'
+import { applyIsolation } from './tx-sql'
 
 export type TransactionHooks = ExecutorHooks
 
 /**
- * Owns `transaction()` overloads, transaction-local SET LOCAL statements,
+ * Owns `transaction()` overloads, the isolation and access mode, retries,
  * and the post-settlement onCommit/onRollback callback dispatch. Holds the
  * ALS capture/replay logic so `Database.withContext` works inside a
  * transaction body even though bun:sql's `begin()` may not preserve
@@ -22,8 +23,6 @@ export class TransactionRunner {
   constructor(
     private readonly sql: InstanceType<typeof SQL>,
     private readonly hooks: TransactionHooks,
-    private readonly statementTimeout?: number,
-    private readonly idleInTransactionTimeout?: number,
     private readonly dialect: Dialect = 'postgres',
     // Captures a scope of the caller's that the body re-enters, as it does `withContext`'s: the drain's mark letting this transaction's own pool queries through.
     private readonly captureScope: () => <R>(body: () => Promise<R>) => Promise<R> = () => body => body(),
@@ -34,9 +33,15 @@ export class TransactionRunner {
   // The last nested call started on each outer transaction: the next one waits for it, since two savepoints cannot interleave on one connection.
   private readonly _nestedTail = new WeakMap<TransactionClient, Promise<unknown>>()
 
-  /** Whether a `transaction()` call with these options joins a transaction body running in this async context. */
+  /** Whether a `transaction()` call with these options joins a transaction body running in this async context. A transaction that settled is not joined, even from work its body started. */
   joins(opts?: TransactionOptions): boolean {
-    return !opts?.independent && this._active.getStore() !== undefined
+    return !opts?.independent && this._joinable() !== undefined
+  }
+
+  private _joinable(): TransactionClient | undefined {
+    const active = this._active.getStore()
+
+    return active && !active._settled ? active : undefined
   }
 
   async run<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
@@ -47,13 +52,10 @@ export class TransactionRunner {
   ): Promise<T> {
     const fn = typeof fnOrOpts === 'function' ? fnOrOpts : maybeFn!
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
-    const outer = this._active.getStore()
+    const outer = this._joinable()
 
     if (outer && this.joins(opts))
       return this._runNested(outer, fn, opts)
-
-    let txRef: TransactionClient | undefined
-    let phase = 'begin' as 'begin' | 'body' | 'commit'
 
     // Capture the ALS-bound context at the call site so the tx body re-enters
     // the same scope. bun:sql's `begin()` schedules its callback through a path
@@ -63,20 +65,42 @@ export class TransactionRunner {
     const inScope = this.captureScope()
     const runInContext = <R>(body: () => Promise<R>): Promise<R> =>
       inScope(() => ambientContext ? queryContextStorage.run(ambientContext, body) : body())
+    const maxRetries = opts?.retry?.maxRetries ?? 0
+
+    for (let attempt = 0; ; attempt++) {
+      const outcome = await this._attempt(fn, opts, runInContext)
+
+      // Outside any try: the transaction committed, and nothing its callbacks do can report it failed.
+      if (outcome.ok) {
+        await this._fireTxCallbacks('onCommit', outcome.tx._onCommitCallbacks)
+
+        return outcome.result
+      }
+
+      if (attempt < maxRetries && (outcome.error instanceof SerializationError || outcome.error instanceof DeadlockError)) {
+        await Bun.sleep(computeBackoff(attempt, opts?.retry?.baseDelayMs ?? 100, opts?.retry?.maxDelayMs ?? 5000))
+
+        continue
+      }
+
+      if (outcome.tx)
+        await this._fireTxCallbacks('onRollback', outcome.tx._onRollbackCallbacks, outcome.error)
+
+      throw outcome.error
+    }
+  }
+
+  private async _attempt<T>(
+    fn: (tx: TransactionClient) => Promise<T>,
+    opts: TransactionOptions | undefined,
+    runInContext: <R>(body: () => Promise<R>) => Promise<R>,
+  ): Promise<{ ok: true, result: T, tx: TransactionClient } | { ok: false, error: unknown, tx?: TransactionClient }> {
+    let txRef: TransactionClient | undefined
+    let phase = 'begin' as 'begin' | 'body' | 'commit'
 
     try {
       const result = await asDriver(this.sql).begin<T>(async sqlTx => runInContext(async () => {
-        // A SQLite transaction is serializable whatever was asked, which every weaker level is satisfied by, so the options are only checked.
-        if (opts && this.dialect === 'postgres')
-          await applyIsolation(sqlTx, opts)
-        else if (opts)
-          isolationStatement(opts)
-
-        if (this.statementTimeout !== undefined)
-          await applyStatementTimeout(sqlTx, this.statementTimeout)
-
-        if (this.idleInTransactionTimeout !== undefined)
-          await applyIdleInTransactionTimeout(sqlTx, this.idleInTransactionTimeout)
+        await applyIsolation(sqlTx, opts ?? {}, this.dialect)
 
         const tx = this._client(sqlTx)
 
@@ -86,35 +110,41 @@ export class TransactionRunner {
         txRef = tx
         phase = 'body'
 
-        const out = await this._active.run(tx, () => fn(tx))
+        let out: T
+
+        try {
+          out = await this._active.run(tx, () => fn(tx))
+        }
+        finally {
+          if (this.dialect === 'sqlite' && opts?.accessMode === 'read only')
+            await asDriver(sqlTx).unsafe('PRAGMA query_only = OFF', [])
+        }
 
         phase = 'commit'
 
         return out
       }))
 
-      if (txRef)
-        await this._fireTxCallbacks('onCommit', txRef._onCommitCallbacks)
-
-      return result
+      return { ok: true, result, tx: txRef! }
     }
     catch (caught) {
-      // The body's own errors pass through untouched; a driver failure on BEGIN, SET LOCAL or COMMIT (a deferred constraint) gets the same typed mapping as any query.
-      const err = phase === 'body' || caught instanceof OrmError
+      // The body's own errors pass through untouched; a driver failure on BEGIN, SET TRANSACTION or COMMIT (a deferred constraint) gets the same typed mapping as any query.
+      const error = phase === 'body' || caught instanceof OrmError
         ? caught
         : wrapPgError(caught, phase === 'begin' ? 'BEGIN' : 'COMMIT', [])
 
+      return { ok: false, error, tx: txRef }
+    }
+    finally {
       if (txRef)
-        await this._fireTxCallbacks('onRollback', txRef._onRollbackCallbacks, err)
-
-      throw err
+        txRef._settled = true
     }
   }
 
   // A nested call runs in a savepoint of the outer transaction: its writes commit or roll back with the outer one, and its own failure undoes only them. Its onCommit callbacks wait for the outer commit.
   private async _runNested<T>(outer: TransactionClient, fn: (tx: TransactionClient) => Promise<T>, opts?: TransactionOptions): Promise<T> {
-    if (opts?.isolation || opts?.accessMode)
-      throw new ValidationError('transaction(): isolation and accessMode cannot change inside a running transaction, which this call joins (pass independent: true for a separate one).', 'transaction', { value: opts })
+    if (opts?.isolation || opts?.accessMode || opts?.retry)
+      throw new ValidationError('transaction(): isolation, accessMode and retry cannot apply inside a running transaction, which this call joins (pass independent: true for a separate one).', 'transaction', { value: opts })
 
     const previous = this._nestedTail.get(outer)
     const current = this._afterSettled(previous, () => this._savepoint(outer, fn, opts))
@@ -170,10 +200,18 @@ export class TransactionRunner {
 
       throw err
     }
+    finally {
+      if (tx)
+        tx._settled = true
+    }
   }
 
   private _client(sqlTx: InstanceType<typeof SQL>): TransactionClient {
-    return new TransactionClient(sqlTx, this.hooks, this.dialect)
+    const tx = new TransactionClient(sqlTx, this.hooks, this.dialect)
+
+    tx._nest = fn => this._runNested(tx, fn)
+
+    return tx
   }
 
   /**

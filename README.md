@@ -458,10 +458,10 @@ await db.transaction(async (tx) => {
   const txRepo = UserRepo.using(tx)
   await txRepo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 
-  // Savepoints
+  // Savepoints: sp is a TransactionClient, the same nested transaction a db.transaction() call joins
   try {
     await tx.savepoint(async (sp) => {
-      await txRepo.write.insertOne({ name: 'Dupe', email: 'a@test.com' })
+      await UserRepo.using(sp).write.insertOne({ name: 'Dupe', email: 'a@test.com' })
     })
   } catch {
     // savepoint rolled back, outer tx continues
@@ -481,7 +481,12 @@ await db.transaction(
   { isolation: 'serializable', accessMode: 'read write' },
   async (tx) => { ... },
 )
+
+// Rerun the whole body on a serialization failure or deadlock; only the last attempt's onCommit/onRollback callbacks run
+await db.transaction({ isolation: 'serializable', retry: { maxRetries: 3 } }, async (tx) => { ... })
 ```
+
+A read-only access mode is enforced on both dialects (`query_only` on SQLite). A transaction client is dead once its transaction settles: a query on it throws `ValidationError`, and a `db.transaction()` started by work that outlived the body (a timer) opens its own transaction instead of joining the finished one.
 
 ## Pagination
 
@@ -774,11 +779,10 @@ const db = new Database({
   // Schema (default: 'public')
   schema: 'public',
 
-  // Statement timeout (ms)
+  // statement_timeout (ms), set on every connection: plain queries and transactions alike
   statementTimeout: 30000,
 
-  // idle_in_transaction_session_timeout (ms) — kills connections that hold a
-  // transaction open without activity. The prod safety net for forgotten awaits.
+  // idle_in_transaction_session_timeout (ms), set on every connection: kills connections that hold a transaction open without activity. The prod safety net for forgotten awaits.
   idleInTransactionTimeout: 60000,
 
   // Reported as application_name on the PG connection — shows up in pg_stat_activity
@@ -849,7 +853,7 @@ const db = new Database({
 
   // Auto-retry deadlocks and serialization failures, and SELECTs after a dropped connection (judged by the leading keyword, so a raw SELECT calling a side-effecting function retries too).
   // A write is not retried after a drop, since it may have committed before the reply was lost; `writes: true` retries it anyway.
-  // Does NOT retry inside a transaction: those bubble up.
+  // Does NOT retry inside a transaction: those bubble up (see `transaction({ retry })`). A retried statement reaches onQuery/onError once, with its final outcome.
   retry: { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 5_000 },
 
   // Observability — every query, slow query, and error has a hook. Combine with

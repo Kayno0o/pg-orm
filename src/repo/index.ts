@@ -1,4 +1,4 @@
-import type { Database, Executable, SavepointClient, TransactionClient } from '../sql/executor'
+import type { Database, Executable, TransactionClient } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
@@ -90,7 +90,7 @@ export class Repository<
   }
 
   /**
-   * Rebind this repository to a transaction or savepoint client. Returns a new
+   * Rebind this repository to a transaction client. Returns a new
    * `Repository` instance sharing the same table/config but routed through the
    * supplied executor. Useful inside `db.transaction(...)`:
    *
@@ -101,7 +101,7 @@ export class Repository<
    * })
    * ```
    */
-  using(tx: TransactionClient | SavepointClient | Database): Repository<TColumns, TRelations, TVirtuals> {
+  using(tx: TransactionClient | Database): Repository<TColumns, TRelations, TVirtuals> {
     const cached = this._boundCache.get(tx)
 
     if (cached)
