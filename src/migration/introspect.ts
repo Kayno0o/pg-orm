@@ -18,7 +18,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
 
   // Read off pg_constraint by table oid: information_schema joins on constraint names, which repeat across schemas.
   const pkRows = await executor.query(`
-    SELECT t.relname AS table_name, a.attname AS column_name
+    SELECT t.relname AS table_name, a.attname AS column_name, c.conname AS constraint_name
     FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
     JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -28,7 +28,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
 
   // Only a single-column UNIQUE makes its column unique: a composite one constrains the pair, not each column.
   const uqRows = await executor.query(`
-    SELECT t.relname AS table_name, a.attname AS column_name
+    SELECT t.relname AS table_name, a.attname AS column_name, c.conname AS constraint_name
     FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
     JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -109,10 +109,11 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
   const { colRows, pkRows, uqRows, enumRows, fkRows, indexRows, checkRows } = await runIntrospectionQueries(executor, schema)
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
-  const uqSet = new Set(uqRows.map(r => `${r.table_name}.${r.column_name}`))
+  const pkNames = new Map(pkRows.map(r => [r.table_name as string, r.constraint_name as string]))
+  const uqNames = new Map(uqRows.map(r => [`${r.table_name}.${r.column_name}`, r.constraint_name as string]))
 
   return {
-    tables: buildLiveTables(colRows, pkSet, uqSet),
+    tables: buildLiveTables(colRows, pkSet, uqNames, pkNames),
     enums: buildLiveEnums(enumRows),
     foreignKeys: fkRows.map(r => ({
       constraintName: r.constraint_name as string,
@@ -135,7 +136,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
   }
 }
 
-function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>, uqSet: Set<string>): LiveTable[] {
+function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>, uqNames: Map<string, string>, pkNames: Map<string, string>): LiveTable[] {
   const tableMap = new Map<string, LiveTable>()
 
   for (const row of colRows) {
@@ -145,7 +146,7 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
       continue
 
     if (!tableMap.has(tableName))
-      tableMap.set(tableName, { name: tableName, columns: [] })
+      tableMap.set(tableName, { name: tableName, columns: [], primaryKeyConstraint: pkNames.get(tableName) })
 
     tableMap.get(tableName)!.columns.push({
       name: row.column_name as string,
@@ -154,8 +155,10 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
       isNullable: row.is_nullable === 'YES',
       defaultValue: row.column_default as string | null,
       isPrimaryKey: pkSet.has(`${tableName}.${row.column_name}`),
-      isUnique: uqSet.has(`${tableName}.${row.column_name}`),
+      isUnique: uqNames.has(`${tableName}.${row.column_name}`),
       isGenerated: row.is_generated === 'ALWAYS',
+      generationExpression: row.generation_expression as string | null,
+      uniqueConstraint: uqNames.get(`${tableName}.${row.column_name}`),
     })
   }
 

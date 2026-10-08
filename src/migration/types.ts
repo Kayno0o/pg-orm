@@ -11,11 +11,17 @@ export interface LiveColumn {
   isPrimaryKey: boolean
   isUnique: boolean
   isGenerated: boolean
+  /** A generated column's expression as Postgres prints it back. */
+  generationExpression?: string | null
+  /** The name of the single-column UNIQUE constraint making the column unique, which a rename leaves under the old column's name. */
+  uniqueConstraint?: string
 }
 
 export interface LiveTable {
   name: string
   columns: LiveColumn[]
+  /** The name of the table's PRIMARY KEY constraint, when it has one. */
+  primaryKeyConstraint?: string
 }
 
 export interface LiveEnum {

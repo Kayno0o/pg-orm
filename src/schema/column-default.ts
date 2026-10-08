@@ -103,6 +103,14 @@ export function sqliteDefaultSql(colDef: AnyColumnDef): string | undefined {
   return SQLITE_LITERAL_RE.test(bare) ? bare : `(${raw})`
 }
 
+/** The SQLite value a `.backfill()` gives the rows a NOT NULL column without a default is added to, undefined when it needs none. */
+export function sqliteBackfillSql(colDef: AnyColumnDef): string | undefined {
+  const { backfill } = getColumnMeta(colDef)
+  const needsFill = colDef.constraints.some(c => c.type === 'not_null') && !colDef.constraints.some(c => c.type === 'default' || c.type === 'generated')
+
+  return backfill && needsFill ? sqliteLiteral(backfill.value) : undefined
+}
+
 /** Whether SQLite can add a column with this default in place: `ALTER TABLE ... ADD COLUMN` refuses an expression, which only a table rebuild can bring. */
 export function isConstantSqliteDefault(sql: string): boolean {
   return !sql.startsWith('(')

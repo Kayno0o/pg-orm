@@ -2,7 +2,7 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../type
 import { escapeLiteralBody } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
-import { DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
+import { DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
   const { colDefs, pkCols, uniqueCols } = collectConstraints(table, (col, def) => generateColumnDDL(col, def, name))
@@ -134,6 +134,11 @@ function closingParen(expr: string): number {
   return -1
 }
 
+// Compares expressions as Postgres prints them back (an index predicate, a generated column), so one spelled differently is not rewritten on every sync. Dropping every parenthesis is a heuristic: it cannot tell `(a OR b) AND c` from `a OR (b AND c)`.
+export function normalizeExpression(expr: string | null | undefined): string {
+  return (expr ?? '').toLowerCase().replace(PREDICATE_CAST_RE, '').replace(PREDICATE_NOISE_RE, '')
+}
+
 const EMPTY_ARRAY_DEFAULTS = new Set(['array[]', '\'{}\''])
 
 /** Whether a schema default and a live one, as Postgres prints it back, give the same value: Postgres respells literals (a jsonb's key order, a timestamp's format, an empty array as `'{}'`). */
@@ -223,8 +228,9 @@ export function buildDropTableSql(name: string): string {
 
 // --- Column lifecycle ---
 
-export function buildAddColumnSql(tableName: string, colName: string, colDef: AnyColumnDef): string {
-  return `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef, tableName)}`
+/** `fill` is a default the column is added with, filling the rows already there, which the caller drops right after. */
+export function buildAddColumnSql(tableName: string, colName: string, colDef: AnyColumnDef, fill?: string): string {
+  return `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef, tableName)}${fill === undefined ? '' : ` DEFAULT ${fill}`}`
 }
 
 export function buildDropColumnSql(tableName: string, colName: string): string {
@@ -242,6 +248,14 @@ export function buildAlterColumnTypeSql(
   usingClause?: string,
 ): string {
   return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${pgType}${usingClause ?? ''}`
+}
+
+export function buildSetExpressionSql(tableName: string, colName: string, expr: string): string {
+  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET EXPRESSION AS (${expr})`
+}
+
+export function buildDropExpressionSql(tableName: string, colName: string): string {
+  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP EXPRESSION`
 }
 
 export function buildSetNotNullSql(tableName: string, colName: string): string {
@@ -264,6 +278,10 @@ export function buildDropDefaultSql(tableName: string, colName: string): string 
 
 export function buildAddUniqueConstraintSql(tableName: string, colName: string): string {
   return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_key" UNIQUE ("${colName}")`
+}
+
+export function buildAddPrimaryKeySql(tableName: string, columns: string[]): string {
+  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_pkey" PRIMARY KEY (${columns.map(c => `"${c}"`).join(', ')})`
 }
 
 export function buildAddCheckSql(tableName: string, name: string, expr: string): string {

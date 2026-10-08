@@ -22,7 +22,7 @@ export function diffSchema(
     ...diffEnums(neededEnums, enumUsages, live.enums),
     ...diffTables(desired, live.tables),
     ...live.checks ? diffChecks(desired, live.tables, live.checks) : [],
-    ...diffForeignKeys(desired, live.foreignKeys ?? []),
+    ...diffForeignKeys(desired, live.foreignKeys ?? [], live.tables),
     ...diffIndexes(desired, live.indexes ?? [], droppedTables),
   ]
 }

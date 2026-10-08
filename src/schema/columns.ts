@@ -50,6 +50,7 @@ export class ColumnBuilder<
   _pattern?: string
   _oneOf?: readonly (string | number)[]
   _defaultLiteral?: { value: unknown }
+  _backfill?: { value: unknown }
 
   constructor(pgType: string) {
     this._pgType = pgType
@@ -217,6 +218,13 @@ export class ColumnBuilder<
     return this._narrow()
   }
 
+  /** The value the rows already in the table get when `sync()` adds this column NOT NULL and without a default. The column keeps no default. */
+  backfill(value: TType): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    this._backfill = { value }
+
+    return this._narrow()
+  }
+
   // Finalize — freeze and return ColumnDef. Called internally by defineTable.
   _build(): ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated> {
     const def: Record<string, unknown> = {
@@ -262,6 +270,9 @@ export class ColumnBuilder<
 
     if (this._defaultLiteral)
       def._defaultLiteral = this._defaultLiteral
+
+    if (this._backfill)
+      def._backfill = this._backfill
 
     return Object.freeze(def) as unknown as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
   }

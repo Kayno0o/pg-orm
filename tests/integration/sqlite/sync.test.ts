@@ -127,6 +127,22 @@ describe('sync() on SQLite', () => {
     expect((await db.sync()).ops).toEqual([])
   })
 
+  it('adds a NOT NULL column without a default to a table with rows through its backfill value', async () => {
+    const open = file()
+
+    await open([authorsV1, books]).sync()
+    await seed(opened.at(-1)!)
+
+    const authorsV2 = defineTable('authors', t => ({ id: t.serial().primaryKey(), name: t.text(), country: t.text().backfill('unknown') }))
+    const db = open([authorsV2, books])
+
+    await db.sync()
+
+    expect(await db.raw('SELECT "country" FROM "authors"')).toEqual([{ country: 'unknown' }, { country: 'unknown' }])
+    expect(await db.raw('SELECT "dflt_value" AS "default" FROM pragma_table_info(\'authors\') WHERE "name" = \'country\'')).toEqual([{ default: null }])
+    expect((await db.sync()).ops).toEqual([])
+  })
+
   it('asks before dropping a column or changing its type, and rebuilds when told', async () => {
     const open = file()
 

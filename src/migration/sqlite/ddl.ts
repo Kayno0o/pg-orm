@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint, IndexDef } from '../../types/index'
 import { DialectError } from '../../errors/index'
-import { isConstantSqliteDefault, sqliteDefaultSql } from '../../schema/column-default'
+import { isConstantSqliteDefault, sqliteBackfillSql, sqliteDefaultSql } from '../../schema/column-default'
 import { quote, quoteLiteral } from '../../sql/utils'
 import { columnChecks } from '../checks'
 import { buildIndexName } from '../ddl'
@@ -129,11 +129,17 @@ export function sqliteAddColumn(tableName: string, table: AnyTableDef, colName: 
 export function sqliteRebuildTable(tableName: string, table: AnyTableDef, sources: ReadonlyMap<string, string>): string[] {
   const tmp = `${REBUILD_PREFIX}${tableName}`
   const copied = [...sources].filter(([name]) => !hasConstraint(table.columns[name]!, 'generated'))
+  // A new NOT NULL column without a default takes its `.backfill()` value in the rows copied over.
+  const filled = columnEntries(table.columns).flatMap(([name, colDef]) => {
+    const fill = sources.has(name) ? undefined : sqliteBackfillSql(colDef)
+
+    return fill === undefined ? [] : [[name, fill] as const]
+  })
   const sqls = [sqliteCreateTable(tableName, table, tmp)]
 
   if (copied.length > 0) {
-    const into = copied.map(([name]) => quote(name)).join(', ')
-    const from = copied.map(([, source]) => quote(source)).join(', ')
+    const into = [...copied.map(([name]) => quote(name)), ...filled.map(([name]) => quote(name))].join(', ')
+    const from = [...copied.map(([, source]) => quote(source)), ...filled.map(([, fill]) => fill)].join(', ')
 
     sqls.push(`INSERT INTO ${quote(tmp)} (${into}) SELECT ${from} FROM ${quote(tableName)}`)
   }

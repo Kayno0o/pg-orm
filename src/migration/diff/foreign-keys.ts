@@ -1,14 +1,17 @@
 import type { AnyTableDef, ForeignKeyRef } from '../../types/index'
-import type { LiveForeignKey, MigrationOp } from '../types'
+import type { LiveForeignKey, LiveTable, MigrationOp } from '../types'
+import { getColumnMeta } from '../../schema/column-meta'
 import { buildAddFkSql, buildDropFkSql } from '../ddl'
 import { columnEntries } from '../types'
 
 export function diffForeignKeys(
   desired: ReadonlyMap<string, AnyTableDef>,
   liveFks: LiveForeignKey[],
+  liveTables: LiveTable[] = [],
 ): MigrationOp[] {
   const ops: MigrationOp[] = []
   const liveFkMap = new Map<string, LiveForeignKey>()
+  const liveColumns = new Set(liveTables.flatMap(t => t.columns.map(c => `${t.name}.${c.name}`)))
 
   for (const fk of liveFks)
     liveFkMap.set(`${fk.tableName}.${fk.columnName}`, fk)
@@ -16,7 +19,10 @@ export function diffForeignKeys(
   for (const [tableName, tableDef] of desired) {
     for (const [colName, colDef] of columnEntries(tableDef.columns)) {
       const key = `${tableName}.${colName}`
-      const liveFk = liveFkMap.get(key)
+      const { renamedFrom } = getColumnMeta(colDef)
+      // A column the sync renames keeps its foreign key, still filed under the old name.
+      const renamed = renamedFrom !== undefined && !liveColumns.has(key) && liveColumns.has(`${tableName}.${renamedFrom}`)
+      const liveFk = liveFkMap.get(key) ?? (renamed ? liveFkMap.get(`${tableName}.${renamedFrom}`) : undefined)
       const ref = colDef.references
 
       if (!ref && !liveFk)

@@ -125,6 +125,7 @@ t.int4().check('val > 0') // CHECK constraint
 t.int4().generated('col1 + col2') // GENERATED ALWAYS AS ... STORED
 t.int4().references(() => users, 'id', { onDelete: 'cascade' }) // FOREIGN KEY, the target as a thunk
 t.int4().nullable().references('folders', 'id') // ...or by table name, which a self reference needs to stay typed
+t.text().backfill('none')  // the value rows already there get when sync() adds this NOT NULL column; no DEFAULT is kept
 ```
 
 > **No case conversion.** Column keys are used as PostgreSQL identifiers *verbatim* —
@@ -658,6 +659,13 @@ afterAll(() => database.drop())
 - `drop()` drops the copy with `WITH (FORCE)`, closing the app's connections to it. A run that crashed leaves its copies, named `<database>_t<suffix>`.
 - The user in `url` needs `CREATEDB`, and the server, Postgres 13 or later for `WITH (FORCE)`, a `postgres` database to connect to while creating them.
 - Each file needs modules of its own for `DATABASE_URL` to differ between files: under plain `bun test` the preload runs once, and every file shares that one copy.
+
+### What sync() changes in place
+
+- A new column comes with its UNIQUE constraint. A NOT NULL one without a default fails on a table with rows unless `.backfill(value)` gives them one: it is added with that value as its default, dropped in the same migration.
+- A primary key added, moved or extended is applied: dropping the old one is destructive, and fails while foreign keys still point at it.
+- A generated column whose expression changed gets `SET EXPRESSION` (Postgres 17 or later); one made plain keeps its values (`DROP EXPRESSION`); a plain column made generated is dropped and added again, which is destructive.
+- A column renamed with `renamedFrom()` keeps its foreign key and its UNIQUE constraint, under their old names.
 
 ### CHECK constraints
 
