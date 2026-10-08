@@ -278,9 +278,9 @@ q.groupBy('department').having(e => e.gt('count', 5))
 
 Repository operations are grouped into three suites accessed as properties:
 
-- `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findManyBy`, `findOneBy`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
+- `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
 - `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s)
-- `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
+- `repo.stream` — `offset` (LIMIT/OFFSET) and `cursor` (keyset)
 
 `db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
 
@@ -291,9 +291,9 @@ await repo.read.findMany(q => q.where({ status: 'active' }).pick('id', 'name').l
 await repo.read.count({ status: 'active' })
 await repo.read.exists({ email: 'a@test.com' })
 
-// Nothing but a WHERE — the shape count/exists/deleteMany already take
-await repo.read.findManyBy({ status: 'active' })
-await repo.read.findOneBy({ email: 'a@test.com' })
+// A find that is only a WHERE takes the object, the shape count/exists/deleteMany take; a function is a select callback
+await repo.read.findMany({ status: 'active' })
+await repo.read.findOne({ email: 'a@test.com' })
 
 // By primary key — a composite key takes an object holding each part
 await repo.read.findById(1)
@@ -578,17 +578,18 @@ for (let attempt = 1; ; attempt++) {
 ## Streaming
 
 ```ts
-for await (const row of repo.stream.stream(q => q.where({ active: true }), { chunkSize: 500 })) {
+// A WHERE object or a select callback, as findMany takes
+for await (const row of repo.stream.offset({ active: true }, { chunkSize: 500 })) {
   // process row
 }
 
 // Cursor-based (safe for mutable data):
-for await (const row of repo.stream.streamCursor({ chunkSize: 500 })) {
+for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
   // process row
 }
 ```
 
-> **Note**: `stream()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use `streamCursor()` instead, or run inside a `REPEATABLE READ` transaction.
+> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use `stream.cursor()` instead, or run inside a `REPEATABLE READ` transaction.
 
 ## Migration
 

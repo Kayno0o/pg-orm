@@ -1,9 +1,9 @@
-import type { OptionalWhere, SelectBuilder, WhereInput } from '../builder/query'
+import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereInput } from '../builder/query'
 import type { IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -19,6 +19,12 @@ import { buildTableRuntime } from './table-runtime'
 
 type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult>
 type Where<TC extends AnyColumns> = WhereInput<TC>
+/** What a find takes: a select callback, or a WHERE object (falsy for no filter). */
+type FindArg<TC extends AnyColumns, TR extends AnyRelations> = SelectCb<TC, TR> | OptionalWhereObject<TC>
+
+function asSelectCb<TC extends AnyColumns, TR extends AnyRelations>(arg: FindArg<TC, TR> | undefined): SelectCb<TC, TR> {
+  return typeof arg === 'function' ? arg : q => q.where(arg) as SelectBuilder<TC, TR, any>
+}
 
 /** Opt in to rows the softDelete trait has hidden. */
 export interface TrashedOptions {
@@ -105,9 +111,8 @@ export class ReadPipeline<
     return builder
   }
 
-  async findMany(cb?: SelectCb<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
-    const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
-    const finalBuilder = cb ? cb(builder) : builder
+  async findMany(arg?: FindArg<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
+    const finalBuilder = asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
 
     this._runtime.behavior.prepareSelect(finalBuilder)
     this._resolveCounts(finalBuilder)
@@ -131,34 +136,20 @@ export class ReadPipeline<
     })
   }
 
-  async findOne(): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async findOne<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
-  async findOne(cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
-    const wrapped = cb
-      ? (q: SelectBuilder<TColumns, TRelations>) => cb(q).limit(1)
-      : (q: SelectBuilder<TColumns, TRelations>) => q.limit(1) as SelectBuilder<TColumns, TRelations, any>
-    const rows = await this.findMany(wrapped)
+  async findOne(arg?: FindArg<TColumns, TRelations>): Promise<any | null> {
+    const cb = asSelectCb(arg)
+    const rows = await this.findMany(q => cb(q).limit(1))
 
     return rows[0] ?? null
   }
 
-  async findOneOrThrow(): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async findOneOrThrow<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
-  async findOneOrThrow(cb?: SelectCb<TColumns, TRelations>): Promise<unknown> {
-    const row = cb ? await this.findOne(cb) : await this.findOne()
+  async findOneOrThrow(arg?: FindArg<TColumns, TRelations>): Promise<unknown> {
+    const row = await this.findOne(arg)
 
     if (row === null)
       throw new NotFoundError(this._runtime.table.name)
 
     return row
-  }
-
-  async findManyBy(where: OptionalWhere<TColumns>): Promise<any[]> {
-    return this.findMany(q => q.where(where) as SelectBuilder<TColumns, TRelations, any>)
-  }
-
-  async findOneBy(where: OptionalWhere<TColumns>): Promise<any | null> {
-    return this.findOne(q => q.where(where) as SelectBuilder<TColumns, TRelations, any>)
   }
 
   async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
@@ -277,20 +268,20 @@ export class ReadPipeline<
   }
 
   stream(
-    cb?: SelectCb<TColumns, TRelations>,
+    arg?: FindArg<TColumns, TRelations>,
     opts: { chunkSize?: number, unsafe?: boolean } = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    return this._stream(cb, opts)
+    return this._stream(asSelectCb(arg), opts)
   }
 
   private async* _stream(
-    cb: SelectCb<TColumns, TRelations> | undefined,
+    cb: SelectCb<TColumns, TRelations>,
     opts: { chunkSize?: number, unsafe?: boolean },
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     if (!opts.unsafe && !_streamWarned) {
       _streamWarned = true
-      const msg = '[pg-orm] stream() uses LIMIT/OFFSET chunking — rows may be skipped or duplicated if data changes during iteration. '
-        + 'Use streamCursor() or a REPEATABLE READ transaction for correctness. '
+      const msg = '[pg-orm] stream.offset() uses LIMIT/OFFSET chunking, rows may be skipped or duplicated if data changes during iteration. '
+        + 'Use stream.cursor() or a REPEATABLE READ transaction for correctness. '
         + 'Pass { unsafe: true } to suppress this warning.'
       const exec = this._executor as { _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
 
@@ -300,8 +291,7 @@ export class ReadPipeline<
         console.warn(msg)
     }
 
-    const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name)
-    const finalBuilder = cb ? cb(builder) : builder
+    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
 
     this._resolveCounts(finalBuilder)
 

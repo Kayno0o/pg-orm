@@ -248,7 +248,7 @@ async function main() {
   // 12. Streaming — async iterator (callback style)
   let streamCount = 0
 
-  for await (const _post of PostRepo.stream.stream(q => q, { chunkSize: 2 })) {
+  for await (const _post of PostRepo.stream.offset(q => q, { chunkSize: 2 })) {
     streamCount++
   }
 

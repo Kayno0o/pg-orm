@@ -36,9 +36,9 @@ Row-to-object mappers are compiled once per column-shape via `new Function()` an
 
 ### Repository (`src/repo/`)
 `db.repo(table)` → `Repository`, which exposes three operation suites:
-- `repo.read` (`read-suite.ts`) — finds, `findManyBy`/`findOneBy` (bare WHERE), `findById`/`findByIdOrThrow`/`existsById`, count, exists, paginate, paginateCursor, `select()`.
+- `repo.read` (`read-suite.ts`) — finds (a WHERE object or a select callback), `findById`/`findByIdOrThrow`/`existsById`, count, exists, paginate, paginateCursor, `select()`.
 - `repo.write` (`write-suite.ts`) — inserts, updates, `updateById`, `updateWithLock`, deletes, `deleteById`, upserts, `findOrCreate`, `restore`, `forceDelete`, plus statement builders.
-- `repo.stream` (`stream-suite.ts`) — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset).
+- `repo.stream` (`stream-suite.ts`) — `offset` (LIMIT/OFFSET) and `cursor` (keyset).
 
 The suites are thin façades that only adapt public type signatures; the behavior lives in `read-pipeline.ts` / `write-pipeline.ts`. Cross-cutting per-table logic (trait behavior, hook running, virtuals, primary-key resolution, `pkWhere`) is consolidated in `table-runtime.ts` (`buildTableRuntime`). Relation eager-loading (`include()`, batched to avoid N+1) lives in `relation-resolver.ts`. `db.repo(table)` is memoized per table def and `repo.using(tx)` per transaction client.
 

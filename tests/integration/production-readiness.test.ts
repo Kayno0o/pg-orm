@@ -326,7 +326,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
     const seen: string[] = []
     let injected = false
 
-    for await (const row of repo.stream.streamCursor({ chunkSize: 10 })) {
+    for await (const row of repo.stream.cursor({ chunkSize: 10 })) {
       seen.push(row.email)
 
       if (!injected && seen.length === 30) {
@@ -358,7 +358,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
     const seen: string[] = []
     let deleted = false
 
-    for await (const row of repo.stream.streamCursor({ chunkSize: 5 })) {
+    for await (const row of repo.stream.cursor({ chunkSize: 5 })) {
       seen.push(row.email)
 
       if (!deleted && seen.length === 10) {

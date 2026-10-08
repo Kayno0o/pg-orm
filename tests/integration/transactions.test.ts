@@ -319,7 +319,7 @@ describe('db.transaction() called inside a transaction body', () => {
       expect(results.map(r => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled'])
     })
 
-    expect((await users.read.findManyBy({ email: { endsWith: '@sibling.com' } })).map(u => u.name).sort()).toEqual(['A', 'C'])
+    expect((await users.read.findMany({ email: { endsWith: '@sibling.com' } })).map(u => u.name).sort()).toEqual(['A', 'C'])
   })
 
   it('never joins a transaction of another Database', async () => {

@@ -18,24 +18,36 @@ const memberships = defineTable('memberships', t => ({
 // The table builder takes a single primary key, so the composite case is set up the way the runtime reads it.
 const compositeMemberships = { ...memberships, primaryKey: 'userId,groupId' } as unknown as AnyTableDef
 
-describe('read by a bare where', () => {
-  it('findManyBy applies the where with no callback', async () => {
+describe('read by a where object', () => {
+  it('findMany applies a where object with no callback', async () => {
     const { exec, pipeline } = setupReadPipeline(users)
 
     exec.preset([{ id: 1, name: 'Alice' }])
-    await pipeline.findManyBy({ name: 'Alice' })
+    await pipeline.findMany({ name: 'Alice' })
 
     expect(exec.lastQuery!.sql).toBe('SELECT * FROM "users" WHERE "name" = $1')
     expect(exec.lastQuery!.params).toEqual(['Alice'])
   })
 
-  it('findOneBy limits to one row', async () => {
+  it('findOne limits a where object to one row', async () => {
     const { exec, pipeline } = setupReadPipeline(users)
 
     exec.preset([{ id: 1, name: 'Alice' }])
-    await pipeline.findOneBy(e => e.eq('name', 'Alice'))
+    await pipeline.findOne({ name: 'Alice' })
 
     expect(exec.lastQuery!.sql).toBe('SELECT * FROM "users" WHERE "name" = $1 LIMIT $2')
+  })
+
+  it('findMany takes a function as a select callback and a falsy where as no filter', async () => {
+    const { exec, pipeline } = setupReadPipeline(users)
+
+    exec.preset([])
+    exec.preset([])
+    await pipeline.findMany(q => q.where(e => e.eq('name', 'Alice')).limit(5))
+    expect(exec.queries[0]!.sql).toBe('SELECT * FROM "users" WHERE "name" = $1 LIMIT $2')
+
+    await pipeline.findMany(false)
+    expect(exec.queries[1]!.sql).toBe('SELECT * FROM "users"')
   })
 })
 

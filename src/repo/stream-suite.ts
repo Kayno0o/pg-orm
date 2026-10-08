@@ -1,4 +1,4 @@
-import type { OptionalWhere, SelectBuilder } from '../builder/query'
+import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
@@ -6,7 +6,7 @@ import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
 
-/** Stream coordinator — `stream` (LIMIT/OFFSET) + `streamCursor` (keyset). */
+/** Stream coordinator: `offset` (LIMIT/OFFSET chunks) and `cursor` (keyset). */
 export class StreamSuite<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
@@ -30,14 +30,16 @@ export class StreamSuite<
     })
   }
 
-  stream(
-    cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>,
+  /** Rows in LIMIT/OFFSET chunks, filtered by a WHERE object or shaped by a select callback. Rows may be skipped or repeated if the table changes meanwhile. */
+  offset(
+    arg?: ((q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>) | OptionalWhereObject<TColumns>,
     opts: { chunkSize?: number, unsafe?: boolean } = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    return this._pipeline.stream(cb, opts)
+    return this._pipeline.stream(arg, opts)
   }
 
-  streamCursor(opts: {
+  /** Rows in keyset chunks ordered by `column` (the primary key by default), stable while the table changes. */
+  cursor(opts: {
     chunkSize?: number
     column?: keyof TColumns & string
     direction?: 'forward' | 'backward'

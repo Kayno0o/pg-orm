@@ -56,6 +56,9 @@ export type WhereInput<TColumns extends AnyColumns> = WhereFn<TColumns> | WhereO
  */
 export type OptionalWhere<TColumns extends AnyColumns> = WhereInput<TColumns> | null | undefined | false | '' | 0
 
+/** {@link OptionalWhere} without the callback form, for an argument where a function means a select callback instead. */
+export type OptionalWhereObject<TColumns extends AnyColumns> = Exclude<OptionalWhere<TColumns>, WhereFn<TColumns>>
+
 const WHERE_OPS = new Set([
   'eq',
   'neq',

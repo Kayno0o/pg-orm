@@ -179,7 +179,7 @@ describe('SQLite repositories', () => {
     const cursor = await db.repo(shelves).read.paginateCursor({ column: 'id', take: 3, cursor: first.nextCursor })
     const streamed: string[] = []
 
-    for await (const row of db.repo(shelves).stream.stream(q => q.orderBy('id'), { chunkSize: 2, unsafe: true }))
+    for await (const row of db.repo(shelves).stream.offset(q => q.orderBy('id'), { chunkSize: 2, unsafe: true }))
       streamed.push(row.label)
 
     expect(page.total).toBe(7)

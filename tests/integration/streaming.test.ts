@@ -29,7 +29,7 @@ describe('Streaming', () => {
 
     const rows: any[] = []
 
-    for await (const row of repo.stream.stream()) {
+    for await (const row of repo.stream.offset()) {
       rows.push(row)
     }
 
@@ -46,7 +46,7 @@ describe('Streaming', () => {
 
     const rows: any[] = []
 
-    for await (const row of repo.stream.stream(undefined, { chunkSize: 3 })) {
+    for await (const row of repo.stream.offset(undefined, { chunkSize: 3 })) {
       rows.push(row)
     }
 
@@ -64,11 +64,24 @@ describe('Streaming', () => {
 
     const rows: any[] = []
 
-    for await (const row of repo.stream.stream(q => q.where(e => e.gt('age', 25)))) {
+    for await (const row of repo.stream.offset(q => q.where(e => e.gt('age', 25)))) {
       rows.push(row)
     }
 
     expect(rows).toHaveLength(2)
+  })
+
+  it('filters with a where object', async () => {
+    const repo = db.repo(usersTable)
+
+    await repo.write.insertMany([{ name: 'Alice', email: 'a@test.com', age: 30 }, { name: 'Bob', email: 'b@test.com', age: 20 }], { pk: true })
+
+    const names: string[] = []
+
+    for await (const row of repo.stream.offset({ age: { gt: 25 } }, { unsafe: true }))
+      names.push(row.name)
+
+    expect(names).toEqual(['Alice'])
   })
 
   it('returns virtuals on streamed rows', async () => {
@@ -76,7 +89,7 @@ describe('Streaming', () => {
 
     await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
 
-    for await (const row of repo.stream.stream()) {
+    for await (const row of repo.stream.offset()) {
       // isDeleted is a virtual from softDelete trait
       expect(row.isDeleted).toBe(false)
     }
@@ -86,7 +99,7 @@ describe('Streaming', () => {
     const repo = db.repo(usersTable)
     const rows: any[] = []
 
-    for await (const row of repo.stream.stream()) {
+    for await (const row of repo.stream.offset()) {
       rows.push(row)
     }
 

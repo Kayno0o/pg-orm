@@ -424,7 +424,7 @@ export class SelectBuilder<
   }
 
   /**
-   * Hint for `repo.stream()` — overrides the default chunk size when this
+   * Hint for `repo.stream.offset()` — overrides the default chunk size when this
    * builder is passed to streaming. `opts.chunkSize` to `stream()` still wins
    * over the builder-side hint.
    */

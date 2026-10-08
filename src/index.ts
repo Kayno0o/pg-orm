@@ -24,6 +24,7 @@ export {
   MergeBuilder,
   OnConflictBuilder,
   type OptionalWhere,
+  type OptionalWhereObject,
   type RawExpr,
   rawExpr,
   SelectBuilder,

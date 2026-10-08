@@ -35,7 +35,7 @@ export interface RepositoryConfig {
  * - `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`,
  *   `deleteOne/Many`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`,
  *   and the `insert/update/delete/merge/upsert` builders.
- * - `repo.stream` — `stream` (LIMIT/OFFSET chunked) and `streamCursor` (keyset).
+ * - `repo.stream` - `offset` (LIMIT/OFFSET chunked) and `cursor` (keyset).
  *
  * Create via `db.repo(table)` — the repository inherits the database connection
  * and table registry for relation resolution.
@@ -45,7 +45,7 @@ export interface RepositoryConfig {
  * const UserRepo = db.repo(users)
  * const alice = await UserRepo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
  * const all = await UserRepo.read.findMany(q => q.where(e => e.eq('status', 'active')))
- * for await (const u of UserRepo.stream.streamCursor()) console.log(u)
+ * for await (const u of UserRepo.stream.cursor()) console.log(u)
  * ```
  */
 export class Repository<
@@ -69,7 +69,7 @@ export class Repository<
   readonly read: ReadSuite<TColumns, TRelations, TVirtuals>
   /** Write suite — `insert*`, `update*`, `delete*`, `upsert*`, builders, etc. */
   readonly write: WriteSuite<TColumns, TRelations, TVirtuals>
-  /** Stream suite — `stream` and `streamCursor`. */
+  /** Stream suite: `offset` and `cursor`. */
   readonly stream: StreamSuite<TColumns, TRelations, TVirtuals>
 
   constructor(config: RepositoryConfig) {

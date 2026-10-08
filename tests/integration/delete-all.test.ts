@@ -47,6 +47,6 @@ describe('A write without a WHERE', () => {
     await expect(write.deleteMany(missing, { pk: true })).rejects.toBeInstanceOf(ValidationError)
     await expect(write.forceDelete(missing, { pk: true })).rejects.toBeInstanceOf(ValidationError)
     await expect(write.updateMany({ name: 'x' }, missing, { pk: true })).rejects.toBeInstanceOf(ValidationError)
-    expect(await db.repo(tagsTable).read.findManyBy({ name: 'kept' })).toHaveLength(1)
+    expect(await db.repo(tagsTable).read.findMany({ name: 'kept' })).toHaveLength(1)
   })
 })

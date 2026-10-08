@@ -1,4 +1,4 @@
-import type { OptionalWhere, SelectBuilder } from '../builder/query'
+import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
@@ -32,32 +32,23 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     this._defaultLimit = defaultLimit
   }
 
-  async findMany(): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  /** Rows matching a WHERE object, or shaped by a select callback (`pick`, `include`, `orderBy`, a callback WHERE). */
   async findMany<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<(TResult & InferVirtuals<TVirtuals>)[]>
-  async findMany(cb?: SelectCb<TColumns, TRelations>): Promise<any[]> {
-    return this._pipeline.findMany(cb, { defaultLimit: this._defaultLimit })
+  async findMany(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async findMany(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<any[]> {
+    return this._pipeline.findMany(arg, { defaultLimit: this._defaultLimit })
   }
 
-  async findOne(): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async findOne<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
-  async findOne(cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
-    return cb ? this._pipeline.findOne(cb) : this._pipeline.findOne()
+  async findOne(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async findOne(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<any | null> {
+    return this._pipeline.findOne(arg)
   }
 
-  async findOneOrThrow(): Promise<WithVirtuals<TColumns, TVirtuals>>
   async findOneOrThrow<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
-  async findOneOrThrow(cb?: SelectCb<TColumns, TRelations>): Promise<unknown> {
-    return cb ? this._pipeline.findOneOrThrow(cb) : this._pipeline.findOneOrThrow()
-  }
-
-  /** `findMany` with nothing but a WHERE — the shape `count`, `exists` and `deleteMany` already take. */
-  async findManyBy(where: OptionalWhere<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    return this._pipeline.findManyBy(where)
-  }
-
-  /** `findOne` with nothing but a WHERE. */
-  async findOneBy(where: OptionalWhere<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals> | null> {
-    return this._pipeline.findOneBy(where)
+  async findOneOrThrow(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async findOneOrThrow(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<unknown> {
+    return this._pipeline.findOneOrThrow(arg)
   }
 
   /** Load one row by primary key. A composite key takes an object holding each part. */

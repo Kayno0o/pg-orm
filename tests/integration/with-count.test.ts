@@ -97,7 +97,7 @@ describe('withCount', () => {
     const page = await db.repo(lists).read.paginate({ page: 1, perPage: 1 }, q => q.pick('id').withCount('items').orderBy('id'))
     const streamed: unknown[] = []
 
-    for await (const row of db.repo(lists).stream.stream(q => q.pick('id').withCount('items').where({ id: a }), { unsafe: true }))
+    for await (const row of db.repo(lists).stream.offset(q => q.pick('id').withCount('items').where({ id: a }), { unsafe: true }))
       streamed.push(row)
 
     expect(page.data).toEqual([{ id: a, itemsCount: 2 }])
