@@ -53,8 +53,6 @@ export class Database extends BaseExecutor {
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
-  // @internal — read by stream-suite for the streamWarning channel.
-  _onCallbackError?: DbConfig['onCallbackError']
   private _migrations?: MigrationRunner
   private _repoCache = new WeakMap<AnyTableDef, { version: number, repo: unknown }>()
 
@@ -316,10 +314,10 @@ export class Database extends BaseExecutor {
    * })
    * ```
    */
-  withContext<T>(ctx: Record<string, unknown>, fn: () => Promise<T> | T): Promise<T> {
+  async withContext<T>(ctx: Record<string, unknown>, fn: () => Promise<T> | T): Promise<T> {
     const outer = queryContextStorage.getStore()
     const merged = outer ? { ...outer, ...ctx } : ctx
 
-    return Promise.resolve(queryContextStorage.run(merged, fn))
+    return queryContextStorage.run(merged, fn)
   }
 }

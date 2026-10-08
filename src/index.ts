@@ -121,6 +121,7 @@ export { createRelationTypes, type RelationTypes } from './schema/relations'
 
 // Execution engine
 export {
+  type CallbackErrorEvent,
   Database,
   type DbConfig,
   type Executable,

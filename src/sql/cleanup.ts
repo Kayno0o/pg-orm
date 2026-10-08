@@ -1,48 +1,16 @@
 import type { SQL } from 'bun'
+import type { CallbackErrorEvent } from './base-executor'
 import { asDriver } from './adapter'
+import { reportCallbackError } from './base-executor'
 
-export interface ShutdownErrorEvent {
-  kind: 'shutdownCloseError'
-  error: unknown
-}
-
-/**
- * The shape `cleanup.ts` requires of registered instances. Database conforms
- * via structural typing — the kind union here is a subset of Database's
- * (which also includes onCommit/onRollback/streamWarning).
- */
+// What `cleanup.ts` requires of a registered instance; `onCallbackError`'s channel receives a failed close.
 interface Closable {
   sql: InstanceType<typeof SQL>
-  /**
-   * Optional channel for surfacing shutdown-close failures. Mirrors the
-   * `onCallbackError` channel used for transaction commit/rollback callbacks
-   * (see `Database._onCallbackError`). If unset, errors fall back to
-   * `console.warn`.
-   */
-  _onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
+  _onCallbackError?: (event: CallbackErrorEvent) => void
 }
 
 const activeInstances = new Set<WeakRef<Closable>>()
 let cleanupRegistered = false
-
-function reportShutdownError(instance: Closable, error: unknown): void {
-  const channel = instance._onCallbackError
-
-  if (channel) {
-    try {
-      channel({ kind: 'shutdownCloseError', error })
-
-      return
-    }
-    catch (channelErr) {
-      // The user's channel itself threw. Drop to console as last resort so
-      // both errors are visible.
-      console.warn('pg-orm: onCallbackError handler threw during shutdown:', channelErr)
-    }
-  }
-
-  console.warn('pg-orm: shutdown close failed:', error)
-}
 
 /**
  * @internal
@@ -53,7 +21,7 @@ export async function closeInstance(instance: Closable): Promise<void> {
     await asDriver(instance.sql).close({ timeout: 1 })
   }
   catch (err) {
-    reportShutdownError(instance, err)
+    reportCallbackError(instance._onCallbackError, { kind: 'shutdownCloseError', error: err })
   }
 }
 

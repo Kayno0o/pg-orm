@@ -101,7 +101,7 @@ describe('closeInstance error surfacing', () => {
 
     await closeInstance(instance)
 
-    expect(warn).toHaveBeenCalledWith('pg-orm: shutdown close failed:', err)
+    expect(warn).toHaveBeenCalledWith('pg-orm: shutdownCloseError failed:', err)
 
     warn.mockRestore()
   })

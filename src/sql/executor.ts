@@ -6,6 +6,7 @@
 export { serializePgArray } from './adapter'
 export {
   BaseExecutor,
+  type CallbackErrorEvent,
   type Executable,
   type QueryErrorEvent,
   type QueryEvent,

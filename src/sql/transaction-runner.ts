@@ -1,21 +1,15 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
-import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
+import type { ExecutorHooks } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { OrmError, ValidationError, wrapPgError } from '../errors/index'
 import { asDriver } from './adapter'
-import { queryContextStorage } from './base-executor'
+import { queryContextStorage, reportCallbackError } from './base-executor'
 import { TransactionClient } from './transaction'
 import { applyIdleInTransactionTimeout, applyIsolation, applyStatementTimeout, isolationStatement } from './tx-sql'
 
-export interface TransactionHooks {
-  onQuery?: (event: QueryEvent) => void
-  onSlowQuery?: (event: SlowQueryEvent) => void
-  onError?: (event: QueryErrorEvent) => void
-  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
-  slowQueryThreshold?: number
-}
+export type TransactionHooks = ExecutorHooks
 
 /**
  * Owns `transaction()` overloads, transaction-local SET LOCAL statements,
@@ -179,7 +173,7 @@ export class TransactionRunner {
   }
 
   private _client(sqlTx: InstanceType<typeof SQL>): TransactionClient {
-    return new TransactionClient(sqlTx, this.hooks.onQuery, this.hooks.onSlowQuery, this.hooks.slowQueryThreshold, this.hooks.onError, this.dialect)
+    return new TransactionClient(sqlTx, this.hooks, this.dialect)
   }
 
   /**
@@ -215,6 +209,6 @@ export class TransactionRunner {
       ? errors[0]
       : new AggregateError(errors, `${errors.length} ${kind} callbacks failed`)
 
-    this.hooks.onCallbackError?.({ kind, error })
+    reportCallbackError(this.hooks.onCallbackError, { kind, error })
   }
 }

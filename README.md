@@ -790,14 +790,15 @@ const db = new Database({
   // Ignored under NODE_ENV=production / REDACT_QUERY_LOGS=1.
   debug: process.env.DB_DEBUG === '1',
 
-  // Query logging
+  // Query logging: hooks only observe, a throwing one never fails the query.
+  // onError and a failing slow query's onSlowQuery event carry the error and durationMs.
   onQuery: (event) => console.log(event.sql, event.durationMs),
   onSlowQuery: (event) => console.warn(`Slow query: ${event.durationMs}ms`),
   slowQueryThreshold: 1000,
 
-  // Called when transaction onCommit/onRollback callbacks throw, or when a
-  // stream safety warning surfaces. Without this, those errors are silently
-  // swallowed (the tx already settled, so re-throwing would lie about state).
+  // Receives what cannot be rethrown: a failing onCommit/onRollback callback,
+  // a stream safety warning, a shutdown close, a throwing query hook (kind 'queryHook').
+  // Without it, or when it throws itself, these go to console.warn.
   onCallbackError: ({ kind, error }) => log.error(`pg-orm ${kind} failed`, error),
 })
 

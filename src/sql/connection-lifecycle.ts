@@ -1,4 +1,4 @@
-import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
+import type { ExecutorHooks } from './base-executor'
 import type { RetryConfig } from './retry'
 import type { SqliteDriver } from './sqlite-driver'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -13,13 +13,8 @@ import { RetryPolicy } from './retry'
 
 const DEFAULT_DRAIN_TIMEOUT_MS = 10_000
 
-export interface ConnectionHooks {
-  onQuery?: (event: QueryEvent) => void
-  onSlowQuery?: (event: SlowQueryEvent) => void
-  onError?: (event: QueryErrorEvent) => void
+export interface ConnectionHooks extends ExecutorHooks {
   onPingError?: (error: unknown) => void
-  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
-  slowQueryThreshold?: number
 }
 
 /**
@@ -40,7 +35,6 @@ export class ConnectionLifecycle extends BaseExecutor {
   private _retry: RetryPolicy
   private _pingErrorHandler?: (error: unknown) => void
   private _instanceRef: ReturnType<typeof registerInstance>
-  /** @internal */ _onCallbackError?: ConnectionHooks['onCallbackError']
 
   // Given a SQLite driver, the connection is that file's instead of the Postgres one `sqlOpts` describe.
   constructor(
@@ -56,13 +50,7 @@ export class ConnectionLifecycle extends BaseExecutor {
     this._schema = schema
     this._retry = new RetryPolicy(retryCfg, () => this._closed)
     this._pingErrorHandler = hooks.onPingError
-    this._onCallbackError = hooks.onCallbackError
-    this._onQuery = hooks.onQuery
-    this._onSlowQuery = hooks.onSlowQuery
-    this._onError = hooks.onError
-
-    if (hooks.slowQueryThreshold != null)
-      this._slowQueryThreshold = hooks.slowQueryThreshold
+    this._useHooks(hooks)
 
     this._instanceRef = registerInstance(this)
   }

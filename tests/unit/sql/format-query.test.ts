@@ -133,12 +133,16 @@ describe('composeQueryLogger', () => {
     expect(seen).toHaveLength(1)
   })
 
-  it('never wires the sink when query logs are redacted', () => {
-    process.env.NODE_ENV = 'production'
-
+  it('decides redaction per query, writing nothing while query logs are redacted', () => {
     const lines: string[] = []
+    const logger = composeQueryLogger(line => lines.push(line), undefined)!
 
-    expect(composeQueryLogger(line => lines.push(line), undefined)).toBeUndefined()
+    process.env.NODE_ENV = 'production'
+    logger(event('SELECT $1', ['secret']))
     expect(lines).toEqual([])
+
+    process.env.NODE_ENV = 'development'
+    logger(event('SELECT $1', ['x']))
+    expect(lines).toEqual(['[1.234ms] SELECT \'x\''])
   })
 })

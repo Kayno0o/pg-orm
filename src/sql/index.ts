@@ -1,4 +1,5 @@
 export {
+  type CallbackErrorEvent,
   Database,
   type DbConfig,
   type Executable,

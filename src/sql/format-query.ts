@@ -64,13 +64,13 @@ export function formatQuery(event: QueryEvent, opts: FormatQueryOptions = {}): s
 /**
  * Build the effective `onQuery` handler for a `DbConfig`: the user's own
  * handler, optionally followed by a `formatQuery` line when `debug` is on.
- * Returns `onQuery` untouched when `debug` is off or query logs are redacted.
+ * Returns `onQuery` untouched when `debug` is off. Whether query logs are redacted is decided per query, as for the events themselves, so the sink writes nothing while they are.
  */
 export function composeQueryLogger(
   debug: DbConfig['debug'],
   onQuery: ((event: QueryEvent) => void) | undefined,
 ): ((event: QueryEvent) => void) | undefined {
-  if (!debug || queryLogsRedacted())
+  if (!debug)
     return onQuery
 
   const sink = typeof debug === 'function' ? debug : (line: string) => console.log(line)
@@ -80,7 +80,9 @@ export function composeQueryLogger(
 
   return (event) => {
     onQuery?.(event)
-    sink(formatQuery(event, { colors }))
+
+    if (!queryLogsRedacted())
+      sink(formatQuery(event, { colors }))
   }
 }
 

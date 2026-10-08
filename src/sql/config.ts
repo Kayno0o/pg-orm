@@ -1,5 +1,5 @@
 import type { AnyTableDef } from '../types/index'
-import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
+import type { CallbackErrorEvent, QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import { dialectOfUrl } from '../dialect'
 import { DialectError, ValidationError } from '../errors/index'
 
@@ -73,13 +73,10 @@ export interface DbConfig {
   /** Called when ping() fails — useful for logging connection issues */
   onPingError?: (error: unknown) => void
   /**
-   * Called when a transaction onCommit/onRollback callback or a stream safety
-   * warning surfaces an error that the ORM would otherwise have to swallow
-   * (the transaction has already committed or rolled back, so re-throwing
-   * would change observable semantics). If unset, errors are silently dropped
-   * (and the stream warning falls back to `console.warn`).
+   * Receives an error the ORM cannot rethrow without changing an outcome already settled: a failing onCommit/onRollback callback, a stream safety warning, a pool close at shutdown, or a query hook (`onQuery`, `onSlowQuery`, `onError`) that threw or rejected, which never fails the query it reports.
+   * If unset, or if it throws itself, the error goes to `console.warn`.
    */
-  onCallbackError?: (event: { kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError', error: unknown }) => void
+  onCallbackError?: (event: CallbackErrorEvent) => void
   /**
    * Scrub sensitive values from `QueryError.params`. Receives the positional
    * param array and returns the redacted copy. Called for every QueryError-

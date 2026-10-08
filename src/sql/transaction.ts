@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
-import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
+import type { ExecutorHooks } from './base-executor'
 import { asDriver } from './adapter'
 import { BaseExecutor } from './base-executor'
 
@@ -21,16 +21,11 @@ export class TransactionClient extends BaseExecutor {
   /** @internal */ _onRollbackCallbacks: ((err: unknown) => void | Promise<void>)[] = []
   /** @internal */ declare _context?: Record<string, unknown>
 
-  constructor(sqlTx: InstanceType<typeof SQL>, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number, onError?: (event: QueryErrorEvent) => void, dialect: Dialect = 'postgres') {
+  constructor(sqlTx: InstanceType<typeof SQL>, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
     super()
     this.sql = sqlTx
     this._dialect = dialect
-    this._onQuery = onQuery
-    this._onSlowQuery = onSlowQuery
-    this._onError = onError
-
-    if (slowQueryThreshold != null)
-      this._slowQueryThreshold = slowQueryThreshold
+    this._useHooks(hooks)
   }
 
   /**
@@ -63,7 +58,7 @@ export class TransactionClient extends BaseExecutor {
     const name = `sp_${++this._savepointCounter}`
 
     return asDriver(this.sql).savepoint<T>(async (sqlSp) => {
-      const sp = new SavepointClient(sqlSp, name, this._onQuery, this._onSlowQuery, this._slowQueryThreshold, this._onError, this._dialect)
+      const sp = new SavepointClient(sqlSp, name, this.hooks, this._dialect)
 
       return fn(sp)
     })
@@ -74,17 +69,12 @@ export class SavepointClient extends BaseExecutor {
   readonly sql: InstanceType<typeof SQL>
   readonly name: string
 
-  constructor(sqlSp: InstanceType<typeof SQL>, name: string, onQuery?: (event: QueryEvent) => void, onSlowQuery?: (event: SlowQueryEvent) => void, slowQueryThreshold?: number, onError?: (event: QueryErrorEvent) => void, dialect: Dialect = 'postgres') {
+  constructor(sqlSp: InstanceType<typeof SQL>, name: string, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
     super()
     this.sql = sqlSp
     this._dialect = dialect
     this.name = name
-    this._onQuery = onQuery
-    this._onSlowQuery = onSlowQuery
-    this._onError = onError
-
-    if (slowQueryThreshold != null)
-      this._slowQueryThreshold = slowQueryThreshold
+    this._useHooks(hooks)
   }
 
   async rollback(): Promise<void> {

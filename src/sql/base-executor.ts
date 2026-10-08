@@ -23,14 +23,48 @@ export interface QueryEvent {
 
 export interface SlowQueryEvent extends QueryEvent {
   threshold: number
+  /** Set when the slow query failed. */
+  error?: unknown
 }
 
 export interface QueryErrorEvent {
   error: unknown
   sql: string
   params: unknown[]
+  durationMs: number
   /** Optional request context for correlation (e.g., requestId, traceId). */
   context?: Record<string, unknown>
+}
+
+/** An error the ORM cannot rethrow without changing an outcome already settled: a commit or rollback callback, a stream warning, a pool close at shutdown, a throwing query hook. */
+export interface CallbackErrorEvent {
+  kind: 'onCommit' | 'onRollback' | 'streamWarning' | 'shutdownCloseError' | 'queryHook'
+  error: unknown
+}
+
+/** The hooks an executor reports its queries to. */
+export interface ExecutorHooks {
+  onQuery?: (event: QueryEvent) => void
+  onSlowQuery?: (event: SlowQueryEvent) => void
+  onError?: (event: QueryErrorEvent) => void
+  onCallbackError?: (event: CallbackErrorEvent) => void
+  slowQueryThreshold?: number
+}
+
+/** Route an error nothing can rethrow to `onCallbackError`, or to `console.warn` without one; a throwing channel is warned about too, never rethrown. */
+export function reportCallbackError(channel: ((event: CallbackErrorEvent) => void) | undefined, event: CallbackErrorEvent): void {
+  if (channel) {
+    try {
+      channel(event)
+
+      return
+    }
+    catch (channelErr) {
+      console.warn('pg-orm: onCallbackError handler threw:', channelErr)
+    }
+  }
+
+  console.warn(`pg-orm: ${event.kind} failed:`, event.error)
 }
 
 export interface Executable {
@@ -58,11 +92,27 @@ export abstract class BaseExecutor implements Executable {
   protected _onQuery?: (event: QueryEvent) => void
   protected _onSlowQuery?: (event: SlowQueryEvent) => void
   protected _onError?: (event: QueryErrorEvent) => void
+  /** @internal */ _onCallbackError?: (event: CallbackErrorEvent) => void
   protected _slowQueryThreshold = 1000
   protected _context?: Record<string, unknown>
 
   get dialect(): Dialect {
     return this._dialect
+  }
+
+  /** @internal */
+  get hooks(): ExecutorHooks {
+    return { onQuery: this._onQuery, onSlowQuery: this._onSlowQuery, onError: this._onError, onCallbackError: this._onCallbackError, slowQueryThreshold: this._slowQueryThreshold }
+  }
+
+  protected _useHooks(hooks: ExecutorHooks): void {
+    this._onQuery = hooks.onQuery
+    this._onSlowQuery = hooks.onSlowQuery
+    this._onError = hooks.onError
+    this._onCallbackError = hooks.onCallbackError
+
+    if (hooks.slowQueryThreshold != null)
+      this._slowQueryThreshold = hooks.slowQueryThreshold
   }
 
   /**
@@ -84,46 +134,62 @@ export abstract class BaseExecutor implements Executable {
   }
 
   async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
-    if (this._onQuery || this._onSlowQuery) {
-      const start = performance.now()
-      let result: Record<string, unknown>[]
-
-      try {
-        result = await unsafeQuery(this.sql, sqlStr, params, this._dialect)
-      }
-      catch (err) {
-        const ctx = this._currentContext()
-
-        this._onError?.({ error: err, sql: sqlStr, params: eventParams(params), ...ctx ? { context: ctx } : {} })
-
-        throw err
-      }
-
-      const durationMs = performance.now() - start
-      const event: QueryEvent = { sql: sqlStr, params: eventParams(params), durationMs }
-      const ctx = this._currentContext()
-
-      if (ctx)
-        event.context = ctx
-
-      if (this._onQuery)
-        this._onQuery(event)
-
-      if (this._onSlowQuery && durationMs >= this._slowQueryThreshold)
-        this._onSlowQuery({ ...event, threshold: this._slowQueryThreshold })
-
-      return result
-    }
+    const start = performance.now()
+    let result: Record<string, unknown>[]
 
     try {
-      return await unsafeQuery(this.sql, sqlStr, params, this._dialect)
+      result = await unsafeQuery(this.sql, sqlStr, params, this._dialect)
     }
     catch (err) {
-      const ctx = this._currentContext()
-
-      this._onError?.({ error: err, sql: sqlStr, params: eventParams(params), ...ctx ? { context: ctx } : {} })
+      this._report(sqlStr, params, performance.now() - start, err)
 
       throw err
+    }
+
+    this._report(sqlStr, params, performance.now() - start)
+
+    return result
+  }
+
+  // Hooks only observe: one that throws, or rejects, is routed to `onCallbackError` and the query keeps its own outcome.
+  private _report(sql: string, params: unknown[], durationMs: number, ...failure: [error: unknown] | []): void {
+    if (!this._onQuery && !this._onSlowQuery && !this._onError)
+      return
+
+    const ctx = this._currentContext()
+    const event: QueryEvent = { sql, params: eventParams(params), durationMs, ...ctx ? { context: ctx } : {} }
+    const slow = durationMs >= this._slowQueryThreshold
+
+    if (failure.length)
+      this._callHook(this._onError, { ...event, error: failure[0] })
+    else
+      this._callHook(this._onQuery, event)
+
+    if (slow)
+      this._callHook(this._onSlowQuery, { ...event, threshold: this._slowQueryThreshold, ...failure.length ? { error: failure[0] } : {} })
+  }
+
+  private _callHook<E>(hook: ((event: E) => void) | undefined, event: E): void {
+    if (!hook)
+      return
+
+    try {
+      const out = hook(event) as unknown
+
+      if (out instanceof Promise)
+        void this._settleHook(out)
+    }
+    catch (error) {
+      reportCallbackError(this._onCallbackError, { kind: 'queryHook', error })
+    }
+  }
+
+  private async _settleHook(pending: Promise<unknown>): Promise<void> {
+    try {
+      await pending
+    }
+    catch (error) {
+      reportCallbackError(this._onCallbackError, { kind: 'queryHook', error })
     }
   }
 }
