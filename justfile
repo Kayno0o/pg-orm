@@ -17,16 +17,21 @@ bench:
   bash bench.sh
 
 # v0.0.X
-patch:
-	npm version patch
-	git push --follow-tags
+patch: (release "patch")
 
 # v0.X.0
-minor:
-	npm version minor
-	git push --follow-tags
+minor: (release "minor")
 
 # vX.0.0
-major:
-	npm version major
-	git push --follow-tags
+major: (release "major")
+
+# bump, then push the branch and its new tag in one atomic push; a rejected push drops the bump so a retry starts clean
+release level:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	tag=$(npm version {{level}})
+	if ! git push --atomic origin HEAD "$tag"; then
+	  git tag -d "$tag"
+	  git reset --keep HEAD~1
+	  exit 1
+	fi
