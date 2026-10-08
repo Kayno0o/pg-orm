@@ -82,8 +82,12 @@ describe('sync() on SQLite', () => {
   it('rebuilds a table ALTER cannot change, keeping its rows and the rows pointing at it', async () => {
     const open = file()
 
-    await open([authorsV1, books]).sync()
-    await seed(opened.at(-1)!)
+    const before = open([authorsV1, books])
+
+    await before.sync()
+    await seed(before)
+    await before.raw('INSERT INTO "authors" ("name") VALUES ($1)', ['Deleted'])
+    await before.raw('DELETE FROM "authors" WHERE "name" = $1', ['Deleted'])
 
     const authorsV2 = defineTable('authors', t => ({
       id: t.serial().primaryKey(),
@@ -99,11 +103,11 @@ describe('sync() on SQLite', () => {
     expect(await db.raw('SELECT count(*) AS "n" FROM "books"')).toEqual([{ n: 2 }])
     expect((await db.sync()).ops).toEqual([])
 
-    // The foreign key still cascades, and the rowid still counts on from where it was.
+    // The foreign key still cascades, and the id deleted before the rebuild is not handed out again.
     await db.raw('DELETE FROM "authors" WHERE "id" = 1')
 
     expect(await db.raw('SELECT "title" FROM "books"')).toEqual([{ title: 'Cobol' }])
-    expect(await db.raw('INSERT INTO "authors" ("name") VALUES ($1) RETURNING "id"', ['Linus'])).toEqual([{ id: 3 }])
+    expect(await db.raw('INSERT INTO "authors" ("name") VALUES ($1) RETURNING "id"', ['Linus'])).toEqual([{ id: 4 }])
   })
 
   it('rebuilds a table whose indexes are recreated with it', async () => {
@@ -182,6 +186,26 @@ describe('sync() on SQLite', () => {
 
     expect(rolledBack).toHaveLength(1)
     expect((await db.raw<{ name: string }>('SELECT "name" FROM pragma_table_info(\'authors\')')).map(c => c.name)).toEqual(['id', 'name'])
+  })
+
+  it('rolls back a rebuild, whose down SQL only says it cannot be reversed', async () => {
+    const open = file()
+
+    await open([authorsV1]).sync()
+
+    const db = open([defineTable('authors', t => ({ id: t.serial().primaryKey(), name: t.text().unique() }))])
+
+    await db.sync()
+
+    expect((await db.rollback()).rolledBack).toHaveLength(1)
+  })
+
+  it('refuses a migration from inside a transaction, which holds the one connection', async () => {
+    const db = file()([authorsV1])
+
+    await db.transaction(async () => {
+      await expect(db.sync()).rejects.toThrow(DialectError)
+    })
   })
 
   it('generates a migration file, applies it and reports no drift after', async () => {

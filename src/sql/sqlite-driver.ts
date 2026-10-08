@@ -124,6 +124,9 @@ export class SqliteDriver implements SqliteHandle {
    * SQLite ignores the pragma inside a transaction, so it is set around it.
    */
   async migrate<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
+    if (this._inTransaction.getStore())
+      throw new DialectError('A migration (sync, rollback, applyMigration) run from inside a transaction', 'sqlite')
+
     return this._exclusive(async () => {
       this._run('PRAGMA foreign_keys = OFF', [])
 
@@ -220,6 +223,10 @@ export class SqliteDriver implements SqliteHandle {
     const { text, statements } = toSqliteText(sql)
     const db = this._open()
 
+    // A migration whose down SQL is only `-- Cannot reverse` comments has nothing to run, which prepare() would refuse.
+    if (statements === 0)
+      return []
+
     if (statements > 1) {
       if (params.length > 0)
         throw new ValidationError('Several statements cannot share parameters: send them one at a time', 'query', { value: sql })
@@ -271,10 +278,17 @@ export class SqliteDriver implements SqliteHandle {
 
     const db = new SqliteDatabase(this.filename, { create: true, safeIntegers: true })
 
-    db.run('PRAGMA foreign_keys = ON')
+    try {
+      db.run('PRAGMA foreign_keys = ON')
 
-    if (!memory)
-      db.run('PRAGMA journal_mode = WAL')
+      if (!memory)
+        db.run('PRAGMA journal_mode = WAL')
+    }
+    catch (err) {
+      db.close()
+
+      throw err
+    }
 
     this._db = db
 

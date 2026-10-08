@@ -443,6 +443,16 @@ describe('Complex query builder', () => {
 
       expect(sql).toContain('(SELECT SUM("amount") AS "total" FROM "orders"')
     })
+
+    it('numbers the params of a subquery after the outer ones', () => {
+      const subq = new SelectBuilder<{ id: any, status: any }>('orders').where(e => e.eq('status', 'paid'))
+      const { sql, params } = select()
+        .where(e => e.and(e.eq('name', 'Ada'), e.exists(subq)))
+        .toSQL()
+
+      expect(sql).toBe('SELECT * FROM "users" WHERE ("name" = $1 AND EXISTS (SELECT * FROM "orders" WHERE "status" = $2))')
+      expect(params).toEqual(['Ada', 'paid'])
+    })
   })
 
   // --- Pattern matching convenience ---

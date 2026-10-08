@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint, IndexDef } from '../../types/index'
 import { DialectError } from '../../errors/index'
 import { isConstantSqliteDefault, sqliteDefaultSql } from '../../schema/column-default'
-import { quote } from '../../sql/utils'
+import { quote, quoteLiteral } from '../../sql/utils'
 import { columnChecks } from '../checks'
 import { buildIndexName } from '../ddl'
 import { columnEntries } from '../types'
@@ -124,6 +124,7 @@ export function sqliteAddColumn(tableName: string, table: AnyTableDef, colName: 
 /**
  * Rebuilds a table to its definition the way SQLite documents it: a new table is created, the rows the two share are copied over, the old one dropped and the new one renamed.
  * `sources` maps each column to the live one it is copied from. The caller runs it with foreign keys off, which keeps the drop from cascading.
+ * An AUTOINCREMENT table keeps its counter, which the drop would take with it, so an id deleted before the rebuild is not handed out again.
  */
 export function sqliteRebuildTable(tableName: string, table: AnyTableDef, sources: ReadonlyMap<string, string>): string[] {
   const tmp = `${REBUILD_PREFIX}${tableName}`
@@ -135,6 +136,15 @@ export function sqliteRebuildTable(tableName: string, table: AnyTableDef, source
     const from = copied.map(([, source]) => quote(source)).join(', ')
 
     sqls.push(`INSERT INTO ${quote(tmp)} (${into}) SELECT ${from} FROM ${quote(tableName)}`)
+  }
+
+  const rowid = rowidColumn(tableName, table)
+
+  if (rowid !== undefined && SERIAL_TYPES.has(table.columns[rowid]!.pgType)) {
+    sqls.push(
+      `DELETE FROM sqlite_sequence WHERE name = ${quoteLiteral(tmp)}`,
+      `INSERT INTO sqlite_sequence (name, seq) SELECT ${quoteLiteral(tmp)}, seq FROM sqlite_sequence WHERE name = ${quoteLiteral(tableName)}`,
+    )
   }
 
   sqls.push(`DROP TABLE ${quote(tableName)}`, `ALTER TABLE ${quote(tmp)} RENAME TO ${quote(tableName)}`)
