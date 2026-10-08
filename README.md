@@ -557,8 +557,8 @@ A read-only access mode is enforced on both dialects (`query_only` on SQLite). A
 ```ts
 // Offset-based
 const page = await repo.read.paginate({ page: 1, perPage: 20 })
-// { data, total, page, perPage, totalPages }, read in one query: a window counts the matched rows
-// (a DISTINCT query, or an empty page past the first, runs a separate count)
+// { data, total, page, perPage, totalPages }, read in one query: the count rides along as a scalar subquery
+// (an empty page past the first runs it on its own)
 
 // The optional callback shapes the page. A filter it adds is reflected in `total`,
 // so `data` and `total` always describe the same row set.

@@ -7,6 +7,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstrai
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
+import { OP_SCALAR } from '../builder/_tape'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
@@ -18,7 +19,7 @@ import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
 
-// The window column a page carries its total in.
+// The column a page carries its total in.
 const PAGE_TOTAL = '__pgorm_total'
 
 interface ChildTable {
@@ -143,8 +144,8 @@ export class ReadPipeline<
     return rows
   }
 
-  // `withTotal` adds a window counting every matched row, read off the first row and dropped before mapping: a page and its total in one round trip, the total unknown when the page is empty.
-  private async _select(finalBuilder: SelectBuilder<TColumns, TRelations, any>, opts?: SelectOptions, withTotal = false): Promise<{ rows: any[], total?: number }> {
+  // `countQuery` rides along as a scalar subquery, which the database runs once, its result read off the first row and dropped before mapping: a page and its total in one round trip, the page still stopping at its LIMIT. The total is unknown when the page is empty.
+  private async _select(finalBuilder: SelectBuilder<TColumns, TRelations, any>, opts?: SelectOptions, countQuery?: SelectBuilder<TColumns, any, any>): Promise<{ rows: any[], total?: number }> {
     this._runtime.behavior.prepareSelect(finalBuilder)
     this._resolveCounts(finalBuilder)
 
@@ -154,18 +155,20 @@ export class ReadPipeline<
       state.limit = opts.defaultLimit
     }
 
-    if (withTotal)
-      state.computedColumns.push({ expr: 'CAST(count(*) OVER () AS double precision)', alias: PAGE_TOTAL })
+    if (countQuery) {
+      this._runtime.behavior.prepareSelect(countQuery)
+      state.computedColumns.push({ expr: '', alias: PAGE_TOTAL, tape: [{ op: OP_SCALAR, subquery: countQuery }] })
+    }
 
     const { sql, params } = finalBuilder.toSQL(this._dialect)
 
-    if (withTotal)
+    if (countQuery)
       state.computedColumns.pop()
 
     const rows = await this._executor.query(sql, params)
     let total: number | undefined
 
-    if (withTotal && rows.length > 0) {
+    if (countQuery && rows.length > 0) {
       total = Number(rows[0]![PAGE_TOTAL])
 
       for (const row of rows) delete row[PAGE_TOTAL]
@@ -276,19 +279,9 @@ export class ReadPipeline<
 
     rows.limit(perPage).offset((page - 1) * perPage)
 
-    const state = rows.getState()
-    const pageQuery = rows as SelectBuilder<TColumns, TRelations, any>
-
-    // A DISTINCT applies after the window, which would count the rows before it, so such a query keeps a count of its own.
-    if (state.distinct || state.distinctOn.length > 0) {
-      const [{ rows: data }, total] = await Promise.all([this._select(pageQuery), this._runCount(countQuery)])
-
-      return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
-    }
-
-    const { rows: data, total: windowTotal } = await this._select(pageQuery, undefined, true)
+    const { rows: data, total: pageTotal } = await this._select(rows as SelectBuilder<TColumns, TRelations, any>, undefined, countQuery)
     // An empty page past the first may still follow rows, which only a count can tell.
-    const total = windowTotal ?? (page === 1 ? 0 : await this._runCount(countQuery))
+    const total = pageTotal ?? (page === 1 ? 0 : await this._runCount(countQuery))
 
     return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
   }

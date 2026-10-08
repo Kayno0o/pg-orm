@@ -10,7 +10,7 @@ const articles = defineTable('articles', t => ({
 })).withTrait(softDelete())
 
 describe('paginate', () => {
-  it('reads the page and its total in one query, a window counting every matched row', async () => {
+  it('reads the page and its total in one query, the count a scalar subquery on the same filters', async () => {
     const { exec, pipeline } = setupReadPipeline(articles)
 
     exec.preset([{ id: 1, title: 'a', published: true, __pgorm_total: 12 }])
@@ -18,9 +18,8 @@ describe('paginate', () => {
     const result = await pipeline.paginate({ page: 2, perPage: 5, where: { published: true } })
 
     expect(exec.queries).toHaveLength(1)
-    expect(exec.queries[0]!.sql).toContain('CAST(count(*) OVER () AS double precision) AS "__pgorm_total"')
-    expect(exec.queries[0]!.sql).toContain('WHERE ("published" = $1 AND "deletedAt" IS NULL)')
-    expect(exec.queries[0]!.sql).toContain('LIMIT')
+    expect(exec.queries[0]!.sql).toBe('SELECT *, (SELECT count(*) FROM "articles" WHERE ("published" = $1 AND "deletedAt" IS NULL)) AS "__pgorm_total" FROM "articles" WHERE ("published" = $2 AND "deletedAt" IS NULL) LIMIT $3 OFFSET $4')
+    expect(exec.queries[0]!.params).toEqual([true, true, 5, 5])
     expect(Object.keys(result.data[0]!)).not.toContain('__pgorm_total')
     expect(result.total).toBe(12)
     expect(result.page).toBe(2)
@@ -44,19 +43,18 @@ describe('paginate', () => {
     expect(result.total).toBe(4)
   })
 
-  it('knows an empty first page holds nothing, and keeps a separate count for a DISTINCT query', async () => {
+  it('knows an empty first page holds nothing, and counts a DISTINCT query\'s distinct rows', async () => {
     const { exec, pipeline } = setupReadPipeline(articles)
 
     exec.preset([])
     expect((await pipeline.paginate({ page: 1, perPage: 10 })).total).toBe(0)
     expect(exec.queries).toHaveLength(1)
 
-    exec.preset([{ title: 'a' }])
-    exec.preset([{ count: 1 }])
+    exec.preset([{ title: 'a', __pgorm_total: 1 }])
     await pipeline.paginate({ page: 1, perPage: 10 }, q => q.pick('title').distinct())
 
-    expect(exec.queries).toHaveLength(3)
-    expect(exec.queries[1]!.sql).not.toContain('OVER')
+    expect(exec.queries).toHaveLength(2)
+    expect(exec.queries[1]!.sql).toContain('(SELECT count(*) FROM ( SELECT DISTINCT "title" FROM "articles"')
   })
 
   it('includes trashed rows in both queries when asked', async () => {
