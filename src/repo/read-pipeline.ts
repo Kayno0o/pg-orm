@@ -8,6 +8,7 @@ import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
+import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf } from '../dialect'
 import { NotFoundError, ValidationError } from '../errors/index'
@@ -127,7 +128,7 @@ export class ReadPipeline<
     const rows = await this._executor.query(sql, params)
 
     // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
-    const hasOnlyComputed = state.columns?.length === 0 && state.computedColumns.length > 0
+    const hasOnlyComputed = selectedColumns(state)?.length === 0 && state.computedColumns.length > 0
 
     return this.processRows(rows, this._runtime.table.name, 'select', {
       mapper: this._mapper(finalBuilder),
@@ -294,11 +295,10 @@ export class ReadPipeline<
     const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
 
     this._resolveCounts(finalBuilder)
+    this._runtime.behavior.prepareSelect(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const mapperFn = this._mapper(finalBuilder)
-
-    this._runtime.behavior.prepareSelect(finalBuilder)
 
     let offset = 0
 
@@ -316,7 +316,7 @@ export class ReadPipeline<
         break
 
       // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
-      const hasOnlyComputed = chunkState.columns?.length === 0 && chunkState.computedColumns.length > 0
+      const hasOnlyComputed = selectedColumns(chunkState)?.length === 0 && chunkState.computedColumns.length > 0
 
       const mapped = await this.processRows(rows, this._runtime.table.name, 'select', {
         mapper: mapperFn,

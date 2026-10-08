@@ -15,6 +15,9 @@ type CountableRelations<TRelations extends AnyRelations> = {
 
 type RelationColumns<R> = R extends RelationDef<any, any, any, infer T> ? T['columns'] : AnyColumns
 
+// What a result holds beyond the table columns (computed, include, withCount, aggregates), which reshaping the columns keeps.
+type Extras<TResult, TColumns extends AnyColumns> = Omit<TResult, keyof TColumns>
+
 /** A raw SQL expression tagged with the type its value reads back as, for `computedRaw`. @trusted like every raw fragment. */
 export interface RawExpr<T> {
   readonly sql: string
@@ -39,25 +42,27 @@ export function rawExpr<T>(sql: string): RawExpr<T> {
  *   to defined relations and threads child-row types into `TResult`.
  * @template TResult  Row shape this builder will return. Defaults to
  *   `InferSelect<TColumns>`; reshaping methods narrow/widen it.
+ * @template TGroup  The `groupBy` columns, which every column list keeps.
  */
 export class SelectBuilder<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
   TResult = InferSelect<TColumns>,
+  TGroup extends keyof TColumns & string = never,
 > extends BaseBuilder {
   constructor(table: string) {
     super('select', table)
   }
 
-  /** Select only the specified columns. */
-  pick<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns>, K[number]>> {
+  /** Select only the specified columns, keeping computed, include and withCount fields. */
+  pick<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns>, K[number] | TGroup> & Extras<TResult, TColumns>, TGroup> {
     this._state.columns = cols as string[]
 
     return this as never
   }
 
-  /** Exclude the specified columns from the result. */
-  omit<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Omit<InferSelect<TColumns>, K[number]>> {
+  /** Leave the specified columns out of the SELECT, keeping computed, include and withCount fields. Group columns stay. */
+  omit<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Omit<TResult, Exclude<K[number], TGroup>>, TGroup> {
     this._state.omitColumns = cols as string[]
 
     return this as never
@@ -70,7 +75,7 @@ export class SelectBuilder<
   computed<TAlias extends string, T>(
     fn: (e: ExprBuilder<TColumns>) => AggResult<T>,
     alias: TAlias,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>, TGroup> {
     validateIdentifier(alias, 'computed alias')
 
     const builder = createExprBuilder<TColumns>()
@@ -100,7 +105,7 @@ export class SelectBuilder<
   computedRaw<TAlias extends string, TComputed = unknown>(
     raw: string | RawExpr<TComputed>,
     alias: TAlias,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>, TGroup> {
     validateIdentifier(alias, 'computed alias')
 
     const expr = typeof raw === 'string' ? raw : raw.sql
@@ -234,11 +239,11 @@ export class SelectBuilder<
     return this
   }
 
-  /** GROUP BY one or more columns. */
-  groupBy(...cols: (keyof TColumns & string)[]): this {
+  /** GROUP BY one or more columns, which the SELECT then always lists. */
+  groupBy<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, TResult & Pick<InferSelect<TColumns>, K[number]>, K[number]> {
     this._state.groupBy = cols as string[]
 
-    return this
+    return this as never
   }
 
   /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
@@ -335,7 +340,7 @@ export class SelectBuilder<
    */
   include<K extends keyof TRelations & string>(
     relation: K,
-  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }>
+  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }, TGroup>
   include<K extends keyof TRelations & string, TTable extends AnyTableDef, TChildResult>(
     relation: K,
     table: TTable,
@@ -345,7 +350,7 @@ export class SelectBuilder<
       : TRelations[P] extends RelationDef<'hasManyThrough', any, any> ? TChildResult[]
         : TRelations[P] extends RelationDef<infer _K, any, infer N> ? N extends true ? TChildResult | null : TChildResult
           : TChildResult
-  }>
+  }, TGroup>
   include(
     relation: string,
     _table?: AnyTableDef,
@@ -363,7 +368,7 @@ export class SelectBuilder<
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
     relation: K,
     opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean },
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup> {
     const alias = opts?.as ?? `${relation}Count`
 
     validateIdentifier(alias, 'withCount alias')
@@ -373,8 +378,8 @@ export class SelectBuilder<
   }
 
   /**
-   * Replace the column list with one or more aggregate expressions.
-   * The returned `TResult` is reshaped to the aggregate aliases.
+   * Replace the column list with one or more aggregate expressions, the group columns kept.
+   * The returned `TResult` is reshaped to the aggregate aliases, plus the group columns and earlier computed, include and withCount fields.
    *
    * @example
    * ```ts
@@ -383,7 +388,7 @@ export class SelectBuilder<
    */
   aggregate<TAgg extends Record<string, AggResult<unknown>>>(
     fn: (e: ExprBuilder<TColumns>) => TAgg,
-  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number }> {
+  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number } & Pick<InferSelect<TColumns>, TGroup> & Extras<TResult, TColumns>, TGroup> {
     const builder = createExprBuilder<TColumns>()
     const aggs = fn(builder)
 

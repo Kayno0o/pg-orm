@@ -75,10 +75,15 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   const optimisticLockColumn = meta.optimisticLock?.column ?? null
   const hasSoftDelete = softDeleteColumn !== null
   const hasOptimisticLock = optimisticLockColumn !== null
+  const columnNames = Object.keys(table.columns)
 
   function prepareSelect(b: SelectBuilder<any, any, any>): void {
+    const state = b.getState()
+
+    state.tableColumns = columnNames
+
     if (hasSoftDelete)
-      b.getState().softDeleteColumn = softDeleteColumn
+      state.softDeleteColumn = softDeleteColumn
   }
 
   function prepareInsert(_b: InsertBuilder<any>): void {

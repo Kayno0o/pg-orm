@@ -174,6 +174,7 @@ export class RelationResolver {
 
     state.includes = []
     state.softDeleteColumn = this._softDeleteColumn(tableName)
+    state.tableColumns = Object.keys(this._resolveTable(tableName)?.columns ?? {})
 
     const rows = await this._runChunked(ids, chunk => filtered.branch().andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor)))
 

@@ -272,9 +272,12 @@ q.aggregate(e => ({
   avgScore: e.avg('score'),
 }))
 
-// GROUP BY + HAVING — takes both WHERE forms
+// GROUP BY + HAVING — takes both WHERE forms; a grouped select always lists its group columns, before or after aggregate()
 q.groupBy('department').having(e => e.gt('count', 5))
+q.groupBy('department').aggregate(e => ({ total: e.countCol() })) // rows: { department, total }
 ```
+
+`pick()` and `omit()` reshape only the table columns: computed, `include` and `withCount` fields added before them stay. On a repository read, `omit()` lists the remaining columns rather than fetching `*`.
 
 ### Repository operation suites
 

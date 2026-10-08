@@ -64,6 +64,8 @@ export interface BuilderState {
   // SELECT
   columns: string[] | null // null = *, explicit list = pick
   omitColumns: string[]
+  // The table's column names, set by the repository, so omit() can list the rest instead of fetching *.
+  tableColumns?: readonly string[]
   computedColumns: ComputedColumn[]
   // `withCount` requests, turned into computed columns by the repository, which knows the related tables.
   relationCounts: RelationCount[]
@@ -175,6 +177,23 @@ export function createState(op: QueryOp, table: string): BuilderState {
     withTrashed: false,
     allRows: false,
   }
+}
+
+/** The table columns a SELECT lists, null for `*`: omitted ones left out, group columns always in. */
+export function selectedColumns(s: BuilderState): string[] | null {
+  const base = s.columns ?? (s.omitColumns.length > 0 ? s.tableColumns : null)
+
+  if (!base)
+    return null
+
+  const kept = base.filter(c => !s.omitColumns.includes(c))
+
+  for (const col of s.groupBy) {
+    if (!kept.includes(col))
+      kept.push(col)
+  }
+
+  return kept
 }
 
 export function cloneState(s: BuilderState): BuilderState {

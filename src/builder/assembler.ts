@@ -5,7 +5,7 @@ import { DialectError, ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { assembleExpr, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols } from './state'
+import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols, selectedColumns } from './state'
 
 const RAW_PARAM_RE = /\?/g
 
@@ -141,9 +141,7 @@ function printWhere(sb: SqlBuilder, tape: ExprTape | null): void {
 // --- SELECT pieces ---
 
 function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
-  const cols: string[] = state.columns
-    ? state.columns.filter(c => !state.omitColumns.includes(c)).map(quote)
-    : ['*']
+  const cols: string[] = selectedColumns(state)?.map(quote) ?? ['*']
 
   for (const cc of state.computedColumns) {
     // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
