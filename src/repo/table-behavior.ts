@@ -23,7 +23,7 @@ interface RawSettable {
  * the method itself.
  */
 export interface TableBehavior {
-  /** Apply all pre-SELECT transforms (e.g. soft-delete filter). */
+  /** Apply all pre-SELECT transforms: the soft-delete filter, which the assembler applies unless `withTrashed()` was called, before or after. */
   prepareSelect: (builder: SelectBuilder<any, any, any>) => void
 
   /** Apply all pre-INSERT transforms. Currently a no-op seam for future traits. */
@@ -77,9 +77,8 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   const hasOptimisticLock = optimisticLockColumn !== null
 
   function prepareSelect(b: SelectBuilder<any, any, any>): void {
-    if (hasSoftDelete && !b.getState().withTrashed) {
-      b.andWhere(e => e.isNull(softDeleteColumn!))
-    }
+    if (hasSoftDelete)
+      b.getState().softDeleteColumn = softDeleteColumn
   }
 
   function prepareInsert(_b: InsertBuilder<any>): void {

@@ -111,7 +111,8 @@ export interface BuilderState {
   rawParams: unknown[]
   // Includes (eager relation loading)
   includes: IncludeEntry[]
-  // Soft-delete bypass
+  // Soft-delete: the trait's column, whose trashed rows a SELECT leaves out unless `withTrashed`
+  softDeleteColumn: string | null
   withTrashed: boolean
   // An UPDATE or DELETE without a WHERE is refused unless this says every row is meant.
   allRows: boolean
@@ -168,6 +169,7 @@ export function createState(op: QueryOp, table: string): BuilderState {
     rawSql: null,
     rawParams: [],
     includes: [],
+    softDeleteColumn: null,
     withTrashed: false,
     allRows: false,
   }

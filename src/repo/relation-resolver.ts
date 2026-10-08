@@ -5,6 +5,7 @@ import { SelectBuilder } from '../builder/query'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { dialectOf } from '../dialect'
 import { OrmError } from '../errors/index'
+import { tableMeta } from '../schema/inspect'
 import { buildPlaceholders, quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy } from '../utils/collection'
 
@@ -92,7 +93,7 @@ export class RelationResolver {
         else if (rel.type === 'hasOne' || rel.type === 'hasMany')
           await this._loadHasOneOrMany(parentRows, rel, inc, ctx, processor)
         else if (rel.type === 'hasManyThrough' && rel.throughTable)
-          await this._loadHasManyThrough(parentRows, rel, inc.relation, processor)
+          await this._loadHasManyThrough(parentRows, rel, inc, processor)
       })())
     }
 
@@ -140,47 +141,43 @@ export class RelationResolver {
     return table.primaryKey ?? DEFAULT_PRIMARY_KEY
   }
 
-  // Batched query helper — SELECT * FROM "table" WHERE "col" IN ($1, $2, ...)
-  private _batchQuery(tableName: string, column: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
-    return this._runChunked(ids, chunk => ({
-      sql: `SELECT * FROM ${quote(tableName)} WHERE ${quote(column)} IN (${buildPlaceholders(chunk.length)})`,
-      params: chunk,
-    }))
-  }
+  private _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[], withTrashed: boolean): Promise<Record<string, unknown>[]> {
+    const trashCol = withTrashed ? null : this._softDeleteColumn(rel.targetTable)
+    const live = trashCol ? ` AND t.${quote(trashCol)} IS NULL` : ''
 
-  private _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[]): Promise<Record<string, unknown>[]> {
     return this._runChunked(ids, chunk => ({
       sql: `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
        FROM ${quote(rel.throughTable!)} j
        JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
-       WHERE j.${quote(rel.throughFrom!)} IN (${buildPlaceholders(chunk.length)})`,
+       WHERE j.${quote(rel.throughFrom!)} IN (${buildPlaceholders(chunk.length)})${live}`,
       params: chunk,
     }))
   }
 
-  // Build a filtered query for a relation using callback, or fall back to batch query.
-  // Extracts nested includes from the callback's builder state (they don't affect SQL).
+  private _softDeleteColumn(tableName: string): string | null {
+    const table = this._resolveTable(tableName)
+
+    return table ? tableMeta(table).softDelete?.column ?? null : null
+  }
+
+  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL.
   private async _filteredBatchQuery(
     tableName: string,
     column: string,
     ids: unknown[],
     callback?: IncludeCallback,
   ): Promise<{ rows: Record<string, unknown>[], nestedIncludes: IncludeEntry[] }> {
-    if (!callback) {
-      return { rows: await this._batchQuery(tableName, column, ids), nestedIncludes: [] }
-    }
-
-    const builder = new SelectBuilder<any, any>(tableName)
-    const filtered = callback(builder)
+    const base = new SelectBuilder<any, any>(tableName)
+    const filtered = callback ? callback(base) : base
     const state = filtered.getState()
     const nestedIncludes = [...state.includes]
 
     state.includes = []
+    state.softDeleteColumn = this._softDeleteColumn(tableName)
 
-    filtered.andWhere(e => e.in(column, ids))
-    const { sql, params } = filtered.toSQL(dialectOf(this.executor))
+    const rows = await this._runChunked(ids, chunk => filtered.branch().andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor)))
 
-    return { rows: await this.executor.query(sql, params), nestedIncludes }
+    return { rows, nestedIncludes }
   }
 
   private async _loadBelongsTo(
@@ -258,12 +255,14 @@ export class RelationResolver {
     await this._loadNested(this._resolveTable(rel.targetTable), childRows, nestedIncludes, inc.relation, ctx, processor)
   }
 
+  // The pivot join takes no callback filter; a callback is read only for withTrashed().
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
-    relationName: string,
+    inc: IncludeEntry,
     processor?: RelationProcessor,
   ): Promise<void> {
+    const relationName = inc.relation
     const sourcePk = this._findPrimaryKey(this.table)
     const targetTable = this._resolveTable(rel.targetTable)
     const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
@@ -275,7 +274,8 @@ export class RelationResolver {
       return
     }
 
-    let rows = await this._batchThroughQuery(rel, targetPk, parentIds)
+    const withTrashed = inc.callback?.(new SelectBuilder<any, any>(rel.targetTable)).getState().withTrashed ?? false
+    let rows = await this._batchThroughQuery(rel, targetPk, parentIds, withTrashed)
 
     // The pivot key is read off before the row is mapped: a compiled mapper keeps only the target's own columns and would drop it. Mapping keeps row order, so the index still pairs each row with its key.
     const pivotKeys = rows.map((row) => {

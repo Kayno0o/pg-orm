@@ -3,7 +3,7 @@ import type { ExprTape } from './_tape'
 import type { BuilderState, MergeWhen } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
-import { assembleExpr, OP_RAW } from './_tape'
+import { assembleExpr, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
 import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols } from './state'
 
@@ -244,6 +244,16 @@ function printLock(sb: SqlBuilder, state: BuilderState): void {
     sb.push('SKIP LOCKED')
 }
 
+// Trashed rows are left out here rather than when the repository hands the builder over, so a withTrashed() called later still lets them in.
+function selectWhere(state: BuilderState): ExprTape | null {
+  if (!state.softDeleteColumn || state.withTrashed)
+    return state.whereTape
+
+  const live: ExprTape = [{ op: OP_IS_NULL, col: state.softDeleteColumn }]
+
+  return state.whereTape ? [{ op: OP_AND, count: 2 }, ...state.whereTape, ...live] : live
+}
+
 function printSelect(sb: SqlBuilder, state: BuilderState): void {
   // A grouped or distinct query has fewer result rows than matched rows, so its count wraps the query instead of replacing its column list.
   const wrapCount = state.op === 'count' && (state.groupBy.length > 0 || state.distinct || state.distinctOn.length > 0)
@@ -254,7 +264,7 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   printSelectHead(sb, state, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
   printJoins(sb, state)
-  printWhere(sb, state.whereTape)
+  printWhere(sb, selectWhere(state))
   printGroupHaving(sb, state)
   printWindows(sb, state.windows)
   printOrderLimit(sb, state)

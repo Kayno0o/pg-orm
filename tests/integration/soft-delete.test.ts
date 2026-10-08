@@ -1,7 +1,8 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { defineTable, softDelete } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
-import { usersTable } from '../helpers/fixtures'
+import { allTables, postsTable, usersTable } from '../helpers/fixtures'
 
 let db: Database
 
@@ -186,5 +187,91 @@ describe('Updates on soft-deleted rows', () => {
 
     expect(await users.write.updateManyById([{ id: live, name: 'a' }, { id: trashed, name: 'b' }])).toEqual([live])
     expect(await users.write.updateManyById([{ id: trashed, name: 'b' }], { withTrashed: true })).toEqual([trashed])
+  })
+})
+
+describe('include() on a soft-delete target', () => {
+  const petsDef = defineTable('sd_pets', t => ({
+    id: t.serial().primaryKey(),
+    name: t.text(),
+    ownerId: t.int4(),
+  })).withTrait(softDelete())
+  const toys = defineTable('sd_toys', t => ({
+    id: t.serial().primaryKey(),
+    name: t.text(),
+  })).withTrait(softDelete())
+  const ownerToys = defineTable('sd_owner_toys', t => ({
+    ownerId: t.int4(),
+    toyId: t.int4(),
+  }))
+  const owners = defineTable('sd_owners', t => ({
+    id: t.serial().primaryKey(),
+    name: t.text(),
+  })).withRelations(r => ({
+    pets: r.hasMany(() => petsDef, 'ownerId'),
+    toys: r.hasManyThrough(() => toys, () => ownerToys, { from: 'ownerId', to: 'toyId' }),
+  }))
+  const pets = petsDef.withRelations(r => ({
+    owner: r.belongsTo(() => owners, 'ownerId'),
+  }))
+  const extra = [owners, pets, toys, ownerToys]
+  let sdb: Database
+
+  beforeAll(async () => {
+    sdb = createTestDb({ tables: [...allTables, ...extra] })
+    await sdb.sync({ allowDestructive: true })
+
+    const ownerId = await sdb.repo(owners).write.insertOne({ name: 'Ann' })
+    const [, trashedPet] = await sdb.repo(pets).write.insertMany([{ name: 'Live pet', ownerId }, { name: 'Trashed pet', ownerId }])
+    const [liveToy, trashedToy] = await sdb.repo(toys).write.insertMany([{ name: 'Live toy' }, { name: 'Trashed toy' }])
+
+    await sdb.raw('INSERT INTO "sd_owner_toys" ("ownerId", "toyId") VALUES ($1, $2), ($1, $3)', [ownerId, liveToy, trashedToy])
+    await sdb.repo(pets).write.deleteById(trashedPet!)
+    await sdb.repo(toys).write.deleteById(trashedToy!)
+  })
+
+  afterAll(async () => {
+    for (const table of extra)
+      await sdb.raw(`DROP TABLE IF EXISTS "${table.name}"`, [])
+
+    await sdb.close({ timeout: 5000 })
+  })
+
+  it('skips trashed rows of a hasMany, with or without a callback, unless withTrashed()', async () => {
+    const repo = sdb.repo(owners)
+    const names = (rows: { pets: { name: string }[] }[]) => rows[0]!.pets.map(p => p.name).sort()
+
+    expect(names(await repo.read.findMany(q => q.include('pets')))).toEqual(['Live pet'])
+    expect(names(await repo.read.findMany(q => q.include('pets', pets, p => p.orderBy('id'))))).toEqual(['Live pet'])
+    expect(names(await repo.read.findMany(q => q.include('pets', pets, p => p.withTrashed())))).toEqual(['Live pet', 'Trashed pet'])
+  })
+
+  it('skips trashed rows of a hasManyThrough unless withTrashed()', async () => {
+    const repo = sdb.repo(owners)
+    const names = (rows: { toys: { name: string }[] }[]) => rows[0]!.toys.map(t => t.name).sort()
+
+    expect(names(await repo.read.findMany(q => q.include('toys')))).toEqual(['Live toy'])
+    expect(names(await repo.read.findMany(q => q.include('toys', toys, t => t.withTrashed())))).toEqual(['Live toy', 'Trashed toy'])
+  })
+
+  it('gives null for a trashed belongsTo parent unless withTrashed()', async () => {
+    const users = db.repo(usersTable)
+    const authorId = await users.write.insertOne({ name: 'Gone', email: 'gone@test.com' })
+    const posts = db.repo(postsTable)
+
+    await posts.write.insertOne({ title: 't', body: 'b', authorId })
+    await users.write.deleteById(authorId)
+
+    expect((await posts.read.findMany(q => q.include('author')))[0]!.author).toBeNull()
+    expect((await posts.read.findMany(q => q.include('author', usersTable, a => a.withTrashed())))[0]!.author?.name).toBe('Gone')
+  })
+})
+
+describe('select() on a soft-delete table', () => {
+  it('drops the trashed-row filter on withTrashed()', () => {
+    const users = db.repo(usersTable)
+
+    expect(users.read.select().toSQL().sql).toContain('"deletedAt" IS NULL')
+    expect(users.read.select().withTrashed().toSQL().sql).not.toContain('deletedAt')
   })
 })

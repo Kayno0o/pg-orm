@@ -169,6 +169,9 @@ const postsWithAll = await PostRepo.read.findMany(q =>
 const usersWithPublished = await UserRepo.read.findMany(q =>
   q.include('posts', sq => sq.where({ published: true })),
 )
+
+// A soft-delete target's trashed rows are left out, on every relation type, unless asked
+const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', sq => sq.withTrashed()))
 ```
 
 `withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows unless given `withDeleted: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
@@ -375,7 +378,7 @@ const users = defineTable('users', t => ({ ... }))
   .withTrait(optimisticLock())          // adds version column + auto-increment
 
 // Soft-delete: deleteMany/deleteOne sets deletedAt instead of DELETE
-// Use .withTrashed() to include soft-deleted rows
+// Use .withTrashed() to include soft-deleted rows, on a find, an include() callback or repo.read.select()
 // Updates skip soft-deleted rows; pass { withTrashed: true } to reach them
 // Use .forceDelete() for real DELETE
 
