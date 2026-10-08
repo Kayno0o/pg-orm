@@ -1,6 +1,8 @@
+import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
 import type { OptionalWhere } from './_where'
 import type { BuilderState, QueryOp } from './state'
+import { DialectError } from '../errors/index'
 import { appendWhere, replaceWhere } from './_where'
 import { assembleQuery } from './assembler'
 import { cloneState, createState } from './state'
@@ -25,12 +27,29 @@ export abstract class BaseBuilder {
     return copy
   }
 
-  toSQL(): { sql: string, params: unknown[] } {
-    return assembleQuery(this._state)
+  /**
+   * The statement in the dialect's SQL, Postgres unless told otherwise; the repositories pass their database's.
+   * Embedded as a subquery (`e.exists(q)`), it is given the placeholders before it, which its own are numbered after.
+   */
+  toSQL(dialect?: Dialect): { sql: string, params: unknown[] }
+  toSQL(paramOffset: number, dialect?: Dialect): { sql: string, params: unknown[] }
+  toSQL(offsetOrDialect?: number | Dialect, dialect?: Dialect): { sql: string, params: unknown[] } {
+    if (typeof offsetOrDialect === 'number')
+      return assembleQuery(this._state, dialect, offsetOrDialect)
+
+    return assembleQuery(this._state, offsetOrDialect ?? dialect)
   }
 
-  explain(opts?: { analyze?: boolean }): { sql: string, params: unknown[] } {
-    const { sql, params } = this.toSQL()
+  explain(opts?: { analyze?: boolean }, dialect: Dialect = 'postgres'): { sql: string, params: unknown[] } {
+    const { sql, params } = this.toSQL(dialect)
+
+    if (dialect === 'sqlite') {
+      if (opts?.analyze)
+        throw new DialectError('explain({ analyze: true })', dialect)
+
+      return { sql: `EXPLAIN QUERY PLAN ${sql}`, params }
+    }
+
     const analyze = opts?.analyze ? 'ANALYZE, ' : ''
 
     return { sql: `EXPLAIN (${analyze}FORMAT JSON) ${sql}`, params }

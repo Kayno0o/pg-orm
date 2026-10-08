@@ -19,15 +19,20 @@ const kv = defineTable('uc_kv', t => ({
   value: t.text(),
 }))
 
+const handles = defineTable('uc_handles', t => ({
+  id: t.serial().primaryKey(),
+  handle: t.text().unique(),
+}))
+
 let db: Database
 
 beforeAll(async () => {
-  db = createTestDb({ tables: [players, kv] })
+  db = createTestDb({ tables: [players, kv, handles] })
   await db.sync({ allowDestructive: true })
 })
 
 beforeEach(async () => {
-  await db.raw('TRUNCATE "uc_players", "uc_kv"')
+  await db.raw('TRUNCATE "uc_players", "uc_kv", "uc_handles"')
 })
 
 afterAll(async () => {
@@ -97,6 +102,13 @@ describe('upsert set from the existing row', () => {
     await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'])
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toEqual(before)
+  })
+
+  it('findOrCreate keeps the serial key of the existing row, which EXCLUDED holds the next value of', async () => {
+    const id = await db.repo(handles).write.insertOne({ handle: 'ada' })
+
+    expect(await db.repo(handles).write.findOrCreate({ handle: 'ada' }, ['handle'])).toBe(id)
+    expect((await db.repo(handles).read.findMany()).map(r => r.id)).toEqual([id])
   })
 
   it('rejects an expression of the wrong type at compile time', () => {

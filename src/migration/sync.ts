@@ -1,11 +1,11 @@
+import type { Dialect } from '../dialect'
 import type { AnyTableDef } from '../types/index'
 import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError } from '../errors/index'
 import { TIMESTAMP_DELIM_RE } from '../utils/regex'
-import { diffSchema } from './diff'
 import { djb2Hash, ensureMigrationTable, recordMigration } from './history'
 import { promptSync } from './interactive'
-import { introspectLiveSchema } from './introspect'
+import { planMigration } from './plan'
 import { generateDownSql } from './reverse'
 
 export interface SyncContext {
@@ -13,6 +13,7 @@ export interface SyncContext {
   transact: <T>(fn: (query: QueryFn) => Promise<T>) => Promise<T>
   readonly schema: string
   readonly tables: ReadonlyMap<string, AnyTableDef>
+  readonly dialect?: Dialect
 }
 
 export interface SyncOptions {
@@ -26,15 +27,16 @@ const SYNC_LOCK_KEY = 741953258
 
 /**
  * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
- * Uses `pg_advisory_xact_lock` to prevent concurrent sync() calls.
+ * Uses `pg_advisory_xact_lock` to prevent concurrent sync() calls; SQLite needs none, its write transactions running one at a time.
  */
 export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {
+  const dialect = ctx.dialect ?? 'postgres'
+
   // Phase 1: enum ADD VALUE ops can't run inside a transaction in PG < 16, so execute them first.
   // If they succeed but the main transaction fails, the enum values persist harmlessly
   // (skipped on retry via IF NOT EXISTS).
-  if (!opts?.dryRun) {
-    const preLive = await introspectLiveSchema({ query: ctx.query }, ctx.schema)
-    const preOps = diffSchema(preLive, ctx.tables)
+  if (!opts?.dryRun && dialect === 'postgres') {
+    const preOps = await planMigration({ query: ctx.query }, ctx.tables, dialect, ctx.schema)
     const enumAddOps = preOps.filter(o => o.type === 'alter_enum_add')
 
     for (const op of enumAddOps)
@@ -44,11 +46,11 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
   // Phase 2: advisory lock + introspect + diff + apply DDL inside a single transaction.
   // The lock is transaction-scoped and auto-released on commit/rollback.
   return ctx.transact(async (txQuery) => {
-    await txQuery('SELECT pg_advisory_xact_lock($1)', [SYNC_LOCK_KEY])
+    if (dialect === 'postgres')
+      await txQuery('SELECT pg_advisory_xact_lock($1)', [SYNC_LOCK_KEY])
 
     const txExecutor = { query: txQuery }
-    const live = await introspectLiveSchema(txExecutor, ctx.schema)
-    const ops = diffSchema(live, ctx.tables)
+    const ops = await planMigration(txExecutor, ctx.tables, dialect, ctx.schema)
 
     if (ops.length === 0)
       return { sql: '', ops: [] }
@@ -79,9 +81,9 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
       for (const op of otherOps)
         await txQuery(`${op.sql};`, [])
 
-      await ensureMigrationTable(txExecutor)
+      await ensureMigrationTable(txExecutor, dialect)
       const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
-      const downSql = generateDownSql(ops, { validate: true })
+      const downSql = generateDownSql(ops, { validate: true, dialect })
       const hash = djb2Hash(sqlStr)
 
       await recordMigration(txExecutor, {

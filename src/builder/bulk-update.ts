@@ -1,3 +1,4 @@
+import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
 import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
@@ -53,14 +54,17 @@ export class BulkUpdateBuilder {
     return this
   }
 
-  toSQL(): { sql: string, params: unknown[] } {
+  // SQLite neither casts a bound value nor names the columns of a VALUES list, which it calls column1, column2...: a subquery renames them, and RETURNING takes no `table.*`.
+  toSQL(dialect: Dialect = 'postgres'): { sql: string, params: unknown[] } {
+    const sqlite = dialect === 'sqlite'
     const target = quote(this.table)
     const setColumns = this._setColumns()
     const params: unknown[] = []
+    const cast = (column: string): string => sqlite ? '' : `::${this._castType(column)}`
     const bind = (value: unknown, column: string): string => {
       params.push(value)
 
-      return `$${params.length}::${this._castType(column)}`
+      return `$${params.length}${cast(column)}`
     }
 
     const everywhere = setColumns.map(col => this.rows.every(row => col in row.set))
@@ -75,7 +79,7 @@ export class BulkUpdateBuilder {
       for (const [i, col] of setColumns.entries()) {
         const present = col in row.set
 
-        cells.push(present ? bind(row.set[col], col) : `NULL::${this._castType(col)}`)
+        cells.push(present ? bind(row.set[col], col) : `NULL${cast(col)}`)
 
         if (!everywhere[i])
           cells.push(present ? 'true' : 'false')
@@ -97,10 +101,13 @@ export class BulkUpdateBuilder {
     ].join(' AND ')
     const returning = this._returning.length
       ? this._returning.map(col => `${target}.${quote(col)}`).join(', ')
-      : `${target}.*`
+      : sqlite ? '*' : `${target}.*`
+    const values = sqlite
+      ? `(SELECT ${valueNames.map((name, i) => `"column${i + 1}" AS ${quote(name)}`).join(', ')} FROM (VALUES ${tuples.join(', ')})) AS "v"`
+      : `(VALUES ${tuples.join(', ')}) AS "v" (${valueNames.map(quote).join(', ')})`
 
     return {
-      sql: `UPDATE ${target} SET ${sets.join(', ')} FROM (VALUES ${tuples.join(', ')}) AS "v" (${valueNames.map(quote).join(', ')}) WHERE ${match} RETURNING ${returning}`,
+      sql: `UPDATE ${target} SET ${sets.join(', ')} FROM ${values} WHERE ${match} RETURNING ${returning}`,
       params,
     }
   }

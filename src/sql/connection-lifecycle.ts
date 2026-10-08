@@ -1,6 +1,8 @@
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { RetryConfig } from './retry'
+import type { SqliteDriver } from './sqlite-driver'
 import { SQL } from 'bun'
+import { requirePostgres } from '../dialect'
 import { ConnectionError } from '../errors/index'
 import { asDriver } from './adapter'
 import { BaseExecutor } from './base-executor'
@@ -34,14 +36,17 @@ export class ConnectionLifecycle extends BaseExecutor {
   private _instanceRef: ReturnType<typeof registerInstance>
   /** @internal */ _onCallbackError?: ConnectionHooks['onCallbackError']
 
+  // Given a SQLite driver, the connection is that file's instead of the Postgres one `sqlOpts` describe.
   constructor(
     sqlOpts: ConstructorParameters<typeof SQL>[0],
     schema: string,
     retryCfg: RetryConfig,
     hooks: ConnectionHooks,
+    sqlite?: SqliteDriver,
   ) {
     super()
-    this.sql = new SQL(sqlOpts)
+    this.sql = sqlite ? sqlite as unknown as InstanceType<typeof SQL> : new SQL(sqlOpts)
+    this._dialect = sqlite ? 'sqlite' : 'postgres'
     this._schema = schema
     this._retry = new RetryPolicy(retryCfg)
     this._pingErrorHandler = hooks.onPingError
@@ -117,6 +122,8 @@ export class ConnectionLifecycle extends BaseExecutor {
    * Query PostgreSQL for connection pool statistics from `pg_stat_activity`.
    */
   async getPoolStats(): Promise<{ active: number, idle: number, total: number, maxConnections: number }> {
+    requirePostgres(this._dialect, 'getPoolStats()')
+
     const rows = await this.query(`
       SELECT
         count(*) FILTER (WHERE state = 'active') AS active,

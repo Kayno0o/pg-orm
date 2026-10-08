@@ -37,6 +37,7 @@ export {
 } from './builder/query'
 // Config
 export { defineConfig, type PgOrmConfig } from './define-config'
+export { type Dialect } from './dialect'
 // Errors
 export {
   AfterHookError,
@@ -47,6 +48,7 @@ export {
   DataError,
   DeadlockError,
   DestructiveOpError,
+  DialectError,
   ForeignKeyError,
   isRetryable,
   MigrationError,

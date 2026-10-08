@@ -4,6 +4,7 @@ import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
+import { dialectOf } from '../dialect'
 import { createMapperFactory } from './_mapper'
 import { ReadSuite } from './read-suite'
 import { RelationResolver } from './relation-resolver'
@@ -81,7 +82,7 @@ export class Repository<
 
     this._rt = buildTableRuntime(this._table)
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
-    this._map = createMapperFactory(this._table)
+    this._map = createMapperFactory(this._table, dialectOf(this._exec))
 
     this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry)
     this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)

@@ -295,6 +295,18 @@ export class ValidationError extends OrmError {
   }
 }
 
+/** Thrown before any SQL is sent when a feature has no equivalent in the database's dialect: array operators, `DISTINCT ON`, `MERGE` or row locks on SQLite. */
+export class DialectError extends OrmError {
+  readonly feature: string
+  readonly dialect: string
+  constructor(feature: string, dialect: string) {
+    super(`${feature} is not supported on ${dialect === 'sqlite' ? 'SQLite' : dialect}`)
+    this.name = 'DialectError'
+    this.feature = feature
+    this.dialect = dialect
+  }
+}
+
 /** Thrown by `findOneOrThrow()` when no row matches the query. */
 export class NotFoundError extends OrmError {
   readonly table: string
@@ -367,6 +379,7 @@ export function sanitizePgErrorMessage(message: string): string {
 // Parse PG error codes into typed constraint errors
 // PG error codes: 23505 = unique_violation, 23503 = foreign_key_violation,
 // 23502 = not_null_violation, 23514 = check_violation
+// SQLite's `SQLITE_*` codes map onto the same classes.
 export function wrapPgError(err: unknown, query: string, params: unknown[]): OrmError {
   if (!(err instanceof Error))
     return new OrmError(String(err), err)
@@ -383,6 +396,9 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
     detail?: string
     schema?: string
   }
+
+  if (pgErr.code?.startsWith('SQLITE_'))
+    return wrapSqliteError(pgErr.code, pgErr.message, err, query, params)
 
   const code = pgErr.errno ?? pgErr.code
   const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
@@ -435,6 +451,48 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
 
       return new QueryError(safeMessage, query, params, err)
   }
+}
+
+// SQLite names the failing columns as `table.column`, comma separated, after the colon of its constraint message.
+const SQLITE_COLUMNS_RE = /constraint failed: (.+)$/
+const SQLITE_COLUMN_SEPARATOR = ', '
+
+// SQLite names neither the constraint of a UNIQUE or PRIMARY KEY violation nor the table of a foreign key one: the names given are the ones Postgres gives the same constraint created by pg-orm's DDL, so code testing `err.constraint` holds on both.
+function wrapSqliteError(code: string, message: string, err: Error, query: string, params: unknown[]): OrmError {
+  const named = message.match(SQLITE_COLUMNS_RE)?.[1] ?? ''
+  const columns = named.split(SQLITE_COLUMN_SEPARATOR).map(part => part.split('.'))
+  const table = columns[0]?.[0] ?? ''
+  const column = columns.map(([, col]) => col ?? '').join('_')
+
+  switch (code) {
+    case 'SQLITE_CONSTRAINT_PRIMARYKEY':
+      return new UniqueError(message, query, params, { constraint: `${table}_pkey`, table, column }, err)
+    case 'SQLITE_CONSTRAINT_UNIQUE':
+      return new UniqueError(message, query, params, { constraint: `${table}_${column}_key`, table, column }, err)
+    case 'SQLITE_CONSTRAINT_FOREIGNKEY':
+      return new ForeignKeyError(message, query, params, { constraint: '', table: '' }, err)
+    case 'SQLITE_CONSTRAINT_NOTNULL':
+      return new NotNullError(message, query, params, { constraint: '', table, column }, err)
+    case 'SQLITE_CONSTRAINT_CHECK':
+      return new CheckError(message, query, params, { constraint: named, table: '' }, err)
+  }
+
+  if (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
+    return new SerializationError(message, query, params, err)
+
+  if (code.startsWith('SQLITE_CANTOPEN') || code.startsWith('SQLITE_NOTADB'))
+    return new ConnectionError(message, err)
+
+  if (code === 'SQLITE_INTERRUPT')
+    return new TimeoutError(message, err)
+
+  if (code.startsWith('SQLITE_FULL') || code.startsWith('SQLITE_NOMEM'))
+    return new ResourceError(message, code, err)
+
+  if (code === 'SQLITE_MISMATCH' || code === 'SQLITE_TOOBIG' || code === 'SQLITE_RANGE')
+    return new DataError(message, code, query, params, err)
+
+  return new QueryError(message, query, params, err)
 }
 
 const TABLE_NAME_RE = /table "(\w+)"/

@@ -1,12 +1,13 @@
+import type { Dialect } from '../dialect'
 import type { OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { formatOrderBy, PLACEHOLDER_RE } from './state'
 
 type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 'EXCEPT ALL'
 
+// Rendered when the set operation is, in its dialect.
 interface SetOperand {
-  sql: string
-  params: unknown[]
+  toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
 }
 
 export class SetOperationBuilder<_TResult = Record<string, unknown>> {
@@ -21,56 +22,56 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
   }
 
   static union<T>(
-    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+    ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!.toSQL())
+    const builder = new SetOperationBuilder<T>(first!)
 
     for (const q of rest) {
       builder.operators.push('UNION')
-      builder.operands.push(q.toSQL())
+      builder.operands.push(q)
     }
 
     return builder
   }
 
   static unionAll<T>(
-    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+    ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!.toSQL())
+    const builder = new SetOperationBuilder<T>(first!)
 
     for (const q of rest) {
       builder.operators.push('UNION ALL')
-      builder.operands.push(q.toSQL())
+      builder.operands.push(q)
     }
 
     return builder
   }
 
   static intersect<T>(
-    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+    ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!.toSQL())
+    const builder = new SetOperationBuilder<T>(first!)
 
     for (const q of rest) {
       builder.operators.push('INTERSECT')
-      builder.operands.push(q.toSQL())
+      builder.operands.push(q)
     }
 
     return builder
   }
 
   static except<T>(
-    ...queries: { toSQL: () => { sql: string, params: unknown[] } }[]
+    ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!.toSQL())
+    const builder = new SetOperationBuilder<T>(first!)
 
     for (const q of rest) {
       builder.operators.push('EXCEPT')
-      builder.operands.push(q.toSQL())
+      builder.operands.push(q)
     }
 
     return builder
@@ -102,7 +103,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     return this
   }
 
-  toSQL(): { sql: string, params: unknown[] } {
+  toSQL(dialect: Dialect = 'postgres'): { sql: string, params: unknown[] } {
     const allParams: unknown[] = []
     const parts: string[] = []
 
@@ -110,12 +111,13 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
       if (i > 0)
         parts.push(this.operators[i - 1]!)
 
-      const op = this.operands[i]!
+      const op = this.operands[i]!.toSQL(dialect)
       const offset = allParams.length
       const sql = op.sql.replace(PLACEHOLDER_RE, (_, n) => `$${Number(n) + offset}`)
 
       allParams.push(...op.params)
-      parts.push(`(${sql})`)
+      // SQLite takes no parenthesized operand, but a subquery it selects from.
+      parts.push(dialect === 'sqlite' ? `SELECT * FROM (${sql})` : `(${sql})`)
     }
 
     if (this._orderBy.length)
@@ -124,6 +126,9 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     if (this._limit != null) {
       allParams.push(this._limit)
       parts.push(`LIMIT $${allParams.length}`)
+    }
+    else if (this._offset != null && dialect === 'sqlite') {
+      parts.push('LIMIT -1')
     }
 
     if (this._offset != null) {

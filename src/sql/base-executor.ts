@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { Dialect } from '../dialect'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { getParamRedactor, queryLogsRedacted } from '../errors/index'
 import { unsafeQuery } from './adapter'
@@ -37,6 +38,10 @@ export interface Executable {
   query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
   /** bun:sql tagged template interface */
   sql: InstanceType<typeof SQL>
+  /** The SQL the database speaks, `postgres` when unset. */
+  readonly dialect?: Dialect
+  /** Runs `fn` in one transaction suited to DDL: on SQLite, foreign keys are off around it and checked before the commit. */
+  migrate?: <T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>) => Promise<T>
 }
 
 // Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
@@ -54,11 +59,16 @@ function eventParams(params: unknown[]): unknown[] {
 export abstract class BaseExecutor implements Executable {
   abstract readonly sql: InstanceType<typeof SQL>
 
+  protected _dialect: Dialect = 'postgres'
   protected _onQuery?: (event: QueryEvent) => void
   protected _onSlowQuery?: (event: SlowQueryEvent) => void
   protected _onError?: (event: QueryErrorEvent) => void
   protected _slowQueryThreshold = 1000
   protected _context?: Record<string, unknown>
+
+  get dialect(): Dialect {
+    return this._dialect
+  }
 
   /**
    * Resolve the effective context for a query event: the ALS-bound ambient
@@ -84,7 +94,7 @@ export abstract class BaseExecutor implements Executable {
       let result: Record<string, unknown>[]
 
       try {
-        result = await unsafeQuery(this.sql, sqlStr, params)
+        result = await unsafeQuery(this.sql, sqlStr, params, this._dialect)
       }
       catch (err) {
         const ctx = this._currentContext()
@@ -111,7 +121,7 @@ export abstract class BaseExecutor implements Executable {
     }
 
     try {
-      return await unsafeQuery(this.sql, sqlStr, params)
+      return await unsafeQuery(this.sql, sqlStr, params, this._dialect)
     }
     catch (err) {
       const ctx = this._currentContext()

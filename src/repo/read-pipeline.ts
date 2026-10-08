@@ -1,5 +1,6 @@
 import type { OptionalWhere, SelectBuilder, WhereInput } from '../builder/query'
 import type { IncludeEntry } from '../builder/state'
+import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
@@ -8,6 +9,7 @@ import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
+import { dialectOf } from '../dialect'
 import { NotFoundError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { tableMeta } from '../schema/inspect'
@@ -79,6 +81,7 @@ export class ReadPipeline<
   TVirtuals extends AnyVirtuals = {},
 > implements RelationProcessor {
   private _executor: Executable
+  private _dialect: Dialect
   private _runtime: TableRuntime
   private _relations: RelationResolver
   private _mapper: MapperFactory
@@ -86,6 +89,7 @@ export class ReadPipeline<
 
   constructor(ctx: ReadPipelineContext) {
     this._executor = ctx.executor
+    this._dialect = dialectOf(ctx.executor)
     this._runtime = ctx.runtime
     this._relations = ctx.relations
     this._mapper = ctx.mapper
@@ -114,7 +118,7 @@ export class ReadPipeline<
       state.limit = opts.defaultLimit
     }
 
-    const { sql, params } = finalBuilder.toSQL()
+    const { sql, params } = finalBuilder.toSQL(this._dialect)
     const rows = await this._executor.query(sql, params)
 
     // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
@@ -188,7 +192,7 @@ export class ReadPipeline<
   private async _runCount(builder: SelectBuilder<TColumns, any, any>): Promise<number> {
     this._runtime.behavior.prepareSelect(builder)
 
-    const { sql, params } = builder.toSQL()
+    const { sql, params } = builder.toSQL(this._dialect)
     const rows = await this._executor.query(sql, params)
 
     return Number(rows[0]?.count ?? 0)
@@ -202,7 +206,7 @@ export class ReadPipeline<
 
     this._runtime.behavior.prepareSelect(builder)
 
-    const { sql, params } = builder.toSQL()
+    const { sql, params } = builder.toSQL(this._dialect)
     const rows = await this._executor.query(sql, params)
 
     return rows.length > 0
@@ -315,7 +319,7 @@ export class ReadPipeline<
       chunkState.limit = chunkSize
       chunkState.offset = offset
 
-      const { sql, params } = chunkBuilder.toSQL()
+      const { sql, params } = chunkBuilder.toSQL(this._dialect)
       const rows = await this._executor.query(sql, params)
 
       if (rows.length === 0)
@@ -438,7 +442,7 @@ export class ReadPipeline<
     if (!table)
       return (row: Record<string, unknown>) => row
 
-    return createMapperFactory(table)(new SelectBuilderCtor<any, any>(tableName))
+    return createMapperFactory(table, this._dialect)(new SelectBuilderCtor<any, any>(tableName))
   }
 
   // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.
@@ -463,7 +467,7 @@ export class ReadPipeline<
       const from = rel.type === 'hasMany'
         ? `FROM ${quote(rel.targetTable)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
         : `FROM ${quote(rel.throughTable!)} AS "__pivot" JOIN ${quote(rel.targetTable)} AS ${child} ON ${child}.${quote(target?.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
-      const expr = `SELECT count(*)::int ${from}${live}`
+      const expr = `SELECT count(*)${this._dialect === 'postgres' ? '::int' : ''} ${from}${live}`
 
       state.computedColumns.push(where ? { expr, alias, filter: { tape: where, qualifier: '__count' } } : { expr: `(${expr})`, alias })
     }

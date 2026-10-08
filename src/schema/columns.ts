@@ -48,6 +48,7 @@ export class ColumnBuilder<
   _maxLength?: number
   _pattern?: string
   _oneOf?: readonly (string | number)[]
+  _defaultLiteral?: { value: unknown }
 
   constructor(pgType: string) {
     this._pgType = pgType
@@ -77,6 +78,7 @@ export class ColumnBuilder<
   /** Set a DEFAULT value using a native JS value. Auto-converts to SQL. */
   default(value: TType): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value: toSQLDefault(value, this._pgType) })
+    this._defaultLiteral = { value }
 
     return this._narrow()
   }
@@ -89,6 +91,7 @@ export class ColumnBuilder<
    */
   defaultRaw(sql: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
     this._constraints.push({ type: 'default', value: sql })
+    this._defaultLiteral = undefined
 
     return this._narrow()
   }
@@ -247,6 +250,9 @@ export class ColumnBuilder<
 
     if (this._oneOf != null)
       def._oneOf = this._oneOf
+
+    if (this._defaultLiteral)
+      def._defaultLiteral = this._defaultLiteral
 
     return Object.freeze(def) as unknown as ColumnDef<TType, TNullable, TDefault, TPrimary, TGenerated>
   }

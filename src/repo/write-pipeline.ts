@@ -2,15 +2,18 @@ import type { BulkUpdateRow } from '../builder/bulk-update'
 import type { ConflictSet, ConflictValue } from '../builder/conflict'
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
+import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { dialectOf } from '../dialect'
 import { StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
+import { sqliteInsertDefaults } from '../schema/column-default'
 import { jsonParam } from '../sql/json-param'
 import { createMapperFactory } from './_mapper'
 
@@ -22,7 +25,7 @@ export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
   returning: (...cols: string[]) => this
-  toSQL: () => { sql: string, params: unknown[] }
+  toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
 }
 
 // The builders read a falsy WHERE as "no WHERE", which on a write is every row: only `deleteAll` may ask for that, by name.
@@ -53,11 +56,12 @@ export class WritePipeline<
   private _executor: Executable
   private _runtime: TableRuntime
   private _mapperFactory: ReturnType<typeof createMapperFactory>
+  private _sqliteDefaults?: Record<string, string>
 
   constructor(ctx: WritePipelineContext) {
     this._executor = ctx.executor
     this._runtime = ctx.runtime
-    this._mapperFactory = createMapperFactory(this._runtime.table)
+    this._mapperFactory = createMapperFactory(this._runtime.table, dialectOf(ctx.executor))
   }
 
   /**
@@ -92,6 +96,16 @@ export class WritePipeline<
     return out
   }
 
+  // A SQLite multi-row insert spells out the default of each column a row leaves out.
+  private _insertMany(rows: InferInsert<TColumns>[]): InsertBuilderCtor<TColumns> {
+    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(rows)
+
+    if (dialectOf(this._executor) === 'sqlite')
+      builder.getState().defaultSql = this._sqliteDefaults ??= sqliteInsertDefaults(this._runtime.table.columns)
+
+    return builder
+  }
+
   // --- Insert ---
 
   async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
@@ -112,7 +126,7 @@ export class WritePipeline<
 
     const v = (await this._runtime.runBeforeMany('beforeInsert', values))
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name).many(v)
+    const builder = this._insertMany(v)
 
     return this._execute({
       builder,
@@ -266,8 +280,7 @@ export class WritePipeline<
 
     const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
-      .many(v)
+    const builder = this._insertMany(v)
       .onConflict(conflictTarget)
       .doUpdateWith(await this._conflictUpdate(update))
 
@@ -320,11 +333,12 @@ export class WritePipeline<
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    // A no-op update on the key so the existing row comes back through RETURNING.
+    // A no-op update of the key to its own value, so the existing row comes back through RETURNING. `EXCLUDED` would hold the incoming row's key, a serial's next value.
+    const pkColumns = this._runtime.pkColumns as (keyof TColumns & string)[]
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
       .values(v)
       .onConflict(conflictTarget)
-      .doUpdate(...this._runtime.pkColumns as (keyof TColumns & string)[])
+      .doUpdateWith({ columns: [], set: u => Object.fromEntries(pkColumns.map(col => [col, u.existing(col)])) as ConflictSet<TColumns> })
 
     return this._execute({
       builder,
@@ -373,7 +387,7 @@ export class WritePipeline<
 
     args.builder.returning(...whole ? [] : pkColumns)
 
-    const { sql, params } = args.builder.toSQL()
+    const { sql, params } = args.builder.toSQL(dialectOf(this._executor))
     const rows = mapChunk(this._mapperFactory(whole ? shape : shape.pick(...pkColumns)), await this._executor.query(sql, params))
 
     await this._runtime.runAfter(args.afterEvent, rows)

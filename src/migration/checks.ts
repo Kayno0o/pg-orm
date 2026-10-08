@@ -1,4 +1,6 @@
+import type { Dialect } from '../dialect'
 import type { AnyColumnDef } from '../types/index'
+import { DialectError } from '../errors/index'
 import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody } from '../sql/utils'
 
@@ -17,11 +19,20 @@ export interface ColumnCheck {
 /**
  * The CHECK constraints a column declares: its `.check()` expressions, then one built from its validation metadata (`min`, `pattern`, ...).
  * Each is named after a hash of its expression, so `sync()` tells a changed check from an unchanged one by name alone.
+ * SQLite has no enum type, so an enum column is checked against its values there; it has no regular expressions either, so a `pattern()` has no check to become.
  */
-export function columnChecks(tableName: string, colName: string, colDef: AnyColumnDef): ColumnCheck[] {
+export function columnChecks(tableName: string, colName: string, colDef: AnyColumnDef, dialect: Dialect = 'postgres'): ColumnCheck[] {
   const exprs = colDef.constraints.flatMap(c => c.type === 'check' ? [String(c.value)] : [])
   const meta = getColumnMeta(colDef)
   const parts: string[] = []
+
+  if (dialect === 'sqlite') {
+    if (meta.pattern != null)
+      throw new DialectError(`pattern() on "${tableName}"."${colName}", a Postgres regular expression`, dialect)
+
+    if (meta.enumValues)
+      exprs.push(`"${colName}" IN (${meta.enumValues.map(v => `'${escapeLiteralBody(v)}'`).join(', ')})`)
+  }
 
   if (meta.min != null)
     parts.push(`"${colName}" >= ${meta.min}`)

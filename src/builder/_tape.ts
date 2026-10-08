@@ -2,11 +2,37 @@
 // Internal IR for boolean/scalar expressions and the assembler that prints it.
 // Public DSL lives in `./expr.ts`; this file is the implementation detail.
 
-import { ValidationError } from '../errors/index'
+import type { Dialect } from '../dialect'
+import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { quote, quotePath } from '../sql/utils'
 
 const PARAM_RE = /\?/g
+
+// What a LIKE pattern character becomes in a GLOB pattern, where `*`, `?` and `[` are the wildcards.
+const GLOB_WILDCARDS: Record<string, string> = { '%': '*', '_': '?' }
+const GLOB_LITERALS: Record<string, string> = { '*': '[*]', '?': '[?]', '[': '[[]' }
+
+// SQLite's LIKE ignores ASCII case, so a case-sensitive `like` is a GLOB, its pattern translated: `%` and `_` become `*` and `?`, and a backslash keeps the character after it literal, as in Postgres.
+function likeToGlob(pattern: string): string {
+  let glob = ''
+
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!
+
+    if (ch === '\\' && i + 1 < pattern.length) {
+      const next = pattern[++i]!
+
+      glob += GLOB_LITERALS[next] ?? next
+
+      continue
+    }
+
+    glob += GLOB_WILDCARDS[ch] ?? GLOB_LITERALS[ch] ?? ch
+  }
+
+  return glob
+}
 
 // Opcode tags
 export const OP_AND = 0 as const
@@ -69,7 +95,8 @@ export type ExprOp
 export type ExprTape = ExprOp[]
 
 export interface SubqueryRef {
-  toSQL: (paramOffset: number) => { sql: string, params: unknown[] }
+  /** Placeholders numbered from `paramOffset + 1`, in the dialect of the query embedding it. */
+  toSQL: (paramOffset: number, dialect?: Dialect) => { sql: string, params: unknown[] }
 }
 
 export interface TsQueryRef {
@@ -96,9 +123,23 @@ class ExprAssembler {
   private pidx: number
 
   // `qualifier` prefixes every bare column with a table name, for a clause where an unqualified column is ambiguous (ON CONFLICT DO UPDATE sees both the existing row and EXCLUDED).
-  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string) {
+  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string, private readonly dialect: Dialect = 'postgres') {
     this.tape = tape
     this.pidx = paramOffset + 1
+  }
+
+  private postgresOnly(feature: string): void {
+    if (this.dialect !== 'postgres')
+      throw new DialectError(feature, this.dialect)
+  }
+
+  private walkSubquery(subquery: SubqueryRef): string {
+    const sub = subquery.toSQL(this.pidx - 1, this.dialect)
+
+    this.params.push(...sub.params)
+    this.pidx += sub.params.length
+
+    return sub.sql
   }
 
   assemble(): AssembledExpr {
@@ -206,8 +247,13 @@ class ExprAssembler {
       }
       case OP_IS_NULL: return { sql: `${colSql} IS NULL`, next: pos + 1 }
       case OP_IS_NOT_NULL: return { sql: `${colSql} IS NOT NULL`, next: pos + 1 }
-      case OP_LIKE: return { sql: `${colSql} LIKE ${this.nextParam(op.pattern)}`, next: pos + 1 }
-      case OP_ILIKE: return { sql: `${colSql} ILIKE ${this.nextParam(op.pattern)}`, next: pos + 1 }
+      case OP_LIKE: return this.dialect === 'sqlite'
+        ? { sql: `${colSql} GLOB ${this.nextParam(likeToGlob(op.pattern))}`, next: pos + 1 }
+        : { sql: `${colSql} LIKE ${this.nextParam(op.pattern)}`, next: pos + 1 }
+      // SQLite's LIKE ignores ASCII case only, and escapes nothing unless told.
+      case OP_ILIKE: return this.dialect === 'sqlite'
+        ? { sql: `${colSql} LIKE ${this.nextParam(op.pattern)} ESCAPE '\\'`, next: pos + 1 }
+        : { sql: `${colSql} ILIKE ${this.nextParam(op.pattern)}`, next: pos + 1 }
       case OP_BETWEEN: {
         const plo = this.nextParam(op.lo)
         const phi = this.nextParam(op.hi)
@@ -221,22 +267,10 @@ class ExprAssembler {
 
   private walkAdvanced(op: ExprOp, pos: number): WalkResult {
     switch (op.op) {
-      case OP_EXISTS: {
-        const sub = op.subquery.toSQL(this.pidx - 1)
-
-        this.params.push(...sub.params)
-        this.pidx += sub.params.length
-
-        return { sql: `EXISTS (${sub.sql})`, next: pos + 1 }
-      }
-      case OP_NOT_EXISTS: {
-        const sub = op.subquery.toSQL(this.pidx - 1)
-
-        this.params.push(...sub.params)
-        this.pidx += sub.params.length
-
-        return { sql: `NOT EXISTS (${sub.sql})`, next: pos + 1 }
-      }
+      case OP_EXISTS:
+        return { sql: `EXISTS (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      case OP_NOT_EXISTS:
+        return { sql: `NOT EXISTS (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
       case OP_RAW: {
         let rawSql = op.sql
         let paramIdx = 0
@@ -256,6 +290,8 @@ class ExprAssembler {
         return { sql: rawSql, next: pos + 1 }
       }
       case OP_JSONB_PATH:
+        this.postgresOnly('jsonbPath()')
+
         return { sql: `jsonb_path_exists(${this.walkCol(op.col)}, ${this.nextParam(op.path)})`, next: pos + 1 }
       case OP_JSONB_SUBSCRIPT: {
         let colSql = this.walkCol(op.col)
@@ -267,6 +303,7 @@ class ExprAssembler {
         return { sql: colSql, next: pos + 1 }
       }
       case OP_TS_MATCH: {
+        this.postgresOnly('tsMatch()')
         validateTsLanguage(op.query.language)
         const lang = this.nextParam(op.query.language)
         const p = this.nextParam(op.query.query)
@@ -274,6 +311,8 @@ class ExprAssembler {
         return { sql: `${this.walkCol(op.col)} @@ plainto_tsquery(${lang}, ${p})`, next: pos + 1 }
       }
       case OP_VEC_DISTANCE: {
+        this.postgresOnly('Vector distances')
+
         const p = this.nextParam(op.vec)
         const opSymbol = op.metric === 'cosine' ? '<=>' : op.metric === 'l2' ? '<->' : '<#>'
 
@@ -281,17 +320,23 @@ class ExprAssembler {
       }
       case OP_REF:
         return { sql: quotePath(op.path), next: pos + 1 }
-      case OP_SCALAR: {
-        const sub = op.subquery.toSQL(this.pidx - 1)
-
-        this.params.push(...sub.params)
-        this.pidx += sub.params.length
-
-        return { sql: `(${sub.sql})`, next: pos + 1 }
-      }
+      case OP_SCALAR:
+        return { sql: `(${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      // On SQLite an array column holds JSON text, its elements read through json_each.
       case OP_ARRAY_CONTAINS:
-        return { sql: `${this.nextParam(op.val)} = ANY(${this.walkCol(op.col)})`, next: pos + 1 }
+        return this.dialect === 'sqlite'
+          ? { sql: `EXISTS (SELECT 1 FROM json_each(${this.walkCol(op.col)}) WHERE "value" = ${this.nextParam(op.val)})`, next: pos + 1 }
+          : { sql: `${this.nextParam(op.val)} = ANY(${this.walkCol(op.col)})`, next: pos + 1 }
       case OP_ARRAY_OVERLAP: {
+        if (this.dialect === 'sqlite') {
+          if (op.vals.length === 0)
+            return { sql: 'FALSE', next: pos + 1 }
+
+          const col = this.walkCol(op.col)
+
+          return { sql: `EXISTS (SELECT 1 FROM json_each(${col}) WHERE "value" IN (${op.vals.map(v => this.nextParam(v)).join(', ')}))`, next: pos + 1 }
+        }
+
         const placeholders = op.vals.map(v => this.nextParam(v))
 
         return { sql: `${this.walkCol(op.col)} && ARRAY[${placeholders.join(', ')}]`, next: pos + 1 }
@@ -302,6 +347,6 @@ class ExprAssembler {
   }
 }
 
-export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string): AssembledExpr {
-  return new ExprAssembler(tape, paramOffset, qualifier).assemble()
+export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string, dialect: Dialect = 'postgres'): AssembledExpr {
+  return new ExprAssembler(tape, paramOffset, qualifier, dialect).assemble()
 }

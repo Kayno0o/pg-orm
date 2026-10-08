@@ -1,15 +1,16 @@
 import type { Executable } from '../sql/executor'
 import type { AnyTableDef } from '../types/index'
 import type { MigrationFile, MigrationOp } from './types'
+import { dialectOf } from '../dialect'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 import { TIMESTAMP_DELIM_RE } from '../utils/regex'
-import { diffSchema } from './diff'
-import { introspectLiveSchema } from './introspect'
+import { planMigration } from './plan'
 import { generateDownSql } from './reverse'
 
 export { diffSchema } from './diff'
 export { djb2Hash, ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
 export { introspectLiveSchema } from './introspect'
+export { planMigration } from './plan'
 export { type RollbackContext, rollbackMigrations } from './rollback'
 export { type SyncContext, type SyncOptions, syncSchema } from './sync'
 export type { MigrationFile, MigrationOp } from './types'
@@ -20,8 +21,7 @@ export async function generateMigration(
   registry: ReadonlyMap<string, AnyTableDef>,
   opts: { allowDestructive?: boolean } = {},
 ): Promise<MigrationFile | null> {
-  const live = await introspectLiveSchema(executor)
-  const ops = diffSchema(live, registry)
+  const ops = await planMigration(executor, registry, dialectOf(executor))
 
   if (ops.length === 0)
     return null
@@ -38,7 +38,7 @@ export async function generateMigration(
 
   const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
   const upSql = ops.map(o => `${o.sql};`).join('\n\n')
-  const downSql = generateDownSql(ops)
+  const downSql = generateDownSql(ops, { dialect: dialectOf(executor) })
 
   return {
     name: `${timestamp}_migration`,
@@ -50,7 +50,11 @@ export async function generateMigration(
 /** Execute raw migration SQL against the database. Wraps errors in MigrationError. */
 export async function applyMigration(executor: Executable, sql: string): Promise<void> {
   try {
-    await executor.query(sql, [])
+    // A SQLite rebuild drops a table, which with foreign keys on would delete the rows pointing at it.
+    if (executor.migrate && dialectOf(executor) === 'sqlite')
+      await executor.migrate(query => query(sql, []))
+    else
+      await executor.query(sql, [])
   }
   catch (err) {
     throw new MigrationError(
@@ -70,8 +74,7 @@ export async function getMigrationStatus(
   drift: MigrationOp[]
   hasDrift: boolean
 }> {
-  const live = await introspectLiveSchema(executor)
-  const drift = diffSchema(live, registry)
+  const drift = await planMigration(executor, registry, dialectOf(executor))
 
   return { drift, hasDrift: drift.length > 0 }
 }

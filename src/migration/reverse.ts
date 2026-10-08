@@ -1,3 +1,4 @@
+import type { Dialect } from '../dialect'
 import type { MigrationOp } from './types'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
@@ -6,6 +7,7 @@ import { ADD_CONSTRAINT_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/r
 export interface DownSqlOptions {
   /** Enable defense-in-depth identifier validation at the down-SQL boundary. */
   validate?: boolean
+  dialect?: Dialect
 }
 
 // Defense-in-depth: every identifier embedded into the reverse DDL goes through
@@ -49,7 +51,8 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       const table = requireIdent(op.table, 'down.add_column.table', opts)
       const column = requireIdent(op.column, 'down.add_column.column', opts)
 
-      return `ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}";`
+      // SQLite has no IF EXISTS on DROP COLUMN.
+      return opts?.dialect === 'sqlite' ? `ALTER TABLE "${table}" DROP COLUMN "${column}";` : `ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}";`
     }
 
     case 'create_enum': {

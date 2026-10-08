@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
-import { wrapPgError } from '../errors/index'
+import type { Dialect } from '../dialect'
+import { OrmError, wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
 import { isJsonParam } from './json-param'
 
@@ -76,17 +77,22 @@ export function normalizeRows(rows: Record<string, unknown>[]): Record<string, u
   return rows
 }
 
+// The SQLite driver binds the values itself and never returns typed arrays but for a blob, which stays one.
 export async function unsafeQuery(
   sql: InstanceType<typeof SQL>,
   sqlStr: string,
   params: unknown[],
+  dialect: Dialect = 'postgres',
 ): Promise<Record<string, unknown>[]> {
   try {
+    if (dialect === 'sqlite')
+      return await asDriver(sql).unsafe(sqlStr, params) as Record<string, unknown>[]
+
     const rows = await asDriver(sql).unsafe(sqlStr, serializeParams(params)) as Record<string, unknown>[]
 
     return normalizeRows(rows)
   }
   catch (err) {
-    throw wrapPgError(err, sqlStr, params)
+    throw err instanceof OrmError ? err : wrapPgError(err, sqlStr, params)
   }
 }

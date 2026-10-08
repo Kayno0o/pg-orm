@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import type { Dialect } from '../dialect'
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -6,7 +7,7 @@ import { OrmError, ValidationError, wrapPgError } from '../errors/index'
 import { asDriver } from './adapter'
 import { queryContextStorage } from './base-executor'
 import { TransactionClient } from './transaction'
-import { applyIdleInTransactionTimeout, applyIsolation, applyStatementTimeout } from './tx-sql'
+import { applyIdleInTransactionTimeout, applyIsolation, applyStatementTimeout, isolationStatement } from './tx-sql'
 
 export interface TransactionHooks {
   onQuery?: (event: QueryEvent) => void
@@ -29,6 +30,7 @@ export class TransactionRunner {
     private readonly hooks: TransactionHooks,
     private readonly statementTimeout?: number,
     private readonly idleInTransactionTimeout?: number,
+    private readonly dialect: Dialect = 'postgres',
   ) {}
 
   // The transaction whose body is running, so a `db.transaction()` called from inside it joins it instead of opening a second connection. Per runner: a body of one Database never joins another's.
@@ -67,8 +69,11 @@ export class TransactionRunner {
 
     try {
       const result = await asDriver(this.sql).begin<T>(async sqlTx => runInContext(async () => {
-        if (opts)
+        // A SQLite transaction is serializable whatever was asked, which every weaker level is satisfied by, so the options are only checked.
+        if (opts && this.dialect === 'postgres')
           await applyIsolation(sqlTx, opts)
+        else if (opts)
+          isolationStatement(opts)
 
         if (this.statementTimeout !== undefined)
           await applyStatementTimeout(sqlTx, this.statementTimeout)
@@ -171,7 +176,7 @@ export class TransactionRunner {
   }
 
   private _client(sqlTx: InstanceType<typeof SQL>): TransactionClient {
-    return new TransactionClient(sqlTx, this.hooks.onQuery, this.hooks.onSlowQuery, this.hooks.slowQueryThreshold, this.hooks.onError)
+    return new TransactionClient(sqlTx, this.hooks.onQuery, this.hooks.onSlowQuery, this.hooks.slowQueryThreshold, this.hooks.onError, this.dialect)
   }
 
   /**

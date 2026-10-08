@@ -1,8 +1,26 @@
+import type { Dialect } from '../dialect'
 import type { QueryFn } from './types'
+import { dialectOf } from '../dialect'
 import { MIGRATION_TABLE } from './types'
 
 /** Ensure the migration history table exists. */
-export async function ensureMigrationTable(executor: { query: QueryFn }): Promise<void> {
+export async function ensureMigrationTable(executor: { query: QueryFn, dialect?: Dialect }, dialect = dialectOf(executor)): Promise<void> {
+  if (dialect === 'sqlite') {
+    await executor.query(`
+    CREATE TABLE IF NOT EXISTS "${MIGRATION_TABLE}" (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      sql_hash TEXT NOT NULL,
+      up_sql TEXT NOT NULL,
+      down_sql TEXT NOT NULL DEFAULT '',
+      applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      direction TEXT NOT NULL DEFAULT 'up'
+    )
+  `, [])
+
+    return
+  }
+
   await executor.query(`
     CREATE TABLE IF NOT EXISTS "${MIGRATION_TABLE}" (
       id SERIAL PRIMARY KEY,
@@ -38,8 +56,8 @@ export interface MigrationHistoryEntry {
 }
 
 /** Get the migration history from the history table. */
-export async function getMigrationHistory(executor: { query: QueryFn }): Promise<MigrationHistoryEntry[]> {
-  await ensureMigrationTable(executor)
+export async function getMigrationHistory(executor: { query: QueryFn, dialect?: Dialect }, dialect = dialectOf(executor)): Promise<MigrationHistoryEntry[]> {
+  await ensureMigrationTable(executor, dialect)
   const rows = await executor.query(`
     SELECT id, name, sql_hash, up_sql, down_sql, applied_at, direction
     FROM "${MIGRATION_TABLE}"
@@ -52,7 +70,7 @@ export async function getMigrationHistory(executor: { query: QueryFn }): Promise
     sqlHash: r.sql_hash as string,
     upSql: r.up_sql as string,
     downSql: r.down_sql as string,
-    appliedAt: r.applied_at as Date,
+    appliedAt: r.applied_at instanceof Date ? r.applied_at : new Date(r.applied_at as string),
     direction: r.direction as 'up' | 'down',
   }))
 }

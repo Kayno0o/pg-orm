@@ -3,6 +3,7 @@ import type { Executable } from '../sql/executor'
 import type { AnyRelationDef, AnyTableDef } from '../types/index'
 import { SelectBuilder } from '../builder/query'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
+import { dialectOf } from '../dialect'
 import { OrmError } from '../errors/index'
 import { buildPlaceholders, quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy } from '../utils/collection'
@@ -177,7 +178,7 @@ export class RelationResolver {
     state.includes = []
 
     filtered.andWhere(e => e.in(column, ids))
-    const { sql, params } = filtered.toSQL()
+    const { sql, params } = filtered.toSQL(dialectOf(this.executor))
 
     return { rows: await this.executor.query(sql, params), nestedIncludes }
   }

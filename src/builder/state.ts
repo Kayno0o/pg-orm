@@ -86,6 +86,8 @@ export interface BuilderState {
   // INSERT values
   insertValues: Record<string, unknown> | null
   insertManyValues: Record<string, unknown>[] | null
+  // The SQL each column's default stands for, which a SQLite multi-row insert writes for a column a row leaves out.
+  defaultSql?: Record<string, string>
   // UPDATE set
   setValues: Record<string, unknown> | null
   // RETURNING

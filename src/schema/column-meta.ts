@@ -18,6 +18,8 @@ export interface ColumnDefMeta {
   maxLength?: number
   pattern?: string
   oneOf?: readonly (string | number)[]
+  /** The JS value `.default()` was given, which each dialect renders its own way. */
+  defaultLiteral?: { value: unknown }
 }
 
 export interface DefWithMeta {
@@ -31,6 +33,7 @@ export interface DefWithMeta {
   _maxLength?: number
   _pattern?: string
   _oneOf?: readonly (string | number)[]
+  _defaultLiteral?: { value: unknown }
 }
 
 export function getColumnMeta(def: AnyColumnDef): ColumnDefMeta {
@@ -47,5 +50,6 @@ export function getColumnMeta(def: AnyColumnDef): ColumnDefMeta {
     maxLength: d._maxLength,
     pattern: d._pattern,
     oneOf: d._oneOf,
+    defaultLiteral: d._defaultLiteral,
   }
 }

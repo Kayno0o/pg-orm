@@ -1,10 +1,12 @@
 import type { AnyTableDef } from '../types/index'
 import type { QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
-import { ValidationError } from '../errors/index'
+import { dialectOfUrl } from '../dialect'
+import { DialectError, ValidationError } from '../errors/index'
 
 // --- Connection & Pool Configuration ---
 
 export interface DbConfig {
+  /** `postgres://user:pass@host:5432/db`, or `sqlite://./data/app.db` (`sqlite://:memory:` in memory) for a SQLite file, which ignores the pool and connection options. */
   url?: string
   hostname?: string
   port?: number
@@ -141,6 +143,14 @@ export function validateDbConfig(cfg: DbConfig): void {
       'DbConfig.idleInTransactionTimeout',
       { value: idleInTransactionTimeout },
     )
+  }
+
+  if (dialectOfUrl(cfg.url) === 'sqlite') {
+    if (statementTimeout !== undefined)
+      throw new DialectError('DbConfig.statementTimeout', 'sqlite')
+
+    if (idleInTransactionTimeout !== undefined)
+      throw new DialectError('DbConfig.idleInTransactionTimeout', 'sqlite')
   }
 }
 

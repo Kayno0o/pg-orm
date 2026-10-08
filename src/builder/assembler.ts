@@ -1,6 +1,7 @@
+import type { Dialect } from '../dialect'
 import type { ExprTape } from './_tape'
 import type { BuilderState, MergeWhen } from './state'
-import { ValidationError } from '../errors/index'
+import { DialectError, ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { assembleExpr, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
@@ -15,8 +16,17 @@ const RAW_PARAM_RE = /\?/g
  */
 class SqlBuilder {
   readonly params: unknown[] = []
-  pidx = 1
+  pidx: number
   readonly parts: string[] = []
+
+  constructor(readonly dialect: Dialect, paramOffset: number) {
+    this.pidx = paramOffset + 1
+  }
+
+  postgresOnly(feature: string): void {
+    if (this.dialect !== 'postgres')
+      throw new DialectError(feature, this.dialect)
+  }
 
   pushParam(val: unknown): string {
     this.params.push(val)
@@ -30,7 +40,7 @@ class SqlBuilder {
 
   /** Splice an expression tape into the running SQL stream, bumping param state. */
   inlineExpr(tape: ExprTape, qualifier?: string): string {
-    const result = assembleExpr(tape, this.pidx - 1, qualifier)
+    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect)
 
     this.params.push(...result.params)
     this.pidx += result.params.length
@@ -150,12 +160,20 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
   return cols.join(', ') || '*'
 }
 
+// Postgres names a bare `count(*)` column `count`, SQLite names it after the expression.
+function countColumn(sb: SqlBuilder): string {
+  return sb.dialect === 'sqlite' ? 'count(*) AS "count"' : 'count(*)'
+}
+
 function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean): void {
   if (counted) {
-    sb.push('SELECT count(*)')
+    sb.push(`SELECT ${countColumn(sb)}`)
 
     return
   }
+
+  if (state.distinctOn.length && !state.distinct)
+    sb.postgresOnly('distinctOn()')
 
   const distinct = state.distinct
     ? 'DISTINCT '
@@ -171,6 +189,7 @@ function printFrom(sb: SqlBuilder, state: BuilderState): void {
 function printJoins(sb: SqlBuilder, state: BuilderState): void {
   for (const j of state.joins) {
     if (j.type === 'lateral') {
+      sb.postgresOnly('LATERAL joins')
       sb.push(`CROSS JOIN LATERAL (${j.table}) AS ${quote(j.alias)}`)
 
       continue
@@ -206,13 +225,17 @@ function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
 
   if (state.limit != null)
     sb.push(`LIMIT ${sb.pushParam(state.limit)}`)
+  // SQLite only takes an OFFSET after a LIMIT, and -1 is no limit.
+  else if (state.offset != null && sb.dialect === 'sqlite')
+    sb.push('LIMIT -1')
 
   if (state.offset != null)
     sb.push(`OFFSET ${sb.pushParam(state.offset)}`)
 }
 
+// A SQLite transaction holds the whole database's write lock from its first statement, so it never meets a locked row: the clause is dropped, which SKIP LOCKED included keeps the semantics.
 function printLock(sb: SqlBuilder, state: BuilderState): void {
-  if (!state.lockMode)
+  if (!state.lockMode || sb.dialect === 'sqlite')
     return
 
   sb.push(`FOR ${state.lockMode.toUpperCase().replaceAll('_', ' ')}`)
@@ -226,7 +249,7 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   const wrapCount = state.op === 'count' && (state.groupBy.length > 0 || state.distinct || state.distinctOn.length > 0)
 
   if (wrapCount)
-    sb.push('SELECT count(*) FROM (')
+    sb.push(`SELECT ${countColumn(sb)} FROM (`)
 
   printSelectHead(sb, state, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
@@ -265,6 +288,22 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
   printReturning(sb, state.returning)
 }
 
+// A column a row leaves out takes its default, which SQLite cannot ask for by `DEFAULT` inside VALUES: there the default's own expression is written out, from the table the repository knows.
+function insertValue(sb: SqlBuilder, state: BuilderState, row: Record<string, unknown>, key: string): string {
+  if (key in row)
+    return sb.pushParam(row[key])
+
+  if (sb.dialect === 'postgres')
+    return 'DEFAULT'
+
+  const fallback = state.defaultSql?.[key]
+
+  if (fallback === undefined)
+    throw new DialectError('Rows leaving out different columns in one insert built outside a repository', sb.dialect)
+
+  return fallback
+}
+
 function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
   const rows = state.insertManyValues!
 
@@ -280,7 +319,7 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
   const keys = [...keySet]
   const colList = quoteCols(keys)
   const valueSets = rows.map(row =>
-    `(${keys.map(k => k in row ? sb.pushParam(row[k]) : 'DEFAULT').join(', ')})`,
+    `(${keys.map(k => insertValue(sb, state, row, k)).join(', ')})`,
   )
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES ${valueSets.join(', ')}`)
@@ -373,6 +412,7 @@ function printMergeWhen(sb: SqlBuilder, when: MergeWhen): void {
 }
 
 function printMerge(sb: SqlBuilder, state: BuilderState): void {
+  sb.postgresOnly('MERGE')
   sb.push(`MERGE INTO ${quote(state.table)}`)
 
   if (state.joins.length) {
@@ -433,8 +473,8 @@ function printRaw(sb: SqlBuilder, state: BuilderState): void {
 
 // --- Dispatcher ---
 
-export function assembleQuery(state: BuilderState): { sql: string, params: unknown[] } {
-  const sb = new SqlBuilder()
+export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres', paramOffset = 0): { sql: string, params: unknown[] } {
+  const sb = new SqlBuilder(dialect, paramOffset)
 
   printCtes(sb, state.ctes)
 

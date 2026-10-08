@@ -1,3 +1,4 @@
+import type { Dialect } from '../dialect'
 import type { QueryFn } from './types'
 import { MigrationError, ValidationError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
@@ -5,6 +6,7 @@ import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } 
 export interface RollbackContext {
   query: QueryFn
   transact: <T>(fn: (query: QueryFn) => Promise<T>) => Promise<T>
+  readonly dialect?: Dialect
 }
 
 /** Rollback the last N migrations by executing their down SQL. */
@@ -16,7 +18,7 @@ export async function rollbackMigrations(
   if (!Number.isInteger(count) || count < 1)
     throw new ValidationError(`rollback count must be a positive integer, got ${count}`, 'rollback', { value: count })
 
-  const history = await getMigrationHistory(ctx)
+  const history = await getMigrationHistory(ctx, ctx.dialect)
 
   const upMigrations = history.filter(m => m.direction === 'up')
   const downIds = new Set(
@@ -50,7 +52,7 @@ export async function rollbackMigrations(
       // which breaks on semicolons inside string literals or dollar-quoted blocks)
       await txQuery(migration.downSql, [])
 
-      await ensureMigrationTable(txExecutor)
+      await ensureMigrationTable(txExecutor, ctx.dialect)
       await recordMigration(txExecutor, {
         name: migration.name,
         sqlHash: djb2Hash(migration.downSql),

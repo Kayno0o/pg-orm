@@ -14,6 +14,7 @@ Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/a
 - **Hooks** — `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `afterSelect`
 - **Transactions** — full support with savepoints, isolation levels, and statement timeouts
 - **Streaming** — async iterator with chunked fetching
+- **SQLite** - the same schema, repositories and `sync()` on a SQLite file, from a `sqlite://` URL
 - **Minimal dependencies** — 1 runtime dependency (`@kaynooo/utils`)
 
 ## Install
@@ -625,6 +626,33 @@ database. They are also diffed for existing tables: adding `.references()` to a
 column generates `ALTER TABLE ... ADD CONSTRAINT` on the next `sync()`, removing it
 generates a (destructive) `DROP CONSTRAINT`, and changing the target/`onDelete`/
 `onUpdate` is detected as a change.
+
+## SQLite
+
+A `sqlite://` URL opens a SQLite file through `bun:sqlite` instead of a Postgres server: the same `defineTable()` schema, repositories, relations, traits, hooks, transactions and `sync()`.
+
+```ts
+const db = new Database({ url: 'sqlite://data/app.db', tables: [User, Post] }) // 'sqlite://:memory:' for an in-memory one
+await db.sync()
+```
+
+The file and its directory are created on first use, in WAL mode, with foreign keys enforced. `db.dialect` says which one a database speaks.
+
+**Storage.** Integers, serials and booleans are `INTEGER` (a boolean reads back as `true`/`false`), floats `REAL`, `numeric` `NUMERIC`, `bytea` `BLOB`, and everything else `TEXT`: a date is its ISO string, which sorts and compares in time order, and a json or array column its JSON text. An enum is `TEXT` with a CHECK on its values. A single serial or integer primary key is the rowid, `AUTOINCREMENT` for a serial so a deleted id is never handed out again. `int8` keeps its precision past 2^53. `now()` and `gen_random_uuid()` defaults become their SQLite equivalents.
+
+**Migrations.** `sync()`, `generateMigration()`, `applyMigration()`, `rollback()` and `testDatabase()` work as they do on Postgres. A rename or a new column is made with `ALTER TABLE` where SQLite allows it; any other change (a type, a constraint, a default, a dropped column) rebuilds the table, the way SQLite documents it: a new table is created, the rows copied over, the old one dropped and the new one renamed, with foreign keys off for the duration and checked before the commit. Its indexes are recreated with it. `testDatabase()` copies a template file next to the app's database.
+
+**Concurrency.** One connection per `Database`: transactions run one at a time, a query issued outside one waits for it, and a query issued from inside the body of one runs in it. Another process writing the same file is waited out for up to 5 seconds before `SerializationError`.
+
+**What differs from Postgres:**
+
+- `like()` is case-sensitive, through `GLOB`; `ilike()` ignores ASCII case only.
+- Row locks (`forUpdate()`, `skipLocked()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels are checked and then ignored: every transaction is serializable.
+- An independent transaction (`{ independent: true }`) cannot be opened from inside another one.
+- Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`).
+- `db.sql` is not a Bun SQL tag: use `db.raw()`.
+- A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
+- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, lateral joins, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, and a serial column that is not the single primary key. Raw SQL fragments and `jsonAgg()`, `arrayAgg()` or `jsonbAgg()` name Postgres functions, which SQLite does not have.
 
 ## Raw SQL
 

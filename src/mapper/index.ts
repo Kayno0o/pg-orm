@@ -1,3 +1,4 @@
+import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
 
 /**
@@ -186,25 +187,59 @@ function jsonAccessor(col: string): string {
   return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'string' ? parseJsonValue(r[${key}]) : r[${key}])`
 }
 
+const SQLITE_DATE_TYPES = new Set(['date', 'timestamp', 'timestamptz'])
+
+// SQLite hands back what it stores: 0 or 1 for a boolean, the ISO string a Date was bound as, a number for a numeric, the JSON text of an array.
+function sqliteAccessor(col: string, pgType: string): string | undefined {
+  const key = JSON.stringify(col)
+
+  if (pgType === 'bool')
+    return `(r[${key}] == null ? r[${key}] : Boolean(r[${key}]))`
+
+  if (SQLITE_DATE_TYPES.has(pgType))
+    return `(r[${key}] == null || r[${key}] instanceof Date ? r[${key}] : new Date(r[${key}]))`
+
+  if (pgType.startsWith('numeric'))
+    return `(r[${key}] == null ? r[${key}] : String(r[${key}]))`
+
+  if (pgType.endsWith('[]'))
+    return jsonAccessor(col)
+
+  return undefined
+}
+
+function accessorFor(col: string, pgType: string, dialect: Dialect): string | undefined {
+  if (needsBigintCoercion(pgType))
+    return bigintAccessor(col)
+
+  if (needsJsonParse(pgType))
+    return jsonAccessor(col)
+
+  return dialect === 'sqlite' ? sqliteAccessor(col, pgType) : undefined
+}
+
 export function compileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
   omit?: string[],
   computed?: string[],
+  dialect: Dialect = 'postgres',
 ): RowMapper<Record<string, unknown>> {
   const colNames = pick ?? Object.keys(columns)
   const filteredCols = omit ? colNames.filter(c => !omit.includes(c)) : colNames
   const allKeys = Object.keys(columns)
-  const bigintCols = new Set(
-    allKeys.filter(c => needsBigintCoercion(columns[c]!.pgType)),
-  )
-  const jsonCols = new Set(
-    allKeys.filter(c => needsJsonParse(columns[c]!.pgType)),
-  )
+  const coerced = new Map<string, string>()
+
+  for (const c of allKeys) {
+    const accessor = accessorFor(c, columns[c]!.pgType, dialect)
+
+    if (accessor)
+      coerced.set(c, accessor)
+  }
 
   // Fast path: full identity only when no coercion is needed. Computed aliases ride
   // along untouched, since identity hands the whole row back.
-  if (!pick && !omit && filteredCols.length === allKeys.length && bigintCols.size === 0 && jsonCols.size === 0) {
+  if (!pick && !omit && filteredCols.length === allKeys.length && coerced.size === 0) {
     return identityMapper
   }
 
@@ -213,15 +248,7 @@ export function compileMapper<TColumns extends AnyColumns>(
   // /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable() time, so they are safe to embed.
   // JSON.stringify adds an additional escaping layer.
   const assignments = filteredCols
-    .map((c) => {
-      const value = bigintCols.has(c)
-        ? bigintAccessor(c)
-        : jsonCols.has(c)
-          ? jsonAccessor(c)
-          : `r[${JSON.stringify(c)}]`
-
-      return `  ${JSON.stringify(c)}: ${value}`
-    })
+    .map(c => `  ${JSON.stringify(c)}: ${coerced.get(c) ?? `r[${JSON.stringify(c)}]`}`)
     // A computed alias names an expression, not a column, so nothing is known about
     // its type and it is carried through as the driver returned it. Aliases pass
     // validateIdentifier() at build time, same as column names.
@@ -269,8 +296,9 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   pick?: string[],
   omit?: string[],
   computed?: string[],
+  dialect: Dialect = 'postgres',
 ): RowMapper<Record<string, unknown>> {
-  const key = `${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
+  const key = `${dialect}:${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
   const cached = _mapperCache.get(key)
 
   if (cached !== undefined) {
@@ -281,7 +309,7 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
     return cached
   }
 
-  const mapper = compileMapper(columns, pick, omit, computed)
+  const mapper = compileMapper(columns, pick, omit, computed, dialect)
 
   _mapperCache.set(key, mapper)
 

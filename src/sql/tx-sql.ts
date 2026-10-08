@@ -21,17 +21,10 @@ const ACCESS_MODE_SQL = {
 export type IsolationLevel = keyof typeof ISOLATION_SQL
 export type AccessMode = keyof typeof ACCESS_MODE_SQL
 
-/**
- * Emit `SET TRANSACTION ISOLATION LEVEL …` for the given options on a per-tx
- * sql tag. No-op when isolation isn't set. Validates inputs and throws
- * `ValidationError` for unknown values.
- */
-export async function applyIsolation(
-  sqlTx: InstanceType<typeof SQL>,
-  opts: { isolation?: string, accessMode?: string },
-): Promise<void> {
+/** The `SET TRANSACTION ISOLATION LEVEL …` the options ask for, undefined without an isolation. Throws `ValidationError` for unknown values. */
+export function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {
   if (!opts.isolation)
-    return
+    return undefined
 
   const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
 
@@ -59,7 +52,18 @@ export async function applyIsolation(
     stmt += ` ${accessSql}`
   }
 
-  await asDriver(sqlTx).unsafe(stmt, [])
+  return stmt
+}
+
+/** Emit the isolation the options ask for on a per-tx sql tag; a no-op without one. */
+export async function applyIsolation(
+  sqlTx: InstanceType<typeof SQL>,
+  opts: { isolation?: string, accessMode?: string },
+): Promise<void> {
+  const stmt = isolationStatement(opts)
+
+  if (stmt)
+    await asDriver(sqlTx).unsafe(stmt, [])
 }
 
 /**

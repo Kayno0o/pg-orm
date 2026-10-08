@@ -6,6 +6,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } fro
 import type { DbConfig } from './config'
 import type { TransactionClient, TransactionOptions } from './transaction'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
+import { dialectOfUrl, sqliteFilename } from '../dialect'
 import { setParamRedactor } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { Repository } from '../repo/index'
@@ -15,6 +16,7 @@ import { ConnectionLifecycle } from './connection-lifecycle'
 import { composeQueryLogger } from './format-query'
 import { MigrationRunner } from './migration-runner'
 import { RawRunner } from './raw-runner'
+import { SqliteDriver } from './sqlite-driver'
 import { TransactionRunner } from './transaction-runner'
 
 export type { DbConfig } from './config'
@@ -42,6 +44,7 @@ export type { DbConfig } from './config'
  * ```
  */
 export class Database extends BaseExecutor {
+  /** The Bun `SQL` instance on Postgres. On SQLite it is pg-orm's own `bun:sqlite` driver, typed alike but no tagged template: go through `raw()`. */
   readonly sql: InstanceType<typeof SQL>
   private _connection: ConnectionLifecycle
   private _txRunner: TransactionRunner
@@ -70,6 +73,7 @@ export class Database extends BaseExecutor {
       slowQueryThreshold: config.slowQueryThreshold,
     }
 
+    this._dialect = dialectOfUrl(config.url)
     this._connection = new ConnectionLifecycle(
       normalizeDbConfig(config) as ConstructorParameters<typeof SQL>[0],
       config.schema ?? 'public',
@@ -80,6 +84,7 @@ export class Database extends BaseExecutor {
         writes: config.retry?.writes ?? false,
       },
       { ...hooks, onPingError: config.onPingError },
+      this._dialect === 'sqlite' ? new SqliteDriver(sqliteFilename(config.url!)) : undefined,
     )
 
     this.sql = this._connection.sql
@@ -89,6 +94,7 @@ export class Database extends BaseExecutor {
       hooks,
       config.statementTimeout,
       config.idleInTransactionTimeout,
+      this._dialect,
     )
 
     this._rawRunner = new RawRunner((s, p) => this.query(s, p))
@@ -162,7 +168,13 @@ export class Database extends BaseExecutor {
       this._connection.schema,
       this._tables,
       fn => this._connection.track(fn),
+      this._dialect,
     )
+  }
+
+  /** Runs migration SQL in one transaction; on SQLite with foreign keys off, so a table rebuild does not cascade, and checked before the commit. */
+  migrate<T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>): Promise<T> {
+    return this.migrations.transact(fn)
   }
 
   /**
@@ -238,14 +250,15 @@ export class Database extends BaseExecutor {
   /**
    * Run EXPLAIN (FORMAT JSON) on a query builder and return the parsed plan
    * along with the rendered SQL and params (useful for logging and tooling).
+   * On SQLite it runs `EXPLAIN QUERY PLAN` and the plan is its rows.
    */
   async explain(
     builder: BaseBuilder,
     opts?: { analyze?: boolean },
   ): Promise<{ sql: string, params: unknown[], plan: unknown }> {
-    const { sql, params } = builder.explain(opts)
+    const { sql, params } = builder.explain(opts, this._dialect)
     const rows = await this.query(sql, params)
-    const plan = rows[0]?.['QUERY PLAN']
+    const plan = this._dialect === 'sqlite' ? rows : rows[0]?.['QUERY PLAN']
 
     return { sql, params, plan }
   }
