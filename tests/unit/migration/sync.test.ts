@@ -95,14 +95,11 @@ describe('syncSchema', () => {
             table_name: 'orphan',
             column_name: 'id',
             data_type: 'integer',
-            udt_name: 'int4',
+            formatted_type: 'integer',
             is_nullable: 'NO',
             column_default: null,
             is_generated: 'NEVER',
             generation_expression: null,
-            character_maximum_length: null,
-            numeric_precision: null,
-            numeric_scale: null,
           }]
         }
 
@@ -123,14 +120,11 @@ describe('syncSchema', () => {
             table_name: 'orphan',
             column_name: 'id',
             data_type: 'integer',
-            udt_name: 'int4',
+            formatted_type: 'integer',
             is_nullable: 'NO',
             column_default: null,
             is_generated: 'NEVER',
             generation_expression: null,
-            character_maximum_length: null,
-            numeric_precision: null,
-            numeric_scale: null,
           }]
         }
 

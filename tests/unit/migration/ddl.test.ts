@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef } from '../../../src/types/index'
 import { describe, expect, test } from 'bun:test'
 import { defineTable } from '../../../src/index'
-import { generateColumnDDL, generateCreateTable, normalizeDefault, normalizeType } from '../../../src/migration/ddl'
+import { generateColumnDDL, generateCreateTable, normalizeDefault, normalizeType, sameDefault } from '../../../src/migration/ddl'
 
 function colOf(table: AnyTableDef, name: string) {
   return generateColumnDDL(name, table.columns[name] as AnyColumnDef)
@@ -239,6 +239,34 @@ describe('normalizeType', () => {
   test('uppercase input is lowercased', () => {
     expect(normalizeType('SERIAL')).toBe('integer')
   })
+
+  test('schema types match the spelling format_type() prints', () => {
+    const cases: [string, string][] = [
+      ['char(5)', 'character(5)'],
+      ['bpchar', 'character(1)'],
+      ['varchar(10)[]', 'character varying(10)[]'],
+      ['varchar(10)[][]', 'character varying(10)[]'],
+      ['numeric(10)', 'numeric(10,0)'],
+      ['numeric(10, 2)', 'numeric(10,2)'],
+      ['bit', 'bit(1)'],
+      ['varbit(8)', 'bit varying(8)'],
+      ['timestamp', 'timestamp without time zone'],
+      ['vector(3)', 'vector(3)'],
+    ]
+
+    for (const [schema, live] of cases)
+      expect(normalizeType(schema)).toBe(normalizeType(live))
+  })
+
+  test('a schema-qualified or quoted live type matches its bare name', () => {
+    expect(normalizeType('public.vector(3)')).toBe('vector(3)')
+    expect(normalizeType('"Status"')).toBe('status')
+  })
+
+  test('a type of another length stays different', () => {
+    expect(normalizeType('vector(3)')).not.toBe(normalizeType('vector(4)'))
+    expect(normalizeType('char(5)')).not.toBe(normalizeType('character(6)'))
+  })
 })
 
 describe('normalizeDefault', () => {
@@ -266,5 +294,41 @@ describe('normalizeDefault', () => {
   test('multi-element array default matches its live form', () => {
     expect(normalizeDefault('ARRAY[\'a\',\'b\']::text[]'))
       .toBe(normalizeDefault('ARRAY[\'a\'::text, \'b\'::text]'))
+  })
+
+  test('keeps the case of a quoted literal', () => {
+    expect(normalizeDefault('\'User\'::text')).not.toBe(normalizeDefault('\'user\'::text'))
+  })
+})
+
+describe('sameDefault', () => {
+  // The right-hand values are what Postgres 18 prints back through pg_get_expr for each schema default.
+  test('a Date default matches its live timestamp', () => {
+    expect(sameDefault('\'2024-01-01T10:00:00.000Z\'', '\'2024-01-01 10:00:00+00\'::timestamp with time zone', 'timestamptz')).toBe(true)
+    expect(sameDefault('\'2024-01-01T10:00:00.000Z\'', '\'2024-01-01 11:00:00+01\'::timestamp with time zone', 'timestamptz')).toBe(true)
+    expect(sameDefault('\'2024-01-01T10:00:00.000Z\'', '\'2024-01-01 10:00:00\'::timestamp without time zone', 'timestamp')).toBe(true)
+    expect(sameDefault('\'2024-01-01T00:00:00.000Z\'', '\'2024-01-01\'::date', 'date')).toBe(true)
+  })
+
+  test('another instant stays different', () => {
+    expect(sameDefault('\'2024-01-01T10:00:00.000Z\'', '\'2024-01-01 10:00:01+00\'::timestamp with time zone', 'timestamptz')).toBe(false)
+  })
+
+  test('an empty array matches every live spelling of one', () => {
+    expect(sameDefault('ARRAY[]::text[]', '\'{}\'::text[]', 'text[]')).toBe(true)
+    expect(sameDefault('ARRAY[]::varchar(10)[]', '(ARRAY[]::character varying[])::character varying(10)[]', 'varchar(10)[]')).toBe(true)
+  })
+
+  test('a jsonb default matches whatever key order Postgres prints', () => {
+    expect(sameDefault('\'{"bb":1,"a":{"y":2,"x":1}}\'::jsonb', '\'{"a": {"x": 1, "y": 2}, "bb": 1}\'::jsonb', 'jsonb')).toBe(true)
+    expect(sameDefault('\'{"a":1}\'::jsonb', '\'{"a": 2}\'::jsonb', 'jsonb')).toBe(false)
+  })
+
+  test('a number matches however many trailing zeros Postgres keeps', () => {
+    expect(sameDefault('1.5', '1.50', 'numeric(5,2)')).toBe(true)
+  })
+
+  test('a char default matches its bpchar cast', () => {
+    expect(sameDefault('\'ab\'', '\'ab\'::bpchar', 'char(3)')).toBe(true)
   })
 })

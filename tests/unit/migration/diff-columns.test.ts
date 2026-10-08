@@ -155,4 +155,48 @@ describe('diffColumn', () => {
 
     expect(ops.some(o => o.sql.includes('DROP DEFAULT'))).toBe(true)
   })
+
+  it('keeps a non-primary-key serial\'s sequence default', () => {
+    const table = defineTable('users', t => ({
+      id: t.uuid().primaryKey(),
+      seq: t.serial(),
+      big: t.bigserial(),
+    }))
+
+    expect(diffColumn('users', 'seq', table.columns.seq, liveCol('seq', { dataType: 'integer', isNullable: false, defaultValue: 'nextval(\'users_seq_seq\'::regclass)' }))).toEqual([])
+    expect(diffColumn('users', 'big', table.columns.big, liveCol('big', { dataType: 'bigint', isNullable: false, defaultValue: 'nextval(\'users_big_seq\'::regclass)' }))).toEqual([])
+  })
+
+  it('finds nothing to change on a column read back as Postgres prints it', () => {
+    const since = new Date('2024-01-01T10:00:00.000Z')
+    const table = defineTable('items', t => ({
+      id: t.serial().primaryKey(),
+      embedding: t.vector(3),
+      code: t.char(5),
+      labels: t.array(t.varchar(10)).default([]),
+      amount: t.numeric(10, 0),
+      flags: t.bit(8),
+      mask: t.varbit(8),
+      since: t.timestamptz().default(since),
+      tags: t.array(t.text()).default([]),
+      meta: t.jsonb().default({ bb: 1, a: 2 }),
+    }))
+    const live: Record<string, [string, string | null]> = {
+      embedding: ['vector(3)', null],
+      code: ['character(5)', null],
+      labels: ['character varying(10)[]', '(ARRAY[]::character varying[])::character varying(10)[]'],
+      amount: ['numeric(10,0)', null],
+      flags: ['bit(8)', null],
+      mask: ['bit varying(8)', null],
+      since: ['timestamp with time zone', '\'2024-01-01 10:00:00+00\'::timestamp with time zone'],
+      tags: ['text[]', '\'{}\'::text[]'],
+      meta: ['jsonb', '\'{"a": 2, "bb": 1}\'::jsonb'],
+    }
+
+    for (const [name, [dataType, defaultValue]] of Object.entries(live)) {
+      const colDef = table.columns[name as keyof typeof table.columns]
+
+      expect(diffColumn('items', name, colDef, liveCol(name, { dataType, defaultValue, isNullable: false }))).toEqual([])
+    }
+  })
 })

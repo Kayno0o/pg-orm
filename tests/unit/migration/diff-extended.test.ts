@@ -614,7 +614,7 @@ describe('diffSchema — extended migration tests', () => {
     const mockExecutor = {
       query: async (sql: string) => {
         if (sql.includes('information_schema.columns')) {
-          return [{ table_name: 'old', column_name: 'id', data_type: 'integer', udt_name: 'int4', is_nullable: 'NO', column_default: null, is_generated: 'NEVER', character_maximum_length: null, numeric_precision: null, numeric_scale: null, generation_expression: null }]
+          return [{ table_name: 'old', column_name: 'id', data_type: 'integer', formatted_type: 'integer', is_nullable: 'NO', column_default: null, is_generated: 'NEVER', generation_expression: null }]
         }
 
         if (sql.includes('PRIMARY KEY')) {

@@ -2,7 +2,7 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../type
 import { escapeLiteralBody } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
-import { BIGSERIAL_RE, BOOL_RE, DEFAULT_CAST_RE, FLOAT4_RE, FLOAT8_RE, INT2_RE, INT4_RE, INT8_RE, QUOTED_NUMBER_RE, SERIAL_RE, SPACE_RE, TIMESTAMPTZ_RE, TIMETZ_RE } from './regex'
+import { DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
   const { colDefs, pkCols, uniqueCols } = collectConstraints(table, (col, def) => generateColumnDDL(col, def, name))
@@ -47,23 +47,164 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?
   return parts.join(' ')
 }
 
-export function normalizeDefault(pgDefault: string): string {
-  return pgDefault.toLowerCase().replace(DEFAULT_CAST_RE, '').replace(SPACE_RE, '').replace(QUOTED_NUMBER_RE, '$1')
+// Each alias Postgres accepts for a type, by the name format_type() prints it under.
+const TYPE_ALIASES: Record<string, string> = {
+  int2: 'smallint',
+  smallserial: 'smallint',
+  serial2: 'smallint',
+  int: 'integer',
+  int4: 'integer',
+  serial: 'integer',
+  serial4: 'integer',
+  int8: 'bigint',
+  bigserial: 'bigint',
+  serial8: 'bigint',
+  float4: 'real',
+  float8: 'double precision',
+  bool: 'boolean',
+  decimal: 'numeric',
+  timestamp: 'timestamp without time zone',
+  timestamptz: 'timestamp with time zone',
+  time: 'time without time zone',
+  timetz: 'time with time zone',
+  char: 'character',
+  bpchar: 'character',
+  varchar: 'character varying',
+  varbit: 'bit varying',
 }
 
+// Types whose bare name means a length of one.
+const LENGTH_ONE_TYPES = new Set(['character', 'bit'])
+
+/** A type in the spelling format_type() prints it in, so a schema type and a live one compare as text: `varchar(10)[]` and `character varying(10)[]` are one type. */
 export function normalizeType(pgType: string): string {
-  return pgType
-    .toLowerCase()
-    .replace(SERIAL_RE, 'integer')
-    .replace(BIGSERIAL_RE, 'bigint')
-    .replace(INT4_RE, 'integer')
-    .replace(INT2_RE, 'smallint')
-    .replace(INT8_RE, 'bigint')
-    .replace(FLOAT4_RE, 'real')
-    .replace(FLOAT8_RE, 'double precision')
-    .replace(BOOL_RE, 'boolean')
-    .replace(TIMESTAMPTZ_RE, 'timestamp with time zone')
-    .replace(TIMETZ_RE, 'time with time zone')
+  const unqualified = pgType.toLowerCase().replaceAll('"', '').trim().replace(TYPE_QUALIFIER_RE, '')
+  const parts = TYPE_PARTS_RE.exec(unqualified)
+
+  // A modifier inside the name (`timestamp(3) with time zone`) is left as written.
+  if (!parts)
+    return unqualified
+
+  const [, rawName = '', rawModifier, brackets] = parts
+  const name = TYPE_ALIASES[rawName.trim()] ?? rawName.trim()
+  let modifier = rawModifier?.replace(WHITESPACE_RE, '')
+
+  if (name === 'numeric' && modifier && !modifier.includes(','))
+    modifier = `${modifier},0`
+  else if (modifier === undefined && LENGTH_ONE_TYPES.has(name))
+    modifier = '1'
+
+  // Postgres keeps no array dimensions: `text[][]` is `text[]`.
+  return `${name}${modifier !== undefined ? `(${modifier})` : ''}${brackets ? '[]' : ''}`
+}
+
+/** A default expression with spacing, case and casts dropped outside its quoted literals, and redundant outer parentheses removed. */
+export function normalizeDefault(pgDefault: string): string {
+  const joined = pgDefault
+    .split(DEFAULT_LITERAL_RE)
+    .map((part, i) => i % 2 === 1 ? part : part.replace(WHITESPACE_RE, '').toLowerCase().replace(DEFAULT_CAST_RE, ''))
+    .join('')
+
+  return unwrapParens(joined).replace(QUOTED_NUMBER_RE, '$1')
+}
+
+function unwrapParens(expr: string): string {
+  while (expr.startsWith('(') && closingParen(expr) === expr.length - 1)
+    expr = expr.slice(1, -1)
+
+  return expr
+}
+
+// Where the parenthesis opening `expr` closes, skipping quoted literals.
+function closingParen(expr: string): number {
+  let depth = 0
+  let quoted = false
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i]
+
+    if (ch === '\'')
+      quoted = !quoted
+    else if (!quoted && ch === '(')
+      depth++
+    else if (!quoted && ch === ')' && --depth === 0)
+      return i
+  }
+
+  return -1
+}
+
+const EMPTY_ARRAY_DEFAULTS = new Set(['array[]', '\'{}\''])
+
+/** Whether a schema default and a live one, as Postgres prints it back, give the same value: Postgres respells literals (a jsonb's key order, a timestamp's format, an empty array as `'{}'`). */
+export function sameDefault(desired: string, live: string, pgType: string): boolean {
+  const a = normalizeDefault(desired)
+  const b = normalizeDefault(live)
+
+  if (a === b)
+    return true
+
+  if (EMPTY_ARRAY_DEFAULTS.has(a) && EMPTY_ARRAY_DEFAULTS.has(b))
+    return true
+
+  if (PLAIN_NUMBER_RE.test(a) && PLAIN_NUMBER_RE.test(b))
+    return Number(a) === Number(b)
+
+  const desiredBody = LONE_LITERAL_RE.exec(a)?.[1]
+  const liveBody = LONE_LITERAL_RE.exec(b)?.[1]
+
+  if (desiredBody === undefined || liveBody === undefined)
+    return false
+
+  return sameLiteral(desiredBody.replaceAll('\'\'', '\''), liveBody.replaceAll('\'\'', '\''), normalizeType(pgType))
+}
+
+function sameLiteral(desired: string, live: string, type: string): boolean {
+  switch (type) {
+    case 'json':
+    case 'jsonb': {
+      const canonical = canonicalJson(desired)
+
+      return canonical !== undefined && canonical === canonicalJson(live)
+    }
+    case 'date':
+      return desired.slice(0, 10) === live.slice(0, 10)
+    case 'timestamp with time zone':
+      return sameInstant(desired, live, false)
+    case 'timestamp without time zone':
+      return sameInstant(desired, live, true)
+    default:
+      return false
+  }
+}
+
+function canonicalJson(text: string): string | undefined {
+  try {
+    return JSON.stringify(JSON.parse(text), (_key, value: unknown) => isPlainObject(value)
+      ? Object.fromEntries(Object.entries(value).sort(([x], [y]) => x < y ? -1 : x > y ? 1 : 0))
+      : value)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function sameInstant(desired: string, live: string, ignoreZone: boolean): boolean {
+  const a = parseTimestamp(desired, ignoreZone)
+
+  return !Number.isNaN(a) && a === parseTimestamp(live, ignoreZone)
+}
+
+// A time without a zone, or whose zone a `timestamp without time zone` ignores, is read as UTC on both sides.
+function parseTimestamp(text: string, ignoreZone: boolean): number {
+  const [date, time = '00:00:00'] = text.replace(TIMESTAMP_SEPARATOR_RE, '$1T').split('T')
+  const zoned = ignoreZone ? time.replace(TIME_ZONE_RE, '') : time.replace(SHORT_OFFSET_RE, '$1:00')
+
+  return Date.parse(`${date}T${TIME_ZONE_RE.test(zoned) ? zoned : `${zoned}Z`}`)
 }
 
 // PostgreSQL can implicitly cast between many scalar types (int -> bigint,

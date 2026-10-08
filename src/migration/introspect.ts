@@ -1,5 +1,5 @@
 import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
-import { ARRAY_UDT_PREFIX_RE, SPACE_RE } from './regex'
+import { SPACE_RE } from './regex'
 import { MIGRATION_TABLE } from './types'
 
 async function runIntrospectionQueries(executor: { query: QueryFn }, schema: string) {
@@ -7,8 +7,11 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     SELECT
       c.table_name, c.column_name, c.data_type, c.udt_name,
       c.is_nullable, c.column_default, c.is_generated, c.generation_expression,
-      c.character_maximum_length, c.numeric_precision, c.numeric_scale
+      format_type(a.atttypid, a.atttypmod) AS formatted_type
     FROM information_schema.columns c
+    JOIN pg_namespace n ON n.nspname = c.table_schema
+    JOIN pg_class t ON t.relname = c.table_name AND t.relnamespace = n.oid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name
     WHERE c.table_schema = $1
     ORDER BY c.table_name, c.ordinal_position
   `, [schema])
@@ -140,7 +143,8 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
 
     tableMap.get(tableName)!.columns.push({
       name: row.column_name as string,
-      dataType: resolveDataType(row),
+      // format_type() spells the type with its modifier (`vector(3)`, `character(5)`), which information_schema leaves out for some types.
+      dataType: row.formatted_type as string,
       isNullable: row.is_nullable === 'YES',
       defaultValue: row.column_default as string | null,
       isPrimaryKey: pkSet.has(`${tableName}.${row.column_name}`),
@@ -165,27 +169,4 @@ function buildLiveEnums(enumRows: Record<string, unknown>[]): LiveEnum[] {
   }
 
   return Array.from(enumMap.entries()).map(([name, values]) => ({ name, values }))
-}
-
-function resolveDataType(row: Record<string, unknown>): string {
-  const udtName = row.udt_name as string
-  const dataType = row.data_type as string
-  const charLen = row.character_maximum_length as number | null
-  const numPrec = row.numeric_precision as number | null
-  const numScale = row.numeric_scale as number | null
-
-  if (dataType === 'ARRAY')
-    return `${udtName.replace(ARRAY_UDT_PREFIX_RE, '')}[]`
-
-  if (dataType === 'USER-DEFINED')
-    return udtName
-
-  if (udtName === 'varchar' && charLen)
-    return `varchar(${charLen})`
-
-  if (udtName === 'numeric' && numPrec) {
-    return numScale ? `numeric(${numPrec},${numScale})` : `numeric(${numPrec})`
-  }
-
-  return udtName
 }

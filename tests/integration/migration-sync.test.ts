@@ -88,6 +88,44 @@ describe('Migration Sync', () => {
     }
   })
 
+  it('a second sync finds nothing to change on types and defaults Postgres respells', async () => {
+    const table = defineTable('sync_test_respelled', t => ({
+      id: t.uuid().primaryKey().defaultRaw('gen_random_uuid()'),
+      seq: t.serial(),
+      big: t.bigserial(),
+      code: t.char(5),
+      labels: t.array(t.varchar(10)).default([]),
+      whole: t.numeric(10, 0),
+      shortWhole: t.numeric(10),
+      flags: t.bit(8),
+      mask: t.varbit(8),
+      since: t.timestamptz().default(new Date('2024-01-01T10:00:00.000Z')),
+      localSince: t.timestamp().default(new Date('2024-01-01T10:00:00.000Z')),
+      day: t.date().default(new Date('2024-01-01T00:00:00.000Z')),
+      tags: t.array(t.text()).default([]),
+      meta: t.jsonb().default({ bb: 1, a: { y: 2, x: 1 } }),
+    }))
+    const db = createSyncDb([table])
+
+    try {
+      await db.raw('DROP TABLE IF EXISTS "sync_test_respelled"', [])
+      await db.sync({ allowDestructive: true })
+
+      const result = await db.sync()
+
+      expect(result.ops.map(o => o.sql)).toEqual([])
+
+      // The serials kept their sequences, so an insert leaving them out still numbers them.
+      const rows = await db.raw<{ seq: number, big: string }>('INSERT INTO "sync_test_respelled" ("code", "whole", "shortWhole", "flags", "mask") VALUES (\'abcde\', 1, 2, B\'10101010\', B\'1\') RETURNING "seq", "big"', [])
+
+      expect(rows[0]!.seq).toBe(1)
+    }
+    finally {
+      await db.raw('DROP TABLE IF EXISTS "sync_test_respelled"', [])
+      await db.close({ timeout: 5000 })
+    }
+  })
+
   it('adds column on schema change', async () => {
     const table1 = defineTable('sync_test_addcol', t => ({
       id: t.serial().primaryKey(),

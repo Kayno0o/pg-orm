@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  ARRAY_UDT_PREFIX_RE,
-  BIGSERIAL_RE,
-  BOOL_RE,
-  FLOAT4_RE,
-  FLOAT8_RE,
-  INT2_RE,
-  INT4_RE,
-  INT8_RE,
-  SERIAL_RE,
   SPACE_RE,
-  TIMESTAMPTZ_RE,
-  TIMETZ_RE,
+  TYPE_PARTS_RE,
   WHERE_RE,
 } from '../../../src/migration/regex'
 
@@ -56,61 +46,13 @@ describe('WHERE_RE — partial-index WHERE detection', () => {
   })
 })
 
-describe('ARRAY_UDT_PREFIX_RE — array element type unwrap', () => {
-  // Used in introspect.ts: pg_type prefixes array element type names with `_`
-  // (e.g. `_int4` for int4[]). The regex strips exactly the leading underscore.
-  it('strips a single leading underscore', () => {
-    expect('_int4'.replace(ARRAY_UDT_PREFIX_RE, '')).toBe('int4')
-  })
-
-  it('strips only the leading underscore, never internal ones', () => {
-    expect('_my_custom_type'.replace(ARRAY_UDT_PREFIX_RE, '')).toBe('my_custom_type')
-  })
-
-  it('is a no-op when there is no leading underscore', () => {
-    expect('text'.replace(ARRAY_UDT_PREFIX_RE, '')).toBe('text')
-  })
-})
-
-describe('PG type-alias normalization regexes', () => {
-  // Used in ddl.ts to canonicalize alias type names (PG accepts `int4` but
-  // pg_catalog reports `integer`). Each regex must be anchored — partial
-  // matches would corrupt longer type names like `int4range` or `serialize`.
-  const aliasCases: [RegExp, string, string, string[]][] = [
-    [SERIAL_RE, 'serial', 'integer', ['serialize', 'bigserial', 'smallserial']],
-    [BIGSERIAL_RE, 'bigserial', 'bigint', ['serial', 'bigserialize']],
-    [INT4_RE, 'int4', 'integer', ['int4range', 'int', 'int8']],
-    [INT2_RE, 'int2', 'smallint', ['int2vector', 'int']],
-    [INT8_RE, 'int8', 'bigint', ['int8range', 'int']],
-    [FLOAT4_RE, 'float4', 'real', ['float8', 'float']],
-    [FLOAT8_RE, 'float8', 'double precision', ['float4', 'float']],
-    [BOOL_RE, 'bool', 'boolean', ['boolean', 'booltest']],
-    [TIMESTAMPTZ_RE, 'timestamptz', 'timestamp with time zone', ['timestamptz_thing', 'timestamp']],
-    [TIMETZ_RE, 'timetz', 'time with time zone', ['timetz_thing', 'time']],
-  ]
-
-  for (const [re, alias, canonical, rejects] of aliasCases) {
-    describe(`${alias} → ${canonical}`, () => {
-      it(`rewrites "${alias}" to "${canonical}"`, () => {
-        expect(alias.replace(re, canonical)).toBe(canonical)
-      })
-
-      it(`is fully anchored — does not match longer tokens`, () => {
-        for (const reject of rejects) {
-          expect(reject.replace(re, canonical)).toBe(reject)
-        }
-      })
-    })
-  }
-})
-
 describe('regex identity — module-scoped instances', () => {
   // The whole point of regex.ts is to avoid recompilation per call
   // (e18e/prefer-static-regex). Confirm the exports really are singletons.
   it('exports the same regex instance across imports', async () => {
     const reimport = await import('../../../src/migration/regex')
 
-    expect(reimport.SERIAL_RE).toBe(SERIAL_RE)
+    expect(reimport.TYPE_PARTS_RE).toBe(TYPE_PARTS_RE)
     expect(reimport.WHERE_RE).toBe(WHERE_RE)
   })
 })

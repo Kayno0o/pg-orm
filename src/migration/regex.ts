@@ -4,27 +4,25 @@
 export const SPACE_RE = / /g
 export const WHERE_RE = /\bWHERE\b/i
 
-// Strips the leading `_` that PostgreSQL prepends to array element type names.
-export const ARRAY_UDT_PREFIX_RE = /^_/
+// A type split into its name, its modifier and its array brackets: `varchar(10)[]`. A schema qualifier and identifier quotes are dropped before.
+export const TYPE_PARTS_RE = /^([^()[\]]*)(?:\(([^)]*)\))?((?:\[\d*\])*)$/
+export const TYPE_QUALIFIER_RE = /^[^(]*\./
+export const SERIAL_TYPE_RE = /^(?:small|big)?serial[248]?$/i
 
-// PostgreSQL type aliases — normalized to their canonical names for diffing.
-export const SERIAL_RE = /^serial$/
-export const BIGSERIAL_RE = /^bigserial$/
-export const INT4_RE = /^int4$/
-export const INT2_RE = /^int2$/
-export const INT8_RE = /^int8$/
-export const FLOAT4_RE = /^float4$/
-export const FLOAT8_RE = /^float8$/
-export const BOOL_RE = /^bool$/
-export const TIMESTAMPTZ_RE = /^timestamptz$/
-export const TIMETZ_RE = /^timetz$/
+// The parts of a default expression: a quoted literal is kept verbatim, the rest loses its spacing, its case and its casts (`''::text`, `::character varying(10)[]`).
+export const DEFAULT_LITERAL_RE = /('(?:[^']|'')*')/
+export const DEFAULT_CAST_RE = /::(?:"[^"]*"|[a-z_][\w.]*)(?:\([\d,]*\))?(?:\[\d*\])*/g
+export const WHITESPACE_RE = /\s+/g
+// A quoted plain number (`'0.00'`): Postgres reflects a numeric column's default back unquoted, so both sides drop the quotes before comparing.
+export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?)'$/
+export const PLAIN_NUMBER_RE = /^-?\d+(?:\.\d+)?$/
+export const LONE_LITERAL_RE = /^'((?:[^']|'')*)'$/
 
-// Strips trailing PostgreSQL type casts from column defaults (e.g. `''::text`, `0::integer`, `text[]`).
-export const DEFAULT_CAST_RE = /::[\w ]+(\[\])*/g
+// A timestamp as Postgres prints it (`2024-01-01 10:00:00+00`) or as toISOString() writes it (`2024-01-01T10:00:00.000Z`).
+export const TIMESTAMP_SEPARATOR_RE = /^(\d{4}-\d{2}-\d{2}) /
+export const SHORT_OFFSET_RE = /([+-]\d{2})$/
+export const TIME_ZONE_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/
 
 // Pieces Postgres adds or drops when it prints an index predicate back (`WHERE ((kind = 'x'::text))` for `"kind" = 'x'`): casts, identifier quotes, parentheses and spacing.
 export const PREDICATE_CAST_RE = /::\w+(?: varying| precision| with(?:out)? time zone)?(?:\[\])*/g
 export const PREDICATE_NOISE_RE = /["()\s]/g
-
-// A quoted plain number (`'0.00'`): Postgres reflects a numeric column's default back unquoted, so both sides drop the quotes before comparing.
-export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?)'$/

@@ -13,9 +13,10 @@ import {
   buildSetDefaultSql,
   buildSetNotNullSql,
   needsUsingCast,
-  normalizeDefault,
   normalizeType,
+  sameDefault,
 } from '../ddl'
+import { SERIAL_TYPE_RE } from '../regex'
 import { columnEntries } from '../types'
 
 export function diffTableColumns(
@@ -194,36 +195,35 @@ export function diffColumn(
   }
 
   if (!liveCol.isPrimaryKey && !liveCol.isGenerated) {
-    const desiredDefaultConstraint = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')
-    const desiredDefault = desiredDefaultConstraint?.value ?? null
+    const desiredDefault = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')?.value ?? null
     const liveDefault = liveCol.defaultValue
 
-    const normalizedDesired = desiredDefault !== null ? normalizeDefault(desiredDefault) : null
-    const normalizedLive = liveDefault !== null ? normalizeDefault(liveDefault) : null
-
-    if (normalizedDesired !== normalizedLive) {
-      if (desiredDefault !== null) {
-        ops.push({
-          type: 'alter_column',
-          table: tableName,
-          column: colName,
-          sql: buildSetDefaultSql(tableName, colName, desiredDefault),
-          destructive: false,
-          description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
-        })
-      }
-      else {
-        ops.push({
-          type: 'alter_column',
-          table: tableName,
-          column: colName,
-          sql: buildDropDefaultSql(tableName, colName),
-          destructive: false,
-          description: `Drop default from "${colName}" in "${tableName}"`,
-        })
-      }
+    if (desiredDefault === null && liveDefault !== null && !isOwnSequenceDefault(colDef, liveDefault)) {
+      ops.push({
+        type: 'alter_column',
+        table: tableName,
+        column: colName,
+        sql: buildDropDefaultSql(tableName, colName),
+        destructive: false,
+        description: `Drop default from "${colName}" in "${tableName}"`,
+      })
+    }
+    else if (desiredDefault !== null && (liveDefault === null || !sameDefault(desiredDefault, liveDefault, colDef.pgType))) {
+      ops.push({
+        type: 'alter_column',
+        table: tableName,
+        column: colName,
+        sql: buildSetDefaultSql(tableName, colName, desiredDefault),
+        destructive: false,
+        description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
+      })
     }
   }
 
   return ops
+}
+
+// A serial column's default is the `nextval()` of the sequence Postgres made for it, which the schema never spells out.
+function isOwnSequenceDefault(colDef: AnyColumnDef, liveDefault: string): boolean {
+  return SERIAL_TYPE_RE.test(colDef.pgType) && liveDefault.startsWith('nextval(')
 }
