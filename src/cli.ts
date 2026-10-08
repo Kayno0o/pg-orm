@@ -1,22 +1,19 @@
 #!/usr/bin/env bun
 
 import type { PgOrmConfig } from './define-config'
+import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { applyMigrationFiles, pendingMigrationFiles } from './migration/files'
-import {
-  applyMigration,
-  djb2Hash,
-  ensureMigrationTable,
-  generateMigration,
-  getMigrationHistory,
-  getMigrationStatus,
+import { applyMigrationFiles, pendingMigrations, syncMigration } from './migration/files'
+import { migrationName } from './migration/history'
+import { generateMigration, getMigrationStatus } from './migration/index'
 
-  recordMigration,
-} from './migration/index'
+interface Flags { allowDestructive: boolean, dryRun: boolean }
 
-async function loadConfig(): Promise<{ db: Database, dir: string }> {
+const FLAGS: Record<string, keyof Flags> = { '--allow-destructive': 'allowDestructive', '--dry-run': 'dryRun' }
+
+async function loadConfig(): Promise<Required<Pick<PgOrmConfig, 'migrationsDir'>> & PgOrmConfig> {
   const cfgPath = resolve(process.cwd(), 'pg-orm.config.ts')
 
   if (!existsSync(cfgPath)) {
@@ -28,11 +25,11 @@ async function loadConfig(): Promise<{ db: Database, dir: string }> {
   const cfg = mod.default
 
   if (!cfg?.db) {
-    console.error('pg-orm.config.ts must export default { db, migrationsDir? }')
+    console.error('pg-orm.config.ts must export default { db, migrationsDir?, ignoreTables? }')
     process.exit(1)
   }
 
-  return { db: cfg.db, dir: cfg.migrationsDir ?? 'migrations' }
+  return { ...cfg, migrationsDir: cfg.migrationsDir ?? 'migrations' }
 }
 
 function writeMigration(dir: string, name: string, up: string, down: string): string {
@@ -44,8 +41,13 @@ function writeMigration(dir: string, name: string, up: string, down: string): st
   return filename
 }
 
-async function cmdStatus(db: Database, dir: string): Promise<void> {
-  const { drift, hasDrift } = await getMigrationStatus(db, db.getTablesRegistry(), db.schema)
+function printMigration(file: MigrationFile): void {
+  console.log(`-- migrate:up\n${file.up}\n\n-- migrate:down\n${file.down}`)
+}
+
+async function cmdStatus(cfg: PgOrmConfig & { migrationsDir: string }): Promise<void> {
+  const { db } = cfg
+  const { drift, hasDrift } = await getMigrationStatus(db, db.getTablesRegistry(), db.schema, cfg.ignoreTables)
 
   if (!hasDrift) {
     console.log('Schema: no drift')
@@ -56,8 +58,7 @@ async function cmdStatus(db: Database, dir: string): Promise<void> {
       console.log(`  ${op.destructive ? '[destructive] ' : ''}${op.description}`)
   }
 
-  const history = await getMigrationHistory(db)
-  const pending = pendingMigrationFiles(dir, history)
+  const pending = await pendingMigrations(db, cfg.migrationsDir)
 
   if (pending.length > 0) {
     console.log(`\nPending files (${pending.length}):`)
@@ -68,19 +69,35 @@ async function cmdStatus(db: Database, dir: string): Promise<void> {
   }
 }
 
-async function cmdGenerate(db: Database, dir: string): Promise<void> {
-  const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema })
+async function cmdGenerate(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
+  const { db } = cfg
+  const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema, allowDestructive: flags.allowDestructive || flags.dryRun, ignoreTables: cfg.ignoreTables })
 
   if (!file) {
-    console.log('No drift — nothing to generate')
+    console.log('No drift, nothing to generate')
 
     return
   }
 
-  console.log(`Generated: ${join(dir, writeMigration(dir, file.name, file.up, file.down))}`)
+  if (flags.dryRun)
+    printMigration(file)
+  else
+    console.log(`Generated: ${join(cfg.migrationsDir, writeMigration(cfg.migrationsDir, file.name, file.up, file.down))}`)
 }
 
-async function cmdApply(db: Database, dir: string): Promise<void> {
+async function cmdApply(db: Database, dir: string, flags: Flags): Promise<void> {
+  if (flags.dryRun) {
+    const pending = await pendingMigrations(db, dir)
+
+    if (pending.length === 0)
+      console.log('Nothing to apply')
+
+    for (const filename of pending)
+      console.log(`Would apply: ${filename}`)
+
+    return
+  }
+
   const applied = await applyMigrationFiles(db, dir)
 
   if (applied.length === 0)
@@ -103,38 +120,33 @@ async function cmdRollback(db: Database, count: number): Promise<void> {
 }
 
 function cmdNew(dir: string, label: string): void {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const slug = label.trim().replace(/\W+/g, '_').replace(/^_|_$/g, '') || 'migration'
-  const filename = writeMigration(dir, `${timestamp}_${slug}`, '', '')
+  const filename = writeMigration(dir, migrationName(slug), '', '')
 
   console.log(`Created: ${join(dir, filename)}`)
 }
 
-async function cmdSync(db: Database, dir: string): Promise<void> {
-  const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema })
+// The file is written once the migration is applied and recorded, so a failed apply leaves none behind.
+async function cmdSync(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
+  const { db } = cfg
+  const file = await syncMigration(db, db.getTablesRegistry(), { schema: db.schema, ignoreTables: cfg.ignoreTables, ...flags })
 
   if (!file) {
-    console.log('No drift — nothing to sync')
+    console.log('No drift, nothing to sync')
 
     return
   }
 
-  const filename = writeMigration(dir, file.name, file.up, file.down)
+  if (flags.dryRun) {
+    printMigration(file)
 
-  console.log(`Generated: ${join(dir, filename)}`)
-  await ensureMigrationTable(db)
-  await applyMigration(db, file.up)
-  await recordMigration(db, {
-    name: file.name,
-    sqlHash: djb2Hash(file.up),
-    upSql: file.up,
-    downSql: file.down,
-    direction: 'up',
-  })
-  console.log(`Applied: ${filename}`)
+    return
+  }
+
+  console.log(`Applied: ${join(cfg.migrationsDir, writeMigration(cfg.migrationsDir, file.name, file.up, file.down))}`)
 }
 
-const HELP = `Usage: pg-orm <command>
+const HELP = `Usage: pg-orm <command> [flags]
 
 Commands:
   status          Show schema drift and pending migration files
@@ -142,12 +154,40 @@ Commands:
   new [name]      Create an empty migration file
   apply           Apply pending migration files to the database
   rollback [n]    Roll back the last N applied migrations (default: 1)
-  sync            Generate + apply a migration file in one step`
+  sync            Generate, apply and record a migration, then write its file
+
+Flags:
+  --allow-destructive   Let generate and sync drop tables, columns and constraints
+  --dry-run             Print what generate, sync or apply would do, changing nothing`
+
+function parseArgs(argv: string[]): { positional: string[], flags: Flags } {
+  const flags: Flags = { allowDestructive: false, dryRun: false }
+  const positional: string[] = []
+
+  for (const arg of argv) {
+    if (!arg.startsWith('--')) {
+      positional.push(arg)
+
+      continue
+    }
+
+    const flag = FLAGS[arg]
+
+    if (!flag) {
+      console.error(`Unknown flag: ${arg}\n\n${HELP}`)
+      process.exit(1)
+    }
+
+    flags[flag] = true
+  }
+
+  return { positional, flags }
+}
 
 async function main(): Promise<void> {
   process.env.REDACT_QUERY_LOGS ??= '0'
 
-  const [,, cmd, arg] = process.argv
+  const { positional: [cmd, arg], flags } = parseArgs(process.argv.slice(2))
 
   if (!cmd || cmd === 'help') {
     console.log(HELP)
@@ -155,31 +195,30 @@ async function main(): Promise<void> {
     return
   }
 
-  if (cmd === 'new') {
-    const { dir } = await loadConfig()
+  const cfg = await loadConfig()
 
-    cmdNew(dir, arg ?? '')
+  if (cmd === 'new') {
+    cmdNew(cfg.migrationsDir, arg ?? '')
+    await cfg.db.close()
 
     return
   }
 
-  const { db, dir } = await loadConfig()
-
   try {
     if (cmd === 'status') {
-      await cmdStatus(db, dir)
+      await cmdStatus(cfg)
     }
     else if (cmd === 'generate') {
-      await cmdGenerate(db, dir)
+      await cmdGenerate(cfg, flags)
     }
     else if (cmd === 'apply') {
-      await cmdApply(db, dir)
+      await cmdApply(cfg.db, cfg.migrationsDir, flags)
     }
     else if (cmd === 'rollback') {
-      await cmdRollback(db, Number.parseInt(arg ?? '1', 10))
+      await cmdRollback(cfg.db, Number.parseInt(arg ?? '1', 10))
     }
     else if (cmd === 'sync') {
-      await cmdSync(db, dir)
+      await cmdSync(cfg, flags)
     }
     else {
       console.error(`Unknown command: ${cmd}\n\n${HELP}`)
@@ -187,7 +226,7 @@ async function main(): Promise<void> {
     }
   }
   finally {
-    await db.close()
+    await cfg.db.close()
   }
 }
 

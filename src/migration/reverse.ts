@@ -9,15 +9,24 @@ export interface DownSqlOptions {
   /** Enable defense-in-depth identifier validation at the down-SQL boundary. */
   validate?: boolean
   dialect?: Dialect
+  /** Put a comment naming the op it reverts above each statement, as a migration file shows it. */
+  comments?: boolean
+}
+
+/** The comment an op with no reverse leaves in down SQL, which `rollback()` refuses to run. */
+export const IRREVERSIBLE_MARKER = '-- Cannot reverse:'
+
+const LINE_BREAK_RE = /[\r\n]+/g
+
+/** `text` as a one-line SQL comment: a line break in it, which an enum value can hold, would end the comment and run the rest. */
+export function sqlComment(text: string): string {
+  return `-- ${text.replace(LINE_BREAK_RE, ' ')}`
 }
 
 // Defense-in-depth: every identifier embedded into the reverse DDL goes through
 // validateIdentifier(). The forward path already validates at schema-definition
 // time, but down-SQL is built from MigrationOp shapes that future code paths may
 // construct independently — so we re-validate at the boundary where strings become SQL.
-/** The comment an op with no reverse leaves in down SQL, which `rollback()` refuses to run. */
-export const IRREVERSIBLE_MARKER = '-- Cannot reverse:'
-
 function requireIdent(value: string | undefined, context: string, opts?: DownSqlOptions): string {
   if (value == null || value === '') {
     throw new ValidationError(
@@ -93,7 +102,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       const name = op.sql.match(ADD_CONSTRAINT_RE)?.[1]
 
       if (!name)
-        return `${IRREVERSIBLE_MARKER} ${op.description}`
+        return sqlComment(`Cannot reverse: ${op.description}`)
 
       validateOptional(name, 'down.add_constraint.name', opts)
 
@@ -115,7 +124,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
     }
 
     default:
-      return `${IRREVERSIBLE_MARKER} ${op.description}`
+      return sqlComment(`Cannot reverse: ${op.description}`)
   }
 }
 
@@ -127,7 +136,11 @@ export function generateDownSql(ops: MigrationOp[], opts?: DownSqlOptions): stri
   return ops
     .slice()
     .reverse()
-    .map(op => generateReverseOp(op, opts))
+    .map((op) => {
+      const sql = generateReverseOp(op, opts)
+
+      return opts?.comments && sql !== '' && !sql.startsWith(IRREVERSIBLE_MARKER) ? `${sqlComment(`Revert: ${op.description}`)}\n${sql}` : sql
+    })
     .filter(Boolean)
-    .join('\n')
+    .join(opts?.comments ? '\n\n' : '\n')
 }

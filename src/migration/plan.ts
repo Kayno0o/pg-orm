@@ -6,15 +6,33 @@ import { introspectLiveSchema } from './introspect'
 import { diffSqliteSchema } from './sqlite/diff'
 import { introspectSqliteSchema } from './sqlite/introspect'
 
-/** The ops bringing the live database to the table definitions. */
+/** Tables a migration leaves alone, created, changed and dropped by other means: a name, or a pattern names are tested against. */
+export type IgnoreTables = readonly (string | RegExp)[]
+
+/** The ops bringing the live database to the table definitions, the ignored tables left out on both sides. */
 export async function planMigration(
   executor: { query: QueryFn },
   tables: ReadonlyMap<string, AnyTableDef>,
   dialect: Dialect = 'postgres',
   schema?: string,
+  ignoreTables: IgnoreTables = [],
 ): Promise<MigrationOp[]> {
-  if (dialect === 'sqlite')
-    return diffSqliteSchema(await introspectSqliteSchema(executor), tables)
+  const kept = (name: string) => !ignoreTables.some(p => typeof p === 'string' ? p === name : p.test(name))
+  const desired = ignoreTables.length === 0 ? tables : new Map([...tables].filter(([name]) => kept(name)))
 
-  return diffSchema(await introspectLiveSchema(executor, schema), tables)
+  if (dialect === 'sqlite') {
+    const live = await introspectSqliteSchema(executor)
+
+    return diffSqliteSchema({ tables: live.tables.filter(t => kept(t.name)), indexes: live.indexes.filter(i => kept(i.table)) }, desired)
+  }
+
+  const live = await introspectLiveSchema(executor, schema)
+
+  return diffSchema({
+    tables: live.tables.filter(t => kept(t.name)),
+    enums: live.enums,
+    foreignKeys: live.foreignKeys.filter(fk => kept(fk.tableName)),
+    indexes: live.indexes.filter(i => kept(i.tableName)),
+    checks: live.checks.filter(c => kept(c.tableName)),
+  }, desired)
 }

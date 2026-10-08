@@ -1,5 +1,6 @@
 import type { Dialect } from '../dialect'
 import type { AnyTableDef } from '../types/index'
+import type { IgnoreTables } from './plan'
 import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, migrationName, recordMigration } from './history'
@@ -20,6 +21,8 @@ export interface SyncOptions {
   allowDestructive?: boolean
   dryRun?: boolean
   confirm?: boolean
+  /** Tables neither created, changed nor dropped: a name, or a pattern names are tested against. */
+  ignoreTables?: IgnoreTables
 }
 
 /**
@@ -33,7 +36,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
   // If they succeed but the main transaction fails, the enum values persist harmlessly (skipped on retry via IF NOT EXISTS).
   if (!opts?.dryRun && dialect === 'postgres') {
     await ctx.transact(async (txQuery) => {
-      const preOps = await planMigration({ query: txQuery }, ctx.tables, dialect, ctx.schema)
+      const preOps = await planMigration({ query: txQuery }, ctx.tables, dialect, ctx.schema, opts?.ignoreTables)
 
       for (const op of preOps.filter(o => o.type === 'alter_enum_add'))
         await txQuery(`${op.sql};`, [])
@@ -47,7 +50,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
       await txQuery('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_KEY])
 
     const txExecutor = { query: txQuery }
-    const ops = await planMigration(txExecutor, ctx.tables, dialect, ctx.schema)
+    const ops = await planMigration(txExecutor, ctx.tables, dialect, ctx.schema, opts?.ignoreTables)
 
     if (ops.length === 0)
       return { sql: '', ops: [] }

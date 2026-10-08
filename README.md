@@ -634,6 +634,26 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 // { name, up, down }
 ```
 
+`db.sync({ ignoreTables: ['legacy', /^tmp_/] })` neither creates, changes nor drops the tables named or matched.
+
+### CLI
+
+`pg-orm` reads `pg-orm.config.ts` from the current directory: `export default defineConfig({ db, migrationsDir?, ignoreTables? })`.
+
+```sh
+pg-orm status                       # drift and pending files
+pg-orm generate                     # write a migration file from the drift
+pg-orm apply                        # apply the pending files
+pg-orm sync                         # generate, apply and record a migration, then write its file
+pg-orm rollback 2
+pg-orm new add_index                # an empty file to write by hand
+```
+
+- `--allow-destructive` lets `generate` and `sync` drop tables, columns and constraints; without it they refuse with `DestructiveOpError`.
+- `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included.
+- Each file, and each `sync`, is applied and recorded in one transaction holding an advisory lock: two deploys applying at once run each migration once, and a failed one leaves neither a record nor, for `sync`, a file.
+- Each statement of a generated file sits under a comment naming its op, `-- Revert: ...` in the down half.
+
 ### Test databases
 
 `testDatabase()` gives a test file a database of its own: a copy of one migrated from your migration files and seeded once, made with `CREATE DATABASE ... TEMPLATE`, which takes milliseconds. Tests run on the same schema production gets from `pg-orm apply`, and two files never see each other's rows, even when they run at once.

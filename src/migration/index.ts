@@ -1,34 +1,45 @@
+import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { AnyTableDef } from '../types/index'
+import type { IgnoreTables } from './plan'
 import type { MigrationFile, MigrationOp } from './types'
 import { dialectOf } from '../dialect'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 import { migrationName } from './history'
 import { planMigration } from './plan'
-import { generateDownSql } from './reverse'
+import { generateDownSql, sqlComment } from './reverse'
 
 export { diffSchema } from './diff'
 export { djb2Hash, ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
 export { introspectLiveSchema } from './introspect'
-export { planMigration } from './plan'
+export { type IgnoreTables, planMigration } from './plan'
 export { type RollbackContext, rollbackMigrations } from './rollback'
 export { type SyncContext, type SyncOptions, syncSchema } from './sync'
 export type { MigrationFile, MigrationOp } from './types'
+
+export interface GenerateMigrationOptions {
+  allowDestructive?: boolean
+  schema?: string
+  ignoreTables?: IgnoreTables
+}
 
 /** Generate a timestamped migration file with up/down SQL from the schema diff. */
 export async function generateMigration(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,
-  opts: { allowDestructive?: boolean, schema?: string } = {},
+  opts: GenerateMigrationOptions = {},
 ): Promise<MigrationFile | null> {
-  const ops = await planMigration(executor, registry, dialectOf(executor), opts.schema)
+  return migrationFile(await planMigration(executor, registry, dialectOf(executor), opts.schema, opts.ignoreTables), dialectOf(executor), opts.allowDestructive)
+}
 
+/** The file running `ops`, each statement under a comment naming its op, null without any; throws on a destructive op unless allowed. */
+export function migrationFile(ops: MigrationOp[], dialect: Dialect, allowDestructive = false): MigrationFile | null {
   if (ops.length === 0)
     return null
 
   const destructiveOps = ops.filter(o => o.destructive)
 
-  if (destructiveOps.length && !opts.allowDestructive) {
+  if (destructiveOps.length && !allowDestructive) {
     throw new DestructiveOpError(
       `Migration contains ${destructiveOps.length} destructive operation(s). Use --allow-destructive to proceed.`,
       'diff',
@@ -36,8 +47,8 @@ export async function generateMigration(
     )
   }
 
-  const upSql = ops.map(o => `${o.sql};`).join('\n\n')
-  const downSql = generateDownSql(ops, { dialect: dialectOf(executor) })
+  const upSql = ops.map(o => `${sqlComment(o.description)}\n${o.sql};`).join('\n\n')
+  const downSql = generateDownSql(ops, { dialect, comments: true })
 
   return {
     name: migrationName('migration'),
@@ -70,11 +81,12 @@ export async function getMigrationStatus(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,
   schema?: string,
+  ignoreTables?: IgnoreTables,
 ): Promise<{
   drift: MigrationOp[]
   hasDrift: boolean
 }> {
-  const drift = await planMigration(executor, registry, dialectOf(executor), schema)
+  const drift = await planMigration(executor, registry, dialectOf(executor), schema, ignoreTables)
 
   return { drift, hasDrift: drift.length > 0 }
 }

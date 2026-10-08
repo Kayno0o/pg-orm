@@ -178,6 +178,15 @@ describe('generateDownSql', () => {
     expect(out).toBe('-- Cannot reverse: drop users')
   })
 
+  it('names the op each statement reverts, keeping a description with a line break on its comment line', () => {
+    const out = generateDownSql([
+      op({ type: 'create_table', table: 'users', sql: '', description: 'Create table "users"' }),
+      op({ type: 'alter_enum_remove', sql: '', description: 'Replace enum "e" without values: a\nDROP TABLE users;' }),
+    ], { comments: true })
+
+    expect(out).toBe('-- Cannot reverse: Replace enum "e" without values: a DROP TABLE users;\n\n-- Revert: Create table "users"\nDROP TABLE IF EXISTS "users";')
+  })
+
   describe('identifier validation (defense-in-depth)', () => {
     it('rejects table name with quote injection attempt', () => {
       expect(() =>
