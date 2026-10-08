@@ -158,7 +158,7 @@ describe('ExprBuilder - LIKE/ILIKE', () => {
   it('startsWith auto-escapes and adds trailing %', () => {
     const result = sql(e.startsWith('name', 'test%user'))
 
-    expect(result.sql).toBe('"name" ILIKE $1')
+    expect(result.sql).toBe('"name" LIKE $1')
     expect(result.params).toEqual(['test\\%user%'])
   })
 

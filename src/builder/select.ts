@@ -1,6 +1,6 @@
 import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
-import type { AggResult, ExprBuilder, ExprTape } from './expr'
+import type { AggResult, ExprBuilder, ExprTape, SubqueryRef, TypedExpr } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
@@ -16,7 +16,7 @@ type CountableRelations<TRelations extends AnyRelations> = {
 type RelationColumns<R> = R extends RelationDef<any, any, any, infer T> ? T['columns'] : AnyColumns
 
 // A joined table's columns, keyed `alias.col`; an outer join makes them nullable.
-type Joined<TJoin extends AnyColumns, TAlias extends string, TNullable extends boolean> = {
+export type Joined<TJoin extends AnyColumns, TAlias extends string, TNullable extends boolean> = {
   [K in keyof TJoin & string as `${TAlias}.${K}`]: TNullable extends true ? Nullable<TJoin[K]> : TJoin[K]
 }
 
@@ -82,7 +82,7 @@ export class SelectBuilder<
    * Example: `.computed(e => e.countCol(), 'total')`
    */
   computed<TAlias extends string, T>(
-    fn: (e: ExprBuilder<TColumns & TJoined>) => AggResult<T>,
+    fn: (e: ExprBuilder<TColumns & TJoined>) => AggResult<T> | TypedExpr<T>,
     alias: TAlias,
   ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>, TGroup, TJoined> {
     validateIdentifier(alias, 'computed alias')
@@ -90,7 +90,7 @@ export class SelectBuilder<
     const builder = createExprBuilder<TColumns & TJoined>()
     const expr = fn(builder)
 
-    this._state.computedColumns.push({ expr, alias })
+    this._state.computedColumns.push(typeof expr === 'string' ? { expr, alias } : { expr: '', alias, tape: expr })
 
     return this as never
   }
@@ -213,9 +213,9 @@ export class SelectBuilder<
     return this
   }
 
-  /** Add an ORDER BY clause. Can be called multiple times for multi-column ordering. */
-  orderBy(col: keyof (TColumns & TJoined) & string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
-    this._state.orderBy.push({ col, dir, nulls })
+  /** Add an ORDER BY clause, on a column or an expression (`e => e.vectorCosineDistance('embedding', vec)`). Can be called multiple times for multi-column ordering. */
+  orderBy(col: (keyof (TColumns & TJoined) & string) | ((e: ExprBuilder<TColumns & TJoined>) => ExprTape), dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
+    this._state.orderBy.push(typeof col === 'string' ? { col, dir, nulls } : { col: '', expr: col(createExprBuilder<TColumns & TJoined>()), dir, nulls })
 
     return this
   }
@@ -249,6 +249,15 @@ export class SelectBuilder<
     return this as never
   }
 
+  /** GROUP BY expressions, after any `groupBy` columns: `groupByExpr(e => e.coalesce('team', 'none'))`. */
+  groupByExpr(...exprs: ((e: ExprBuilder<TColumns & TJoined>) => ExprTape)[]): this {
+    const builder = createExprBuilder<TColumns & TJoined>()
+
+    this._state.groupByExprs = [...this._state.groupByExprs ?? [], ...exprs.map(fn => fn(builder))]
+
+    return this
+  }
+
   /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
   having(cond: WhereInput<TColumns & TJoined>): this {
     this._state.havingTape = compileWhere<TColumns & TJoined>(cond)
@@ -277,9 +286,31 @@ export class SelectBuilder<
     return this
   }
 
-  /** Combine with `forUpdate`/`forShare` to skip rows that are already locked. */
+  /** Add FOR KEY SHARE row-level locking (blocks only changes to the key, so concurrent non-key updates go through). */
+  forKeyShare(): this {
+    this._state.lockMode = 'key_share'
+
+    return this
+  }
+
+  /** Combine with a lock to skip rows that are already locked. */
   skipLocked(): this {
     this._state.skipLocked = true
+
+    return this
+  }
+
+  /** Combine with a lock to fail at once, rather than wait, on a row already locked. */
+  noWait(): this {
+    this._state.noWait = true
+
+    return this
+  }
+
+  /** Lock only the rows of these tables or join aliases (`FOR UPDATE OF "w"`), not every table the query reads. */
+  lockOf(...tables: string[]): this {
+    for (const table of tables) validateIdentifier(table, 'lockOf table')
+    this._state.lockOf = tables
 
     return this
   }
@@ -301,12 +332,11 @@ export class SelectBuilder<
    * use template-string interpolation: ``` `... WHERE id = ${userInput}` ```
    * is an injection. See README "Security model".
    */
-  with(name: string, sql: string, params: unknown[] = [], materialized?: boolean): this {
-    validateIdentifier(name, 'with CTE name')
-    validateCtePlaceholders(sql, params, 'with')
-    this._state.ctes.push({ name, sql, params, materialized })
-
-    return this
+  with(name: string, sql: string, params?: unknown[], materialized?: boolean): this
+  /** Attach a CTE built by a builder (`q.with('recent', db.repo(posts).read.select().where(...))`), parameterized like any query. */
+  with(name: string, query: SubqueryRef, materialized?: boolean): this
+  with(name: string, body: string | SubqueryRef, paramsOrMat?: unknown[] | boolean, materialized?: boolean): this {
+    return this._cte('with', name, body, paramsOrMat, materialized)
   }
 
   /**
@@ -316,10 +346,26 @@ export class SelectBuilder<
    * interpolated unparameterized. Use `$N` placeholders + `params` only;
    * never interpolate user input.
    */
-  withRecursive(name: string, sql: string, params: unknown[] = [], materialized?: boolean): this {
-    validateIdentifier(name, 'withRecursive CTE name')
-    validateCtePlaceholders(sql, params, 'withRecursive')
-    this._state.ctes.push({ name, sql, params, materialized, recursive: true })
+  withRecursive(name: string, sql: string, params?: unknown[], materialized?: boolean): this
+  /** Attach a recursive CTE built by a builder, typically a `SetOperationBuilder.unionAll` of a base query and one reading the CTE by name. */
+  withRecursive(name: string, query: SubqueryRef, materialized?: boolean): this
+  withRecursive(name: string, body: string | SubqueryRef, paramsOrMat?: unknown[] | boolean, materialized?: boolean): this {
+    return this._cte('withRecursive', name, body, paramsOrMat, materialized, true)
+  }
+
+  private _cte(context: string, name: string, body: string | SubqueryRef, paramsOrMat: unknown[] | boolean | undefined, materialized: boolean | undefined, recursive?: true): this {
+    validateIdentifier(name, `${context} CTE name`)
+
+    if (typeof body !== 'string') {
+      this._state.ctes.push({ name, sql: '', params: [], query: body, materialized: typeof paramsOrMat === 'boolean' ? paramsOrMat : undefined, recursive })
+
+      return this
+    }
+
+    const params = Array.isArray(paramsOrMat) ? paramsOrMat : []
+
+    validateCtePlaceholders(body, params, context)
+    this._state.ctes.push({ name, sql: body, params, materialized, recursive })
 
     return this
   }

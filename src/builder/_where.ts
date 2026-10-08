@@ -22,9 +22,13 @@ export interface WhereOps<T> {
   notIn?: T[]
   like?: string
   ilike?: string
+  /** Case-sensitive (LIKE); the i- forms ignore case (ILIKE). */
   contains?: string
   startsWith?: string
   endsWith?: string
+  iContains?: string
+  iStartsWith?: string
+  iEndsWith?: string
   between?: [T, T]
   isNull?: boolean
 }
@@ -73,6 +77,9 @@ const WHERE_OPS = new Set([
   'contains',
   'startsWith',
   'endsWith',
+  'iContains',
+  'iStartsWith',
+  'iEndsWith',
   'between',
   'isNull',
 ])
@@ -116,6 +123,9 @@ function opToTape(e: ExprBuilder<any>, col: string, op: string, value: unknown):
     case 'contains': return e.contains(col, value as string)
     case 'startsWith': return e.startsWith(col, value as string)
     case 'endsWith': return e.endsWith(col, value as string)
+    case 'iContains': return e.iContains(col, value as string)
+    case 'iStartsWith': return e.iStartsWith(col, value as string)
+    case 'iEndsWith': return e.iEndsWith(col, value as string)
     case 'isNull': return value ? e.isNull(col) : e.isNotNull(col)
     case 'between': {
       const range = expectArray(col, op, value)

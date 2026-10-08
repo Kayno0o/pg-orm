@@ -1,4 +1,5 @@
 import type { AnyColumns, InferInsert, InferSelect } from '../types/index'
+import type { SubqueryRef } from './_tape'
 import type { OptionalWhere } from './_where'
 import type { ConflictExprBuilder, ConflictSet } from './conflict'
 import { compileWhere } from './_where'
@@ -38,7 +39,17 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
     return this
   }
 
-  onConflict(target: (keyof TColumns & string)[]): OnConflictBuilder<TColumns, TResult> {
+  /** INSERT ... SELECT: write `columns` from the rows `query` returns, its columns in the same order. */
+  fromSelect(columns: (keyof TColumns & string)[], query: SubqueryRef): this {
+    this._state.insertSelect = { columns: [...columns], query }
+
+    return this
+  }
+
+  /** Without a target, `ON CONFLICT DO NOTHING` skips a row conflicting on any unique constraint. */
+  onConflict(): Pick<OnConflictBuilder<TColumns, TResult>, 'doNothing'>
+  onConflict(target: (keyof TColumns & string)[]): OnConflictBuilder<TColumns, TResult>
+  onConflict(target: (keyof TColumns & string)[] = []): OnConflictBuilder<TColumns, TResult> {
     this._state.conflictTarget = target as string[]
 
     return new OnConflictBuilder(this)

@@ -1,4 +1,4 @@
-import type { ExprTape } from './expr'
+import type { ExprTape, SubqueryRef } from './_tape'
 import type { SelectBuilder } from './select'
 import { ValidationError } from '../errors/index'
 import { qualifyCol } from '../sql/utils'
@@ -10,7 +10,8 @@ export type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' 
 
 // --- ORDER BY ---
 export type OrderDir = 'asc' | 'desc'
-export interface OrderEntry { col: string, dir: OrderDir, nulls?: 'first' | 'last' }
+// `expr`, when set, orders by that expression instead of `col`.
+export interface OrderEntry { col: string, dir: OrderDir, nulls?: 'first' | 'last', expr?: ExprTape }
 
 // --- JOIN ---
 export interface JoinEntry {
@@ -28,6 +29,8 @@ export interface CteEntry {
   params: unknown[]
   materialized?: boolean
   recursive?: boolean
+  // A builder rendered when the statement is, in its dialect, in place of `sql` and `params`.
+  query?: SubqueryRef
 }
 
 // --- WINDOW ---
@@ -82,17 +85,24 @@ export interface BuilderState {
   offset: number | null
   // GROUP BY, HAVING
   groupBy: string[]
+  groupByExprs?: ExprTape[]
   havingTape: ExprTape | null
   // FOR UPDATE / SKIP LOCKED
   lockMode: 'update' | 'share' | 'no_key_update' | 'key_share' | null
   skipLocked: boolean
+  noWait?: boolean
+  lockOf?: string[]
   // INSERT values
   insertValues: Record<string, unknown> | null
   insertManyValues: Record<string, unknown>[] | null
+  // INSERT ... SELECT: the columns written and the query giving their rows.
+  insertSelect?: { columns: string[], query: SubqueryRef }
   // The SQL each column's default stands for, which a SQLite multi-row insert writes for a column a row leaves out.
   defaultSql?: Record<string, string>
   // UPDATE set
   setValues: Record<string, unknown> | null
+  // UPDATE ... FROM and DELETE ... USING: the other tables the statement reads.
+  fromTables?: { table: string, alias: string }[]
   // RETURNING
   returning: string[] | null // null = no RETURNING, [] = RETURNING *
   // An internal expression RETURNING adds after the columns, trusted SQL: the flag telling an upsert's inserted rows from its updated ones on Postgres.
@@ -128,6 +138,8 @@ export interface BuilderState {
 export interface ComputedColumn {
   expr: string
   alias: string
+  /** An expression tape printed in place of `expr`, its params bound: `computed()` given `coalesce()` or `caseWhen()`. */
+  tape?: ExprTape
   /** A WHERE ANDed onto `expr` and the whole wrapped in parentheses, with bare columns qualified: how a filtered relation count carries its params. */
   filter?: { tape: ExprTape, qualifier: string }
 }
@@ -206,8 +218,11 @@ export function cloneState(s: BuilderState): BuilderState {
     distinctOn: [...s.distinctOn],
     whereTape: s.whereTape ? [...s.whereTape] : null,
     joins: s.joins.map(j => ({ ...j })),
+    fromTables: s.fromTables?.map(t => ({ ...t })),
+    lockOf: s.lockOf ? [...s.lockOf] : undefined,
     orderBy: s.orderBy.map(o => ({ ...o })),
     groupBy: [...s.groupBy],
+    groupByExprs: s.groupByExprs ? [...s.groupByExprs] : undefined,
     havingTape: s.havingTape ? [...s.havingTape] : null,
     insertValues: s.insertValues ? { ...s.insertValues } : null,
     insertManyValues: s.insertManyValues ? s.insertManyValues.map(r => ({ ...r })) : null,

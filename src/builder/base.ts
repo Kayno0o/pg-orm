@@ -1,8 +1,9 @@
 import type { Dialect } from '../dialect'
-import type { AnyColumns } from '../types/index'
+import type { AnyColumns, AnyTableDef } from '../types/index'
 import type { OptionalWhere } from './_where'
 import type { BuilderState, QueryOp } from './state'
 import { DialectError } from '../errors/index'
+import { validateIdentifier } from '../schema/validate'
 import { appendWhere, replaceWhere } from './_where'
 import { assembleQuery } from './assembler'
 import { cloneState, createState } from './state'
@@ -63,29 +64,38 @@ export abstract class MutationBuilder extends BaseBuilder {
 
     return this
   }
+
+  // Another table the statement reads, its columns named `alias.col` in WHERE and SET.
+  protected _addFrom(target: AnyTableDef | string, alias: string, context: string): void {
+    const table = typeof target === 'string' ? target : target.name
+
+    validateIdentifier(table, `${context} table`)
+    validateIdentifier(alias, `${context} alias`)
+    this._state.fromTables = [...this._state.fromTables ?? [], { table, alias }]
+  }
 }
 
-export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = AnyColumns> extends MutationBuilder {
+export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = AnyColumns, TJoined extends AnyColumns = {}> extends MutationBuilder {
   /**
    * Set the WHERE clause, as either `{ col: value }` (entries ANDed) or an
    * `ExprBuilder` callback. Replaces any existing WHERE; a falsy `cond` is a no-op.
    */
-  where(cond: OptionalWhere<TColumns>): this {
-    replaceWhere<TColumns>(this._state, cond)
+  where(cond: OptionalWhere<TColumns & TJoined>): this {
+    replaceWhere<TColumns & TJoined>(this._state, cond)
 
     return this
   }
 
   /** AND an additional condition onto the WHERE clause. A falsy `cond` is a no-op. */
-  andWhere(cond: OptionalWhere<TColumns>): this {
-    appendWhere<TColumns>(this._state, [cond])
+  andWhere(cond: OptionalWhere<TColumns & TJoined>): this {
+    appendWhere<TColumns & TJoined>(this._state, [cond])
 
     return this
   }
 
   /** AND every truthy condition onto the WHERE clause. Falsy entries are skipped. */
-  whereAll(...conds: OptionalWhere<TColumns>[]): this {
-    appendWhere<TColumns>(this._state, conds)
+  whereAll(...conds: OptionalWhere<TColumns & TJoined>[]): this {
+    appendWhere<TColumns & TJoined>(this._state, conds)
 
     return this
   }

@@ -62,6 +62,10 @@ export const OP_ARRAY_CONTAINS = 25 as const
 export const OP_ARRAY_OVERLAP = 26 as const
 export const OP_JSONB_SUBSCRIPT = 27 as const
 export const OP_IN_SUBQUERY = 28 as const // (a, b) IN (SELECT a, b ...)
+export const OP_DISTINCT_FROM = 29 as const // a IS [NOT] DISTINCT FROM b
+export const OP_JSONB_CONTAINS = 30 as const // a @> b::text::jsonb
+export const OP_COALESCE = 31 as const
+export const OP_CASE = 32 as const
 
 export type ExprOp
   = | { op: typeof OP_AND, count: number }
@@ -91,7 +95,11 @@ export type ExprOp
     | { op: typeof OP_ARRAY_CONTAINS, col: string | ExprTape, val: unknown }
     | { op: typeof OP_ARRAY_OVERLAP, col: string | ExprTape, vals: unknown[] }
     | { op: typeof OP_JSONB_SUBSCRIPT, col: string | ExprTape, path: (string | number)[] }
-    | { op: typeof OP_IN_SUBQUERY, cols: string[], subquery: SubqueryRef }
+    | { op: typeof OP_IN_SUBQUERY, cols: string[], subquery: SubqueryRef, negate?: boolean }
+    | { op: typeof OP_DISTINCT_FROM, col: string | ExprTape, val: unknown, negate: boolean }
+    | { op: typeof OP_JSONB_CONTAINS, col: string | ExprTape, val: unknown }
+    | { op: typeof OP_COALESCE, col: string | ExprTape, fallback: unknown }
+    | { op: typeof OP_CASE, whens: [ExprTape, unknown][], otherwise?: unknown }
 
 export type ExprTape = ExprOp[]
 
@@ -105,21 +113,26 @@ export interface TsQueryRef {
   query: string
 }
 
-const COLUMN_REF: unique symbol = Symbol('pg-orm.ColumnRef')
+const SQL_VALUE: unique symbol = Symbol('pg-orm.SqlValue')
 
-/** A column standing where a comparison takes a value, so two columns compare without a bound parameter. Only `ref()` makes one. */
-export type ColumnRef = ExprTape & { readonly [COLUMN_REF]: true }
+/** An expression standing where a value goes (a comparison's right side, a CASE branch), printed as SQL rather than bound. Only the expression builder makes one. */
+export type TypedExpr<T> = ExprTape & { readonly [SQL_VALUE]: true, readonly __type?: T }
 
-export function columnRef(path: string): ColumnRef {
-  const tape: ExprTape = [{ op: OP_REF, path }]
+/** A column standing where a value goes, so two columns compare without a bound parameter. Only `ref()` makes one. */
+export type ColumnRef = TypedExpr<unknown>
 
-  Object.defineProperty(tape, COLUMN_REF, { value: true })
+export function sqlValue<T>(tape: ExprTape): TypedExpr<T> {
+  Object.defineProperty(tape, SQL_VALUE, { value: true })
 
-  return tape as ColumnRef
+  return tape as TypedExpr<T>
 }
 
-export function isColumnRef(val: unknown): val is ColumnRef {
-  return Array.isArray(val) && (val as unknown as Record<symbol, unknown>)[COLUMN_REF] === true
+export function columnRef(path: string): ColumnRef {
+  return sqlValue([{ op: OP_REF, path }])
+}
+
+export function isSqlValue(val: unknown): val is TypedExpr<unknown> {
+  return Array.isArray(val) && (val as unknown as Record<symbol, unknown>)[SQL_VALUE] === true
 }
 
 // Branded aggregate result — carries the resolved type at the type level
@@ -172,9 +185,9 @@ class ExprAssembler {
     return `$${this.pidx++}`
   }
 
-  // A comparison's right side: a column from `ref()`, else a bound value.
+  // A value position: an expression from the builder (`ref()`, `coalesce()`, `caseWhen()`) printed as SQL, else a bound value.
   private operand(val: unknown): string {
-    return isColumnRef(val) ? this.walkSubTape(val) : this.nextParam(val)
+    return isSqlValue(val) ? this.walkSubTape(val) : this.nextParam(val)
   }
 
   private walk(pos: number): WalkResult {
@@ -340,7 +353,21 @@ class ExprAssembler {
       case OP_IN_SUBQUERY: {
         const cols = op.cols.map(col => this.walkCol(col))
 
-        return { sql: `${cols.length === 1 ? cols[0] : `(${cols.join(', ')})`} IN (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+        return { sql: `${cols.length === 1 ? cols[0] : `(${cols.join(', ')})`} ${op.negate ? 'NOT IN' : 'IN'} (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      }
+      case OP_DISTINCT_FROM:
+        return { sql: `${this.walkCol(op.col)} IS ${op.negate ? 'NOT ' : ''}DISTINCT FROM ${this.operand(op.val)}`, next: pos + 1 }
+      case OP_JSONB_CONTAINS:
+        this.postgresOnly('jsonbContains()')
+
+        return { sql: `${this.walkCol(op.col)} @> ${this.nextParam(JSON.stringify(op.val))}::text::jsonb`, next: pos + 1 }
+      case OP_COALESCE:
+        return { sql: `COALESCE(${this.walkCol(op.col)}, ${this.operand(op.fallback)})`, next: pos + 1 }
+      case OP_CASE: {
+        const branches = op.whens.map(([cond, then]) => `WHEN ${this.walkSubTape(cond)} THEN ${this.operand(then)}`)
+        const otherwise = op.otherwise === undefined ? '' : ` ELSE ${this.operand(op.otherwise)}`
+
+        return { sql: `(CASE ${branches.join(' ')}${otherwise} END)`, next: pos + 1 }
       }
       // On SQLite an array column holds JSON text, its elements read through json_each.
       case OP_ARRAY_CONTAINS:

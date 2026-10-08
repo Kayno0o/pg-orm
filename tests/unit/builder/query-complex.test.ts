@@ -458,12 +458,12 @@ describe('Complex query builder', () => {
   // --- Pattern matching convenience ---
 
   describe('Pattern matching', () => {
-    it('startsWith generates ILIKE with escaped pattern', () => {
+    it('startsWith generates a case-sensitive LIKE with escaped pattern', () => {
       const { sql, params } = select()
         .where(e => e.startsWith('name', 'Al'))
         .toSQL()
 
-      expect(sql).toContain('ILIKE $1')
+      expect(sql).toContain('"name" LIKE $1')
       expect(params).toEqual(['Al%'])
     })
 

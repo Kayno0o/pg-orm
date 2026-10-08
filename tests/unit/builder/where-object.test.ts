@@ -120,7 +120,7 @@ describe('object where operators', () => {
   it('escapes LIKE metacharacters in contains/startsWith/endsWith', () => {
     const { sql, params } = select().where({ name: { contains: '100%' } }).toSQL()
 
-    expect(sql).toBe('SELECT * FROM "users" WHERE "name" ILIKE $1')
+    expect(sql).toBe('SELECT * FROM "users" WHERE "name" LIKE $1')
     expect(params).toEqual(['%100\\%%'])
   })
 

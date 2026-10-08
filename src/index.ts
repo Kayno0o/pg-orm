@@ -2,12 +2,14 @@
 export {
   type AggResult,
   type AssembledExpr,
+  type ColumnRef,
   createExprBuilder,
   type ExprBuilder,
   type ExprOp,
   type ExprTape,
   type SubqueryRef,
   type TsQueryRef,
+  type TypedExpr,
 } from './builder/expr'
 
 // Query builders
@@ -29,6 +31,7 @@ export {
   rawExpr,
   SelectBuilder,
   SetOperationBuilder,
+  type SetValues,
   UpdateBuilder,
   UpsertBuilder,
   type WhereFn,

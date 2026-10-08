@@ -1,12 +1,12 @@
 import type { Dialect } from '../dialect'
 import type { ExprTape } from './_tape'
-import type { BuilderState, MergeWhen } from './state'
+import type { BuilderState, MergeWhen, OrderEntry } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
-import { assembleExpr, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
+import { assembleExpr, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { formatOrderBy, isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
+import { isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
 
 /**
  * Single bottleneck for placeholder counting and parameter accumulation.
@@ -60,6 +60,16 @@ function printCtes(sb: SqlBuilder, ctes: BuilderState['ctes']): void {
 
   const cteParts = ctes.map((c) => {
     const mat = c.materialized === true ? 'MATERIALIZED ' : c.materialized === false ? 'NOT MATERIALIZED ' : ''
+
+    if (c.query) {
+      const built = c.query.toSQL(sb.pidx - 1, sb.dialect)
+
+      sb.params.push(...built.params)
+      sb.pidx += built.params.length
+
+      return `${quote(c.name)} AS (${mat}${built.sql})`
+    }
+
     // Renumber $N placeholders by captured index + current offset, then push params.
     // This preserves duplicate references (`$1 ... $1`) and out-of-order references
     // (`$2 ... $1`) — both would be silently miscompiled by occurrence-based mapping.
@@ -79,10 +89,17 @@ function printCtes(sb: SqlBuilder, ctes: BuilderState['ctes']): void {
 
 // --- Shared clause printers ---
 
-function printReturning(sb: SqlBuilder, returning: string[] | null, extra?: string): void {
-  if (returning) {
-    sb.push(`RETURNING ${returning.length ? quoteCols(returning) : '*'}${extra ? `, ${extra}` : ''}`)
-  }
+// A statement reading other tables (UPDATE ... FROM, DELETE ... USING) returns only its own table's columns: a bare * would bring theirs along on Postgres.
+function printReturning(sb: SqlBuilder, state: BuilderState): void {
+  const { returning, returningExtra: extra } = state
+
+  if (!returning)
+    return
+
+  const q = state.fromTables?.length ? state.table : undefined
+  const all = q && sb.dialect === 'postgres' ? `${quote(q)}.*` : '*'
+
+  sb.push(`RETURNING ${returning.length ? quoteCols(returning, q) : all}${extra ? `, ${extra}` : ''}`)
 }
 
 // The columns an insert writes. Rows writing different ones are refused: copying them on conflict would overwrite a column a row left out with its default.
@@ -104,14 +121,18 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   if (!state.conflictTarget)
     return
 
-  const target = quoteCols(state.conflictTarget)
+  // No target skips a row conflicting on any constraint, which only DO NOTHING can do.
+  const target = state.conflictTarget.length ? ` (${quoteCols(state.conflictTarget)})` : ''
 
   if (state.conflictAction !== 'update') {
     if (state.conflictAction === 'nothing')
-      sb.push(`ON CONFLICT (${target}) DO NOTHING`)
+      sb.push(`ON CONFLICT${target} DO NOTHING`)
 
     return
   }
+
+  if (!target)
+    throw new ValidationError('ON CONFLICT DO UPDATE needs the conflict target: name the columns in onConflict().', 'onConflict')
 
   const set = state.conflictSet ?? {}
   // `[]` copies every incoming column but the target, `null` copies none.
@@ -139,7 +160,7 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
 
   const guard = state.conflictWhere ? ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table)}` : ''
 
-  sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${clauses.join(', ')}${guard}`)
+  sb.push(`ON CONFLICT${target} DO UPDATE SET ${clauses.join(', ')}${guard}`)
 }
 
 function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): void {
@@ -161,7 +182,7 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
     // (rejects `;`, `--`, `/*`, dollar-quotes, unterminated strings). The
     // alias is bound by `validateIdentifier`. Do not introduce a new caller
     // here without applying both.
-    const expr = cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier)})` : cc.expr
+    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier)})` : cc.expr
 
     cols.push(`${expr} AS ${quote(cc.alias)}`)
   }
@@ -204,11 +225,17 @@ function printJoins(sb: SqlBuilder, state: BuilderState): void {
   }
 }
 
+// An ORDER BY list, an entry naming a column or holding an expression whose params bind in place.
+function printOrder(sb: SqlBuilder, entries: OrderEntry[], qualifier?: string): string {
+  return entries.map(o => `${o.expr ? sb.inlineExpr(o.expr, qualifier) : qualifyCol(o.col, qualifier)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+}
+
 function printGroupHaving(sb: SqlBuilder, state: BuilderState): void {
   const q = joinQualifier(state)
+  const groups = [...state.groupBy.map(col => qualifyCol(col, q)), ...(state.groupByExprs ?? []).map(expr => sb.inlineExpr(expr, q))]
 
-  if (state.groupBy.length)
-    sb.push(`GROUP BY ${quoteCols(state.groupBy, q)}`)
+  if (groups.length)
+    sb.push(`GROUP BY ${groups.join(', ')}`)
 
   if (state.havingTape)
     sb.push(`HAVING ${sb.inlineExpr(state.havingTape, q)}`)
@@ -219,7 +246,7 @@ function printWindows(sb: SqlBuilder, state: BuilderState): void {
 
   for (const w of state.windows) {
     const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy, q)}` : ''
-    const ordBy = w.orderBy.length ? `ORDER BY ${formatOrderBy(w.orderBy, q)}` : ''
+    const ordBy = w.orderBy.length ? `ORDER BY ${printOrder(sb, w.orderBy, q)}` : ''
 
     sb.push(`WINDOW ${quote(w.name)} AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
   }
@@ -227,7 +254,7 @@ function printWindows(sb: SqlBuilder, state: BuilderState): void {
 
 function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
   if (state.orderBy.length)
-    sb.push(`ORDER BY ${formatOrderBy(state.orderBy, joinQualifier(state))}`)
+    sb.push(`ORDER BY ${printOrder(sb, state.orderBy, joinQualifier(state))}`)
 
   if (state.limit != null)
     sb.push(`LIMIT ${sb.pushParam(state.limit)}`)
@@ -241,16 +268,27 @@ function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
 
 // A SQLite transaction holds the whole database's write lock from its first statement, so it never meets a locked row: the clause is dropped, which SKIP LOCKED included keeps the semantics.
 function printLock(sb: SqlBuilder, state: BuilderState): void {
-  if (state.skipLocked && !state.lockMode)
-    throw new ValidationError('skipLocked() needs a lock: call forUpdate(), forShare() or forNoKeyUpdate() too.', 'skipLocked')
+  const modifier = state.skipLocked ? 'skipLocked' : state.noWait ? 'noWait' : state.lockOf?.length ? 'lockOf' : null
+
+  if (modifier && !state.lockMode)
+    throw new ValidationError(`${modifier}() needs a lock: call forUpdate(), forNoKeyUpdate(), forShare() or forKeyShare() too.`, modifier)
+
+  if (state.skipLocked && state.noWait)
+    throw new ValidationError('skipLocked() and noWait() cannot both apply: a locked row is either skipped or an error.', 'noWait')
 
   if (!state.lockMode || sb.dialect === 'sqlite')
     return
 
   sb.push(`FOR ${state.lockMode.toUpperCase().replaceAll('_', ' ')}`)
 
+  if (state.lockOf?.length)
+    sb.push(`OF ${state.lockOf.map(quote).join(', ')}`)
+
   if (state.skipLocked)
     sb.push('SKIP LOCKED')
+
+  if (state.noWait)
+    sb.push('NOWAIT')
 }
 
 // Trashed rows are left out here rather than when the repository hands the builder over, so a withTrashed() called later still lets them in.
@@ -267,7 +305,7 @@ export const PARTITION_RANK = '__pgorm_rn'
 
 // Rows numbered within each `limitPer` value, the window keeping the query's order, then cut to the offset and limit; the rank column comes back with the rows.
 function printPartitionedSelect(sb: SqlBuilder, state: BuilderState, column: string): void {
-  const order = state.orderBy.length ? ` ORDER BY ${formatOrderBy(state.orderBy, joinQualifier(state))}` : ''
+  const order = state.orderBy.length ? ` ORDER BY ${printOrder(sb, state.orderBy, joinQualifier(state))}` : ''
   const rank = { expr: `ROW_NUMBER() OVER (PARTITION BY ${qualifyCol(column, joinQualifier(state))}${order})`, alias: PARTITION_RANK }
   const offset = state.offset ?? 0
 
@@ -312,7 +350,30 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
 
 // --- INSERT / UPDATE / DELETE ---
 
+// SQLite reads an ON CONFLICT after a bare SELECT as a join constraint: the WHERE wrapping the query ends it first.
+function printInsertSelect(sb: SqlBuilder, state: BuilderState, insert: NonNullable<BuilderState['insertSelect']>): void {
+  if (insert.columns.length === 0)
+    throw new ValidationError('InsertBuilder.fromSelect() needs at least one column.', 'InsertBuilder.fromSelect()')
+
+  const built = insert.query.toSQL(sb.pidx - 1, sb.dialect)
+
+  sb.params.push(...built.params)
+  sb.pidx += built.params.length
+
+  const query = sb.dialect === 'sqlite' ? `SELECT * FROM (${built.sql}) WHERE true` : built.sql
+
+  sb.push(`INSERT INTO ${quote(state.table)} (${quoteCols(insert.columns)}) ${query}`)
+  printOnConflict(sb, state)
+  printReturning(sb, state)
+}
+
 function printInsert(sb: SqlBuilder, state: BuilderState): void {
+  if (state.insertSelect) {
+    printInsertSelect(sb, state, state.insertSelect)
+
+    return
+  }
+
   const vals = state.insertValues!
   const keys = Object.keys(vals)
 
@@ -321,7 +382,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
   if (keys.length === 0) {
     sb.push(`INSERT INTO ${quote(state.table)} DEFAULT VALUES`)
     printOnConflict(sb, state)
-    printReturning(sb, state.returning, state.returningExtra)
+    printReturning(sb, state)
 
     return
   }
@@ -331,7 +392,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
   printOnConflict(sb, state)
-  printReturning(sb, state.returning, state.returningExtra)
+  printReturning(sb, state)
 }
 
 // A column a row leaves out takes its default, which SQLite cannot ask for by `DEFAULT` inside VALUES: there the default's own expression is written out, from the table the repository knows.
@@ -371,7 +432,7 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
 
     sb.push(`INSERT INTO ${quote(state.table)} DEFAULT VALUES`)
     printOnConflict(sb, state)
-    printReturning(sb, state.returning, state.returningExtra)
+    printReturning(sb, state)
 
     return
   }
@@ -383,13 +444,16 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES ${valueSets.join(', ')}`)
   printOnConflict(sb, state)
-  printReturning(sb, state.returning, state.returningExtra)
+  printReturning(sb, state)
 }
 
-function printSetClauses(sb: SqlBuilder, values: Record<string, unknown>): string {
+function printSetClauses(sb: SqlBuilder, values: Record<string, unknown>, qualifier?: string): string {
   return Object.entries(values).map(([k, v]) => {
     if (isRawSql(v))
       return `${quote(k)} = ${v.__raw}`
+
+    if (isSqlValue(v))
+      return `${quote(k)} = ${sb.inlineExpr(v, qualifier)}`
 
     return `${quote(k)} = ${sb.pushParam(v)}`
   }).join(', ')
@@ -405,11 +469,16 @@ function printUpdate(sb: SqlBuilder, state: BuilderState): void {
 
   requireWhereOrAllRows(state)
 
-  const setClauses = printSetClauses(sb, state.setValues)
+  const q = state.fromTables?.length ? state.table : undefined
+  const setClauses = printSetClauses(sb, state.setValues, q)
 
   sb.push(`UPDATE ${quote(state.table)} SET ${setClauses}`)
-  printWhere(sb, state.whereTape)
-  printReturning(sb, state.returning, state.returningExtra)
+
+  if (q)
+    sb.push(`FROM ${fromList(state)}`)
+
+  printWhere(sb, state.whereTape, q)
+  printReturning(sb, state)
 }
 
 // A falsy where() is a no-op, so a builder whose every condition came out falsy would otherwise reach the whole table.
@@ -418,11 +487,24 @@ function requireWhereOrAllRows(state: BuilderState): void {
     throw new ValidationError(`${state.op}() on "${state.table}" has no WHERE: call allRows() to reach every row on purpose.`, state.op)
 }
 
+// The other tables an UPDATE ... FROM or DELETE ... USING reads, each under its alias.
+function fromList(state: BuilderState): string {
+  return (state.fromTables ?? []).map(t => `${quote(t.table)} AS ${quote(t.alias)}`).join(', ')
+}
+
 function printDelete(sb: SqlBuilder, state: BuilderState): void {
   requireWhereOrAllRows(state)
   sb.push(`DELETE FROM ${quote(state.table)}`)
-  printWhere(sb, state.whereTape)
-  printReturning(sb, state.returning, state.returningExtra)
+
+  const q = state.fromTables?.length ? state.table : undefined
+
+  if (q) {
+    sb.postgresOnly('DELETE ... USING')
+    sb.push(`USING ${fromList(state)}`)
+  }
+
+  printWhere(sb, state.whereTape, q)
+  printReturning(sb, state)
 }
 
 // --- MERGE ---
@@ -495,7 +577,7 @@ function printMerge(sb: SqlBuilder, state: BuilderState): void {
     printMergeWhen(sb, when)
   }
 
-  printReturning(sb, state.returning, state.returningExtra)
+  printReturning(sb, state)
 }
 
 // --- UPSERT ---
@@ -517,7 +599,7 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
     sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
   }
 
-  printReturning(sb, state.returning, state.returningExtra)
+  printReturning(sb, state)
 }
 
 // --- RAW ---

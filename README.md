@@ -233,13 +233,13 @@ q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equali
 
 // ...with operators, several of which AND together
 q.where({ age: { gte: 18, lt: 65 } })
-q.where({ name: { contains: 'dev' } })       // ILIKE '%dev%', metacharacters escaped
+q.where({ name: { contains: 'dev' } })       // LIKE '%dev%', metacharacters escaped; iContains for ILIKE
 q.where({ price: { between: [10, 100] } })
 q.where({ deletedAt: { isNull: false } })
 q.where({ tags: { eq: ['a', 'b'] } })        // an array column takes no bare array
 ```
 
-Operators: `eq neq gt gte lt lte in notIn like ilike contains startsWith endsWith between isNull`.
+Operators: `eq neq gt gte lt lte in notIn like ilike contains startsWith endsWith iContains iStartsWith iEndsWith between isNull`. `contains`, `startsWith` and `endsWith` match case; their `i` variants do not.
 
 `undefined` as a value and `{}` as a whole clause both throw `ValidationError` — a typo
 must not silently widen a `deleteMany` to every row.
@@ -263,20 +263,30 @@ q.whereAll(
 )
 
 // Pattern matching (auto-escapes user input)
-q.where(e => e.startsWith('name', 'Al'))  // ILIKE 'Al%'
-q.where(e => e.contains('bio', 'dev'))     // ILIKE '%dev%'
+q.where(e => e.startsWith('name', 'Al'))   // LIKE 'Al%', matching case
+q.where(e => e.iContains('bio', 'dev'))    // ILIKE '%dev%'
+q.where(e => e.notLike('code', 'tmp-%'))   // notIlike too
 
-// Null checks
+// Null checks; IS DISTINCT FROM counts a null as a value
 q.where(e => e.isNull('deletedAt'))
+q.where(e => e.isDistinctFrom('status', 'done'))  // rows with a null status included
+
+// COALESCE and CASE stand where a value goes, and in computed()
+q.where(e => e.eq(e.coalesce('nickname', ''), ''))
+q.computed(e => e.caseWhen([[e.gt('stock', 10), 'plenty'], [e.gt('stock', 0), 'low']], 'out'), 'availability')
+
+// IN / NOT IN a subquery, any builder
+q.where(e => e.inSubquery('authorId', db.repo(authors).read.select().pick('id').where({ verified: true })))
 
 // JSONB
 q.where(e => e.jsonbPath('metadata', '$.tags[*] ? (@ == "important")'))
+q.where(e => e.jsonbContains('metadata', { tags: ['important'] }))  // @>
 
 // Full-text search
 q.where(e => e.tsMatch('searchVector', e.tsQuery('english', 'hello world')))
 
-// pgvector
-q.orderBy('embedding', 'asc') // with vectorCosineDistance in computed
+// ORDER BY an expression: pgvector distance, a CASE, a coalesce
+q.orderBy(e => e.vectorCosineDistance('embedding', queryVector)).limit(10)
 ```
 
 ### JOINs, CTEs, Window Functions
@@ -290,13 +300,16 @@ q.leftJoin(profiles, 'p', e => e.eq('id', e.ref('p.userId')))
 // Compare two columns: e.ref() stands where a value would
 q.where(e => e.lt('stock', e.ref('minStock')))
 
-// CTE
+// CTE: a builder, parameterized like any query, or trusted SQL
+q.with('recent', db.repo(posts).read.select().pick('authorId').where(e => e.gt('createdAt', since)))
+  .where(e => e.inSubquery('id', new SelectBuilder('recent').pick('authorId')))
 q.with('active_users', 'SELECT * FROM users WHERE active = true')
 q.withRecursive('tree', 'SELECT ... UNION ALL SELECT ...')
 
-// Window
+// Window functions over a declared window; a count, a sum or a rank reads back as a number
 q.window('w', { partitionBy: ['department'], orderBy: [{ col: 'salary', dir: 'desc' }] })
-  .computedRaw(rawExpr<number>('ROW_NUMBER() OVER w'), 'rank') // rows get a typed `rank: number`
+  .computed(e => e.over(e.rowNumber(), 'w'), 'rank')        // rank(), denseRank() too
+  .computed(e => e.over(e.sum('salary'), 'w'), 'running')
 
 // Aggregates
 q.aggregate(e => ({
@@ -308,6 +321,10 @@ q.aggregate(e => ({
 // GROUP BY + HAVING — takes both WHERE forms; a grouped select always lists its group columns, before or after aggregate()
 q.groupBy('department').having(e => e.gt('count', 5))
 q.groupBy('department').aggregate(e => ({ total: e.countCol() })) // rows: { department, total }
+q.aggregate(e => ({ authors: e.countDistinct('authorId') }))
+
+// GROUP BY an expression. Each copy of an expression binds its own values, so one with bound values cannot be repeated in the select list or ORDER BY.
+q.pick().computed(e => e.countCol(), 'n').groupByExpr(e => e.caseWhen([[e.gt('price', 100), 'premium']], 'standard'))
 ```
 
 `pick()` and `omit()` reshape only the table columns: computed, `include` and `withCount` fields added before them stay. On a repository read, `omit()` lists the remaining columns rather than fetching `*`.
@@ -378,6 +395,13 @@ await repo.write.deleteAll()
 
 // The raw update()/delete() builders refuse a statement left without a WHERE too, unless told
 const { sql, params } = repo.write.delete().allRows().toSQL()
+
+// ...and read other tables: UPDATE ... FROM and DELETE ... USING (Postgres), the other table's columns named `alias.col`
+repo.write.update().from(stock, 's').set(e => ({ qty: e.ref('s.qty') })).where(e => e.eq('id', e.ref('s.itemId'))).returning()
+repo.write.delete().using(bans, 'b').where(e => e.eq('email', e.ref('b.email')))
+
+// INSERT ... SELECT, and ON CONFLICT DO NOTHING with no target skipping a row conflicting on any constraint
+repo.write.insert().fromSelect(['id', 'name'], db.repo(drafts).read.select().pick('id', 'name')).onConflict().doNothing()
 
 // Upsert — INSERT ... ON CONFLICT (conflictTarget) DO UPDATE
 await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
@@ -578,6 +602,8 @@ await db.transaction(async (tx) => {
 })
 ```
 
+The lock modes are `forUpdate()`, `forNoKeyUpdate()`, `forShare()` and `forKeyShare()`; `lockOf('t', 'alias')` locks only those tables of a join, and `skipLocked()` skips a locked row where `noWait()` fails at once on it.
+
 **Several writes that must succeed together**: every repo in the body goes through `.using(tx)`; one that does not writes outside the transaction.
 
 ```ts
@@ -746,12 +772,12 @@ The file and its directory are created on first use, in WAL mode, with foreign k
 **What differs from Postgres:**
 
 - `like()` is case-sensitive, through `GLOB`; `ilike()` ignores ASCII case only.
-- Row locks (`forUpdate()`, `skipLocked()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels and access modes are checked and then ignored: every transaction is serializable, and a `read only` one can still write.
+- Row locks (`forUpdate()`, `skipLocked()`, `noWait()`, `lockOf()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels and access modes are checked and then ignored: every transaction is serializable, and a `read only` one can still write.
 - An independent transaction (`{ independent: true }`) cannot be opened from inside another one.
 - Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique index by its columns too. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
 - A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
-- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, lateral joins, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, and a serial column that is not the single primary key. Raw SQL fragments and `jsonAgg()`, `arrayAgg()` or `jsonbAgg()` name Postgres functions, which SQLite does not have.
+- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, and a serial column that is not the single primary key. Raw SQL fragments and `jsonAgg()`, `arrayAgg()` or `jsonbAgg()` name Postgres functions, which SQLite does not have.
 
 ## Raw SQL
 
