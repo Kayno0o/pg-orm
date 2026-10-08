@@ -127,6 +127,29 @@ describe('sync() on SQLite', () => {
     expect((await db.sync()).ops).toEqual([])
   })
 
+  it('renames a table, keeping its rows, with an identity key, a UNIQUE over two columns and expression and descending indexes', async () => {
+    const open = file()
+    const before = defineTable('old_tags', t => ({ id: t.int4().primaryKey().identity(), a: t.text(), b: t.text() }))
+      .withUnique(['a', 'b'])
+      .withIndexes([{ columns: ['a'], desc: ['a'] }, { name: 'old_tags_lower_b', columns: [], expressions: ['lower("b")'] }])
+
+    await open([before]).sync()
+    await opened.at(-1)!.raw('INSERT INTO "old_tags" ("a", "b") VALUES ($1, $2)', ['x', 'y'])
+    await expect(opened.at(-1)!.raw('INSERT INTO "old_tags" ("a", "b") VALUES ($1, $2)', ['x', 'y'])).rejects.toThrow()
+
+    const after = defineTable('tags', t => ({ id: t.int4().primaryKey().identity(), a: t.text(), b: t.text() }))
+      .withUnique(['a', 'b'])
+      .withIndexes([{ columns: ['a'], desc: ['a'] }, { name: 'tags_lower_b', columns: [], expressions: ['lower("b")'] }])
+      .renamedFrom('old_tags')
+    const db = open([after])
+    const { ops } = await db.sync()
+
+    expect(ops.every(op => !op.destructive)).toBe(true)
+    expect(await db.raw('SELECT "id", "a" FROM "tags"')).toEqual([{ id: 1, a: 'x' }])
+    expect(await db.raw('INSERT INTO "tags" ("a", "b") VALUES ($1, $2) RETURNING "id"', ['z', 'y'])).toEqual([{ id: 2 }])
+    expect((await db.sync()).ops).toEqual([])
+  })
+
   it('adds a NOT NULL column without a default to a table with rows through its backfill value', async () => {
     const open = file()
 

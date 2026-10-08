@@ -46,7 +46,7 @@ export interface ColumnDef<
 }
 
 export interface ColumnConstraint {
-  readonly type: 'not_null' | 'unique' | 'primary_key' | 'check' | 'default' | 'references' | 'generated'
+  readonly type: 'not_null' | 'unique' | 'primary_key' | 'check' | 'default' | 'references' | 'generated' | 'identity'
   readonly value?: string
 }
 
@@ -55,6 +55,8 @@ export interface ForeignKeyRef {
   readonly column: string
   readonly onDelete?: 'cascade' | 'restrict' | 'set null' | 'set default' | 'no action'
   readonly onUpdate?: 'cascade' | 'restrict' | 'set null' | 'set default' | 'no action'
+  /** DEFERRABLE, checked at the end of the statement (`immediate`) or of the transaction (`deferred`) unless `SET CONSTRAINTS` says otherwise. */
+  readonly deferrable?: 'immediate' | 'deferred'
 }
 
 // --- Relation Types ---
@@ -149,6 +151,20 @@ export interface IndexDef {
   readonly method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin'
   readonly where?: string
   readonly name?: string
+  /** Columns of `columns` sorted descending. */
+  readonly desc?: string[]
+  /** An operator class per column of `columns` (`text_pattern_ops`, `gin_trgm_ops`). Name only a non-default one: Postgres leaves the default out when it prints the index back. */
+  readonly opclass?: Record<string, string>
+  /** Expressions indexed after `columns` (`lower(email)`). @trusted Embedded into DDL as is; an index with one needs a `name`. */
+  readonly expressions?: string[]
+  /** Columns stored in the index without being part of its key (`INCLUDE`). */
+  readonly include?: string[]
+}
+
+/** A UNIQUE constraint over several columns, declared with `withUnique()`. */
+export interface UniqueDef {
+  readonly columns: string[]
+  readonly name?: string
 }
 
 // --- Virtual/Computed Fields ---
@@ -181,6 +197,11 @@ export interface TableDef<
   readonly hooks: { [E in HookEvent]?: HookHandler<TColumns, E>[] }
   readonly primaryKey: string | null
   readonly indexes: IndexDef[]
+  readonly uniques: UniqueDef[]
+  /** The table's comment, from `withComment()`. */
+  readonly comment?: string
+  /** The name the table had before, from `renamedFrom()`: `sync()` renames it rather than dropping one and creating the other. */
+  readonly previousName?: string
   readonly meta: Record<string, unknown>
   /** @internal */
   readonly _version: number
@@ -202,6 +223,15 @@ export interface TableDef<
 
   // Add composite or multi-column indexes
   withIndexes: (indexes: IndexDef[]) => this
+
+  // Add a UNIQUE constraint over several columns, named `<table>_<columns>_key` unless `name` says otherwise
+  withUnique: (columns: string[], name?: string) => this
+
+  // Set the table comment
+  withComment: (comment: string) => this
+
+  // Mark the table as renamed from a previous name, so sync renames it instead of dropping it
+  renamedFrom: (oldName: string) => this
 
   // Apply a trait (composable table behavior)
   withTrait: <TNewCols extends AnyColumns = {}, TNewVirts extends AnyVirtuals = {}>(trait: Trait<TNewCols, TNewVirts>) => TableDef<TName, TColumns & TNewCols, TRelations, TVirtuals & TNewVirts>

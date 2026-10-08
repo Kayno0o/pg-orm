@@ -53,6 +53,9 @@ function validateOptional(value: string, context: string, opts?: DownSqlOptions)
  * defense-in-depth.
  */
 export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): string {
+  if (op.down !== undefined)
+    return `${op.down};`
+
   switch (op.type) {
     case 'create_table': {
       const table = requireIdent(op.table, 'down.create_table.table', opts)

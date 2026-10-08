@@ -85,4 +85,5 @@ function fkChanged(liveFk: LiveForeignKey, ref: ForeignKeyRef): boolean {
     || liveFk.referencedColumn !== ref.column
     || liveFk.onDelete !== (ref.onDelete ?? 'no action').toLowerCase()
     || liveFk.onUpdate !== (ref.onUpdate ?? 'no action').toLowerCase()
+    || liveFk.deferrable !== ref.deferrable
 }

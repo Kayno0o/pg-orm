@@ -1,7 +1,9 @@
 import type { AnyTableDef } from '../../types/index'
 import type { LiveTable, MigrationOp } from '../types'
+import { getColumnMeta } from '../../schema/column-meta'
 import { buildDropTableSql, generateCreateTable } from '../ddl'
-import { diffTableColumns } from './columns'
+import { columnEntries } from '../types'
+import { diffComment, diffTableColumns } from './columns'
 
 /**
  * Diff table-level operations: create, drop, and column-level changes.
@@ -26,6 +28,10 @@ export function diffTables(
         destructive: false,
         description: `Create table "${tableName}"`,
       })
+      ops.push(...diffComment(tableName, undefined, tableDef.comment, null))
+
+      for (const [colName, colDef] of columnEntries(tableDef.columns))
+        ops.push(...diffComment(tableName, colName, getColumnMeta(colDef).comment, null))
 
       continue
     }

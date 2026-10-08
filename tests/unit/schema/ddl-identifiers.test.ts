@@ -43,6 +43,18 @@ describe('every name and value reaching DDL is validated at definition time', ()
     expect(() => defineTable('t', t => ({ a: t.varbit(Number.NaN) }))).toThrow(ValidationError)
   })
 
+  it('rejects a time precision outside 0 to 6, an unnamed expression index and an operator class or unique column that is not an identifier', () => {
+    const table = defineTable('t', t => ({ a: t.text() }))
+
+    expect(() => defineTable('t', t => ({ a: t.timestamptz(7) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ a: t.time(-1) }))).toThrow(ValidationError)
+    expect(() => table.withIndexes([{ columns: [], expressions: ['lower(a)'] }])).toThrow(ValidationError)
+    expect(() => table.withIndexes([{ columns: ['a'], opclass: { a: EVIL } }])).toThrow(ValidationError)
+    expect(() => table.withIndexes([{ columns: ['a'], include: [EVIL] }])).toThrow(ValidationError)
+    expect(() => table.withUnique(['a', EVIL])).toThrow(ValidationError)
+    expect(() => table.renamedFrom(EVIL)).toThrow(ValidationError)
+  })
+
   it('still accepts valid definitions', () => {
     const target = defineTable('target', t => ({ id: t.serial().primaryKey() }))
     const table = defineTable('t', t => ({

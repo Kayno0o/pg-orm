@@ -3,7 +3,7 @@ import { DialectError } from '../../errors/index'
 import { isConstantSqliteDefault, sqliteBackfillSql, sqliteDefaultSql } from '../../schema/column-default'
 import { quote, quoteLiteral } from '../../sql/utils'
 import { columnChecks } from '../checks'
-import { buildIndexName } from '../ddl'
+import { buildIndexName, uniqueName } from '../ddl'
 import { columnEntries } from '../types'
 
 const INTEGER_TYPES = new Set(['int2', 'int4', 'int8', 'serial', 'bigserial', 'smallserial', 'bool'])
@@ -60,6 +60,10 @@ function columnSql(tableName: string, table: AnyTableDef, colName: string, colDe
   const generated = colDef.constraints.find(c => c.type === 'generated')?.value
   const ref = colDef.references
 
+  // An identity numbers its rows as the rowid does, which is the only column SQLite numbers.
+  if (hasConstraint(colDef, 'identity') && !rowid)
+    throw new DialectError(`The identity column "${tableName}"."${colName}" outside a single integer primary key`, 'sqlite')
+
   // AUTOINCREMENT keeps a deleted id from being handed out again, as a sequence would not.
   if (rowid)
     parts.push(SERIAL_TYPES.has(colDef.pgType) ? 'PRIMARY KEY AUTOINCREMENT' : 'PRIMARY KEY')
@@ -85,6 +89,9 @@ function columnSql(tableName: string, table: AnyTableDef, colName: string, colDe
 
     if (ref.onUpdate)
       parts.push(`ON UPDATE ${ref.onUpdate.toUpperCase()}`)
+
+    if (ref.deferrable)
+      parts.push(`DEFERRABLE INITIALLY ${ref.deferrable === 'deferred' ? 'DEFERRED' : 'IMMEDIATE'}`)
   }
 
   for (const check of columnChecks(tableName, colName, colDef, 'sqlite'))
@@ -102,6 +109,9 @@ export function sqliteCreateTable(tableName: string, table: AnyTableDef, sqlName
 
   if (pk.length > 0 && rowidColumn(tableName, table) === undefined)
     lines.push(`  PRIMARY KEY (${pk.map(quote).join(', ')})`)
+
+  for (const unique of table.uniques ?? [])
+    lines.push(`  CONSTRAINT ${quote(uniqueName(tableName, unique))} UNIQUE (${unique.columns.map(quote).join(', ')})`)
 
   return `CREATE TABLE ${quote(sqlName)} (\n${lines.join(',\n')}\n)`
 }
@@ -162,9 +172,13 @@ export function sqliteIndexName(tableName: string, idx: IndexDef): string {
   return idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
 }
 
-/** `CREATE INDEX`, the definition's method left out: SQLite has B-trees only. */
+/** `CREATE INDEX`, the definition's method left out: SQLite has B-trees only, and neither operator classes nor included columns. */
 export function sqliteCreateIndex(tableName: string, idx: IndexDef): string {
-  const where = idx.where ? ` WHERE ${idx.where}` : ''
+  if (idx.include?.length || Object.keys(idx.opclass ?? {}).length)
+    throw new DialectError(`The operator classes or included columns of index "${sqliteIndexName(tableName, idx)}"`, 'sqlite')
 
-  return `CREATE ${idx.unique ? 'UNIQUE ' : ''}INDEX ${quote(sqliteIndexName(tableName, idx))} ON ${quote(tableName)} (${idx.columns.map(quote).join(', ')})${where}`
+  const where = idx.where ? ` WHERE ${idx.where}` : ''
+  const keys = [...idx.columns.map(c => `${quote(c)}${idx.desc?.includes(c) ? ' DESC' : ''}`), ...(idx.expressions ?? []).map(e => `(${e})`)]
+
+  return `CREATE ${idx.unique ? 'UNIQUE ' : ''}INDEX ${quote(sqliteIndexName(tableName, idx))} ON ${quote(tableName)} (${keys.join(', ')})${where}`
 }

@@ -1,6 +1,7 @@
 import type { Trait } from '../traits/index'
-import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, TableDef, VirtualDef } from '../types/index'
+import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, TableDef, UniqueDef, VirtualDef } from '../types/index'
 import type { ColumnTypes } from './column-types'
+import { ValidationError } from '../errors/index'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
 import { createColumnTypes } from './column-types'
@@ -146,6 +147,7 @@ export function defineTable(
     hooks,
     primaryKey: findPrimaryKey(columns),
     indexes,
+    uniques: [] as UniqueDef[],
     meta,
     _version: 0,
     hook(event: HookEvent, handler: (...args: unknown[]) => unknown) {
@@ -186,8 +188,14 @@ export function defineTable(
         if (idx.name !== undefined)
           validateIdentifier(idx.name, 'index')
 
-        for (const col of idx.columns)
+        for (const col of [...idx.columns, ...idx.desc ?? [], ...idx.include ?? [], ...Object.keys(idx.opclass ?? {})])
           validateIdentifier(col, 'index column')
+
+        for (const opclass of Object.values(idx.opclass ?? {}))
+          validateIdentifier(opclass, 'index operator class')
+
+        if (idx.expressions?.length && idx.name === undefined)
+          throw new ValidationError(`An index on expressions needs a name: ${idx.expressions.join(', ')}`, 'index', { value: idx.expressions })
 
         validateIndexMethod(idx.method, `index "${idx.name ?? idx.columns.join('_')}"`)
 
@@ -195,6 +203,34 @@ export function defineTable(
           validateRawSqlFragment(idx.where, `index "${idx.name ?? idx.columns.join('_')}"`)
       }
       ;(table.indexes as IndexDef[]).push(...idxDefs)
+      bump()
+
+      return table
+    },
+
+    withUnique(columns: string[], name?: string) {
+      for (const col of columns)
+        validateIdentifier(col, 'unique column')
+
+      if (name !== undefined)
+        validateIdentifier(name, 'unique constraint')
+
+      ;(table.uniques as UniqueDef[]).push({ columns, name })
+      bump()
+
+      return table
+    },
+
+    withComment(comment: string) {
+      table.comment = comment
+      bump()
+
+      return table
+    },
+
+    renamedFrom(oldName: string) {
+      validateIdentifier(oldName, 'renamedFrom table')
+      table.previousName = oldName
       bump()
 
       return table

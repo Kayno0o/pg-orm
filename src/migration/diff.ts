@@ -5,6 +5,7 @@ import { diffChecks } from './diff/checks'
 import { collectEnumRequirements, diffEnums } from './diff/enums'
 import { diffForeignKeys } from './diff/foreign-keys'
 import { diffIndexes } from './diff/indexes'
+import { renameTables } from './diff/renames'
 import { diffTables } from './diff/tables'
 
 /**
@@ -12,12 +13,13 @@ import { diffTables } from './diff/tables'
  * migration operations. Detects table/column/enum/FK/index/CHECK changes. Destructive
  * operations are flagged with `destructive: true`.
  *
- * Ops come in an order Postgres accepts: types first, then the foreign keys and indexes going away while their tables and columns still exist, an enum losing values while only live columns use it, the tables and columns, and last what points at them.
+ * Ops come in an order Postgres accepts: types first, renamed tables, then the foreign keys and indexes going away while their tables and columns still exist, an enum losing values while only live columns use it, the tables and columns, and last what points at them.
  */
 export function diffSchema(
-  live: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[], indexes?: LiveIndex[], checks?: LiveCheck[] },
+  liveBefore: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[], indexes?: LiveIndex[], checks?: LiveCheck[] },
   desired: ReadonlyMap<string, AnyTableDef>,
 ): MigrationOp[] {
+  const { ops: renameOps, live } = renameTables(liveBefore, desired)
   const droppedTables = new Set(live.tables.map(t => t.name).filter(n => !desired.has(n)))
   const enumOps = diffEnums(collectEnumRequirements(desired), live.enums, live.tables, desired)
   const fkOps = diffForeignKeys(desired, live.foreignKeys ?? [], live.tables)
@@ -26,6 +28,7 @@ export function diffSchema(
 
   return [
     ...enumOps.filter(op => !isEnumRemoval(op)),
+    ...renameOps,
     ...fkOps.filter(op => op.type === 'drop_fk'),
     ...dropFksBetweenDroppedTables(live.foreignKeys ?? [], droppedTables),
     ...indexOps.filter(op => op.type === 'drop_index'),

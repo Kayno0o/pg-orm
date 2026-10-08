@@ -214,6 +214,8 @@ function helperAccessor(col: string, helper: keyof Helpers): string {
   return `(r[${key}] == null ? r[${key}] : h.${helper}(r[${key}]))`
 }
 
+const TIME_PRECISION_RE = /\(\d\)$/
+
 // SQLite hands back what it stores: 0 or 1 for a boolean, the ISO string a Date was bound as, a number for a numeric, the JSON text of an array.
 function sqliteAccessor(col: string, pgType: string): string | undefined {
   const key = JSON.stringify(col)
@@ -221,14 +223,15 @@ function sqliteAccessor(col: string, pgType: string): string | undefined {
   if (pgType === 'bool')
     return `(r[${key}] == null ? r[${key}] : Boolean(r[${key}]))`
 
-  if (DATE_TYPES.has(pgType))
+  // A precision (`timestamptz(3)`) changes nothing to how the value is stored.
+  if (DATE_TYPES.has(pgType.replace(TIME_PRECISION_RE, '')))
     return `(r[${key}] == null || r[${key}] instanceof Date ? r[${key}] : new Date(r[${key}]))`
 
   if (pgType.startsWith('numeric'))
     return `(r[${key}] == null ? r[${key}] : String(r[${key}]))`
 
   if (pgType.endsWith('[]'))
-    return DATE_TYPES.has(pgType.replace(ARRAY_SUFFIX_RE, '')) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
+    return DATE_TYPES.has(pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
 
   return undefined
 }

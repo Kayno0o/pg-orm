@@ -6,7 +6,9 @@ import {
   buildAddColumnSql,
   buildAddPrimaryKeySql,
   buildAddUniqueConstraintSql,
+  buildAddUniqueSql,
   buildAlterColumnTypeSql,
+  buildCommentSql,
   buildDropColumnSql,
   buildDropConstraintSql,
   buildDropDefaultSql,
@@ -16,11 +18,13 @@ import {
   buildSetDefaultSql,
   buildSetExpressionSql,
   buildSetNotNullSql,
+  identitySql,
   normalizeExpression,
   normalizeType,
   primaryKeyName,
   sameDefault,
   uniqueConstraintName,
+  uniqueName,
   usingClause,
 } from '../ddl'
 import { SERIAL_TYPE_RE } from '../regex'
@@ -92,7 +96,49 @@ export function diffTableColumns(
     })
   }
 
-  return diffPrimaryKey(tableName, tableDef, liveTable, renameMap, ops)
+  const uniques = diffUniques(tableName, tableDef, liveTable)
+
+  return [...uniques.before, ...diffPrimaryKey(tableName, tableDef, liveTable, renameMap, ops), ...uniques.after, ...diffComment(tableName, undefined, tableDef.comment, liveTable.comment)]
+}
+
+// A UNIQUE over several columns is matched by name: one gone or over other columns is dropped before the columns change, a new one added after. Only the ones this ORM would have named are dropped, as with CHECKs: one made by hand under another name is left alone.
+function diffUniques(tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): { before: MigrationOp[], after: MigrationOp[] } {
+  const desired = new Map((tableDef.uniques ?? []).map(u => [uniqueName(tableName, u), u]))
+  const owned = (liveTable.uniques ?? []).filter(u => desired.has(u.name) || u.name === uniqueName(tableName, { columns: u.columns }))
+  const live = new Map(owned.map(u => [u.name, u]))
+  const same = (name: string) => desired.get(name)?.columns.join() === live.get(name)?.columns.join()
+  const before: MigrationOp[] = [...live.keys()].filter(name => !same(name)).map(name => ({
+    type: 'drop_constraint',
+    table: tableName,
+    sql: buildDropConstraintSql(tableName, name),
+    destructive: true,
+    description: `Drop UNIQUE constraint "${name}" from "${tableName}"`,
+  }))
+  const after: MigrationOp[] = [...desired].filter(([name]) => !same(name)).map(([name, unique]) => ({
+    type: 'add_constraint',
+    table: tableName,
+    sql: buildAddUniqueSql(tableName, unique),
+    destructive: false,
+    description: `Add UNIQUE constraint "${name}" on (${unique.columns.join(', ')}) to "${tableName}"`,
+  }))
+
+  return { before, after }
+}
+
+/** The op setting the comment of a table, or of one of its columns, when it differs from the live one; reverted by setting the live one back. */
+export function diffComment(tableName: string, colName: string | undefined, desired: string | undefined, live: string | null | undefined): MigrationOp[] {
+  if ((desired ?? null) === (live ?? null))
+    return []
+
+  return [{
+    type: 'comment',
+    table: tableName,
+    column: colName,
+    sql: buildCommentSql(tableName, colName, desired ?? null),
+    destructive: false,
+    description: `${desired === undefined ? 'Remove' : 'Set'} the comment of ${colName === undefined ? `table "${tableName}"` : `"${colName}" in "${tableName}"`}`,
+    down: buildCommentSql(tableName, colName, live ?? null),
+  }]
 }
 
 // The old key is dropped before the column changes, so a column leaving it can drop its NOT NULL, and the new one added after them, once its columns exist.
@@ -132,7 +178,7 @@ function isPrimaryKey(colDef: AnyColumnDef): boolean {
 // A NOT NULL column without a default fails to be added to a table with rows, unless `.backfill()` fills them through a default dropped right after.
 function addColumn(tableName: string, colName: string, colDef: AnyColumnDef): MigrationOp[] {
   const has = (type: ColumnConstraint['type']) => colDef.constraints.some((c: ColumnConstraint) => c.type === type)
-  const needsFill = has('not_null') && !has('default') && !has('generated') && !SERIAL_TYPE_RE.test(colDef.pgType)
+  const needsFill = has('not_null') && !has('default') && !has('generated') && !has('identity') && !SERIAL_TYPE_RE.test(colDef.pgType)
   const { backfill } = getColumnMeta(colDef)
   const fill = needsFill && backfill ? toSQLDefault(backfill.value, colDef.pgType) : undefined
   const ops: MigrationOp[] = [{
@@ -168,7 +214,7 @@ function addColumn(tableName: string, colName: string, colDef: AnyColumnDef): Mi
     })
   }
 
-  return ops
+  return [...ops, ...diffComment(tableName, colName, getColumnMeta(colDef).comment, null)]
 }
 
 export function diffColumnType(
@@ -320,7 +366,9 @@ export function diffColumn(
     })
   }
 
-  if ((!liveCol.isPrimaryKey || dropsDefault) && desiredExpr === undefined) {
+  const desiredIdentity = colDef.constraints.find((c: ColumnConstraint) => c.type === 'identity')?.value as 'always' | 'by default' | undefined
+
+  if ((!liveCol.isPrimaryKey || dropsDefault) && desiredExpr === undefined && desiredIdentity === undefined) {
     const desiredDefault = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')?.value ?? null
     const liveDefault = dropsDefault ? null : liveCol.defaultValue
 
@@ -346,7 +394,35 @@ export function diffColumn(
     }
   }
 
-  return ops
+  return [
+    ...ops,
+    ...diffIdentity(tableName, colName, desiredIdentity, liveCol),
+    ...diffComment(tableName, colName, getColumnMeta(colDef).comment, liveCol.comment),
+  ]
+}
+
+// A column made an identity loses its default first, a serial's sequence included, and its sequence starts past the values already there.
+function diffIdentity(tableName: string, colName: string, desired: 'always' | 'by default' | undefined, liveCol: LiveColumn): MigrationOp[] {
+  const live = liveCol.identity ?? null
+
+  if ((desired ?? null) === live)
+    return []
+
+  const op = (sql: string, description: string): MigrationOp => ({ type: 'alter_column', table: tableName, column: colName, sql, destructive: false, description })
+  const alter = `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}"`
+
+  if (desired === undefined)
+    return [op(`${alter} DROP IDENTITY IF EXISTS`, `Make "${colName}" in "${tableName}" a plain column, no longer an identity`)]
+
+  if (live !== null)
+    return [op(`${alter} SET GENERATED ${desired === 'always' ? 'ALWAYS' : 'BY DEFAULT'}`, `Generate "${colName}" in "${tableName}" ${desired}`)]
+
+  return [
+    ...liveCol.defaultValue === null ? [] : [op(buildDropDefaultSql(tableName, colName), `Drop default from "${colName}" in "${tableName}" before it becomes an identity`)],
+    op(`${alter} ADD ${identitySql(desired)}`, `Make "${colName}" in "${tableName}" an identity column`),
+    // The identity's own sequence, found by its internal dependency: a former serial's sequence stays owned by the column too.
+    op(`SELECT setval(d.objid::regclass, (SELECT COALESCE(MAX("${colName}"), 0) + 1 FROM "${tableName}"), false) FROM pg_depend d JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid WHERE d.refobjid = '"${tableName}"'::regclass AND a.attname = '${colName}' AND d.deptype = 'i' AND d.classid = 'pg_class'::regclass`, `Start the identity of "${colName}" in "${tableName}" past its values`),
+  ]
 }
 
 // A serial column's default is the `nextval()` of the sequence Postgres made for it, which the schema never spells out.

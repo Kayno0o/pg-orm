@@ -19,7 +19,15 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
   return result
 }
 
-function indexChanged(liveIdx: LiveIndex, idx: IndexDef): boolean {
+function indexChanged(liveIdx: LiveIndex, idx: IndexDef, tableName: string): boolean {
+  // An index on expressions, sorted, with operator classes or included columns compares as the definition Postgres prints back, from its method on.
+  if (idx.expressions?.length || idx.desc?.length || idx.include?.length || Object.keys(idx.opclass ?? {}).length) {
+    const desired = buildCreateIndexSql(tableName, idx)
+
+    return (idx.unique ?? false) !== liveIdx.isUnique
+      || normalizeExpression(desired.slice(desired.indexOf(' USING '))) !== normalizeExpression(liveIdx.definition.slice(liveIdx.definition.indexOf(' USING ')))
+  }
+
   const desiredMethod = idx.method ?? 'btree'
 
   if (liveIdx.method !== desiredMethod)
@@ -56,7 +64,7 @@ export function diffIndexes(
     if (liveIndexMap.has(name)) {
       const liveIdx = liveIndexMap.get(name)!
 
-      if (indexChanged(liveIdx, idx)) {
+      if (indexChanged(liveIdx, idx, tableName)) {
         ops.push({
           type: 'drop_index',
           table: tableName,

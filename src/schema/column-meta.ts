@@ -22,6 +22,7 @@ export interface ColumnDefMeta {
   defaultLiteral?: { value: unknown }
   /** The JS value `.backfill()` was given, filling the rows a NOT NULL column is added to. */
   backfill?: { value: unknown }
+  comment?: string
 }
 
 export interface DefWithMeta {
@@ -37,6 +38,7 @@ export interface DefWithMeta {
   _oneOf?: readonly (string | number)[]
   _defaultLiteral?: { value: unknown }
   _backfill?: { value: unknown }
+  _comment?: string
 }
 
 export function getColumnMeta(def: AnyColumnDef): ColumnDefMeta {
@@ -55,5 +57,6 @@ export function getColumnMeta(def: AnyColumnDef): ColumnDefMeta {
     oneOf: d._oneOf,
     defaultLiteral: d._defaultLiteral,
     backfill: d._backfill,
+    comment: d._comment,
   }
 }

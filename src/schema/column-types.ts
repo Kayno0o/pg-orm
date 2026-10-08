@@ -1,4 +1,5 @@
 import type { HasDefault, NotNullable } from '../types/index'
+import { ValidationError } from '../errors/index'
 import { ColumnBuilder, getColumnBuilderPgType } from './columns'
 import { validateIdentifier, validateTypeArg } from './validate'
 
@@ -32,11 +33,12 @@ export interface ColumnTypes {
 
   // Date/time
   date: () => ColumnBuilder<Date>
-  timestamp: () => ColumnBuilder<Date>
-  timestamptz: () => ColumnBuilder<Date>
+  // `precision`: the digits kept after the second, 0 to 6 (the default).
+  timestamp: (precision?: number) => ColumnBuilder<Date>
+  timestamptz: (precision?: number) => ColumnBuilder<Date>
   interval: () => ColumnBuilder<string>
-  time: () => ColumnBuilder<string>
-  timetz: () => ColumnBuilder<string>
+  time: (precision?: number) => ColumnBuilder<string>
+  timetz: (precision?: number) => ColumnBuilder<string>
 
   // JSON
   json: <T = unknown>() => ColumnBuilder<T>
@@ -92,6 +94,18 @@ function typeArg(value: number, context: string, min?: number): number {
   return value
 }
 
+const MAX_TIME_PRECISION = 6
+
+function withPrecision(type: string, precision: number | undefined): string {
+  if (precision === undefined)
+    return type
+
+  if (typeArg(precision, `${type} precision`, 0) > MAX_TIME_PRECISION)
+    throw new ValidationError(`Invalid ${type} precision: ${precision} is above ${MAX_TIME_PRECISION}.`, `${type} precision`, { value: precision })
+
+  return `${type}(${precision})`
+}
+
 /**
  * Per-type factory entries. Each builder is one line — adding a new pgType is
  * one new line here, no DSL changes. Variants (enum, array, numeric precision)
@@ -123,11 +137,11 @@ export function createColumnTypes(): ColumnTypes {
     boolean: () => new ColumnBuilder('bool'),
 
     date: () => new ColumnBuilder('date'),
-    timestamp: () => new ColumnBuilder('timestamp'),
-    timestamptz: () => new ColumnBuilder('timestamptz'),
+    timestamp: p => new ColumnBuilder(withPrecision('timestamp', p)),
+    timestamptz: p => new ColumnBuilder(withPrecision('timestamptz', p)),
     interval: () => new ColumnBuilder('interval'),
-    time: () => new ColumnBuilder('time'),
-    timetz: () => new ColumnBuilder('timetz'),
+    time: p => new ColumnBuilder(withPrecision('time', p)),
+    timetz: p => new ColumnBuilder(withPrecision('timetz', p)),
 
     json: () => new ColumnBuilder('json'),
     jsonb: () => new ColumnBuilder('jsonb'),

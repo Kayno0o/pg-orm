@@ -1,4 +1,4 @@
-import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../types/index'
+import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } from '../types/index'
 import { escapeLiteralBody } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
@@ -16,6 +16,9 @@ export function generateCreateTable(name: string, table: AnyTableDef): string {
 
   for (const col of uniqueCols)
     constraints.push(`  UNIQUE ("${col}")`)
+
+  for (const unique of table.uniques ?? [])
+    constraints.push(`  CONSTRAINT "${uniqueName(name, unique)}" UNIQUE (${unique.columns.map(c => `"${c}"`).join(', ')})`)
 
   // FK constraints are emitted as separate `add_fk` ops after all CREATE TABLEs,
   // so cross-table FK ordering is not constrained by declaration order.
@@ -38,6 +41,9 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?
 
         break
       case 'generated': parts.push(`GENERATED ALWAYS AS (${c.value}) STORED`)
+
+        break
+      case 'identity': parts.push(identitySql(c.value))
 
         break
       // check, primary_key, unique, references handled below or at table level
@@ -96,6 +102,12 @@ export function normalizeType(pgType: string): string {
     modifier = `${modifier},0`
   else if (modifier === undefined && LENGTH_ONE_TYPES.has(name))
     modifier = '1'
+
+  // A time type's precision goes inside its name, as format_type() prints it: `timestamp(3) with time zone`.
+  const zoneAt = name.indexOf(' with')
+
+  if (modifier !== undefined && zoneAt > 0)
+    return `${name.slice(0, zoneAt)}(${modifier})${name.slice(zoneAt)}${brackets ? '[]' : ''}`
 
   // Postgres keeps no array dimensions: `text[][]` is `text[]`.
   return `${name}${modifier !== undefined ? `(${modifier})` : ''}${brackets ? '[]' : ''}`
@@ -330,6 +342,30 @@ export function fkConstraintName(tableName: string, colName: string): string {
   return fitIdentifier(`${tableName}_${colName}`, '_fkey')
 }
 
+/** The name of a UNIQUE over several columns: its own, or `<table>_<columns>_key` as Postgres would name it. */
+export function uniqueName(tableName: string, unique: UniqueDef): string {
+  return unique.name ?? fitIdentifier(`${tableName}_${unique.columns.join('_')}`, '_key')
+}
+
+export function buildAddUniqueSql(tableName: string, unique: UniqueDef): string {
+  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${uniqueName(tableName, unique)}" UNIQUE (${unique.columns.map(c => `"${c}"`).join(', ')})`
+}
+
+export function identitySql(kind: string | undefined): string {
+  return `GENERATED ${kind === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY`
+}
+
+/** `COMMENT ON` a table, or one of its columns, to `text`, or none when null. */
+export function buildCommentSql(tableName: string, colName: string | undefined, text: string | null): string {
+  const target = colName === undefined ? `TABLE "${tableName}"` : `COLUMN "${tableName}"."${colName}"`
+
+  return `COMMENT ON ${target} IS ${text === null ? 'NULL' : `'${escapeLiteralBody(text)}'`}`
+}
+
+export function buildRenameTableSql(oldName: string, newName: string): string {
+  return `ALTER TABLE "${oldName}" RENAME TO "${newName}"`
+}
+
 export function buildAddUniqueConstraintSql(tableName: string, colName: string): string {
   return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${uniqueConstraintName(tableName, colName)}" UNIQUE ("${colName}")`
 }
@@ -358,6 +394,9 @@ export function buildAddFkSql(tableName: string, colName: string, ref: ForeignKe
   if (ref.onUpdate)
     sql += ` ON UPDATE ${ref.onUpdate.toUpperCase()}`
 
+  if (ref.deferrable)
+    sql += ` DEFERRABLE INITIALLY ${ref.deferrable === 'deferred' ? 'DEFERRED' : 'IMMEDIATE'}`
+
   return sql
 }
 
@@ -375,8 +414,14 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
   const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
   const method = idx.method ?? 'btree'
   const unique = idx.unique ? 'UNIQUE ' : ''
-  const cols = idx.columns.map(c => `"${c}"`).join(', ')
-  let sql = `CREATE ${unique}INDEX "${name}" ON "${tableName}" USING ${method} (${cols})`
+  const keys = [
+    ...idx.columns.map(c => `"${c}"${idx.opclass?.[c] ? ` ${idx.opclass[c]}` : ''}${idx.desc?.includes(c) ? ' DESC' : ''}`),
+    ...(idx.expressions ?? []).map(e => `(${e})`),
+  ].join(', ')
+  let sql = `CREATE ${unique}INDEX "${name}" ON "${tableName}" USING ${method} (${keys})`
+
+  if (idx.include?.length)
+    sql += ` INCLUDE (${idx.include.map(c => `"${c}"`).join(', ')})`
 
   if (idx.where)
     sql += ` WHERE ${idx.where}`

@@ -18,6 +18,9 @@ export interface LiveColumn {
   generationExpression?: string | null
   /** The name of the single-column UNIQUE constraint making the column unique, which a rename leaves under the old column's name. */
   uniqueConstraint?: string
+  /** How an identity column is generated, null for any other. */
+  identity?: 'always' | 'by default' | null
+  comment?: string | null
 }
 
 export interface LiveTable {
@@ -25,6 +28,9 @@ export interface LiveTable {
   columns: LiveColumn[]
   /** The name of the table's PRIMARY KEY constraint, when it has one. */
   primaryKeyConstraint?: string
+  comment?: string | null
+  /** Its UNIQUE constraints over several columns. */
+  uniques?: { name: string, columns: string[] }[]
 }
 
 export interface LiveEnum {
@@ -40,6 +46,7 @@ export interface LiveForeignKey {
   referencedColumn: string
   onUpdate: string
   onDelete: string
+  deferrable?: 'immediate' | 'deferred'
 }
 
 export interface LiveCheck {
@@ -61,7 +68,7 @@ export interface MigrationOp {
     | 'create_enum' | 'alter_enum_add' | 'alter_enum_remove' | 'add_constraint' | 'drop_constraint'
     | 'add_fk' | 'drop_fk'
     | 'create_index' | 'drop_index'
-    | 'rename_column'
+    | 'rename_column' | 'rename_table' | 'rename_index' | 'comment'
     // SQLite: a change its ALTER TABLE cannot make, made by copying the table into a new one built to the definition.
     | 'rebuild_table'
   table?: string
@@ -69,6 +76,8 @@ export interface MigrationOp {
   sql: string
   destructive: boolean
   description: string
+  /** The statement undoing this one, when the op itself knows it (a comment's previous text, a table's previous name). */
+  down?: string
 }
 
 export interface MigrationFile {

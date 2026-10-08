@@ -3,7 +3,7 @@ import type { MigrationOp } from '../types'
 import type { SqliteLiveSchema, SqliteLiveTable } from './introspect'
 import { getColumnMeta } from '../../schema/column-meta'
 import { quote } from '../../sql/utils'
-import { buildDropIndexSql, buildDropTableSql, buildRenameColumnSql } from '../ddl'
+import { buildDropIndexSql, buildDropTableSql, buildRenameColumnSql, buildRenameTableSql } from '../ddl'
 import { columnEntries } from '../types'
 import { sqliteAddColumn, sqliteCreateIndex, sqliteCreateTable, sqliteIndexName, sqliteRebuildTable, sqliteType } from './ddl'
 
@@ -106,9 +106,26 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
   const indexOps: MigrationOp[] = []
   // A table created or rebuilt comes without indexes, every one of its own created anew.
   const fresh = new Set<string>()
+  // Tables renamed by `renamedFrom()`, by their old name: SQLite keeps their indexes under the old names, which are dropped for the new ones.
+  const renamed = new Map<string, string>()
 
   for (const [tableName, table] of desired) {
-    const liveTable = liveTables.get(tableName)
+    const from = table.previousName
+    const old = from !== undefined && !desired.has(from) && !liveTables.has(tableName) ? liveTables.get(from) : undefined
+
+    if (from !== undefined && old) {
+      renamed.set(from, tableName)
+      tableOps.push({
+        type: 'rename_table',
+        table: tableName,
+        sql: buildRenameTableSql(from, tableName),
+        destructive: false,
+        description: `Rename table "${from}" to "${tableName}"`,
+        down: buildRenameTableSql(tableName, from),
+      })
+    }
+
+    const liveTable = old ? { ...old, name: tableName } : liveTables.get(tableName)
 
     if (!liveTable) {
       fresh.add(tableName)
@@ -132,7 +149,7 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
   }
 
   for (const liveTable of live.tables) {
-    if (desired.has(liveTable.name))
+    if (desired.has(liveTable.name) || renamed.has(liveTable.name))
       continue
 
     tableOps.push({
@@ -144,7 +161,7 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
     })
   }
 
-  const liveIndexes = new Map(live.indexes.map(i => [i.name, i]))
+  const liveIndexes = new Map(live.indexes.map(i => [i.name, { ...i, table: renamed.get(i.table) ?? i.table }]))
   const wanted = new Set<string>()
 
   for (const [tableName, table] of desired) {
@@ -178,7 +195,7 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
     }
   }
 
-  for (const liveIdx of live.indexes) {
+  for (const liveIdx of liveIndexes.values()) {
     if (wanted.has(liveIdx.name) || !desired.has(liveIdx.table) || fresh.has(liveIdx.table))
       continue
 
@@ -186,7 +203,7 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
       type: 'drop_index',
       table: liveIdx.table,
       sql: buildDropIndexSql(liveIdx.name),
-      destructive: true,
+      destructive: !renamed.has(desired.get(liveIdx.table)?.previousName ?? ''),
       description: `Drop index "${liveIdx.name}" from "${liveIdx.table}"`,
     })
   }

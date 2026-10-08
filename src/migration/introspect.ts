@@ -7,7 +7,9 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     SELECT
       c.table_name, c.column_name, c.data_type, c.udt_name,
       c.is_nullable, c.column_default, c.is_generated, c.generation_expression,
-      format_type(a.atttypid, a.atttypmod) AS formatted_type
+      format_type(a.atttypid, a.atttypmod) AS formatted_type,
+      c.is_identity, c.identity_generation,
+      col_description(t.oid, a.attnum) AS column_comment, obj_description(t.oid, 'pg_class') AS table_comment
     FROM information_schema.columns c
     JOIN pg_namespace n ON n.nspname = c.table_schema
     JOIN pg_class t ON t.relname = c.table_name AND t.relnamespace = n.oid
@@ -36,6 +38,17 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     WHERE c.contype = 'u' AND n.nspname = $1 AND cardinality(c.conkey) = 1
   `, [schema])
 
+  const compositeUqRows = await executor.query(`
+    SELECT t.relname AS table_name, c.conname AS name, array_agg(a.attname ORDER BY k.ordinality) AS columns
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality)
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+    WHERE c.contype = 'u' AND n.nspname = $1 AND cardinality(c.conkey) > 1
+    GROUP BY t.relname, c.conname
+  `, [schema])
+
   const enumRows = await executor.query(`
     SELECT t.typname AS enum_name, e.enumlabel AS enum_value, e.enumsortorder
     FROM pg_type t
@@ -53,7 +66,9 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
       ccu.table_name AS referenced_table,
       ccu.column_name AS referenced_column,
       rc.update_rule,
-      rc.delete_rule
+      rc.delete_rule,
+      tc.is_deferrable,
+      tc.initially_deferred
     FROM information_schema.table_constraints tc
     JOIN information_schema.key_column_usage kcu
       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
@@ -71,14 +86,14 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
       am.amname AS method,
       ix.indisunique AS is_unique,
       pg_get_indexdef(ix.indexrelid) AS definition,
-      array_agg(a.attname ORDER BY x.ordinality) AS columns
+      array_agg(a.attname ORDER BY x.ordinality) FILTER (WHERE a.attname IS NOT NULL) AS columns
     FROM pg_index ix
     JOIN pg_class i ON i.oid = ix.indexrelid
     JOIN pg_class t ON t.oid = ix.indrelid
     JOIN pg_namespace n ON n.oid = t.relnamespace
     JOIN pg_am am ON am.oid = i.relam
     CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
-    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+    LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
     WHERE n.nspname = $1
       AND NOT ix.indisprimary
       AND NOT EXISTS (
@@ -96,7 +111,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     WHERE c.contype = 'c' AND n.nspname = $1
   `, [schema])
 
-  return { colRows, pkRows, uqRows, enumRows, fkRows, indexRows, checkRows }
+  return { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows }
 }
 
 export async function introspectLiveSchema(executor: { query: QueryFn }, schema = 'public'): Promise<{
@@ -106,14 +121,14 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
   indexes: LiveIndex[]
   checks: LiveCheck[]
 }> {
-  const { colRows, pkRows, uqRows, enumRows, fkRows, indexRows, checkRows } = await runIntrospectionQueries(executor, schema)
+  const { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows } = await runIntrospectionQueries(executor, schema)
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const pkNames = new Map(pkRows.map(r => [r.table_name as string, r.constraint_name as string]))
   const uqNames = new Map(uqRows.map(r => [`${r.table_name}.${r.column_name}`, r.constraint_name as string]))
 
   return {
-    tables: buildLiveTables(colRows, pkSet, uqNames, pkNames),
+    tables: buildLiveTables(colRows, pkSet, uqNames, pkNames, compositeUqRows),
     enums: buildLiveEnums(enumRows),
     foreignKeys: fkRows.map(r => ({
       constraintName: r.constraint_name as string,
@@ -123,11 +138,12 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       referencedColumn: r.referenced_column as string,
       onUpdate: (r.update_rule as string).toLowerCase().replace(SPACE_RE, ' '),
       onDelete: (r.delete_rule as string).toLowerCase().replace(SPACE_RE, ' '),
+      deferrable: r.is_deferrable === 'YES' ? r.initially_deferred === 'YES' ? 'deferred' : 'immediate' : undefined,
     })),
     indexes: indexRows.map(r => ({
       name: r.index_name as string,
       tableName: r.table_name as string,
-      columns: r.columns as string[],
+      columns: (r.columns as string[] | null) ?? [],
       isUnique: r.is_unique as boolean,
       method: r.method as string,
       definition: r.definition as string,
@@ -136,7 +152,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
   }
 }
 
-function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>, uqNames: Map<string, string>, pkNames: Map<string, string>): LiveTable[] {
+function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>, uqNames: Map<string, string>, pkNames: Map<string, string>, compositeUqRows: Record<string, unknown>[]): LiveTable[] {
   const tableMap = new Map<string, LiveTable>()
 
   for (const row of colRows) {
@@ -145,8 +161,15 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
     if (tableName === MIGRATION_TABLE)
       continue
 
-    if (!tableMap.has(tableName))
-      tableMap.set(tableName, { name: tableName, columns: [], primaryKeyConstraint: pkNames.get(tableName) })
+    if (!tableMap.has(tableName)) {
+      tableMap.set(tableName, {
+        name: tableName,
+        columns: [],
+        primaryKeyConstraint: pkNames.get(tableName),
+        comment: row.table_comment as string | null,
+        uniques: compositeUqRows.filter(r => r.table_name === tableName).map(r => ({ name: r.name as string, columns: r.columns as string[] })),
+      })
+    }
 
     tableMap.get(tableName)!.columns.push({
       name: row.column_name as string,
@@ -159,6 +182,8 @@ function buildLiveTables(colRows: Record<string, unknown>[], pkSet: Set<string>,
       isGenerated: row.is_generated === 'ALWAYS',
       generationExpression: row.generation_expression as string | null,
       uniqueConstraint: uqNames.get(`${tableName}.${row.column_name}`),
+      identity: row.is_identity === 'YES' ? String(row.identity_generation).toLowerCase() === 'always' ? 'always' : 'by default' : null,
+      comment: row.column_comment as string | null,
     })
   }
 
