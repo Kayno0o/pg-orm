@@ -248,7 +248,8 @@ export class WritePipeline<
     for (const col of pkColumns)
       first.orderBy(col as keyof TColumns & string)
 
-    return { where: () => [{ op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
+    // `where` is repeated on the statement itself: under READ COMMITTED, a row a concurrent transaction changed is checked again against the outer WHERE only, so the key alone would let two compare-and-set writes both through.
+    return { where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {

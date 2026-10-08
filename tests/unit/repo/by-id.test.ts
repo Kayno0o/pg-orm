@@ -135,12 +135,12 @@ describe('write by id', () => {
     exec.preset([{ id: 3 }])
     await pipeline.updateOne({ name: 'Bob' }, { name: 'Al' } as any, { pk: true })
 
-    expect(exec.lastQuery!.sql).toBe('UPDATE "users" SET "name" = $1 WHERE "id" IN (SELECT "id" FROM "users" WHERE "name" = $2 ORDER BY "id" ASC LIMIT $3) RETURNING "id"')
-    expect(exec.lastQuery!.params).toEqual(['Bob', 'Al', 1])
+    expect(exec.lastQuery!.sql).toBe('UPDATE "users" SET "name" = $1 WHERE ("name" = $2 AND "id" IN (SELECT "id" FROM "users" WHERE "name" = $3 ORDER BY "id" ASC LIMIT $4)) RETURNING "id"')
+    expect(exec.lastQuery!.params).toEqual(['Bob', 'Al', 'Al', 1])
 
     exec.preset([{ id: 3 }])
     await pipeline.deleteOne({ name: 'Al' } as any, { pk: true })
 
-    expect(exec.lastQuery!.sql).toBe('DELETE FROM "users" WHERE "id" IN (SELECT "id" FROM "users" WHERE "name" = $1 ORDER BY "id" ASC LIMIT $2) RETURNING "id"')
+    expect(exec.lastQuery!.sql).toBe('DELETE FROM "users" WHERE ("name" = $1 AND "id" IN (SELECT "id" FROM "users" WHERE "name" = $2 ORDER BY "id" ASC LIMIT $3)) RETURNING "id"')
   })
 })

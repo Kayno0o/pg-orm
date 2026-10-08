@@ -254,6 +254,33 @@ describe('CRUD - updateOne', () => {
     expect(await repo.write.updateOne({ name: 'X' }, { age: 3 }, { pk: true })).toBe(live!)
     expect(await repo.write.updateOne({ name: 'Y' }, { age: 3 }, { withTrashed: true, pk: true })).toBe(trashed!)
   })
+
+  it('lets one of two racing compare-and-set updates through', async () => {
+    const repo = db.repo(usersTable)
+    const id = await repo.write.insertOne({ name: 'Token', email: 'cas@test.com', age: 0 }, { pk: true })
+    const { promise: locked, resolve: lock } = Promise.withResolvers<void>()
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
+
+    const first = db.transaction(async (tx) => {
+      const row = await repo.using(tx).write.updateOne({ age: 1 }, { age: 0 }, { pk: true })
+
+      lock()
+      await held
+
+      return row
+    })
+
+    await locked
+    // Blocks on the row the first transaction holds, then finds it no longer matches once that commits.
+    const second = repo.write.updateOne({ age: 2 }, { age: 0 }, { pk: true })
+
+    await Bun.sleep(100)
+    release()
+
+    expect(await first).toBe(id)
+    expect(await second).toBeNull()
+    expect((await repo.read.findById(id))?.age).toBe(1)
+  })
 })
 
 describe('CRUD - deleteOne', () => {
