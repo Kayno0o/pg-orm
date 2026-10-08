@@ -650,7 +650,7 @@ describe('diffSchema — extended migration tests', () => {
           name: 'items',
           columns: [
             liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
-            liveCol('tags', { dataType: 'text', defaultValue: '\'{}\'::text[]', isNullable: true }),
+            liveCol('tags', { dataType: 'text', defaultValue: '\'{}\'::text[]', isNullable: false }),
           ],
         }]),
         registry(table),
@@ -674,7 +674,7 @@ describe('diffSchema — extended migration tests', () => {
           name: 'items',
           columns: [
             liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
-            liveCol('count', { dataType: 'integer', defaultValue: null, isNullable: true }),
+            liveCol('count', { dataType: 'integer', defaultValue: null, isNullable: false }),
           ],
         }]),
         registry(table),
@@ -720,7 +720,7 @@ describe('diffSchema — extended migration tests', () => {
           name: 'items',
           columns: [
             liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
-            liveCol('label', { dataType: 'text', defaultValue: '\'hello\'', isNullable: true }),
+            liveCol('label', { dataType: 'text', defaultValue: '\'hello\'', isNullable: false }),
           ],
         }]),
         registry(table),
@@ -743,7 +743,7 @@ describe('diffSchema — extended migration tests', () => {
           columns: [
             liveCol('id', { dataType: 'integer', isPrimaryKey: true, isNullable: false }),
             // PostgreSQL appends ::text cast — should not trigger a diff
-            liveCol('name', { dataType: 'text', defaultValue: '\'\'::text', isNullable: true }),
+            liveCol('name', { dataType: 'text', defaultValue: '\'\'::text', isNullable: false }),
           ],
         }]),
         registry(table),

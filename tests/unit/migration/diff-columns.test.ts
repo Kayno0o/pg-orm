@@ -116,6 +116,16 @@ describe('diffColumn', () => {
     expect(ops.some(o => o.sql.includes('SET NOT NULL'))).toBe(true)
   })
 
+  it('sets NOT NULL on a column that left nullable() out, as its type is never null', () => {
+    const table = defineTable('users', t => ({
+      id: t.serial().primaryKey(),
+      name: t.text(),
+    }))
+    const ops = diffColumn('users', 'name', table.columns.name, liveCol('name', { isNullable: true }))
+
+    expect(ops.map(o => o.sql)).toEqual(['ALTER TABLE "users" ALTER COLUMN "name" SET NOT NULL'])
+  })
+
   it('drops NOT NULL', () => {
     const table = defineTable('users', t => ({
       id: t.serial().primaryKey(),

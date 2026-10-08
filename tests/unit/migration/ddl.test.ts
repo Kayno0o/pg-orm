@@ -116,7 +116,7 @@ describe('generateColumnDDL — defaults', () => {
       x: c.int4().default(42),
     }))
 
-    expect(colOf(t, 'x')).toBe('"x" int4 DEFAULT 42')
+    expect(colOf(t, 'x')).toBe('"x" int4 NOT NULL DEFAULT 42')
   })
 
   test('DEFAULT with string literal containing single quotes is escaped', () => {
@@ -134,7 +134,7 @@ describe('generateColumnDDL — defaults', () => {
       x: c.timestamptz().defaultRaw('NOW()'),
     }))
 
-    expect(colOf(t, 'x')).toBe('"x" timestamptz DEFAULT NOW()')
+    expect(colOf(t, 'x')).toBe('"x" timestamptz NOT NULL DEFAULT NOW()')
   })
 })
 

@@ -111,9 +111,11 @@ const items = defineTable('items', t => ({
 
 ### Constraints
 
+A column is NOT NULL unless `.nullable()` says otherwise, in the database as in its inferred type; `.notNull()` only says so out loud.
+
 ```ts
-t.text().notNull()        // NOT NULL
-t.text().nullable()       // explicit nullable
+t.text()                  // NOT NULL
+t.text().nullable()       // NULL allowed, typed `string | null`
 t.text().unique()         // UNIQUE constraint
 t.text().primaryKey()     // PRIMARY KEY
 t.text().default('val')   // DEFAULT, from a JS value

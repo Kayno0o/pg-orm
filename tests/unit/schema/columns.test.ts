@@ -9,7 +9,13 @@ describe('ColumnBuilder', () => {
 
     expect(col._kind).toBe('column')
     expect(col.pgType).toBe('text')
-    expect(col.constraints).toEqual([])
+    expect(col.constraints).toEqual([{ type: 'not_null' }])
+  })
+
+  it('is NOT NULL, as its type is, until nullable() says otherwise, notNull() adding nothing more', () => {
+    expect(t.text().notNull()._build().constraints).toEqual([{ type: 'not_null' }])
+    expect(t.text().nullable()._build().constraints).toEqual([])
+    expect(t.text().nullable().notNull()._build().constraints).toEqual([{ type: 'not_null' }])
   })
 
   it('creates a serial column with correct phantom types', () => {

@@ -35,7 +35,8 @@ export class ColumnBuilder<
   TGenerated extends IsGenerated | NotGenerated = NotGenerated,
 > {
   readonly _pgType: string
-  private _constraints: ColumnConstraint[] = []
+  // NOT NULL unless `.nullable()` drops it, as the inferred type is.
+  private _constraints: ColumnConstraint[] = [{ type: 'not_null' }]
   private _references?: ForeignKeyRef
   _enumName?: string
   _enumValues?: readonly string[]
@@ -57,7 +58,7 @@ export class ColumnBuilder<
     return this as unknown as T
   }
 
-  /** Mark column as NOT NULL. Required for insert unless it has a default. This is the default. */
+  /** Mark column as NOT NULL, which it is unless `.nullable()` says otherwise. Required for insert unless it has a default. */
   notNull(): ColumnBuilder<TType, NotNullable, TDefault, TPrimary, TGenerated> {
     if (!this._constraints.some(c => c.type === 'not_null'))
       this._constraints.push({ type: 'not_null' })
