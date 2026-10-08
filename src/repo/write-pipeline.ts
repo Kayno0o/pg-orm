@@ -10,6 +10,7 @@ import { OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { MAX_BIND_PARAMS, STATEMENT_PARAM_RESERVE } from '../constants'
 import { dialectOf } from '../dialect'
 import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
@@ -126,14 +127,43 @@ export class WritePipeline<
 
     const v = (await this._runtime.runBeforeMany('beforeInsert', values))
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const builder = this._insertMany(v)
 
-    return this._execute({
-      builder,
+    return this._chunked(v, (pipeline, rows) => pipeline._execute({
+      builder: pipeline._insertMany(rows),
       afterEvent: 'afterInsert',
-      project: rows => this._projectMany(rows, opts),
+      project: written => pipeline._projectMany(written, opts),
       opts,
-    })
+    }))
+  }
+
+  /**
+   * Run a multi-row write in statements kept under the bind-parameter limit, all-or-nothing through the executor's `atomic` when it takes several.
+   * Results are concatenated in input order.
+   */
+  private async _chunked<TRow extends Record<string, unknown>, TResult>(
+    rows: TRow[],
+    write: (pipeline: WritePipeline<TColumns, TVirtuals>, chunk: TRow[]) => Promise<TResult[]>,
+  ): Promise<TResult[]> {
+    const columns = new Set(rows.flatMap(row => Object.keys(row))).size
+    const budget = MAX_BIND_PARAMS[dialectOf(this._executor)] - STATEMENT_PARAM_RESERVE
+    const size = Math.max(1, Math.floor(budget / Math.max(1, columns)))
+
+    if (rows.length <= size)
+      return write(this, rows)
+
+    const run = async (pipeline: WritePipeline<TColumns, TVirtuals>): Promise<TResult[]> => {
+      const out: TResult[] = []
+
+      for (let i = 0; i < rows.length; i += size)
+        out.push(...await write(pipeline, rows.slice(i, i + size)))
+
+      return out
+    }
+
+    if (!this._executor.atomic)
+      return run(this)
+
+    return this._executor.atomic(exec => run(new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime })))
   }
 
   // --- Update ---
@@ -348,16 +378,18 @@ export class WritePipeline<
 
     const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const builder = this._insertMany(v)
-      .onConflict(conflictTarget)
-      .doUpdateWith(await this._conflictUpdate(update))
+    const conflict = await this._conflictUpdate(update)
 
-    return this._execute({
-      builder,
-      afterEvent: 'afterInsert',
-      inserted: await this._insertedClassifier(builder, v as Record<string, unknown>[], conflictTarget),
-      project: rows => this._projectMany(rows, opts),
-      opts,
+    return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
+      const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
+
+      return pipeline._execute({
+        builder,
+        afterEvent: 'afterInsert',
+        inserted: await pipeline._insertedClassifier(builder, rows, conflictTarget),
+        project: written => pipeline._projectMany(written, opts),
+        opts,
+      })
     })
   }
 

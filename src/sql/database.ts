@@ -225,6 +225,11 @@ export class Database extends BaseExecutor {
    * })
    * ```
    */
+  /** Runs `fn` in a transaction, joining the running one in a savepoint when called from inside its body. */
+  atomic<T>(fn: (exec: TransactionClient) => Promise<T>): Promise<T> {
+    return this.transaction(fn)
+  }
+
   async transaction<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async transaction<T>(opts: TransactionOptions, fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   transaction<T>(

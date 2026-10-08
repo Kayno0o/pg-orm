@@ -11,3 +11,9 @@ export const DEFAULT_STREAM_CHUNK_SIZE = 500
 
 /** Fallback primary key column name when a table doesn't declare `primaryKey`. */
 export const DEFAULT_PRIMARY_KEY = 'id'
+
+/** Bind parameters one statement may carry: Postgres counts them in an int16, SQLite caps them at 32766. */
+export const MAX_BIND_PARAMS = { postgres: 65535, sqlite: 32766 } as const
+
+/** Parameters held back from a multi-row write's chunk for its statement-wide ones (an upsert's set and where). */
+export const STATEMENT_PARAM_RESERVE = 1000

@@ -66,6 +66,10 @@ export class TransactionClient extends BaseExecutor {
     this._onRollbackCallbacks.push(fn)
   }
 
+  atomic<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    return this.savepoint(fn)
+  }
+
   /** Run `fn` in a savepoint of this transaction: the same as a `db.transaction()` called from inside its body. Throw to roll the savepoint back. */
   async savepoint<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
     if (!this._nest)

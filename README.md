@@ -329,6 +329,7 @@ Pass `{ pk: true }` as the final argument to get only the primary key back, `RET
 // Insert — returns the written row
 const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
 const rows = await repo.write.insertMany([{ ... }, { ... }])
+// Past the bind-parameter limit (65535 on Postgres) insertMany/upsertMany split into several statements, run in one transaction (a savepoint inside a running one)
 
 // ...or only its primary key with `{ pk: true }`
 const id = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
