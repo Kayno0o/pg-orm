@@ -29,7 +29,8 @@ major: (release "major")
 release level:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	tag=$(npm version {{level}})
+	npm version {{level}}
+	tag=$(git tag --points-at HEAD)
 	if ! git push --atomic origin HEAD "$tag"; then
 	  git tag -d "$tag"
 	  git reset --keep HEAD~1
