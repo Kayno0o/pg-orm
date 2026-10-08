@@ -159,13 +159,13 @@ export class WritePipeline<
   }
 
   async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow(requireWhere(where, 'updateOne'), opts?.withTrashed, opts?.onMany)
+    const single = this._singleRow('updateOne', requireWhere(where, 'updateOne'), opts?.withTrashed, opts?.onMany)
     const rows = await this.updateMany(set, single.where, opts)
 
-    return rows[0] ?? await single.noMatch('updateOne')
+    return rows[0] ?? await single.noMatch()
   }
 
-  /** Update the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
+  /** Update the row a primary key names: the key bounds the statement, so it needs no `_singleRow`. */
   async updateById(set: InferUpdate<TColumns>, key: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.updateMany(set, key, opts)
 
@@ -175,8 +175,9 @@ export class WritePipeline<
   /**
    * The WHERE `updateOne` and `deleteOne` run, reaching one row however many match, and what to answer when it changed none. Trashed rows are passed over unless `withTrashed`, as the statement itself skips them.
    * By default it is the first match by primary key. With `onMany: 'throw'` it is `where` holding only while exactly one row matches, so several change nothing, and a statement that changed nothing then counts the matches to tell none from several.
+   * That count is a second statement: outside a transaction, a row written between the two can make it tell none from several wrongly, though the write itself never reaches more than one row.
    */
-  private _singleRow(where: Where<TColumns>, withTrashed?: boolean, onMany?: SingleRowOptions['onMany']): { where: Where<TColumns>, noMatch: (op: string) => Promise<null> } {
+  private _singleRow(op: string, where: Where<TColumns>, withTrashed?: boolean, onMany?: SingleRowOptions['onMany']): { where: Where<TColumns>, noMatch: () => Promise<null> } {
     const { pkColumns, table } = this._runtime
     const live = <B extends SelectBuilderCtor<TColumns>>(builder: B): B => {
       if (!withTrashed)
@@ -190,7 +191,7 @@ export class WritePipeline<
 
       return {
         where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_EQ, col: [{ op: OP_SCALAR, subquery: matches }], val: 1 }],
-        noMatch: async (op) => {
+        noMatch: async () => {
           const { sql, params } = matches.toSQL(dialectOf(this._executor))
 
           if (Number((await this._executor.query(sql, params))[0]?.count ?? 0) > 1)
@@ -285,13 +286,13 @@ export class WritePipeline<
   }
 
   async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow(requireWhere(where, 'deleteOne'), false, opts?.onMany)
+    const single = this._singleRow('deleteOne', requireWhere(where, 'deleteOne'), false, opts?.onMany)
     const rows = await this._delete(single.where, false, opts)
 
-    return rows[0] ?? await single.noMatch('deleteOne')
+    return rows[0] ?? await single.noMatch()
   }
 
-  /** Delete the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
+  /** Delete the row a primary key names: the key bounds the statement, so it needs no `_singleRow`. */
   async deleteById(key: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.deleteMany(key, opts)
 

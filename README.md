@@ -329,6 +329,7 @@ await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
 // ...or throw MultipleRowsError, changing nothing, when several match
 await repo.write.updateOne({ name: 'Bob' }, { email }, { onMany: 'throw' })
+await repo.write.deleteOne({ email }, { onMany: 'throw' })
 await repo.write.updateById(1, { name: 'Bob' })
 
 // One statement, a different value per row (reorders, tallies, sync diffs). Rows may write different columns.
@@ -368,7 +369,7 @@ const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice'
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
-An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed.
+An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore runs no `beforeUpdate` hook, so `updatedAt` is left as it was.
 
 ## Traits
 

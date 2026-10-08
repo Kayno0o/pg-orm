@@ -119,6 +119,7 @@ describe('Migration Sync', () => {
       const rows = await db.raw<{ seq: number, big: string }>('INSERT INTO "sync_test_respelled" ("code", "whole", "shortWhole", "flags", "mask") VALUES (\'abcde\', 1, 2, B\'10101010\', B\'1\') RETURNING "seq", "big"', [])
 
       expect(rows[0]!.seq).toBe(1)
+      expect(Number(rows[0]!.big)).toBe(1)
     }
     finally {
       await db.raw('DROP TABLE IF EXISTS "sync_test_respelled"', [])

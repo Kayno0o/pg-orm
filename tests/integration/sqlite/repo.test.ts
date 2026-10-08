@@ -234,6 +234,14 @@ describe('SQLite single-row writes', () => {
     await expect(db.repo(authorsTable).write.updateOne({ rank: 4 }, { rank: 3 }, { onMany: 'throw' })).rejects.toBeInstanceOf(MultipleRowsError)
     expect(await db.repo(authorsTable).read.count({ rank: 3 })).toBe(2)
   })
+
+  it('changes the one row that matches with onMany: \'throw\'', async () => {
+    const id = await db.repo(authorsTable).write.insertOne({ name: 'E', rank: 6 })
+
+    expect(await db.repo(authorsTable).write.updateOne({ rank: 7 }, { rank: 6 }, { onMany: 'throw' })).toBe(id)
+    expect(await db.repo(authorsTable).write.deleteOne({ rank: 7 }, { onMany: 'throw' })).toBe(id)
+    expect(await db.repo(authorsTable).read.count({ rank: 7 })).toBe(0)
+  })
 })
 
 describe('SQLite upserts on a soft-deleted row', () => {

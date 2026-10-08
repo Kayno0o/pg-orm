@@ -377,13 +377,8 @@ const PG_OUT_OF_RANGE_RE = /\bvalue ".*" is out of range/g
 const PG_BYTE_SEQUENCE_RE = /(invalid byte sequence for encoding "[^"]*"): .*$/gm
 
 /**
- * Strip data values from a raw PG error message before it becomes a
- * `QueryError.message`. PG emits constraint failures with the offending value
- * inline (e.g. `Key (email)=(alice@example.com) already exists.`), and that
- * message ends up in logs even in development. We replace the value half of
- * `Key (col)=(value)` and the entire `Detail:` line — both habitual carriers
- * of customer data. Structured fields on `ConstraintError` (constraint, table,
- * column) are unaffected and still tell you what failed.
+ * Strip data values from a raw PG error message before it becomes a `QueryError.message`, in every environment, development included.
+ * The value of `Key (col)=(value)`, the input a data exception quotes back (`invalid input syntax for type uuid: "x"`) and the whole `Detail:` line are replaced; structured fields on `ConstraintError` (constraint, table, column) still tell what failed.
  *
  * Set `REDACT_QUERY_LOGS=0` to opt out (e.g. during local repro).
  */

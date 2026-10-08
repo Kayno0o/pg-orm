@@ -231,6 +231,19 @@ describe('CRUD - updateOne', () => {
     expect(await repo.write.updateOne({ age: 9 }, { age: 5 })).toBe(first!)
     expect((await repo.read.findById(second!))?.age).toBe(5)
   })
+
+  it('reaches a trashed row with withTrashed, and passes over it without', async () => {
+    const repo = db.repo(usersTable)
+    const [trashed, live] = await repo.write.insertMany([
+      { name: 'Gone', email: 'gone@test.com', age: 3 },
+      { name: 'Here', email: 'here@test.com', age: 3 },
+    ])
+
+    await repo.write.deleteById(trashed!)
+
+    expect(await repo.write.updateOne({ name: 'X' }, { age: 3 })).toBe(live!)
+    expect(await repo.write.updateOne({ name: 'Y' }, { age: 3 }, { withTrashed: true })).toBe(trashed!)
+  })
 })
 
 describe('CRUD - deleteOne', () => {
@@ -278,12 +291,13 @@ describe('CRUD - updateOne/deleteOne with onMany: \'throw\'', () => {
     expect(await repo.write.deleteOne({ age: 8 }, { onMany: 'throw' })).toBeNull()
   })
 
-  it('counts only live rows on a soft-delete table', async () => {
+  it('counts only live rows on a soft-delete table, unless withTrashed', async () => {
     const { repo, first, second } = await seed()
 
     await repo.write.deleteById(first)
 
-    expect(await repo.write.updateOne({ age: 6 }, { age: 5 }, { onMany: 'throw' })).toBe(second)
+    await expect(repo.write.updateOne({ age: 5 }, { age: 5 }, { onMany: 'throw', withTrashed: true })).rejects.toBeInstanceOf(MultipleRowsError)
+    expect(await repo.write.deleteOne({ age: 5 }, { onMany: 'throw' })).toBe(second)
   })
 })
 
