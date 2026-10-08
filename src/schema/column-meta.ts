@@ -10,7 +10,7 @@ import type { AnyColumnDef } from '../types/index'
 export interface ColumnDefMeta {
   enumName?: string
   enumValues?: readonly string[]
-  index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
   renamedFrom?: string
   min?: number
   max?: number
@@ -28,7 +28,7 @@ export interface ColumnDefMeta {
 export interface DefWithMeta {
   _enumName?: string
   _enumValues?: readonly string[]
-  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
   _renamedFrom?: string
   _min?: number
   _max?: number

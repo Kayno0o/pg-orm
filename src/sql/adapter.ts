@@ -15,6 +15,8 @@ export interface BunSqlDriver {
   begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   close: (opts?: { timeout?: number }) => Promise<void>
+  /** One pooled connection held until `release()`, for session state such as a search_path or an advisory lock. */
+  reserve: () => Promise<{ unsafe: (sqlStr: string, params: unknown[]) => Promise<unknown[]>, release: () => void }>
 }
 
 export function asDriver(sql: InstanceType<typeof SQL>): BunSqlDriver {

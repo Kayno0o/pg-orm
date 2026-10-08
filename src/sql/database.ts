@@ -174,6 +174,11 @@ export class Database extends BaseExecutor {
     return this.migrations.transact(fn)
   }
 
+  /** Runs migration SQL a transaction refuses (`CREATE INDEX CONCURRENTLY`) on one connection, in the configured schema, under the migration lock. */
+  migrateOutside<T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>): Promise<T> {
+    return this.migrations.outside(fn)
+  }
+
   /**
    * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
    * Pass `{ dryRun: true }` to preview changes; `{ allowDestructive: true }` to allow DROP/RENAME;

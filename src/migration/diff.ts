@@ -23,7 +23,7 @@ export function diffSchema(
   const droppedTables = new Set(live.tables.map(t => t.name).filter(n => !desired.has(n)))
   const enumOps = diffEnums(collectEnumRequirements(desired), live.enums, live.tables, desired)
   const fkOps = diffForeignKeys(desired, live.foreignKeys ?? [], live.tables)
-  const indexOps = diffIndexes(desired, live.indexes ?? [], droppedTables)
+  const indexOps = diffIndexes(desired, live.indexes ?? [], droppedTables, new Set(live.tables.map(t => t.name)))
   const isEnumRemoval = (op: MigrationOp) => op.type === 'alter_enum_remove'
 
   return [

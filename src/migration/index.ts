@@ -6,6 +6,7 @@ import type { MigrationFile, MigrationOp } from './types'
 import { dialectOf } from '../dialect'
 import { DestructiveOpError, MigrationError } from '../errors/index'
 import { migrationName } from './history'
+import { outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
 import { planMigration } from './plan'
 import { generateDownSql, sqlComment } from './reverse'
 
@@ -59,12 +60,14 @@ export function migrationFile(ops: MigrationOp[], dialect: Dialect, allowDestruc
 
 /** Execute raw migration SQL against the database. Wraps errors in MigrationError. */
 export async function applyMigration(executor: Executable, sql: string): Promise<void> {
+  const { inside, outside } = splitOutsideTransaction(sql)
+
   try {
     // A SQLite rebuild drops a table, which with foreign keys on would delete the rows pointing at it.
     if (executor.migrate && dialectOf(executor) === 'sqlite')
-      await executor.migrate(query => query(sql, []))
+      await executor.migrate(query => query(inside, []))
     else
-      await executor.query(sql, [])
+      await executor.query(inside, [])
   }
   catch (err) {
     throw new MigrationError(
@@ -74,6 +77,9 @@ export async function applyMigration(executor: Executable, sql: string): Promise
       err,
     )
   }
+
+  if (outside.length > 0)
+    await runOutsideTransaction(outsideRunner(executor), outside)
 }
 
 /** Check if the live database has drifted from the desired schema. */

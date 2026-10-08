@@ -76,6 +76,8 @@ export interface Executable {
   readonly dialect?: Dialect
   /** Runs `fn` in one transaction suited to DDL: on SQLite, foreign keys are off around it and checked before the commit. */
   migrate?: <T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>) => Promise<T>
+  /** Runs `fn` on one connection outside any transaction, names resolved in the configured schema and the migration lock held: for the statements a transaction refuses (`CREATE INDEX CONCURRENTLY`). */
+  migrateOutside?: <T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>) => Promise<T>
   /** Runs `fn` all-or-nothing: in a transaction, or a savepoint of the running one. A write spanning several statements goes through it. */
   atomic?: <T>(fn: (exec: Executable) => Promise<T>) => Promise<T>
 }

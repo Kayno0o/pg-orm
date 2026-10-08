@@ -143,10 +143,11 @@ defineTable('members', t => ({ ... }))
     { columns: ['created_at'], desc: ['created_at'], include: ['email'] },
     { columns: ['email'], opclass: { email: 'text_pattern_ops' } },
     { name: 'members_lower_email', columns: [], expressions: ['lower(email)'] }, // @trusted SQL, needs a name
+    { columns: ['joined_at'], concurrently: true }, // also t.timestamptz().index({ concurrently: true })
   ])
 ```
 
-`CREATE INDEX CONCURRENTLY` is not available: every migration runs in one transaction, which Postgres refuses it in.
+`concurrently: true` builds an index on a table that already exists with `CREATE INDEX CONCURRENTLY`, so writes go on while it builds. Postgres refuses it in a transaction, so `sync()`, `applyMigration()` and the CLI run it after the migration's transaction commits, on a connection of its own holding the migration lock. A build that fails (a unique index over duplicates) throws `MigrationError` and leaves an invalid index, which the next sync drops and builds again. On a table the migration creates the index is built in the transaction, the table being empty; SQLite ignores the option.
 
 > **No case conversion.** Column keys are used as PostgreSQL identifiers *verbatim* —
 > there is no automatic `camelCase` ↔ `snake_case` mapping. A key named `authorId`

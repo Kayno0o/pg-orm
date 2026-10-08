@@ -5,6 +5,7 @@ import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, migrationName, recordMigration } from './history'
 import { promptSync } from './interactive'
+import { runOutsideTransaction } from './outside'
 import { planEnumAdditions, planMigration } from './plan'
 import { generateDownSql } from './reverse'
 import { MIGRATION_LOCK_KEY } from './types'
@@ -12,6 +13,8 @@ import { MIGRATION_LOCK_KEY } from './types'
 export interface SyncContext {
   query: QueryFn
   transact: <T>(fn: (query: QueryFn) => Promise<T>) => Promise<T>
+  /** Runs the statements a transaction refuses, after it commits; `query` itself when absent. */
+  outside?: <T>(fn: (query: QueryFn) => Promise<T>) => Promise<T>
   readonly schema: string
   readonly tables: ReadonlyMap<string, AnyTableDef>
   readonly dialect?: Dialect
@@ -43,7 +46,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
 
   // Phase 2: advisory lock + introspect + diff + apply DDL inside a single transaction.
   // The lock is transaction-scoped and auto-released on commit/rollback.
-  return ctx.transact(async (txQuery) => {
+  const result = await ctx.transact(async (txQuery) => {
     if (dialect === 'postgres')
       await txQuery('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_KEY])
 
@@ -73,8 +76,8 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
     }
 
     if (!opts?.dryRun) {
-      // Filter out enum ADD VALUE ops (already applied in Phase 1)
-      const otherOps = ops.filter(o => o.type !== 'alter_enum_add')
+      // Filter out enum ADD VALUE ops (already applied in Phase 1), and the ones a transaction refuses, run after it commits
+      const otherOps = ops.filter(o => o.type !== 'alter_enum_add' && !o.outsideTransaction)
 
       for (const op of otherOps)
         await txQuery(`${op.sql};`, [])
@@ -93,4 +96,12 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
 
     return { sql: sqlStr, ops }
   })
+
+  // Phase 3: what a transaction refuses (CREATE INDEX CONCURRENTLY), once the rest has committed.
+  const outside = opts?.dryRun ? [] : result.ops.filter(o => o.outsideTransaction)
+
+  if (outside.length > 0)
+    await runOutsideTransaction(ctx.outside ?? (fn => fn(ctx.query)), outside.map(o => o.sql))
+
+  return result
 }

@@ -51,37 +51,48 @@ function indexChanged(liveIdx: LiveIndex, idx: IndexDef, tableName: string): boo
   return false
 }
 
+/**
+ * `liveTables` are the tables that exist before the migration: a `concurrently` index on one is built after the transaction commits, while one on a table the migration creates, empty, is built in it.
+ * An index left invalid by a failed concurrent build is dropped and built again.
+ */
 export function diffIndexes(
   desired: ReadonlyMap<string, AnyTableDef>,
   liveIndexes: LiveIndex[],
   droppedTables: Set<string>,
+  liveTables: ReadonlySet<string> = new Set(),
 ): MigrationOp[] {
   const ops: MigrationOp[] = []
   const desiredIndexes = collectDesiredIndexes(desired)
   const liveIndexMap = new Map(liveIndexes.map(i => [i.name, i]))
 
   for (const [name, { tableName, idx }] of desiredIndexes) {
-    if (liveIndexMap.has(name)) {
-      const liveIdx = liveIndexMap.get(name)!
+    const concurrent = idx.concurrently === true && liveTables.has(tableName)
+    const outside = concurrent ? { outsideTransaction: true } : {}
+    const liveIdx = liveIndexMap.get(name)
 
-      if (indexChanged(liveIdx, idx, tableName)) {
-        ops.push({
-          type: 'drop_index',
-          table: tableName,
-          sql: buildDropIndexSql(name),
-          destructive: true,
-          description: `Drop index "${name}" from "${tableName}" (changed)`,
-        })
-        ops.push({
-          type: 'create_index',
-          table: tableName,
-          sql: buildCreateIndexSql(tableName, idx),
-          destructive: false,
-          description: `Recreate index "${name}" on "${tableName}" (${idx.columns.join(', ')})`,
-        })
-      }
-
+    if (liveIdx) {
       liveIndexMap.delete(name)
+
+      if (liveIdx.isValid !== false && !indexChanged(liveIdx, idx, tableName))
+        continue
+
+      ops.push({
+        type: 'drop_index',
+        table: tableName,
+        sql: buildDropIndexSql(name, concurrent),
+        // An invalid index serves no query, so dropping it loses nothing.
+        destructive: liveIdx.isValid !== false,
+        description: `Drop index "${name}" from "${tableName}" (${liveIdx.isValid === false ? 'invalid' : 'changed'})`,
+        ...outside,
+      })
+      ops.push({
+        type: 'create_index',
+        table: tableName,
+        sql: buildCreateIndexSql(tableName, idx, concurrent),
+        destructive: false,
+        description: `Recreate index "${name}" on "${tableName}" (${idx.columns.join(', ')})`,
+        ...outside,
+      })
 
       continue
     }
@@ -89,9 +100,10 @@ export function diffIndexes(
     ops.push({
       type: 'create_index',
       table: tableName,
-      sql: buildCreateIndexSql(tableName, idx),
+      sql: buildCreateIndexSql(tableName, idx, concurrent),
       destructive: false,
-      description: `Create index "${name}" on "${tableName}" (${idx.columns.join(', ')})`,
+      description: `Create index "${name}" on "${tableName}" (${idx.columns.join(', ')})${concurrent ? ', concurrently' : ''}`,
+      ...outside,
     })
   }
 

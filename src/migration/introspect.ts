@@ -94,6 +94,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
       t.relname AS table_name,
       am.amname AS method,
       ix.indisunique AS is_unique,
+      ix.indisvalid AS is_valid,
       pg_get_indexdef(ix.indexrelid) AS definition,
       array_agg(a.attname ORDER BY x.ordinality) FILTER (WHERE a.attname IS NOT NULL) AS columns
     FROM pg_index ix
@@ -109,7 +110,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
         SELECT 1 FROM pg_constraint c
         WHERE c.conindid = ix.indexrelid AND c.contype IN ('u', 'p')
       )
-    GROUP BY i.relname, t.relname, am.amname, ix.indisunique, ix.indexrelid
+    GROUP BY i.relname, t.relname, am.amname, ix.indisunique, ix.indisvalid, ix.indexrelid
   `, [schema])
 
   const checkRows = await executor.query(`
@@ -156,6 +157,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       isUnique: r.is_unique as boolean,
       method: r.method as string,
       definition: r.definition as string,
+      isValid: r.is_valid as boolean,
     })),
     checks: checkRows.map(r => ({ name: r.name as string, tableName: r.table_name as string })),
   }

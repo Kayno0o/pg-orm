@@ -17,7 +17,7 @@ import { toSQLDefault } from './column-default'
 import { validateFkAction, validateIdentifier, validateIndexMethod } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
-export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string } | undefined {
+export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean } | undefined {
   return b._index
 }
 
@@ -41,7 +41,7 @@ export class ColumnBuilder<
   private _references?: ForeignKeyRef
   _enumName?: string
   _enumValues?: readonly string[]
-  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }
+  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
   _renamedFrom?: string
   _min?: number
   _max?: number
@@ -224,9 +224,9 @@ export class ColumnBuilder<
   }
 
   /** Create a B-tree index on this column (or specify method/partial filter). */
-  index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+  index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     validateIndexMethod(opts?.method, 'index()')
-    this._index = { method: opts?.method, where: opts?.where }
+    this._index = { method: opts?.method, where: opts?.where, concurrently: opts?.concurrently }
 
     return this._narrow()
   }

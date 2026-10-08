@@ -58,7 +58,7 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
         if (idx.where !== undefined)
           validateRawSqlFragment(idx.where, `index on "${key}"`)
 
-        indexes.push({ columns: [key], unique: false, method: idx.method, where: idx.where })
+        indexes.push({ columns: [key], unique: false, method: idx.method, where: idx.where, ...idx.concurrently ? { concurrently: true } : {} })
       }
     }
   }

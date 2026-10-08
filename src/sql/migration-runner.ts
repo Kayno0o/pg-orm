@@ -6,6 +6,7 @@ import type { QueryFn } from '../migration/types'
 import type { AnyTableDef } from '../types/index'
 import type { SqliteDriver } from './sqlite-driver'
 import { rollbackMigrations, syncSchema } from '../migration/index'
+import { MIGRATION_LOCK_KEY } from '../migration/types'
 import { validateIdentifier } from '../schema/validate'
 import { asDriver } from './adapter'
 
@@ -45,9 +46,44 @@ export class MigrationRunner {
     }))
   }
 
+  /**
+   * Runs `fn` on one reserved connection outside any transaction, in the configured schema, holding the migration lock for the whole session so no other migration plans while an index builds.
+   * SQLite has no such statements and runs it as is.
+   */
+  outside<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
+    if (this.dialect === 'sqlite')
+      return this.track(() => fn(this.query))
+
+    return this.track(async () => {
+      const conn = await asDriver(this.sql).reserve()
+      const query: QueryFn = async (sqlStr, params) => conn.unsafe(sqlStr, params) as Promise<Record<string, unknown>[]>
+
+      try {
+        await query(`SET search_path TO "${this.schema}", public`, [])
+        await query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY])
+
+        try {
+          return await fn(query)
+        }
+        finally {
+          await query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY])
+        }
+      }
+      finally {
+        // The connection goes back to the pool: its search_path must not follow it there.
+        try {
+          await query('RESET search_path', [])
+        }
+        finally {
+          conn.release()
+        }
+      }
+    })
+  }
+
   sync(opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {
     return syncSchema(
-      { query: this.query, transact: fn => this.transact(fn), schema: this.schema, tables: this.tables, dialect: this.dialect },
+      { query: this.query, transact: fn => this.transact(fn), outside: fn => this.outside(fn), schema: this.schema, tables: this.tables, dialect: this.dialect },
       opts,
     )
   }

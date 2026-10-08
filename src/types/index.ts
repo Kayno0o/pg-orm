@@ -159,6 +159,8 @@ export interface IndexDef {
   readonly expressions?: string[]
   /** Columns stored in the index without being part of its key (`INCLUDE`). */
   readonly include?: string[]
+  /** Built with `CREATE INDEX CONCURRENTLY` on a table that already exists, so writes go on while it builds: a migration runs it after its transaction commits. Postgres only. */
+  readonly concurrently?: boolean
 }
 
 /** A UNIQUE constraint over several columns, declared with `withUnique()`. */

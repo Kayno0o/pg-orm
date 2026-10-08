@@ -410,7 +410,8 @@ export function buildIndexName(tableName: string, columns: string[], unique: boo
   return fitIdentifier(`${tableName}_${columns.join('_')}`, unique ? '_unique' : '_idx')
 }
 
-export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
+// `concurrently` builds it alongside writes, outside any transaction, skipping a name a racing migration already built.
+export function buildCreateIndexSql(tableName: string, idx: IndexDef, concurrently = false): string {
   const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
   const method = idx.method ?? 'btree'
   const unique = idx.unique ? 'UNIQUE ' : ''
@@ -418,7 +419,7 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
     ...idx.columns.map(c => `"${c}"${idx.opclass?.[c] ? ` ${idx.opclass[c]}` : ''}${idx.desc?.includes(c) ? ' DESC' : ''}`),
     ...(idx.expressions ?? []).map(e => `(${e})`),
   ].join(', ')
-  let sql = `CREATE ${unique}INDEX "${name}" ON "${tableName}" USING ${method} (${keys})`
+  let sql = `CREATE ${unique}INDEX ${concurrently ? 'CONCURRENTLY IF NOT EXISTS ' : ''}"${name}" ON "${tableName}" USING ${method} (${keys})`
 
   if (idx.include?.length)
     sql += ` INCLUDE (${idx.include.map(c => `"${c}"`).join(', ')})`
@@ -429,8 +430,8 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
   return sql
 }
 
-export function buildDropIndexSql(name: string): string {
-  return `DROP INDEX IF EXISTS "${name}"`
+export function buildDropIndexSql(name: string, concurrently = false): string {
+  return `DROP INDEX ${concurrently ? 'CONCURRENTLY ' : ''}IF EXISTS "${name}"`
 }
 
 // --- Enum lifecycle ---

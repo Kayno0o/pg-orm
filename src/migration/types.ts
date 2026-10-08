@@ -61,6 +61,8 @@ export interface LiveIndex {
   isUnique: boolean
   method: string
   definition: string
+  /** False for an index whose build failed or is still running (`CREATE INDEX CONCURRENTLY`), which serves no query. */
+  isValid?: boolean
 }
 
 export interface MigrationOp {
@@ -78,6 +80,8 @@ export interface MigrationOp {
   description: string
   /** The statement undoing this one, when the op itself knows it (a comment's previous text, a table's previous name). */
   down?: string
+  /** A statement a transaction refuses (`CREATE INDEX CONCURRENTLY`), run after the migration's transaction commits. */
+  outsideTransaction?: boolean
 }
 
 export interface MigrationFile {

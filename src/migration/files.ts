@@ -10,6 +10,7 @@ import { dialectOf } from '../dialect'
 import { MigrationError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 import { migrationFile } from './index'
+import { outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
 import { planMigration } from './plan'
 import { MIGRATION_LOCK_KEY } from './types'
 
@@ -56,9 +57,12 @@ function lockedMigration<T>(db: Executable, fn: (executor: MigrationExecutor) =>
   return db.migrate ? db.migrate(run) : run(db.query)
 }
 
-async function applyAndRecord(executor: MigrationExecutor, name: string, up: string, down: string): Promise<void> {
+// Gives back the statements a transaction refuses, for the caller to run once this one commits; the history records the whole of `up`.
+async function applyAndRecord(executor: MigrationExecutor, name: string, up: string, down: string): Promise<string[]> {
+  const { inside, outside } = splitOutsideTransaction(up)
+
   try {
-    await executor.query(up, [])
+    await executor.query(inside, [])
   }
   catch (err) {
     throw new MigrationError(`Migration "${name}" failed: ${err instanceof Error ? err.message : String(err)}`, 'apply', name, err)
@@ -66,6 +70,8 @@ async function applyAndRecord(executor: MigrationExecutor, name: string, up: str
 
   await ensureMigrationTable(executor)
   await recordMigration(executor, { name, sqlHash: djb2Hash(up), upSql: up, downSql: down, direction: 'up' })
+
+  return outside
 }
 
 /** The files of `dir` not applied yet, the history read in the configured schema. */
@@ -81,20 +87,22 @@ export async function applyMigrationFiles(db: Executable, dir: string): Promise<
   const applied: string[] = []
 
   for (;;) {
-    const filename = await lockedMigration(db, async (executor) => {
+    const { filename, outside } = await lockedMigration(db, async (executor) => {
       const next = pendingMigrationFiles(dir, await getMigrationHistory(executor))[0]
 
-      if (next !== undefined) {
-        const { up, down } = parseMigrationFile(readFileSync(join(dir, next), 'utf8'))
+      if (next === undefined)
+        return { filename: next, outside: [] }
 
-        await applyAndRecord(executor, next.replace(SQL_EXT_RE, ''), up, down)
-      }
+      const { up, down } = parseMigrationFile(readFileSync(join(dir, next), 'utf8'))
 
-      return next
+      return { filename: next, outside: await applyAndRecord(executor, next.replace(SQL_EXT_RE, ''), up, down) }
     })
 
     if (filename === undefined)
       return applied
+
+    if (outside.length > 0)
+      await runOutsideTransaction(outsideRunner(db), outside)
 
     applied.push(filename)
   }
@@ -106,12 +114,14 @@ export async function syncMigration(
   registry: ReadonlyMap<string, AnyTableDef>,
   opts: GenerateMigrationOptions & { dryRun?: boolean } = {},
 ): Promise<MigrationFile | null> {
-  return lockedMigration(db, async (executor) => {
+  const { file, outside } = await lockedMigration(db, async (executor) => {
     const file = migrationFile(await planMigration(executor, registry, executor.dialect, opts.schema, opts.ignoreTables), executor.dialect, opts.allowDestructive || opts.dryRun)
 
-    if (file && !opts.dryRun)
-      await applyAndRecord(executor, file.name, file.up, file.down)
-
-    return file
+    return { file, outside: file && !opts.dryRun ? await applyAndRecord(executor, file.name, file.up, file.down) : [] }
   })
+
+  if (outside.length > 0)
+    await runOutsideTransaction(outsideRunner(db), outside)
+
+  return file
 }
