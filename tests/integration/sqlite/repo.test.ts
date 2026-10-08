@@ -369,3 +369,40 @@ describe('SQLite shutdown', () => {
     await closing
   })
 })
+
+describe('SQLite process shutdown', () => {
+  it('lets an app\'s own SIGTERM drain run to completion, the library never exiting the process', async () => {
+    const script = `
+      import { Database, defineTable } from ${JSON.stringify(join(import.meta.dir, '../../../src/index.ts'))}
+      const t = defineTable('t', c => ({ id: c.serial().primaryKey() }))
+      const db = new Database({ url: ${JSON.stringify(`sqlite://${join(dir, 'signal.db')}`)}, tables: [t] })
+      await db.sync()
+      process.on('SIGTERM', async () => {
+        await db.close({ drain: true, timeout: 5000 })
+        console.log('drained')
+        process.exit(0)
+      })
+      void db.transaction(async () => {
+        console.log('ready')
+        await Bun.sleep(300)
+        await db.repo(t).write.insertOne({})
+        console.log('committed')
+      })
+      await Bun.sleep(5000)
+    `
+    const child = Bun.spawn(['bun', '-e', script], { stdout: 'pipe', stderr: 'pipe' })
+    const reader = child.stdout.getReader()
+    const decoder = new TextDecoder()
+    let out = ''
+
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      out += decoder.decode(chunk.value)
+
+      if (out.includes('ready') && !child.killed)
+        child.kill('SIGTERM')
+    }
+
+    expect(await child.exited).toBe(0)
+    expect(out).toContain('committed\ndrained')
+  })
+})

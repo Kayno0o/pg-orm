@@ -49,7 +49,8 @@ function reportShutdownError(instance: Closable, error: unknown): void {
  */
 export async function closeInstance(instance: Closable): Promise<void> {
   try {
-    await asDriver(instance.sql).close({ timeout: 1000 })
+    // Seconds, as Bun's SQL counts them.
+    await asDriver(instance.sql).close({ timeout: 1 })
   }
   catch (err) {
     reportShutdownError(instance, err)
@@ -80,12 +81,7 @@ function registerCleanupHandlers(): void {
 
   cleanupRegistered = true
 
-  process.on('SIGINT', () => {
-    cleanup().finally(() => process.exit(130))
-  })
-  process.on('SIGTERM', () => {
-    cleanup().finally(() => process.exit(143))
-  })
+  // No SIGINT/SIGTERM handler: the app owns its shutdown (`db.close({ drain: true })`), and a library listener would replace the runtime's default exit.
   process.on('beforeExit', () => {
     // beforeExit can be re-entered if cleanup schedules more I/O. Allowing the
     // promise to run keeps the event loop alive until it settles.
@@ -94,7 +90,7 @@ function registerCleanupHandlers(): void {
 }
 
 /**
- * Register a closable instance for process-exit cleanup. Returns the WeakRef so
+ * Register a closable instance, closed once the event loop runs dry. Returns the WeakRef so
  * callers can pass it back to `unregisterInstance` when closing explicitly.
  */
 export function registerInstance(instance: Closable): WeakRef<Closable> {

@@ -842,9 +842,11 @@ const db = new Database({
 app.use((req, _res, next) => db.withContext({ requestId: req.id }, () => next()))
 
 // On shutdown — drain in-flight queries, then close the pool. Without `drain`,
-// in-flight queries are aborted when the pool closes.
+// in-flight queries are aborted when the pool closes. The library installs no
+// signal handler of its own and never exits the process: this one is yours.
 process.on('SIGTERM', async () => {
   await db.close({ drain: true, timeout: 10_000 })
+  process.exit(0)
 })
 ```
 
