@@ -26,8 +26,17 @@ export interface RelationProcessor {
   ) => Promise<Record<string, unknown>[]>
 }
 
+// A hasManyThrough target is matched by the pivot rows of a chunk of parents, so all of a parent's targets come from one ordered query.
+interface Through {
+  table: string
+  from: string
+  to: string
+}
+
 interface ChildRows {
   rows: Record<string, unknown>[]
+  // The rows each chunk of ids matched, in the callback's order: a target linked to parents of several chunks is one row listed in each.
+  chunks: Record<string, unknown>[][]
   nestedIncludes: IncludeEntry[]
   // A callback's offset and limit, left to apply per parent in memory when the query cannot partition by parent.
   slice?: { offset: number, limit: number | null }
@@ -89,32 +98,17 @@ export class RelationResolver {
     return parentRows
   }
 
-  /**
-   * Split `ids` into chunks of `batchChunkSize` and run `buildSql(chunk)` for
-   * each, concatenating rows. Empty input short-circuits without touching the
-   * executor — the caller decides the SQL shape (IN-clause, JOIN-through-pivot,
-   * etc.) so the same chunk loop serves every relation strategy.
-   */
+  // Runs `buildSql` once per chunk of `batchChunkSize` ids and returns each chunk's rows, none for no ids; the caller shapes the SQL so every relation strategy shares this loop.
   private async _runChunked(
     ids: unknown[],
     buildSql: (chunk: unknown[]) => { sql: string, params: unknown[] },
-  ): Promise<Record<string, unknown>[]> {
-    if (ids.length === 0)
-      return []
-
-    if (ids.length <= this.batchChunkSize) {
-      const { sql, params } = buildSql(ids)
-
-      return this.executor.query(sql, params)
-    }
-
-    const results: Record<string, unknown>[] = []
+  ): Promise<Record<string, unknown>[][]> {
+    const results: Record<string, unknown>[][] = []
 
     for (let i = 0; i < ids.length; i += this.batchChunkSize) {
-      const chunk = ids.slice(i, i + this.batchChunkSize)
-      const { sql, params } = buildSql(chunk)
+      const { sql, params } = buildSql(ids.length <= this.batchChunkSize ? ids : ids.slice(i, i + this.batchChunkSize))
 
-      results.push(...await this.executor.query(sql, params))
+      results.push(await this.executor.query(sql, params))
     }
 
     return results
@@ -155,7 +149,7 @@ export class RelationResolver {
     return table ? tableMeta(table).softDelete?.column ?? null : null
   }
 
-  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. `perParent` partitions a callback limit by `column`, otherwise it comes back as `slice`.
+  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. `perParent` partitions a callback limit by `column`, otherwise it comes back as `slice`. With `through`, `ids` are parent ids and `column` the target's primary key, a row matched by several chunks processed once.
   private async _childQuery(
     tableName: string,
     column: string,
@@ -163,6 +157,7 @@ export class RelationResolver {
     inc: IncludeEntry,
     perParent: boolean,
     processor?: RelationProcessor,
+    through?: Through,
   ): Promise<ChildRows> {
     const base = new SelectBuilder<any, any>(tableName)
     const filtered = inc.callback ? inc.callback(base) : base
@@ -193,7 +188,25 @@ export class RelationResolver {
       state.offset = null
     }
 
-    const raw = await this._runChunked(ids, chunk => filtered.branch().andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor)))
+    const matched = await this._runChunked(ids, chunk => filtered.branch()
+      .andWhere(e => through
+        ? e.inSubquery(column, new SelectBuilder<any>(through.table).pick(through.to).where(p => p.in(through.from, chunk)))
+        : e.in(column, chunk))
+      .toSQL(dialectOf(this.executor)))
+    const raw: Record<string, unknown>[] = []
+    const seen = new Map<unknown, number>()
+    const positions = matched.map(chunk => chunk.map((row) => {
+      const key = through ? relationKey(row[column]) : row
+      const at = seen.get(key)
+
+      if (at !== undefined)
+        return at
+
+      seen.set(key, raw.length)
+      raw.push(row)
+
+      return raw.length - 1
+    }))
 
     if (state.limitPer) {
       for (const row of raw)
@@ -202,7 +215,7 @@ export class RelationResolver {
 
     const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, 'select', { builder: filtered }) : raw
 
-    return { rows, nestedIncludes, slice }
+    return { rows, chunks: positions.map(chunk => chunk.map(at => rows[at]!)), nestedIncludes, slice }
   }
 
   private async _loadBelongsTo(
@@ -279,7 +292,7 @@ export class RelationResolver {
     await this._loadNested(this._resolveTable(rel.targetTable), rows, nestedIncludes, depth, processor)
   }
 
-  // The pivot rows are read first, then the targets through the include's callback; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
+  // The pivot rows are read first, then the targets through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
@@ -298,35 +311,39 @@ export class RelationResolver {
 
     const parentIds = collectParentIds(parentRows, sourcePk)
     const pivots = await this._runChunked(parentIds, chunk => new SelectBuilder<any>(rel.throughTable!).pick(from, to).where(e => e.in(from, chunk)).toSQL(dialectOf(this.executor)))
-    const parentsByTarget = new Map<unknown, unknown[]>()
-    const targetIds: unknown[] = []
+    // Keyed by target, then by the index of the parent chunk that links it, so a chunk's rows reach only its own parents.
+    const parentsByTarget = new Map<unknown, Map<number, unknown[]>>()
 
-    for (const pivot of pivots) {
-      const key = relationKey(pivot[to])
-      const linked = parentsByTarget.get(key)
+    for (const [chunk, chunkPivots] of pivots.entries()) {
+      for (const pivot of chunkPivots) {
+        const key = relationKey(pivot[to])
+        const byChunk = parentsByTarget.get(key) ?? new Map<number, unknown[]>()
+        const linked = byChunk.get(chunk)
 
-      if (linked) {
-        linked.push(relationKey(pivot[from]))
-      }
-      else {
-        parentsByTarget.set(key, [relationKey(pivot[from])])
-        targetIds.push(pivot[to])
+        if (linked)
+          linked.push(relationKey(pivot[from]))
+        else
+          byChunk.set(chunk, [relationKey(pivot[from])])
+
+        parentsByTarget.set(key, byChunk)
       }
     }
 
-    const { rows, nestedIncludes, slice } = targetIds.length > 0
-      ? await this._childQuery(rel.targetTable, targetPk, targetIds, inc, false, processor)
-      : { rows: [], nestedIncludes: [], slice: undefined }
+    const { rows, chunks, nestedIncludes, slice } = parentsByTarget.size > 0
+      ? await this._childQuery(rel.targetTable, targetPk, parentIds, inc, false, processor, { table: rel.throughTable!, from, to })
+      : { rows: [], chunks: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
-    for (const row of rows) {
-      for (const parent of parentsByTarget.get(relationKey(row[targetPk])) ?? []) {
-        const group = grouped.get(parent)
+    for (const [chunk, chunkRows] of chunks.entries()) {
+      for (const row of chunkRows) {
+        for (const parent of parentsByTarget.get(relationKey(row[targetPk]))?.get(chunk) ?? []) {
+          const group = grouped.get(parent)
 
-        if (group)
-          group.push(row)
-        else
-          grouped.set(parent, [row])
+          if (group)
+            group.push(row)
+          else
+            grouped.set(parent, [row])
+        }
       }
     }
 

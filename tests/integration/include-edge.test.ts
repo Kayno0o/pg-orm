@@ -40,9 +40,9 @@ const dir = mkdtempSync(join(tmpdir(), 'pg-orm-include-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const dialects: [string, () => Database][] = [
-  ['postgres', () => createTestDb({ tables })],
-  ['sqlite', () => new Database({ url: `sqlite://${join(dir, 'include.db')}`, tables })],
+const dialects: [string, (batchChunkSize?: number) => Database][] = [
+  ['postgres', batchChunkSize => createTestDb({ tables, batchChunkSize })],
+  ['sqlite', batchChunkSize => new Database({ url: `sqlite://${join(dir, 'include.db')}`, tables, batchChunkSize })],
 ]
 
 describe.each(dialects)('include() on %s', (_name, open) => {
@@ -108,6 +108,22 @@ describe.each(dialects)('include() on %s', (_name, open) => {
       ['Ann', ['Cid'], ['green']],
       ['Boss', ['Bob'], []],
     ])
+  })
+
+  it('keeps a hasManyThrough callback order and limit when the targets span several chunks', async () => {
+    const chunked = open(1)
+
+    try {
+      const ordered = await chunked.repo(people).read.findMany(q => q.include('groups', groupsDef, g => g.orderBy('name')).where({ id: [ann, bob] }).orderBy('name'))
+      const sliced = await chunked.repo(people).read.findMany(q => q.include('groups', groupsDef, g => g.orderBy('name', 'desc').offset(1).limit(1)).where({ id: [ann, bob] }).orderBy('name'))
+
+      expect(ordered.map(r => r.groups.map(g => g.name))).toEqual([['blue', 'green', 'red'], ['blue']])
+      expect(ordered[0]!.groups[0]).toBe(ordered[1]!.groups[0])
+      expect(sliced.map(r => r.groups.map(g => g.name))).toEqual([['green'], []])
+    }
+    finally {
+      await chunked.close()
+    }
   })
 
   it('keeps computed columns of a callback', async () => {
