@@ -300,6 +300,7 @@ await repo.read.findById(1)
 await repo.read.findById(1, q => q.pick('id', 'name').include('posts'))
 await repo.read.findByIdOrThrow(1)      // throws NotFoundError instead of returning null
 await repo.read.existsById(1)
+await repo.read.existsById(1, { withTrashed: true })
 await repo.read.findById({ userId: 1, groupId: 2 })
 
 // Soft-delete tables: count/exists/paginate skip trashed rows unless asked
@@ -357,15 +358,27 @@ await repo.write.upsertOne({ uuid, name, sessions: 1, firstSeen: now }, ['uuid']
 // ...only when a guard holds (bare columns name the existing row); `null` when it skipped the update
 const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { where: { value: '' } })
 
-// Insert if missing, return the existing row otherwise — never overwrites
-await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
-const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
+// Insert if missing, return the existing row otherwise - never overwrites; `created` says which
+const { row: alice, created } = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
 ```
 
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
-An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore runs no `beforeUpdate` hook, so `updatedAt` is left as it was.
+An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`.
+
+An upsert fires `afterInsert` for the rows it inserted and `afterUpdate` for the ones it updated (on SQLite, told apart by reading the conflicting keys first, so a row inserted concurrently in between counts as updated). `findOrCreate` fires `afterInsert` only when it created the row.
+
+What each op gives when no row matches:
+
+| Op | No match |
+|----|----------|
+| `findMany`, `*Many`, `deleteAll`, `restore`, `forceDelete` | `[]` |
+| `findOne`, `findById`, `updateOne`, `updateById`, `deleteOne`, `deleteById` | `null` |
+| `upsertOne` with a `where` guard that skipped the update | `null` |
+| `findOneOrThrow`, `findByIdOrThrow` | throws `NotFoundError` |
+| `updateWithLock` | throws `NotFoundError`, or `StaleRecordError` when the row is there at another version |
+| `findOrCreate` | never misses: `{ row, created }` |
 
 ## Traits
 
@@ -382,7 +395,7 @@ const users = defineTable('users', t => ({ ... }))
 // Updates skip soft-deleted rows; pass { withTrashed: true } to reach them
 // Use .forceDelete() for real DELETE
 
-// Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict
+// Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict, NotFoundError when no row matches
 await repo.write.updateWithLock({ name: 'Updated' }, { id: 1 }, currentVersion)
 ```
 
@@ -423,7 +436,7 @@ users.hook('afterSelect', (rows) => {
 
 Available hooks: `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `afterSelect`, `beforeUpsert`
 
-The `after*` hooks receive every written row whole and mapped, the same shape `afterSelect` gets, so a table with an after-write hook returns all its columns from each write.
+The `after*` hooks receive every written row whole and mapped, the same shape `afterSelect` gets, so a table with an after-write hook returns all its columns from each write. A write that touched no row fires no after-write hook.
 
 ## Transactions
 
@@ -483,10 +496,10 @@ const page2 = await repo.read.paginateCursor({
 
 Which op fits which write. Each one is a single statement or a transaction, so two requests racing on the same row cannot both win.
 
-**Get or create**: one statement, needs a unique index on the target.
+**Get or create**: an insert that does nothing on conflict, then a read of the conflicting row; needs a unique index on the target.
 
 ```ts
-const tag = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'])
+const { row: tag, created } = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'])
 ```
 
 **Insert or update**: `upsertOne` copies the incoming columns on conflict; `set` computes from the existing row instead, `where` skips the update (and returns `null`).
@@ -682,7 +695,8 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `CheckError` | 23514 | CHECK constraint violation |
 | `ConnectionError` | 08xxx, 57P01 | Connection / server shutdown |
 | `TimeoutError` | 57014 | Statement timeout |
-| `StaleRecordError` | — | Optimistic lock version mismatch |
+| `StaleRecordError` | — | `updateWithLock` found the row at another version |
+| `NotFoundError` | - | `findOneOrThrow`/`findByIdOrThrow` found nothing, or `updateWithLock` matched no row |
 | `MultipleRowsError` | - | `updateOne`/`deleteOne` with `onMany: 'throw'` matched several rows; nothing changed |
 | `DestructiveOpError` | — | Blocked destructive migration |
 

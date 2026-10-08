@@ -81,6 +81,16 @@ describe('Soft Delete', () => {
     expect(exists).toBe(false)
   })
 
+  it('existsById skips a soft-deleted row unless withTrashed', async () => {
+    const repo = db.repo(usersTable)
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
+
+    await repo.write.deleteById(userId, { pk: true })
+
+    expect(await repo.read.existsById(userId)).toBe(false)
+    expect(await repo.read.existsById(userId, { withTrashed: true })).toBe(true)
+  })
+
   it('forceDelete removes row permanently', async () => {
     const repo = db.repo(usersTable)
 
@@ -303,9 +313,10 @@ describe('Upserts on a soft-deleted row', () => {
 
   it('findOrCreate restores a trashed row instead of returning it still trashed', async () => {
     const id = await trashed()
-    const row = await db.repo(usersTable).write.findOrCreate({ name: 'Ignored', email: 'back@test.com' }, ['email'])
+    const { row, created } = await db.repo(usersTable).write.findOrCreate({ name: 'Ignored', email: 'back@test.com' }, ['email'])
 
     expect(row).toMatchObject({ id, name: 'Old', deletedAt: null })
+    expect(created).toBe(false)
     expect(await db.repo(usersTable).read.exists({ id })).toBe(true)
   })
 })

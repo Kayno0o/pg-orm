@@ -80,9 +80,9 @@ function printCtes(sb: SqlBuilder, ctes: BuilderState['ctes']): void {
 
 // --- Shared clause printers ---
 
-function printReturning(sb: SqlBuilder, returning: string[] | null): void {
+function printReturning(sb: SqlBuilder, returning: string[] | null, extra?: string): void {
   if (returning) {
-    sb.push(`RETURNING ${returning.length ? quoteCols(returning) : '*'}`)
+    sb.push(`RETURNING ${returning.length ? quoteCols(returning) : '*'}${extra ? `, ${extra}` : ''}`)
   }
 }
 
@@ -285,7 +285,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
   if (keys.length === 0) {
     sb.push(`INSERT INTO ${quote(state.table)} DEFAULT VALUES`)
     printOnConflict(sb, state)
-    printReturning(sb, state.returning)
+    printReturning(sb, state.returning, state.returningExtra)
 
     return
   }
@@ -295,7 +295,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
   printOnConflict(sb, state)
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 // A column a row leaves out takes its default, which SQLite cannot ask for by `DEFAULT` inside VALUES: there the default's own expression is written out, from the table the repository knows.
@@ -334,7 +334,7 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES ${valueSets.join(', ')}`)
   printOnConflict(sb, state)
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 function printSetClauses(sb: SqlBuilder, values: Record<string, unknown>): string {
@@ -360,7 +360,7 @@ function printUpdate(sb: SqlBuilder, state: BuilderState): void {
 
   sb.push(`UPDATE ${quote(state.table)} SET ${setClauses}`)
   printWhere(sb, state.whereTape)
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 // A falsy where() is a no-op, so a builder whose every condition came out falsy would otherwise reach the whole table.
@@ -373,7 +373,7 @@ function printDelete(sb: SqlBuilder, state: BuilderState): void {
   requireWhereOrAllRows(state)
   sb.push(`DELETE FROM ${quote(state.table)}`)
   printWhere(sb, state.whereTape)
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 // --- MERGE ---
@@ -447,7 +447,7 @@ function printMerge(sb: SqlBuilder, state: BuilderState): void {
     printMergeWhen(sb, when)
   }
 
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 // --- UPSERT ---
@@ -468,7 +468,7 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
     sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
   }
 
-  printReturning(sb, state.returning)
+  printReturning(sb, state.returning, state.returningExtra)
 }
 
 // --- RAW ---

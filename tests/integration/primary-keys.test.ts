@@ -50,7 +50,7 @@ describe('Composite primary key writes', () => {
   it('findOrCreate returns the existing key', async () => {
     await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' }, { pk: true })
 
-    expect(await db.repo(pairs).write.findOrCreate({ a: 1, b: 2, v: 'ignored' }, ['a', 'b'], { pk: true })).toEqual({ a: 1, b: 2 })
+    expect((await db.repo(pairs).write.findOrCreate({ a: 1, b: 2, v: 'ignored' }, ['a', 'b'])).row).toMatchObject({ a: 1, b: 2 })
   })
 })
 

@@ -74,8 +74,8 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.findByIdOrThrow(id, cb)
   }
 
-  async existsById(id: unknown): Promise<boolean> {
-    return this._pipeline.existsById(id)
+  async existsById(id: unknown, opts?: TrashedOptions): Promise<boolean> {
+    return this._pipeline.existsById(id, opts)
   }
 
   async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {

@@ -331,24 +331,26 @@ describe('CRUD - deleteMany', () => {
 describe('CRUD - findOrCreate', () => {
   it('creates new row when not exists', async () => {
     const repo = db.repo(usersTable)
-    const user = await repo.write.findOrCreate(
+    const { row, created } = await repo.write.findOrCreate(
       { name: 'Alice', email: 'a@test.com' },
       ['email'],
     )
 
-    expect(user.name).toBe('Alice')
+    expect(row.name).toBe('Alice')
+    expect(created).toBe(true)
   })
 
   it('returns existing row on conflict', async () => {
     const repo = db.repo(usersTable)
 
     await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
-    const user = await repo.write.findOrCreate(
+    const { row, created } = await repo.write.findOrCreate(
       { name: 'Alice Different', email: 'a@test.com' },
       ['email'],
     )
 
-    expect(user.email).toBe('a@test.com')
+    expect(row).toMatchObject({ name: 'Alice', email: 'a@test.com' })
+    expect(created).toBe(false)
   })
 })
 

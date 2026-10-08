@@ -1,6 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { StaleRecordError } from '../../src/index'
+import { NotFoundError, StaleRecordError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { versionedItemsTable } from '../helpers/fixtures'
 
@@ -65,6 +65,12 @@ describe('Optimistic Lock', () => {
         { pk: true }, // stale version (1, but now it's 2)
       ),
     ).rejects.toThrow(StaleRecordError)
+  })
+
+  it('updateWithLock throws NotFoundError when no row matches at all', async () => {
+    const repo = db.repo(versionedItemsTable)
+
+    await expect(repo.write.updateWithLock({ value: 300 }, e => e.eq('id', 999), 1)).rejects.toThrow(NotFoundError)
   })
 
   it('regular updateMany auto-increments version', async () => {

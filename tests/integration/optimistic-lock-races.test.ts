@@ -1,6 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { StaleRecordError } from '../../src/index'
+import { NotFoundError, StaleRecordError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { versionedItemsTable } from '../helpers/fixtures'
 
@@ -85,15 +85,15 @@ describe('Optimistic lock — concurrency races', () => {
     expect(current.value).toBe(5)
   })
 
-  it('update on deleted row throws StaleRecordError', async () => {
+  it('update on deleted row throws NotFoundError', async () => {
     const repo = db.repo(versionedItemsTable)
     const id = await repo.write.insertOne({ name: 'rip', value: 0 }, { pk: true })
 
     await repo.write.deleteMany(e => e.eq('id', id), { pk: true })
 
-    expect(
+    await expect(
       repo.write.updateWithLock({ value: 1 }, e => e.eq('id', id), 1, { pk: true }),
-    ).rejects.toBeInstanceOf(StaleRecordError)
+    ).rejects.toBeInstanceOf(NotFoundError)
   })
 
   it('parallel updates on different rows do not interfere', async () => {

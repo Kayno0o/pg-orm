@@ -92,6 +92,8 @@ export interface BuilderState {
   setValues: Record<string, unknown> | null
   // RETURNING
   returning: string[] | null // null = no RETURNING, [] = RETURNING *
+  // An internal expression RETURNING adds after the columns, trusted SQL: the flag telling an upsert's inserted rows from its updated ones on Postgres.
+  returningExtra?: string
   // UPSERT (ON CONFLICT)
   conflictTarget: string[] | null
   conflictAction: 'nothing' | 'update' | null

@@ -138,3 +138,43 @@ describe('Hooks - integration', () => {
     expect(hookLog.indexOf('beforeInsert')).toBeLessThan(hookLog.indexOf('afterInsert'))
   })
 })
+
+describe('Hooks - upsert and findOrCreate outcome', () => {
+  it('upsertMany fires afterInsert for inserted rows and afterUpdate for updated ones', async () => {
+    const repo = db.repo(hookedTable)
+
+    await repo.write.insertOne({ id: 1, name: 'a', email: 'a@test.com' }, { pk: true })
+    hookLog.length = 0
+    await repo.write.upsertMany([{ id: 1, name: 'a2', email: 'a@test.com' }, { id: 2, name: 'b', email: 'b@test.com' }], ['id'], undefined, { pk: true })
+
+    expect(hookLog.filter(h => h === 'afterInsert')).toHaveLength(1)
+    expect(hookLog.filter(h => h === 'afterUpdate')).toHaveLength(1)
+  })
+
+  it('findOrCreate reports created and fires afterInsert only when it inserted', async () => {
+    const repo = db.repo(hookedTable)
+
+    const first = await repo.write.findOrCreate({ id: 1, name: 'a', email: 'a@test.com' }, ['id'])
+
+    expect(first.created).toBe(true)
+    expect(hookLog).toContain('afterInsert')
+
+    hookLog.length = 0
+    const second = await repo.write.findOrCreate({ id: 1, name: 'z', email: 'z@test.com' }, ['id'])
+
+    expect(second).toEqual({ row: first.row, created: false })
+    expect(hookLog).not.toContain('afterInsert')
+  })
+})
+
+describe('Hooks - writes touching no row', () => {
+  it('fire no after-write hook', async () => {
+    const repo = db.repo(hookedTable)
+
+    await repo.write.updateMany({ name: 'x' }, { email: 'missing@test.com' }, { pk: true })
+    await repo.write.deleteMany({ email: 'missing@test.com' }, { pk: true })
+
+    expect(hookLog).not.toContain('afterUpdate')
+    expect(hookLog).not.toContain('afterDelete')
+  })
+})

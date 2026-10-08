@@ -11,14 +11,18 @@ import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { dialectOf } from '../dialect'
-import { MultipleRowsError, StaleRecordError, ValidationError } from '../errors/index'
+import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
 import { jsonParam } from '../sql/json-param'
+import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
+
+const INSERTED_FLAG = '__pgorm_inserted'
+const FIND_OR_CREATE_ATTEMPTS = 3
 
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
@@ -230,10 +234,20 @@ export class WritePipeline<
       opts,
     )
 
-    if (rows.length === 0)
-      throw new StaleRecordError(this._runtime.table.name, currentVersion)
+    if (rows.length > 0)
+      return rows[0]!
 
-    return rows[0]!
+    const matches = new SelectBuilderCtor<TColumns>(this._runtime.table.name).count().where(where)
+
+    if (!opts?.withTrashed)
+      this._runtime.behavior.prepareSelect(matches)
+
+    const { sql, params } = matches.toSQL(dialectOf(this._executor))
+
+    if (Number((await this._executor.query(sql, params))[0]?.count ?? 0) === 0)
+      throw new NotFoundError(this._runtime.table.name)
+
+    throw new StaleRecordError(this._runtime.table.name, currentVersion)
   }
 
   async updateManyById(rows: Record<string, unknown>[], opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
@@ -346,9 +360,47 @@ export class WritePipeline<
     return this._execute({
       builder,
       afterEvent: 'afterInsert',
+      inserted: await this._insertedClassifier(builder, v as Record<string, unknown>[], conflictTarget),
       project: rows => this._projectMany(rows, opts),
       opts,
     })
+  }
+
+  /**
+   * How to tell an upsert's inserted rows from its updated ones, so each fires its own after hook; undefined when no hook listens.
+   * Postgres says it per row (`xmax = 0` on a row the statement inserted). SQLite has no such column, so the keys already present are read first: exact inside a transaction, best effort outside one, where a concurrent insert can land between the two statements.
+   */
+  private async _insertedClassifier(builder: InsertBuilderCtor<TColumns>, rows: Record<string, unknown>[], target: string[]): Promise<((raw: Record<string, unknown>) => boolean) | undefined> {
+    const { table } = this._runtime
+
+    if (!hasHooks(table, 'afterInsert') && !hasHooks(table, 'afterUpdate'))
+      return undefined
+
+    if (dialectOf(this._executor) === 'postgres') {
+      builder.getState().returningExtra = `(xmax = 0) AS ${quote(INSERTED_FLAG)}`
+
+      return (raw) => {
+        const inserted = raw[INSERTED_FLAG] === true
+
+        delete raw[INSERTED_FLAG]
+
+        return inserted
+      }
+    }
+
+    const keyOf = (row: Record<string, unknown>): string => JSON.stringify(target.map(col => String(row[col])))
+    const conflicting = rows.filter(row => target.every(col => row[col] !== undefined && row[col] !== null))
+
+    if (conflicting.length === 0)
+      return () => true
+
+    const present = new SelectBuilderCtor<TColumns>(table.name)
+      .pick(...target as (keyof TColumns & string)[])
+      .where(e => e.or(...conflicting.map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
+    const { sql, params } = present.toSQL(dialectOf(this._executor))
+    const existing = new Set((await this._executor.query(sql, params)).map(keyOf))
+
+    return raw => !existing.has(keyOf(raw))
   }
 
   async upsertOne(
@@ -391,28 +443,50 @@ export class WritePipeline<
     }
   }
 
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    // A no-op update of the key to its own value, so the existing row comes back through RETURNING. `EXCLUDED` would hold the incoming row's key, a serial's next value. A trashed row is restored rather than handed back still trashed.
-    const pkColumns = this._runtime.pkColumns as (keyof TColumns & string)[]
-    const trashCol = this._runtime.behavior.getSoftDeleteColumn()
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
-      .values(v)
-      .onConflict(conflictTarget)
-      .doUpdateWith({
-        columns: [],
-        set: u => ({
-          ...Object.fromEntries(pkColumns.map(col => [col, u.existing(col)])),
-          ...trashCol && { [trashCol]: u.excluded(trashCol as keyof TColumns & string) },
-        }) as ConflictSet<TColumns>,
+  /**
+   * The row holding `values`' conflict key, inserted when missing: `created` says which. One statement inserts or does nothing; on a conflict a trashed row is restored (`restore()`, hooks and all), else the live one is read back.
+   * A row deleted between those statements sends it round again, a few times at most.
+   */
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>)
+    const { table } = this._runtime
+    const key = Object.fromEntries(conflictTarget.map((col) => {
+      if (v[col] === undefined || v[col] === null)
+        throw new ValidationError(`findOrCreate(): the values on "${table.name}" have no "${col}", the conflict target it looks the row up by.`, 'findOrCreate', { field: col })
+
+      return [col, v[col]]
+    })) as Where<TColumns>
+
+    for (let attempt = 0; attempt < FIND_OR_CREATE_ATTEMPTS; attempt++) {
+      const [created] = await this._execute({
+        builder: new InsertBuilderCtor<TColumns>(table.name).values(v as InferInsert<TColumns>).onConflict(conflictTarget).doNothing(),
+        afterEvent: 'afterInsert',
+        project: rows => this._projectMany(rows),
       })
 
-    return this._execute({
-      builder,
-      afterEvent: 'afterInsert',
-      project: rows => this._projectOne(rows, opts),
-      opts,
-    })
+      if (created)
+        return { row: created, created: true }
+
+      const [restored] = this._runtime.behavior.getSoftDeleteColumn() ? await this.restore(key) : []
+
+      if (restored)
+        return { row: restored, created: false }
+
+      const [found] = await this._select(key)
+
+      if (found)
+        return { row: found, created: false }
+    }
+
+    throw new OrmError(`findOrCreate() on "${table.name}": the row conflicting with the insert was deleted before it could be read, ${FIND_OR_CREATE_ATTEMPTS} times over.`)
+  }
+
+  // Rows matching `where`, trashed ones included, mapped and with virtuals like a write's.
+  private async _select(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table.name).where(where)
+    const { sql, params } = builder.toSQL(dialectOf(this._executor))
+
+    return this._runtime.applyVirtuals(mapChunk(this._mapperFactory(builder), await this._executor.query(sql, params))) as WithVirtuals<TColumns, TVirtuals>[]
   }
 
   // --- Restore ---
@@ -441,25 +515,41 @@ export class WritePipeline<
 
   // --- Shared execution path ---
 
+  // `inserted`, on an upsert, tells each raw row's origin: inserted ones fire `afterInsert`, updated ones `afterUpdate`.
   private async _execute<TResult>(args: {
     builder: ReturnableBuilder
     afterEvent: 'afterInsert' | 'afterUpdate' | 'afterDelete'
+    inserted?: (raw: Record<string, unknown>) => boolean
     project: (rows: Record<string, unknown>[]) => TResult
     opts?: WriteReturnOptions
   }): Promise<TResult> {
     const { pkColumns, table } = this._runtime
     // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys.
-    const whole = !args.opts?.pk || hasHooks(table, args.afterEvent)
+    const whole = !args.opts?.pk || hasHooks(table, args.afterEvent) || args.inserted !== undefined
     const shape = new SelectBuilderCtor<AnyColumns>(table.name)
 
     args.builder.returning(...whole ? [] : pkColumns)
 
     const { sql, params } = args.builder.toSQL(dialectOf(this._executor))
-    const rows = mapChunk(this._mapperFactory(whole ? shape : shape.pick(...pkColumns)), await this._executor.query(sql, params))
+    const raw = await this._executor.query(sql, params)
+    const origins = args.inserted ? raw.map(args.inserted) : undefined
+    const rows = mapChunk(this._mapperFactory(whole ? shape : shape.pick(...pkColumns)), raw)
 
-    await this._runtime.runAfter(args.afterEvent, rows)
+    if (origins) {
+      await this._runAfterWrite('afterInsert', rows.filter((_row, i) => origins[i]))
+      await this._runAfterWrite('afterUpdate', rows.filter((_row, i) => !origins[i]))
+    }
+    else {
+      await this._runAfterWrite(args.afterEvent, rows)
+    }
 
     return args.project(rows)
+  }
+
+  // A write that touched no row fires no after-write hook.
+  private async _runAfterWrite(event: 'afterInsert' | 'afterUpdate' | 'afterDelete', rows: Record<string, unknown>[]): Promise<void> {
+    if (rows.length > 0)
+      await this._runtime.runAfter(event, rows)
   }
 
   // `rows` arrive mapped; the row form installs virtuals.

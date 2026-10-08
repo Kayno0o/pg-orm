@@ -38,6 +38,19 @@ const shelfBooks = defineTable('shelf_books', t => ({
   bookId: t.uuid().primaryKey(),
 }))
 
+const counters = defineTable('counters', t => ({
+  key: t.text().primaryKey(),
+  n: t.int4(),
+}))
+const counterHooks: string[] = []
+
+counters.hook('afterInsert', (rows: { key: string }[]) => {
+  counterHooks.push(...rows.map(r => `insert:${r.key}`))
+})
+counters.hook('afterUpdate', (rows: { key: string }[]) => {
+  counterHooks.push(...rows.map(r => `update:${r.key}`))
+})
+
 const authorsTable = authors.withRelations(r => ({
   books: r.hasMany<InferEntity<typeof booksDef>>('books', 'authorId'),
 }))
@@ -52,12 +65,12 @@ const dir = mkdtempSync(join(tmpdir(), 'pg-orm-sqlite-'))
 let db: Database
 
 beforeAll(async () => {
-  db = new Database({ url: `sqlite://${join(dir, 'app.db')}`, tables: [authorsTable, books, shelves, shelfBooks] })
+  db = new Database({ url: `sqlite://${join(dir, 'app.db')}`, tables: [authorsTable, books, shelves, shelfBooks, counters] })
   await db.sync()
 })
 
 beforeEach(async () => {
-  for (const table of ['shelf_books', 'shelves', 'books', 'authors'])
+  for (const table of ['shelf_books', 'shelves', 'books', 'authors', 'counters'])
     await db.raw(`DELETE FROM "${table}"`)
 })
 
@@ -181,7 +194,7 @@ describe('SQLite repositories', () => {
 
     expect(await repo.write.upsertOne({ name: 'Ken', rank: 5 }, ['name'], undefined, { pk: true })).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
-    expect(await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'], { pk: true })).toBe(id)
+    expect((await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'])).row.id).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
     expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob' }], ['name'], undefined, { pk: true })).toHaveLength(2)
   })
@@ -250,10 +263,22 @@ describe('SQLite upserts on a soft-deleted row', () => {
     const id = await authors.write.insertOne({ name: 'Back', rank: 1 }, { pk: true })
 
     await authors.write.deleteById(id, { pk: true })
-    expect(await authors.write.findOrCreate({ name: 'Back', rank: 9 }, ['name'])).toMatchObject({ id, rank: 1, deletedAt: null })
+    expect(await authors.write.findOrCreate({ name: 'Back', rank: 9 }, ['name'])).toMatchObject({ row: { id, rank: 1, deletedAt: null }, created: false })
 
     await authors.write.deleteById(id, { pk: true })
     expect(await authors.write.upsertOne({ name: 'Back', rank: 5 }, ['name'])).toMatchObject({ id, rank: 5, deletedAt: null })
+  })
+})
+
+describe('SQLite upsert hooks', () => {
+  it('fire afterInsert for inserted rows and afterUpdate for updated ones', async () => {
+    const repo = db.repo(counters)
+
+    await repo.write.insertOne({ key: 'a', n: 1 }, { pk: true })
+    counterHooks.length = 0
+    await repo.write.upsertMany([{ key: 'a', n: 2 }, { key: 'b', n: 1 }], ['key'], undefined, { pk: true })
+
+    expect(counterHooks.sort()).toEqual(['insert:b', 'update:a'])
   })
 })
 

@@ -89,24 +89,19 @@ describe('WritePipeline upsertOne', () => {
 })
 
 describe('WritePipeline findOrCreate', () => {
-  it('returns the primary key by default', async () => {
-    const { exec, pipeline } = setup(users)
-
-    exec.preset([{ id: 1 }])
-    const id = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'], { pk: true })
-
-    expect(id).toBe(1)
-    expect(exec.lastQuery!.sql).toMatch(/ON CONFLICT/)
-    expect(exec.lastQuery!.sql).toMatch(/RETURNING "id"/)
-  })
-
-  it('returns a single full row with { full: true }', async () => {
+  it('inserts with ON CONFLICT DO NOTHING and reports the row created', async () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const row = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'])
+    const result = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'])
 
-    expect(row).toEqual({ id: 1, email: 'a@x.com', name: 'A' })
-    expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
+    expect(result).toEqual({ row: { id: 1, email: 'a@x.com', name: 'A' }, created: true })
+    expect(exec.lastQuery!.sql).toMatch(/ON CONFLICT \("email"\) DO NOTHING RETURNING \*/)
+  })
+
+  it('refuses values missing a conflict target column', async () => {
+    const { pipeline } = setup(users)
+
+    await expect(pipeline.findOrCreate({ name: 'A' } as never, ['email'])).rejects.toThrow('conflict target')
   })
 })

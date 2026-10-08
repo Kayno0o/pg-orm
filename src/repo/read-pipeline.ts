@@ -176,8 +176,8 @@ export class ReadPipeline<
     return row
   }
 
-  async existsById(id: unknown): Promise<boolean> {
-    return this.exists(this._runtime.pkWhere(id) as Where<TColumns>)
+  async existsById(id: unknown, opts?: TrashedOptions): Promise<boolean> {
+    return this.exists(this._runtime.pkWhere(id) as Where<TColumns>, opts)
   }
 
   async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {

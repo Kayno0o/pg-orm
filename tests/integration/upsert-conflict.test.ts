@@ -100,7 +100,7 @@ describe('upsert set from the existing row', () => {
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
     await Bun.sleep(5)
-    await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'], { pk: true })
+    await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'])
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toEqual(before)
   })
@@ -108,7 +108,7 @@ describe('upsert set from the existing row', () => {
   it('findOrCreate keeps the serial key of the existing row, which EXCLUDED holds the next value of', async () => {
     const id = await db.repo(handles).write.insertOne({ handle: 'ada' }, { pk: true })
 
-    expect(await db.repo(handles).write.findOrCreate({ handle: 'ada' }, ['handle'], { pk: true })).toBe(id)
+    expect((await db.repo(handles).write.findOrCreate({ handle: 'ada' }, ['handle'])).row.id).toBe(id)
     expect((await db.repo(handles).read.findMany()).map(r => r.id)).toEqual([id])
   })
 

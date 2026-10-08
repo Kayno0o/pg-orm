@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { StaleRecordError, ValidationError } from '../../../../src/errors/index'
+import { NotFoundError, StaleRecordError, ValidationError } from '../../../../src/errors/index'
 import { defineTable, optimisticLock } from '../../../../src/index'
 import { setupWritePipeline as setup } from './_helpers'
 
@@ -73,13 +73,24 @@ describe('WritePipeline updateWithLock', () => {
       .toBeInstanceOf(ValidationError)
   })
 
-  it('throws StaleRecordError when no rows match the version predicate', async () => {
+  it('throws StaleRecordError when the row exists at another version', async () => {
     const { exec, pipeline } = setup(versioned)
 
     exec.preset([])
+    exec.preset([{ count: 1 }])
     await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3, { pk: true }))
       .rejects
       .toBeInstanceOf(StaleRecordError)
+  })
+
+  it('throws NotFoundError when no row matches at all', async () => {
+    const { exec, pipeline } = setup(versioned)
+
+    exec.preset([])
+    exec.preset([{ count: 0 }])
+    await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3, { pk: true }))
+      .rejects
+      .toBeInstanceOf(NotFoundError)
   })
 
   it('returns the primary key when version matches by default', async () => {

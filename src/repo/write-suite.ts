@@ -112,10 +112,9 @@ export class WriteSuite<
     return this._pipeline.upsertOne(values, conflictTarget, update, opts)
   }
 
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
-    return this._pipeline.findOrCreate(values, conflictTarget, opts)
+  /** The row holding `values`' conflict key, inserted when missing; `created` says which. A trashed row is restored. */
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+    return this._pipeline.findOrCreate(values, conflictTarget)
   }
 
   async restore(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]>
