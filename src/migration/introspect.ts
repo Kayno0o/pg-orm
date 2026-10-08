@@ -12,22 +12,28 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     JOIN pg_namespace n ON n.nspname = c.table_schema
     JOIN pg_class t ON t.relname = c.table_name AND t.relnamespace = n.oid
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name
-    WHERE c.table_schema = $1
+    WHERE c.table_schema = $1 AND t.relkind IN ('r', 'p')
     ORDER BY c.table_name, c.ordinal_position
   `, [schema])
 
+  // Read off pg_constraint by table oid: information_schema joins on constraint names, which repeat across schemas.
   const pkRows = await executor.query(`
-    SELECT tc.table_name, kcu.column_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+    SELECT t.relname AS table_name, a.attname AS column_name
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+    WHERE c.contype = 'p' AND n.nspname = $1
   `, [schema])
 
+  // Only a single-column UNIQUE makes its column unique: a composite one constrains the pair, not each column.
   const uqRows = await executor.query(`
-    SELECT tc.table_name, kcu.column_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-    WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = $1
+    SELECT t.relname AS table_name, a.attname AS column_name
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = c.conkey[1]
+    WHERE c.contype = 'u' AND n.nspname = $1 AND cardinality(c.conkey) = 1
   `, [schema])
 
   const enumRows = await executor.query(`

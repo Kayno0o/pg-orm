@@ -19,9 +19,9 @@ export type { MigrationFile, MigrationOp } from './types'
 export async function generateMigration(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,
-  opts: { allowDestructive?: boolean } = {},
+  opts: { allowDestructive?: boolean, schema?: string } = {},
 ): Promise<MigrationFile | null> {
-  const ops = await planMigration(executor, registry, dialectOf(executor))
+  const ops = await planMigration(executor, registry, dialectOf(executor), opts.schema)
 
   if (ops.length === 0)
     return null
@@ -70,11 +70,12 @@ export async function applyMigration(executor: Executable, sql: string): Promise
 export async function getMigrationStatus(
   executor: Executable,
   registry: ReadonlyMap<string, AnyTableDef>,
+  schema?: string,
 ): Promise<{
   drift: MigrationOp[]
   hasDrift: boolean
 }> {
-  const drift = await planMigration(executor, registry, dialectOf(executor))
+  const drift = await planMigration(executor, registry, dialectOf(executor), schema)
 
   return { drift, hasDrift: drift.length > 0 }
 }

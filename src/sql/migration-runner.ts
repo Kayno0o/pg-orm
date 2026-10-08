@@ -6,6 +6,7 @@ import type { QueryFn } from '../migration/types'
 import type { AnyTableDef } from '../types/index'
 import type { SqliteDriver } from './sqlite-driver'
 import { rollbackMigrations, syncSchema } from '../migration/index'
+import { validateIdentifier } from '../schema/validate'
 import { asDriver } from './adapter'
 
 /**
@@ -21,7 +22,9 @@ export class MigrationRunner {
     private readonly tables: ReadonlyMap<string, AnyTableDef>,
     private readonly track: <T>(fn: () => Promise<T>) => Promise<T>,
     private readonly dialect: Dialect = 'postgres',
-  ) {}
+  ) {
+    validateIdentifier(schema, 'schema')
+  }
 
   /** Runs `fn` in one transaction; on SQLite with foreign keys off around it, checked before the commit. */
   transact<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
@@ -34,7 +37,12 @@ export class MigrationRunner {
     if (this.dialect === 'sqlite')
       return this.track(() => (this.sql as unknown as SqliteDriver).migrate(body))
 
-    return this.track(() => asDriver(this.sql).begin(body))
+    // The DDL and the history table name no schema, so the transaction resolves them in the configured one; `public` stays on the path for extension types (vector, citext).
+    return this.track(() => asDriver(this.sql).begin(async (sqlTx) => {
+      await asDriver(sqlTx).unsafe(`SET LOCAL search_path TO "${this.schema}", public`, [])
+
+      return body(sqlTx)
+    }))
   }
 
   sync(opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {

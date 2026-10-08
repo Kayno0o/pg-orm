@@ -787,7 +787,8 @@ const db = new Database({
   // Tables (for auto-migration and relation registry)
   tables: [users, posts],
 
-  // Schema (default: 'public')
+  // Schema sync() and the migration CLI introspect and create tables, types and the history table in (default: 'public').
+  // Views in it are ignored. Queries at runtime still resolve names through the connection's search_path.
   schema: 'public',
 
   // statement_timeout (ms), set on every connection: plain queries and transactions alike

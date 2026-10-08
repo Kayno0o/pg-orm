@@ -32,15 +32,15 @@ const SYNC_LOCK_KEY = 741953258
 export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<{ sql: string, ops: MigrationOp[] }> {
   const dialect = ctx.dialect ?? 'postgres'
 
-  // Phase 1: enum ADD VALUE ops can't run inside a transaction in PG < 16, so execute them first.
-  // If they succeed but the main transaction fails, the enum values persist harmlessly
-  // (skipped on retry via IF NOT EXISTS).
+  // Phase 1: a value an enum gains cannot be used in the transaction that adds it, so the additions commit first, in a transaction of their own.
+  // If they succeed but the main transaction fails, the enum values persist harmlessly (skipped on retry via IF NOT EXISTS).
   if (!opts?.dryRun && dialect === 'postgres') {
-    const preOps = await planMigration({ query: ctx.query }, ctx.tables, dialect, ctx.schema)
-    const enumAddOps = preOps.filter(o => o.type === 'alter_enum_add')
+    await ctx.transact(async (txQuery) => {
+      const preOps = await planMigration({ query: txQuery }, ctx.tables, dialect, ctx.schema)
 
-    for (const op of enumAddOps)
-      await ctx.query(`${op.sql};`, [])
+      for (const op of preOps.filter(o => o.type === 'alter_enum_add'))
+        await txQuery(`${op.sql};`, [])
+    })
   }
 
   // Phase 2: advisory lock + introspect + diff + apply DDL inside a single transaction.

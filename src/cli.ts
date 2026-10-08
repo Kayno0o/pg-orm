@@ -45,7 +45,7 @@ function writeMigration(dir: string, name: string, up: string, down: string): st
 }
 
 async function cmdStatus(db: Database, dir: string): Promise<void> {
-  const { drift, hasDrift } = await getMigrationStatus(db, db.getTablesRegistry())
+  const { drift, hasDrift } = await getMigrationStatus(db, db.getTablesRegistry(), db.schema)
 
   if (!hasDrift) {
     console.log('Schema: no drift')
@@ -69,7 +69,7 @@ async function cmdStatus(db: Database, dir: string): Promise<void> {
 }
 
 async function cmdGenerate(db: Database, dir: string): Promise<void> {
-  const file = await generateMigration(db, db.getTablesRegistry())
+  const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema })
 
   if (!file) {
     console.log('No drift — nothing to generate')
@@ -111,7 +111,7 @@ function cmdNew(dir: string, label: string): void {
 }
 
 async function cmdSync(db: Database, dir: string): Promise<void> {
-  const file = await generateMigration(db, db.getTablesRegistry())
+  const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema })
 
   if (!file) {
     console.log('No drift — nothing to sync')
