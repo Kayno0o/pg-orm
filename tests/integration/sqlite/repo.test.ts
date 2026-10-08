@@ -229,6 +229,19 @@ describe('SQLite single-row writes', () => {
   })
 })
 
+describe('SQLite upserts on a soft-deleted row', () => {
+  it('restore the trashed row, upsert taking the new values and findOrCreate keeping its own', async () => {
+    const authors = db.repo(authorsTable)
+    const id = await authors.write.insertOne({ name: 'Back', rank: 1 })
+
+    await authors.write.deleteById(id)
+    expect(await authors.write.findOrCreate({ name: 'Back', rank: 9 }, ['name'], { full: true })).toMatchObject({ id, rank: 1, deletedAt: null })
+
+    await authors.write.deleteById(id)
+    expect(await authors.write.upsertOne({ name: 'Back', rank: 5 }, ['name'], undefined, { full: true })).toMatchObject({ id, rank: 5, deletedAt: null })
+  })
+})
+
 describe('SQLite constraint errors', () => {
   it('maps each violation onto the typed error, named as Postgres would name it', async () => {
     const repo = db.repo(authorsTable)

@@ -336,19 +336,20 @@ export class WritePipeline<
     return rows[0] ?? null
   }
 
-  // The row an upsert updates is updated like any other: `beforeUpdate` hooks (timestamps) and the version bump apply to it.
+  // The row an upsert updates is updated like any other: `beforeUpdate` hooks (timestamps) and the version bump apply to it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
   private async _conflictUpdate(update?: UpsertUpdate<TColumns>): Promise<ConflictUpdate<TColumns>> {
     const spec: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
     const hooked = await this._runtime.runBefore('beforeUpdate', {})
     const lock = this._runtime.behavior.getOptimisticLockColumn()
+    const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
-    if (!spec.set && Object.keys(hooked).length === 0 && !lock)
+    if (!spec.set && Object.keys(hooked).length === 0 && !lock && !trashCol)
       return spec
 
     return {
       ...spec,
       set: (u) => {
-        const set: Record<string, unknown> = { ...hooked, ...spec.set?.(u) }
+        const set: Record<string, unknown> = { ...hooked, ...trashCol && { [trashCol]: u.excluded(trashCol) }, ...spec.set?.(u) }
 
         if (lock)
           set[lock] = u.add(u.existing(lock) as ConflictValue<number>, 1)
@@ -366,12 +367,19 @@ export class WritePipeline<
 
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    // A no-op update of the key to its own value, so the existing row comes back through RETURNING. `EXCLUDED` would hold the incoming row's key, a serial's next value.
+    // A no-op update of the key to its own value, so the existing row comes back through RETURNING. `EXCLUDED` would hold the incoming row's key, a serial's next value. A trashed row is restored rather than handed back still trashed.
     const pkColumns = this._runtime.pkColumns as (keyof TColumns & string)[]
+    const trashCol = this._runtime.behavior.getSoftDeleteColumn()
     const builder = new InsertBuilderCtor<TColumns>(this._runtime.table.name)
       .values(v)
       .onConflict(conflictTarget)
-      .doUpdateWith({ columns: [], set: u => Object.fromEntries(pkColumns.map(col => [col, u.existing(col)])) as ConflictSet<TColumns> })
+      .doUpdateWith({
+        columns: [],
+        set: u => ({
+          ...Object.fromEntries(pkColumns.map(col => [col, u.existing(col)])),
+          ...trashCol && { [trashCol]: u.excluded(trashCol as keyof TColumns & string) },
+        }) as ConflictSet<TColumns>,
+      })
 
     return this._execute({
       builder,

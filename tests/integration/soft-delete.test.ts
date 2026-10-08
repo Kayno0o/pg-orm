@@ -275,3 +275,37 @@ describe('select() on a soft-delete table', () => {
     expect(users.read.select().withTrashed().toSQL().sql).not.toContain('deletedAt')
   })
 })
+
+describe('Upserts on a soft-deleted row', () => {
+  async function trashed(): Promise<number> {
+    const users = db.repo(usersTable)
+    const id = await users.write.insertOne({ name: 'Old', email: 'back@test.com' })
+
+    await users.write.deleteById(id)
+
+    return id
+  }
+
+  it('upsertOne restores the trashed row it updates', async () => {
+    const id = await trashed()
+    const row = await db.repo(usersTable).write.upsertOne({ name: 'New', email: 'back@test.com' }, ['email'], undefined, { full: true })
+
+    expect(row).toMatchObject({ id, name: 'New', deletedAt: null, isDeleted: false })
+    expect(await db.repo(usersTable).read.count({ email: 'back@test.com' })).toBe(1)
+  })
+
+  it('upsertMany restores every trashed row it updates', async () => {
+    const id = await trashed()
+
+    expect(await db.repo(usersTable).write.upsertMany([{ name: 'New', email: 'back@test.com' }], ['email'])).toEqual([id])
+    expect((await db.repo(usersTable).read.findById(id))?.name).toBe('New')
+  })
+
+  it('findOrCreate restores a trashed row instead of returning it still trashed', async () => {
+    const id = await trashed()
+    const row = await db.repo(usersTable).write.findOrCreate({ name: 'Ignored', email: 'back@test.com' }, ['email'], { full: true })
+
+    expect(row).toMatchObject({ id, name: 'Old', deletedAt: null })
+    expect(await db.repo(usersTable).read.exists({ id })).toBe(true)
+  })
+})
