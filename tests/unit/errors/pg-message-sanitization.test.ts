@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { sanitizePgErrorMessage, UniqueError, wrapPgError } from '../../../src/errors/index'
+import { sanitizePgErrorMessage, setParamRedactor, UniqueError, ValidationError, wrapPgError } from '../../../src/errors/index'
 
 afterEach(() => {
   delete process.env.REDACT_QUERY_LOGS
+  delete process.env.NODE_ENV
 })
 
 describe('sanitizePgErrorMessage', () => {
@@ -27,6 +28,24 @@ describe('sanitizePgErrorMessage', () => {
 
     expect(out).toContain('Detail: [redacted]')
     expect(out).not.toContain('PII here')
+  })
+
+  it('redacts a value holding a closing parenthesis to its end', () => {
+    const out = sanitizePgErrorMessage('Key (email)=(a)b@x.com) already exists.')
+
+    expect(out).toBe('Key (email)=([REDACTED])')
+  })
+
+  it('redacts the value of an expression key and both keys of an exclusion conflict', () => {
+    expect(sanitizePgErrorMessage('Key (lower(email::text))=(bob@x.com) already exists.')).toBe('Key (lower(email::text))=([REDACTED])')
+    expect(sanitizePgErrorMessage('Key (room)=(12) conflicts with existing key (room)=(12).')).toBe('Key (room)=([REDACTED])')
+  })
+
+  it('redacts the input Postgres quotes back in a data exception', () => {
+    expect(sanitizePgErrorMessage('invalid input syntax for type uuid: "secret-val"')).toBe('invalid input syntax for type uuid: "[REDACTED]"')
+    expect(sanitizePgErrorMessage('invalid input value for enum mood: "se"cret"')).toBe('invalid input value for enum mood: "[REDACTED]"')
+    expect(sanitizePgErrorMessage('value "99999999999" is out of range for type integer')).toBe('value "[REDACTED]" is out of range for type integer')
+    expect(sanitizePgErrorMessage('invalid byte sequence for encoding "UTF8": 0x00')).toBe('invalid byte sequence for encoding "UTF8": [REDACTED]')
   })
 
   it('REDACT_QUERY_LOGS=0 opts out of sanitization', () => {
@@ -75,5 +94,72 @@ describe('wrapPgError integration — sensitive values do not leak into err.mess
 
     expect(err.message).not.toContain('secret@example.com')
     expect(err.message).toContain('Detail: [redacted]')
+  })
+})
+
+describe('production errors hold no row value, cause chain included', () => {
+  function driverError(message: string, fields: Record<string, unknown>): Error {
+    return Object.assign(new Error(message), fields)
+  }
+
+  it('replaces the raw driver error on cause with a scrubbed copy', () => {
+    process.env.NODE_ENV = 'production'
+
+    const raw = driverError('duplicate key value violates unique constraint "uq_email"', {
+      errno: '23505',
+      code: 'ERR_POSTGRES_SERVER_ERROR',
+      detail: 'Key (email)=(secret@example.com) already exists.',
+      constraint: 'uq_email',
+      table: 'users',
+      where: 'secret@example.com',
+    })
+    const err = wrapPgError(raw, 'INSERT', ['secret@example.com'])
+    const cause = err.cause as Error & Record<string, unknown>
+
+    expect(cause).not.toBe(raw)
+    expect(cause.message).toBe('duplicate key value violates unique constraint "uq_email"')
+    expect(cause.detail).toBeUndefined()
+    expect(cause.where).toBeUndefined()
+    expect(cause).toMatchObject({ errno: '23505', code: 'ERR_POSTGRES_SERVER_ERROR', constraint: 'uq_email', table: 'users' })
+    expect(JSON.stringify({ ...err, cause: { ...cause, message: cause.message } })).not.toContain('secret')
+  })
+
+  it('scrubs a data exception\'s message on both the error and its cause', () => {
+    process.env.NODE_ENV = 'production'
+
+    const err = wrapPgError(driverError('invalid input syntax for type uuid: "secret-val"', { errno: '22P02' }), 'SELECT', ['secret-val'])
+
+    expect(err.message).not.toContain('secret')
+    expect((err.cause as Error).message).not.toContain('secret')
+  })
+
+  it('keeps the raw driver error on cause outside production', () => {
+    const raw = driverError('duplicate key', { errno: '23505', detail: 'Key (email)=(secret@example.com) already exists.' })
+
+    expect(wrapPgError(raw, 'INSERT', []).cause).toBe(raw)
+  })
+
+  it('REDACT_QUERY_LOGS=0 keeps query, params and cause raw in production, past a redactor', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.REDACT_QUERY_LOGS = '0'
+    setParamRedactor(params => params.map(() => '***'))
+
+    try {
+      const raw = driverError('duplicate key', { errno: '23505' })
+      const err = wrapPgError(raw, 'INSERT INTO "users"', ['secret']) as UniqueError
+
+      expect(err.query).toBe('INSERT INTO "users"')
+      expect(err.params).toEqual(['secret'])
+      expect(err.cause).toBe(raw)
+    }
+    finally {
+      setParamRedactor(undefined)
+    }
+  })
+
+  it('redacts ValidationError.value in production', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(new ValidationError('bad row', 'updateManyById', { value: { email: 'secret' } }).value).toBe('[REDACTED]')
   })
 })

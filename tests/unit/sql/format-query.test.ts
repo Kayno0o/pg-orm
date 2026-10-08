@@ -102,6 +102,14 @@ describe('formatQuery: redaction', () => {
 
     expect(formatQuery(event('SELECT $1', ['secret']), { duration: false })).toBe('SELECT \'***\'')
   })
+
+  it('renders raw values when REDACT_QUERY_LOGS=0, in production and past a redactor', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.REDACT_QUERY_LOGS = '0'
+    setParamRedactor(params => params.map(() => '***'))
+
+    expect(formatQuery(event('SELECT $1', ['secret']), { duration: false })).toBe('SELECT \'secret\'')
+  })
 })
 
 describe('composeQueryLogger', () => {

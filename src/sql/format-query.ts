@@ -1,6 +1,6 @@
 import type { QueryEvent } from './base-executor'
 import type { DbConfig } from './config'
-import { getParamRedactor, queryLogsRedacted } from '../errors/index'
+import { logParams, queryLogsRedacted } from '../errors/index'
 import { SINGLE_QUOTE_RE, SQL_PLACEHOLDER_RE } from '../utils/regex'
 
 export interface FormatQueryOptions {
@@ -28,6 +28,7 @@ const RESET = '\x1B[0m'
  * Redaction is inherited from the error layer: when `NODE_ENV=production` or
  * `REDACT_QUERY_LOGS=1` the whole line is `[REDACTED]`, and a `redactParams`
  * redactor (see `DbConfig.redactParams`) is applied to the values first.
+ * `REDACT_QUERY_LOGS=0` renders the raw values, in production too.
  *
  * @example
  * ```ts
@@ -44,8 +45,7 @@ export function formatQuery(event: QueryEvent, opts: FormatQueryOptions = {}): s
   if (queryLogsRedacted())
     return `${prefix}[REDACTED]`
 
-  const redactor = getParamRedactor()
-  const params = redactor ? redactor(event.params) : event.params
+  const params = logParams(event.params)
 
   const sql = event.sql.replace(SQL_PLACEHOLDER_RE, (match, index: string) => {
     const param = params[Number(index) - 1]

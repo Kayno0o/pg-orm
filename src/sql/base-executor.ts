@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { getParamRedactor, queryLogsRedacted } from '../errors/index'
+import { logParams, queryLogsRedacted } from '../errors/index'
 import { unsafeQuery } from './adapter'
 
 /**
@@ -46,12 +46,7 @@ export interface Executable {
 
 // Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
 function eventParams(params: unknown[]): unknown[] {
-  if (queryLogsRedacted())
-    return []
-
-  const redactor = getParamRedactor()
-
-  return redactor && process.env.REDACT_QUERY_LOGS !== '0' ? redactor(params) : params
+  return queryLogsRedacted() ? [] : logParams(params)
 }
 
 // --- Base Executor (shared query logic) ---

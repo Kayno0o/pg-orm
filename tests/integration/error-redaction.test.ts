@@ -100,6 +100,51 @@ describe('Default error redaction — production safety baseline', () => {
   })
 })
 
+describe('Production error redaction', () => {
+  // Everything a logger walking the error would print: the error, then each cause down the chain.
+  function rendered(err: unknown): string {
+    const parts: string[] = []
+
+    for (let at: unknown = err; at; at = (at as { cause?: unknown }).cause)
+      parts.push(Bun.inspect(at), JSON.stringify(at))
+
+    return parts.join('\n')
+  }
+
+  async function thrown(fn: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await fn()
+    }
+    catch (err) {
+      return err
+    }
+
+    return expect.unreachable('the query should have thrown')
+  }
+
+  it('leaves no row value reachable from a unique violation or a bad input, cause chain included', async () => {
+    const repo = db.repo(usersTable)
+    const secret = 'prod-leak)tail@example.com'
+
+    await repo.write.insertOne({ name: 'Alice', email: secret })
+    process.env.NODE_ENV = 'production'
+
+    try {
+      const unique = await thrown(() => repo.write.insertOne({ name: 'Bob', email: secret }))
+      const badInput = await thrown(() => db.raw('SELECT $1::uuid', ['prod-secret-uuid']))
+
+      expect(unique).toBeInstanceOf(UniqueError)
+      expect(rendered(unique)).not.toContain('prod-leak')
+      expect(rendered(unique)).not.toContain('tail@example.com')
+      expect(rendered(badInput)).not.toContain('prod-secret-uuid')
+      expect((unique as UniqueError).constraint).toBeTruthy()
+    }
+    finally {
+      delete process.env.NODE_ENV
+    }
+  })
+})
+
 describe('Query hook events', () => {
   async function capture(): Promise<{ query: QueryEvent, error: QueryErrorEvent }> {
     let query: QueryEvent | undefined

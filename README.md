@@ -699,8 +699,10 @@ positional params on a `QueryError` are replaced with `'[REDACTED]'` placeholder
 values never leak into shared logs. The mode is resolved per error:
 
 - `NODE_ENV=production` **or** `REDACT_QUERY_LOGS=1` — hard-redact: `query` becomes `'[REDACTED]'` and `params` becomes `[]`.
-- `REDACT_QUERY_LOGS=0` — opt out entirely: raw SQL and params are preserved verbatim (use for local debugging only).
+- `REDACT_QUERY_LOGS=0` — opt out entirely, in production too: raw SQL, params and driver messages are preserved verbatim, a `redactParams` included (use for local debugging only).
 - Otherwise — apply the configured `redactParams` if set, else the safe default that scrubs every param.
+
+In hard-redact mode no row value is reachable from an error: the message loses the values Postgres quotes back (`Key (email)=(...)`, `invalid input syntax for type uuid: "..."`), the raw driver error on `cause` is replaced by a copy holding only that message and its value-free fields (`code`, `errno`, `table`, `column`, `constraint`...), and `ValidationError.value` is `'[REDACTED]'`.
 
 A `redactParams` redactor **must not throw** — a throwing redactor propagates out of the
 `QueryError` constructor by design, so the bug surfaces loudly instead of silently

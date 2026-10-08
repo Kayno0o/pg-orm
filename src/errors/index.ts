@@ -38,18 +38,18 @@ export function setParamRedactor(fn: ParamRedactor | undefined): void {
   paramRedactor = fn
 }
 
-/** The redactor registered via `setParamRedactor`, if any. */
-export function getParamRedactor(): ParamRedactor | undefined {
-  return paramRedactor
-}
-
 /**
  * True when SQL and params must never be rendered into logs — i.e.
- * `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`. Query-log formatting
- * (`formatQuery`) and the `debug` config flag both honour this.
+ * `NODE_ENV=production` (unless `REDACT_QUERY_LOGS=0`) or `REDACT_QUERY_LOGS=1`.
+ * Query-log formatting (`formatQuery`) and the `debug` config flag both honour this.
  */
 export function queryLogsRedacted(): boolean {
   return shouldRedact()
+}
+
+/** Params as a query log shows them outside hard-redact mode: through the configured `redactParams`, unless `REDACT_QUERY_LOGS=0` asks for them raw. */
+export function logParams(params: unknown[]): unknown[] {
+  return paramRedactor && !rawRequested() ? paramRedactor(params) : params
 }
 
 /**
@@ -57,7 +57,7 @@ export function queryLogsRedacted(): boolean {
  *
  * Redaction modes:
  * - `NODE_ENV=production` or `REDACT_QUERY_LOGS=1`: hard-redact (`query = '[REDACTED]'`, `params = []`).
- * - `REDACT_QUERY_LOGS=0`: opt-in to raw — params/query preserved verbatim regardless of redactor.
+ * - `REDACT_QUERY_LOGS=0`: opt-in to raw — params/query preserved verbatim regardless of redactor, in production too.
  * - Otherwise: use the registered `paramRedactor` if any; else the safe default that scrubs each value.
  */
 export class QueryError extends OrmError {
@@ -68,21 +68,20 @@ export class QueryError extends OrmError {
     this.name = 'QueryError'
 
     const hardRedact = shouldRedact()
-    const explicitRaw = process.env.REDACT_QUERY_LOGS === '0'
 
     this.query = hardRedact ? '[REDACTED]' : query
 
     if (hardRedact) {
       this.params = []
     }
+    else if (rawRequested()) {
+      this.params = params
+    }
     else if (paramRedactor) {
       // Intentionally NOT wrapped in try/catch: a throwing redactor is a
       // programming bug in the caller's code, and silently dropping params
       // masks it. See the ParamRedactor type doc above.
       this.params = paramRedactor(params)
-    }
-    else if (explicitRaw) {
-      this.params = params
     }
     else {
       this.params = DEFAULT_PARAM_REDACTOR(params)
@@ -291,7 +290,7 @@ export class ValidationError extends OrmError {
     this.name = 'ValidationError'
     this.context = context
     this.field = opts?.field
-    this.value = opts?.value
+    this.value = shouldRedact() && opts?.value !== undefined ? '[REDACTED]' : opts?.value
   }
 }
 
@@ -349,12 +348,21 @@ function sanitizeMessage(message: string): string {
   return message
 }
 
-function shouldRedact(): boolean {
-  return shouldHardRedact() || isProduction()
+function rawRequested(): boolean {
+  return process.env.REDACT_QUERY_LOGS === '0'
 }
 
-const PG_KEY_VALUE_RE = /Key \(([^)]+)\)=\([^)]*\)/g
+function shouldRedact(): boolean {
+  return shouldHardRedact() || (isProduction() && !rawRequested())
+}
+
+// A key's value runs to the end of the line: it may itself hold `)`, and an exclusion conflict names a second key after it.
+const PG_KEY_VALUE_RE = /Key \(((?:[^)]|\)(?!=\())*)\)=\(.*$/gm
 const PG_DETAIL_LINE_RE = /\bDetail:.*$/gm
+// Input Postgres quotes back in a data exception: `invalid input syntax for type uuid: "x"`, `value "x" is out of range`, `invalid byte sequence for encoding "UTF8": 0x00`.
+const PG_TRAILING_INPUT_RE = /: ".*$/gm
+const PG_OUT_OF_RANGE_RE = /\bvalue ".*" is out of range/g
+const PG_BYTE_SEQUENCE_RE = /(invalid byte sequence for encoding "[^"]*"): .*$/gm
 
 /**
  * Strip data values from a raw PG error message before it becomes a
@@ -372,8 +380,33 @@ export function sanitizePgErrorMessage(message: string): string {
     return message
 
   return message
-    .replace(PG_KEY_VALUE_RE, 'Key ($1)=([REDACTED])')
+    .replace(PG_KEY_VALUE_RE, (_match, columns: string) => `Key (${columns})=([REDACTED])`)
     .replace(PG_DETAIL_LINE_RE, 'Detail: [redacted]')
+    .replace(PG_TRAILING_INPUT_RE, ': "[REDACTED]"')
+    .replace(PG_OUT_OF_RANGE_RE, 'value "[REDACTED]" is out of range')
+    .replace(PG_BYTE_SEQUENCE_RE, (_match, prefix: string) => `${prefix}: [REDACTED]`)
+}
+
+// Driver error fields that name what failed without holding a value: `detail`, `hint`, `where` and `internalQuery` can quote the row.
+const SAFE_DRIVER_FIELDS = ['code', 'errno', 'severity', 'schema', 'schema_name', 'table', 'table_name', 'column', 'column_name', 'dataType', 'constraint', 'constraint_name', 'routine'] as const
+
+/** The driver error a typed error keeps as `cause`: as raised outside redaction, else a copy holding only its scrubbed message and the fields that carry no value, so a logger walking the cause chain finds no row data. */
+function redactedCause(err: Error): Error {
+  if (!shouldRedact())
+    return err
+
+  const copy = new Error(sanitizeMessage(err.message))
+  const source = err as unknown as Record<string, unknown>
+  const target = copy as unknown as Record<string, unknown>
+
+  copy.name = err.name
+
+  for (const field of SAFE_DRIVER_FIELDS) {
+    if (source[field] !== undefined)
+      target[field] = source[field]
+  }
+
+  return copy
 }
 
 // Parse PG error codes into typed constraint errors
@@ -397,8 +430,10 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
     schema?: string
   }
 
+  const cause = redactedCause(err)
+
   if (pgErr.code?.startsWith('SQLITE_'))
-    return wrapSqliteError(pgErr.code, pgErr.message, err, query, params)
+    return wrapSqliteError(pgErr.code, pgErr.message, cause, query, params)
 
   const code = pgErr.errno ?? pgErr.code
   const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
@@ -407,8 +442,8 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
 
   // Sanitize the raw PG message ONCE here. Constraint failures embed user data
   // in the message text ("Key (email)=(alice@example.com)"), and that string
-  // is what bubbles up to logs as `err.message`. The raw error is still
-  // available on `err.cause` for callers that explicitly need it.
+  // is what bubbles up to logs as `err.message`. Outside production the raw
+  // error is still available on `err.cause` for callers that explicitly need it.
   const safeMessage = sanitizePgErrorMessage(pgErr.message)
 
   // bun:sql emits client-side error codes (string-prefixed) for transport-level
@@ -416,40 +451,40 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   // hit in CI when the server-side PG closes idle sockets — surface it as a
   // ConnectionError so the Database retry path catches it.
   if (pgErr.code === 'ERR_POSTGRES_CONNECTION_CLOSED') {
-    return new ConnectionError(safeMessage, err)
+    return new ConnectionError(safeMessage, cause)
   }
 
   switch (code) {
     case '23505': // unique_violation
-      return new UniqueError(safeMessage, query, params, { constraint, table, column }, err)
+      return new UniqueError(safeMessage, query, params, { constraint, table, column }, cause)
     case '23503': // foreign_key_violation
-      return new ForeignKeyError(safeMessage, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, err)
+      return new ForeignKeyError(safeMessage, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, cause)
     case '23502': // not_null_violation
-      return new NotNullError(safeMessage, query, params, { constraint, table, column }, err)
+      return new NotNullError(safeMessage, query, params, { constraint, table, column }, cause)
     case '23514': // check_violation
-      return new CheckError(safeMessage, query, params, { constraint, table }, err)
+      return new CheckError(safeMessage, query, params, { constraint, table }, cause)
     case '40P01': // deadlock_detected
-      return new DeadlockError(safeMessage, query, params, err)
+      return new DeadlockError(safeMessage, query, params, cause)
     case '40001': // serialization_failure
-      return new SerializationError(safeMessage, query, params, err)
+      return new SerializationError(safeMessage, query, params, cause)
     default:
       if (code?.startsWith('08') || code === '57P01') {
-        return new ConnectionError(safeMessage, err)
+        return new ConnectionError(safeMessage, cause)
       }
 
       if (code === '57014') {
-        return new TimeoutError(safeMessage, err)
+        return new TimeoutError(safeMessage, cause)
       }
 
       if (code?.startsWith('53')) {
-        return new ResourceError(safeMessage, code, err)
+        return new ResourceError(safeMessage, code, cause)
       }
 
       if (code?.startsWith('22')) {
-        return new DataError(safeMessage, code, query, params, err)
+        return new DataError(safeMessage, code, query, params, cause)
       }
 
-      return new QueryError(safeMessage, query, params, err)
+      return new QueryError(safeMessage, query, params, cause)
   }
 }
 
