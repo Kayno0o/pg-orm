@@ -1,8 +1,8 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { PaginateCursorOptions, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
+import type { CursorOf, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -84,10 +84,16 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.paginate(opts, cb)
   }
 
-  async paginateCursor<K extends keyof TColumns & string>(
+  /** Keyset pagination ordered by `column` then the primary key. Pass `nextCursor` back as `cursor` for the next page; the optional callback shapes rows (`pick`, `include`, a WHERE) but leaves order and limit to the cursor. */
+  async paginateCursor<K extends keyof TColumns & string = PrimaryKeyColumn<TColumns> & string>(
     opts: PaginateCursorOptions<TColumns, K>,
-  ): Promise<{ data: WithVirtuals<TColumns, TVirtuals>[], nextCursor: InferSelect<TColumns>[K] | null }> {
-    return this._pipeline.paginateCursor(opts)
+  ): Promise<PaginateCursorResult<WithVirtuals<TColumns, TVirtuals>, CursorOf<TColumns, K>>>
+  async paginateCursor<TResult, K extends keyof TColumns & string = PrimaryKeyColumn<TColumns> & string>(
+    opts: PaginateCursorOptions<TColumns, K>,
+    cb: SelectCb<TColumns, TRelations, TResult>,
+  ): Promise<PaginateCursorResult<TResult & InferVirtuals<TVirtuals>, CursorOf<TColumns, K>>>
+  async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateCursorResult<any, any>> {
+    return this._pipeline.paginateCursor(opts, cb)
   }
 
   /** Builder accessor for advanced SELECT. Auto-applies the soft-delete filter. */

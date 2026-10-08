@@ -497,13 +497,15 @@ const shaped = await repo.read.paginate(
   q => q.pick('id', 'name').orderBy('createdAt', 'desc').include('posts'),
 )
 
-// Cursor-based (efficient for large datasets)
-const page1 = await repo.read.paginateCursor({ take: 20, column: 'id' })
-const page2 = await repo.read.paginateCursor({
-  take: 20,
-  column: 'id', cursor: page1.nextCursor,
-})
+// Cursor-based (efficient for large datasets): ordered by the primary key unless `column` says otherwise
+const page1 = await repo.read.paginateCursor({ take: 20 })
+const page2 = await repo.read.paginateCursor({ take: 20, cursor: page1.nextCursor })
+
+// Another column orders first and the primary key breaks its ties, so the cursor is { value, key }
+const byDate = await repo.read.paginateCursor({ take: 20, column: 'createdAt', direction: 'backward', withTrashed: true }, q => q.pick('id', 'createdAt', 'name'))
 ```
+
+`paginateCursor` and `stream.cursor` resume with a row-value comparison on (column, primary key), so tied values are neither skipped nor repeated and backward pages never overlap. The cursor is the primary key (an object of its parts on a composite key) when ordering by it, else `{ value, key }`. A nullable column is refused with a `ValidationError`, as is a callback setting `orderBy`, `limit` or `offset` or picking away a cursor column. `stream.offset()` orders by the primary key when the callback gives no order.
 
 ## Recipes
 

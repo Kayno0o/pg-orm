@@ -1,9 +1,9 @@
-import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereInput } from '../builder/query'
+import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereFn, WhereInput } from '../builder/query'
 import type { IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferSelect, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, InferPrimaryKey, InferSelect, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -58,17 +58,31 @@ export interface PaginateResult<TColumns extends AnyColumns, TVirtuals extends A
   totalPages: number
 }
 
-export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends keyof TColumns & string> {
+/** Where a cursor page resumes: the primary key when ordering by it, else the column's value and the key that breaks its ties. */
+export type CursorOf<TColumns extends AnyColumns, K extends keyof TColumns & string>
+  = [K] extends [PrimaryKeyColumn<TColumns>]
+    ? InferPrimaryKey<TColumns>
+    : { value: InferSelect<TColumns>[K], key: InferPrimaryKey<TColumns> }
+
+export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends keyof TColumns & string> extends TrashedOptions {
   take: number
+  /** The column to order by, the primary key by default. Ties are broken by the primary key; a nullable column is refused. */
   column?: K
-  cursor?: InferSelect<TColumns>[K] | null
+  cursor?: CursorOf<TColumns, K> | null
   direction?: 'forward' | 'backward'
   where?: OptionalWhere<TColumns>
 }
 
-export interface PaginateCursorResult<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals, K extends keyof TColumns & string> {
-  data: WithVirtuals<TColumns, TVirtuals>[]
-  nextCursor: InferSelect<TColumns>[K] | null
+export interface StreamCursorOptions<TColumns extends AnyColumns> extends TrashedOptions {
+  chunkSize?: number
+  column?: keyof TColumns & string
+  direction?: 'forward' | 'backward'
+  where?: OptionalWhere<TColumns>
+}
+
+export interface PaginateCursorResult<TRow, TCursor> {
+  data: TRow[]
+  nextCursor: TCursor | null
 }
 
 let _streamWarned = false
@@ -238,18 +252,39 @@ export class ReadPipeline<
     return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
   }
 
-  async paginateCursor<K extends keyof TColumns & string>(
-    opts: PaginateCursorOptions<TColumns, K>,
-  ): Promise<PaginateCursorResult<TColumns, TVirtuals, K>> {
-    const { take, cursor, direction = 'forward', where } = opts
-    const col = (opts.column ?? this._runtime.primaryKey) as K
+  // Keyset paging on (column, primary key): a row-value comparison resumes after the cursor, so tied values are neither skipped nor repeated. A backward page is read descending, its cursor taken from the last row read, then reversed.
+  async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateCursorResult<any, unknown>> {
+    const { take, cursor, direction = 'forward', where, withTrashed } = opts
+    const { keys, byKey } = this._cursorKeys(opts.column)
     const isForward = direction === 'forward'
 
+    if (!Number.isInteger(take) || take < 1)
+      throw new ValidationError(`paginateCursor() requires take >= 1, got ${take}`, 'paginateCursor', { value: take })
+
     const data = await this.findMany((q) => {
-      const b = q.limit(take + 1).orderBy(col, isForward ? 'asc' : 'desc').where(where)
+      const b = cb ? cb(q) : q
+      const state = b.getState()
+
+      if (state.orderBy.length > 0 || state.limit != null || state.offset != null)
+        throw new ValidationError('paginateCursor(): the callback must not set orderBy, limit or offset, which the cursor owns.', 'paginateCursor')
+
+      this._runtime.behavior.prepareSelect(b)
+
+      const picked = selectedColumns(state)
+
+      if (picked && keys.some(k => !picked.includes(k)))
+        throw new ValidationError(`paginateCursor(): the callback's pick() or omit() leaves out a cursor column (${keys.join(', ')}).`, 'paginateCursor')
+
+      b.andWhere(where).limit(take + 1)
+
+      if (withTrashed)
+        b.withTrashed()
+
+      for (const key of keys)
+        b.orderBy(key, isForward ? 'asc' : 'desc')
 
       if (cursor != null)
-        b.andWhere(e => isForward ? e.gt(col, cursor) : e.lt(col, cursor))
+        b.andWhere(this._afterCursor(keys, this._cursorValues(cursor, keys, byKey), isForward))
 
       return b
     })
@@ -259,13 +294,50 @@ export class ReadPipeline<
     if (hasMore)
       data.pop()
 
+    const boundary = data.at(-1) as Record<string, unknown> | undefined
+    const nextCursor = hasMore && boundary ? this._cursorOf(boundary, keys, byKey) : null
+
     if (!isForward)
       data.reverse()
 
-    const lastRow = data.at(-1) as Record<string, unknown> | undefined
-    const nextCursor = (hasMore && lastRow ? lastRow[col] : null) as InferSelect<TColumns>[K] | null
-
     return { data, nextCursor }
+  }
+
+  // The ordering columns: the primary key (led by `column` when it is part of it), or `column` then the key.
+  private _cursorKeys(column: string | undefined): { keys: string[], byKey: boolean } {
+    const { pkColumns, table } = this._runtime
+    const byKey = column === undefined || pkColumns.includes(column)
+    const keys = byKey ? [...column ? [column] : [], ...pkColumns.filter(c => c !== column)] : [column, ...pkColumns]
+    const nullable = keys.find(k => !table.columns[k]?.constraints.some((c: ColumnConstraint) => c.type === 'not_null' || c.type === 'primary_key'))
+
+    if (nullable !== undefined)
+      throw new ValidationError(`paginateCursor(): "${table.name}"."${nullable}" is nullable, and a cursor cannot order past its NULLs.`, 'paginateCursor', { field: nullable })
+
+    return { keys, byKey }
+  }
+
+  private _cursorOf(row: Record<string, unknown>, keys: string[], byKey: boolean): unknown {
+    const { pkColumns } = this._runtime
+    const pk = pkColumns.length === 1 ? row[pkColumns[0]!] : Object.fromEntries(pkColumns.map(c => [c, row[c]]))
+
+    return byKey ? pk : { value: row[keys[0]!], key: pk }
+  }
+
+  private _cursorValues(cursor: unknown, keys: string[], byKey: boolean): unknown[] {
+    const { pkColumns } = this._runtime
+    const parts = (byKey ? cursor : (cursor as { key: unknown }).key) as Record<string, unknown>
+    const pk = (col: string) => pkColumns.length === 1 ? parts : parts[col]
+
+    return keys.map(k => pkColumns.includes(k) ? pk(k) : (cursor as { value: unknown }).value)
+  }
+
+  private _afterCursor(keys: string[], values: unknown[], isForward: boolean): WhereFn<TColumns> {
+    const op = isForward ? '>' : '<'
+
+    if (keys.length === 1)
+      return e => isForward ? e.gt(keys[0]! as keyof TColumns & string, values[0] as never) : e.lt(keys[0]! as keyof TColumns & string, values[0] as never)
+
+    return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
   }
 
   stream(
@@ -293,6 +365,12 @@ export class ReadPipeline<
     }
 
     const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table.name))
+
+    // OFFSET pages are only disjoint over a total order, so an unordered stream walks the primary key.
+    if (finalBuilder.getState().orderBy.length === 0) {
+      for (const col of this._runtime.pkColumns)
+        finalBuilder.orderBy(col as keyof TColumns & string)
+    }
 
     this._resolveCounts(finalBuilder)
     this._runtime.behavior.prepareSelect(finalBuilder)
@@ -334,37 +412,20 @@ export class ReadPipeline<
     }
   }
 
-  streamCursor(opts: {
-    chunkSize?: number
-    column?: keyof TColumns & string
-    direction?: 'forward' | 'backward'
-    where?: OptionalWhere<TColumns>
-  } = {}): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    return this._streamCursor(opts)
+  streamCursor(opts: StreamCursorOptions<TColumns> = {}, cb?: SelectCb<TColumns, TRelations>): AsyncGenerator<any, void, undefined> {
+    return this._streamCursor(opts, cb)
   }
 
-  private async* _streamCursor(opts: {
-    chunkSize?: number
-    column?: keyof TColumns & string
-    direction?: 'forward' | 'backward'
-    where?: OptionalWhere<TColumns>
-  }): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    const chunkSize = opts.chunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
-    const col = opts.column ?? (this._runtime.primaryKey as keyof TColumns & string)
-    const direction = opts.direction ?? 'forward'
+  // Rows come out in the stream's direction, a backward page read back in descending order.
+  private async* _streamCursor(opts: StreamCursorOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): AsyncGenerator<any, void, undefined> {
+    const { chunkSize = DEFAULT_STREAM_CHUNK_SIZE, direction = 'forward', ...rest } = opts
     let cursor: unknown
 
     while (true) {
-      const result = await this.paginateCursor({
-        take: chunkSize,
-        column: col,
-        cursor: cursor as never,
-        direction,
-        where: opts.where,
-      })
+      const result = await this.paginateCursor({ ...rest, take: chunkSize, cursor: cursor as never, direction }, cb)
 
-      for (const row of result.data)
-        yield row as WithVirtuals<TColumns, TVirtuals>
+      for (const row of direction === 'backward' ? result.data.reverse() : result.data)
+        yield row
 
       if (result.nextCursor == null)
         break

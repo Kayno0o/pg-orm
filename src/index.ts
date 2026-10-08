@@ -91,10 +91,12 @@ export {
 export { Repository } from './repo/index'
 // Repository
 export {
+  type CursorOf,
   type PaginateCursorOptions,
   type PaginateCursorResult,
   type PaginateOptions,
   type PaginateResult,
+  type StreamCursorOptions,
   type TrashedOptions,
 } from './repo/read-pipeline'
 

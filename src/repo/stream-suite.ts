@@ -1,7 +1,8 @@
-import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
+import type { OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
+import type { StreamCursorOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -45,13 +46,10 @@ export class StreamSuite<
     return this._pipeline.stream(arg, opts)
   }
 
-  /** Rows in keyset chunks ordered by `column` (the primary key by default), stable while the table changes. */
-  cursor(opts: {
-    chunkSize?: number
-    column?: keyof TColumns & string
-    direction?: 'forward' | 'backward'
-    where?: OptionalWhere<TColumns>
-  } = {}): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    return this._pipeline.streamCursor(opts)
+  /** Rows in keyset chunks ordered by `column` then the primary key, stable while the table changes. The optional callback shapes rows (`pick`, `include`, a WHERE) but leaves order and limit to the cursor. */
+  cursor(opts?: StreamCursorOptions<TColumns>): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined>
+  cursor<TResult>(opts: StreamCursorOptions<TColumns>, cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>): AsyncGenerator<TResult & InferVirtuals<TVirtuals>, void, undefined>
+  cursor(opts: StreamCursorOptions<TColumns> = {}, cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>): AsyncGenerator<any, void, undefined> {
+    return this._pipeline.streamCursor(opts, cb)
   }
 }
