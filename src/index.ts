@@ -42,6 +42,7 @@ export { type Dialect } from './dialect'
 // Errors
 export {
   AfterHookError,
+  AuthenticationError,
   BeforeHookError,
   CheckError,
   ConnectionError,
@@ -50,7 +51,9 @@ export {
   DeadlockError,
   DestructiveOpError,
   DialectError,
+  ExclusionError,
   ForeignKeyError,
+  InvalidQueryError,
   isRetryable,
   MigrationError,
   MultipleRowsError,
@@ -65,6 +68,7 @@ export {
   setParamRedactor,
   StaleRecordError,
   TimeoutError,
+  TransactionAbortedError,
   UniqueError,
   ValidationError,
 } from './errors/index'

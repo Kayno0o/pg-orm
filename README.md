@@ -710,12 +710,16 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 
 | Error Class | PG Code | Description |
 |-------------|---------|-------------|
-| `UniqueError` | 23505 | Unique constraint violation |
-| `ForeignKeyError` | 23503 | Foreign key violation |
+| `UniqueError` | 23505 | Unique constraint violation; `column` lists the key's columns |
+| `ForeignKeyError` | 23503, 23001 | Foreign key violation: `table` holds the key, `referencedTable` the rows it points at |
 | `NotNullError` | 23502 | NOT NULL violation |
 | `CheckError` | 23514 | CHECK constraint violation |
-| `ConnectionError` | 08xxx, 57P01 | Connection / server shutdown |
-| `TimeoutError` | 57014 | Statement timeout |
+| `ExclusionError` | 23P01 | Exclusion constraint violation |
+| `TransactionAbortedError` | 25P02 | Statement sent to a transaction an earlier failure aborted |
+| `InvalidQueryError` | 42xxx | Syntax error, unknown table or column, missing privilege (`code`) |
+| `AuthenticationError` | 28xxx | Credentials refused, never retried |
+| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it |
+| `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |
 | `NotFoundError` | - | `findOneOrThrow`/`findByIdOrThrow` found nothing, or `updateWithLock` matched no row |
 | `MultipleRowsError` | - | `updateOne`/`deleteOne` with `onMany: 'throw'` matched several rows; nothing changed |
@@ -732,6 +736,8 @@ try {
   }
 }
 ```
+
+Every error a query raises is a `QueryError` carrying its `query`, `params` and `table` (the one the database named, else the one the statement targets).
 
 `QueryError` redaction is **safe-by-default**: with no `redactParams` configured, the
 positional params on a `QueryError` are replaced with `'[REDACTED]'` placeholders so

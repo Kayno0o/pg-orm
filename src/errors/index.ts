@@ -63,9 +63,12 @@ export function logParams(params: unknown[]): unknown[] {
 export class QueryError extends OrmError {
   readonly query: string
   readonly params: unknown[]
-  constructor(message: string, query: string, params: unknown[], cause?: unknown) {
+  /** The table the database named in the error, else the one the statement targets; `''` when neither tells. */
+  readonly table: string
+  constructor(message: string, query: string, params: unknown[], cause?: unknown, table?: string) {
     super(sanitizeMessage(message), cause)
     this.name = 'QueryError'
+    this.table = table ?? statementTable(query)
 
     const hardRedact = shouldRedact()
 
@@ -89,18 +92,49 @@ export class QueryError extends OrmError {
   }
 }
 
-/** Connection error (PG codes 08xxx, 57P01). Indicates network or server issues. */
-export class ConnectionError extends OrmError {
-  constructor(message: string, cause?: unknown) {
-    super(sanitizeMessage(message), cause)
+/** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection closed or timed out). Indicates network or server issues; a read hitting one can be retried. */
+export class ConnectionError extends QueryError {
+  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown) {
+    super(message, query, params, cause)
     this.name = 'ConnectionError'
   }
 }
 
-export class TimeoutError extends OrmError {
-  constructor(message: string, cause?: unknown) {
-    super(sanitizeMessage(message), cause)
+/** A statement cancelled for running too long (57014, SQLite's interrupt) or for waiting on a lock (55P03: `lock_timeout` or NOWAIT), told apart by `code`. */
+export class TimeoutError extends QueryError {
+  readonly code: string
+  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown, code = '57014') {
+    super(message, query, params, cause)
     this.name = 'TimeoutError'
+    this.code = code
+  }
+}
+
+/** The database refused the credentials (PG codes 28xxx). Not retried: the same credentials fail again. */
+export class AuthenticationError extends QueryError {
+  readonly code: string
+  constructor(message: string, code: string, query = '', params: unknown[] = [], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'AuthenticationError'
+    this.code = code
+  }
+}
+
+/** A statement the database cannot run as written (PG codes 42xxx): a syntax error, an unknown table or column, a missing privilege. */
+export class InvalidQueryError extends QueryError {
+  readonly code: string
+  constructor(message: string, code: string, query: string, params: unknown[], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'InvalidQueryError'
+    this.code = code
+  }
+}
+
+/** A statement sent to a transaction an earlier failure aborted (PG code 25P02): only a rollback, or a rollback to a savepoint, is accepted until then. */
+export class TransactionAbortedError extends QueryError {
+  constructor(message: string, query: string, params: unknown[], cause?: unknown) {
+    super(message, query, params, cause)
+    this.name = 'TransactionAbortedError'
   }
 }
 
@@ -113,16 +147,14 @@ export interface ConstraintInfo {
 
 export class ConstraintError extends QueryError {
   readonly constraint: string
-  readonly table: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
-    super(message, query, params, cause)
+    super(message, query, params, cause, info.table)
     this.name = 'ConstraintError'
     this.constraint = info.constraint
-    this.table = info.table
   }
 }
 
-/** Unique constraint violation (PG code 23505). */
+/** Unique constraint violation (PG code 23505). `column` names the key's columns, comma separated when it has several. */
 export class UniqueError extends ConstraintError {
   readonly column: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
@@ -132,7 +164,7 @@ export class UniqueError extends ConstraintError {
   }
 }
 
-/** Foreign key violation (PG code 23503). */
+/** Foreign key violation (PG codes 23503, 23001 for a RESTRICT one): `table` holds the foreign key, `referencedTable` the rows it points at, whichever side the statement wrote. */
 export class ForeignKeyError extends ConstraintError {
   readonly referencedTable: string
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
@@ -156,6 +188,14 @@ export class CheckError extends ConstraintError {
   constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
     super(message, query, params, info, cause)
     this.name = 'CheckError'
+  }
+}
+
+/** Exclusion constraint violation (PG code 23P01). */
+export class ExclusionError extends ConstraintError {
+  constructor(message: string, query: string, params: unknown[], info: ConstraintInfo, cause?: unknown) {
+    super(message, query, params, info, cause)
+    this.name = 'ExclusionError'
   }
 }
 
@@ -194,10 +234,10 @@ export class SerializationError extends QueryError implements RetryableError {
  * configuration_limit_exceeded, etc.). Retry only after backoff and only if
  * the limit is expected to clear.
  */
-export class ResourceError extends OrmError {
+export class ResourceError extends QueryError {
   readonly code: string
-  constructor(message: string, code: string, cause?: unknown) {
-    super(sanitizeMessage(message), cause)
+  constructor(message: string, code: string, query = '', params: unknown[] = [], cause?: unknown) {
+    super(message, query, params, cause)
     this.name = 'ResourceError'
     this.code = code
   }
@@ -397,6 +437,18 @@ export function sanitizePgErrorMessage(message: string): string {
 // Driver error fields that name what failed without holding a value: `detail`, `hint`, `where` and `internalQuery` can quote the row.
 const SAFE_DRIVER_FIELDS = ['code', 'errno', 'severity', 'schema', 'schema_name', 'table', 'table_name', 'column', 'column_name', 'dataType', 'constraint', 'constraint_name', 'routine'] as const
 
+const BUN_CONNECTION_CODES = new Set(['ERR_POSTGRES_CONNECTION_CLOSED', 'ERR_POSTGRES_CONNECTION_TIMEOUT', 'ERR_POSTGRES_IDLE_TIMEOUT', 'ERR_POSTGRES_LIFETIME_TIMEOUT'])
+
+const DELETE_RE = /^\s*DELETE\b/i
+const NOT_NULL_COLUMN_RE = /^null value in column "((?:[^"]|"")+)"/
+// An INSERT names the missing parent in the detail; an UPDATE or DELETE of the parent names it in the message.
+const NOT_PRESENT_TABLE_RE = /is not present in table "((?:[^"]|"")+)"/
+const PARENT_TABLE_RE = /^update or delete on table "((?:[^"]|"")+)"/
+const KEY_COLUMNS_RE = /^Key \(((?:[^)]|\)(?!=\())*)\)=\(/
+const IDENTIFIER = String.raw`"(?:[^"]|"")+"|[a-z_][\w$]*`
+// The table an INSERT, UPDATE, DELETE, MERGE or SELECT names first, past a parenthesized select list for a SELECT.
+const STATEMENT_TABLE_RE = new RegExp(String.raw`^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|SELECT\s(?:[^()]|\([^()]*\))*?\sFROM)\s+(?:ONLY\s+)?(?:(?:${IDENTIFIER})\.)?(${IDENTIFIER})`, 'i')
+
 /** The driver error a typed error keeps as `cause`: as raised outside redaction, else a copy holding only its scrubbed message and the fields that carry no value, so a logger walking the cause chain finds no row data. */
 function redactedCause(err: Error): Error {
   if (!shouldRedact())
@@ -444,8 +496,10 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
 
   const code = pgErr.errno ?? pgErr.code
   const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
-  const table = pgErr.table_name ?? pgErr.table ?? ''
-  const column = pgErr.column_name ?? pgErr.column ?? ''
+  const table = textField(pgErr.table_name ?? pgErr.table) || statementTable(query)
+  // bun:sql's `column` is the column name only on a NOT NULL violation; on other errors it reads the JS error's source position.
+  const column = textField(pgErr.column_name ?? pgErr.column)
+  const detail = pgErr.detail ?? ''
 
   // Sanitize the raw PG message ONCE here. Constraint failures embed user data
   // in the message text ("Key (email)=(alice@example.com)"), and that string
@@ -453,46 +507,53 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   // error is still available on `err.cause` for callers that explicitly need it.
   const safeMessage = sanitizePgErrorMessage(pgErr.message)
 
-  // bun:sql emits client-side error codes (string-prefixed) for transport-level
-  // failures. "ERR_POSTGRES_CONNECTION_CLOSED" is the dropped-connection case we
-  // hit in CI when the server-side PG closes idle sockets — surface it as a
-  // ConnectionError so the Database retry path catches it.
-  if (pgErr.code === 'ERR_POSTGRES_CONNECTION_CLOSED') {
-    return new ConnectionError(safeMessage, cause)
-  }
+  // bun:sql's own codes for a connection dropped or timed out before the server answered, which a read can retry.
+  if (code && BUN_CONNECTION_CODES.has(code))
+    return new ConnectionError(safeMessage, query, params, cause)
 
   switch (code) {
     case '23505': // unique_violation
-      return new UniqueError(safeMessage, query, params, { constraint, table, column }, cause)
+      return new UniqueError(safeMessage, query, params, { constraint, table, column: column || keyColumns(detail) }, cause)
     case '23503': // foreign_key_violation
-      return new ForeignKeyError(safeMessage, query, params, { constraint, table, referencedTable: extractReferencedTable(pgErr.detail ?? '') }, cause)
+    case '23001': // restrict_violation
+      return new ForeignKeyError(safeMessage, query, params, { constraint, table, referencedTable: referencedTable(pgErr.message, detail) }, cause)
     case '23502': // not_null_violation
-      return new NotNullError(safeMessage, query, params, { constraint, table, column }, cause)
+      return new NotNullError(safeMessage, query, params, { constraint, table, column: column || (pgErr.message.match(NOT_NULL_COLUMN_RE)?.[1] ?? '') }, cause)
     case '23514': // check_violation
       return new CheckError(safeMessage, query, params, { constraint, table }, cause)
+    case '23P01': // exclusion_violation
+      return new ExclusionError(safeMessage, query, params, { constraint, table }, cause)
+    case '25P02': // in_failed_sql_transaction
+      return new TransactionAbortedError(safeMessage, query, params, cause)
     case '40P01': // deadlock_detected
       return new DeadlockError(safeMessage, query, params, cause)
     case '40001': // serialization_failure
       return new SerializationError(safeMessage, query, params, cause)
+    case '57014': // query_canceled
+    case '55P03': // lock_not_available
+      return new TimeoutError(safeMessage, query, params, cause, code)
     default:
-      if (code?.startsWith('08') || code === '57P01') {
-        return new ConnectionError(safeMessage, cause)
-      }
+      if (code?.startsWith('08') || code === '57P01' || code === '57P02' || code === '57P03')
+        return new ConnectionError(safeMessage, query, params, cause)
 
-      if (code === '57014') {
-        return new TimeoutError(safeMessage, cause)
-      }
+      if (code?.startsWith('28'))
+        return new AuthenticationError(safeMessage, code, query, params, cause)
 
-      if (code?.startsWith('53')) {
-        return new ResourceError(safeMessage, code, cause)
-      }
+      if (code?.startsWith('42'))
+        return new InvalidQueryError(safeMessage, code, query, params, cause)
 
-      if (code?.startsWith('22')) {
+      if (code?.startsWith('53'))
+        return new ResourceError(safeMessage, code, query, params, cause)
+
+      if (code?.startsWith('22'))
         return new DataError(safeMessage, code, query, params, cause)
-      }
 
-      return new QueryError(safeMessage, query, params, cause)
+      return new QueryError(safeMessage, query, params, cause, table)
   }
+}
+
+function textField(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 // SQLite names the failing columns as `table.column`, comma separated, after the colon of its constraint message.
@@ -504,32 +565,37 @@ function wrapSqliteError(code: string, message: string, err: Error, query: strin
   const named = message.match(SQLITE_COLUMNS_RE)?.[1] ?? ''
   const columns = named.split(SQLITE_COLUMN_SEPARATOR).map(part => part.split('.'))
   const table = columns[0]?.[0] ?? ''
-  const column = columns.map(([, col]) => col ?? '').join('_')
+  const columnNames = columns.map(([, col]) => col ?? '')
+  const column = columnNames.join(', ')
+  const target = statementTable(query)
 
   switch (code) {
     case 'SQLITE_CONSTRAINT_PRIMARYKEY':
       return new UniqueError(message, query, params, { constraint: `${table}_pkey`, table, column }, err)
     case 'SQLITE_CONSTRAINT_UNIQUE':
-      return new UniqueError(message, query, params, { constraint: `${table}_${column}_key`, table, column }, err)
+      return new UniqueError(message, query, params, { constraint: `${table}_${columnNames.join('_')}_key`, table, column }, err)
     case 'SQLITE_CONSTRAINT_FOREIGNKEY':
-      return new ForeignKeyError(message, query, params, { constraint: '', table: '' }, err)
+      // SQLite names no table: a DELETE broke a reference to the rows it removed, any other write a reference it holds.
+      return DELETE_RE.test(query)
+        ? new ForeignKeyError(message, query, params, { constraint: '', table: '', referencedTable: target }, err)
+        : new ForeignKeyError(message, query, params, { constraint: '', table: target }, err)
     case 'SQLITE_CONSTRAINT_NOTNULL':
       return new NotNullError(message, query, params, { constraint: '', table, column }, err)
     case 'SQLITE_CONSTRAINT_CHECK':
-      return new CheckError(message, query, params, { constraint: named, table: '' }, err)
+      return new CheckError(message, query, params, { constraint: named, table: target }, err)
   }
 
   if (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
     return new SerializationError(message, query, params, err)
 
   if (code.startsWith('SQLITE_CANTOPEN') || code.startsWith('SQLITE_NOTADB'))
-    return new ConnectionError(message, err)
+    return new ConnectionError(message, query, params, err)
 
   if (code === 'SQLITE_INTERRUPT')
-    return new TimeoutError(message, err)
+    return new TimeoutError(message, query, params, err, code)
 
   if (code.startsWith('SQLITE_FULL') || code.startsWith('SQLITE_NOMEM'))
-    return new ResourceError(message, code, err)
+    return new ResourceError(message, code, query, params, err)
 
   if (code === 'SQLITE_MISMATCH' || code === 'SQLITE_TOOBIG' || code === 'SQLITE_RANGE')
     return new DataError(message, code, query, params, err)
@@ -537,10 +603,26 @@ function wrapSqliteError(code: string, message: string, err: Error, query: strin
   return new QueryError(message, query, params, err)
 }
 
-const TABLE_NAME_RE = /table "(\w+)"/
+function unquote(identifier: string): string {
+  return identifier.startsWith('"') ? identifier.slice(1, -1).replaceAll('""', '"') : identifier
+}
 
-function extractReferencedTable(detail: string): string {
-  const match = detail.match(TABLE_NAME_RE)
+/** The table a statement targets, unquoted and without its schema; `''` for one it cannot tell. */
+function statementTable(query: string): string {
+  const name = query.match(STATEMENT_TABLE_RE)?.[1]
 
-  return match?.[1] ?? ''
+  return name ? unquote(name) : ''
+}
+
+function referencedTable(message: string, detail: string): string {
+  const name = detail.match(NOT_PRESENT_TABLE_RE)?.[1] ?? message.match(PARENT_TABLE_RE)?.[1]
+
+  return name?.replaceAll('""', '"') ?? ''
+}
+
+// `Key (a, "B")=(...)` names the key's columns, quoted where Postgres needs to.
+function keyColumns(detail: string): string {
+  const list = detail.match(KEY_COLUMNS_RE)?.[1]
+
+  return list ? list.split(', ').map(unquote).join(', ') : ''
 }

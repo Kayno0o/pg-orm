@@ -10,6 +10,7 @@ import {
   UniqueError,
   wrapPgError,
 } from '../../../src/errors/index'
+import { retryableFor } from '../../../src/sql/retry'
 import { makePgError } from '../../helpers/pg-error-shapes'
 
 describe('wrapPgError', () => {
@@ -90,5 +91,27 @@ describe('wrapPgError', () => {
 
     expect(err).toBeInstanceOf(UniqueError)
     expect((err as UniqueError).constraint).toBe('uq_email')
+  })
+
+  it('maps a server starting or crashing, and bun:sql\'s connection timeouts, to a ConnectionError a read retries', () => {
+    const errors = [
+      Object.assign(new Error('crash shutdown'), { errno: '57P02' }),
+      Object.assign(new Error('the database system is starting up'), { errno: '57P03' }),
+      ...['ERR_POSTGRES_CONNECTION_TIMEOUT', 'ERR_POSTGRES_IDLE_TIMEOUT', 'ERR_POSTGRES_LIFETIME_TIMEOUT'].map(code => Object.assign(new Error(code), { code })),
+    ]
+
+    for (const raw of errors) {
+      const err = wrapPgError(raw, 'SELECT * FROM "users"', [])
+
+      expect(err).toBeInstanceOf(ConnectionError)
+      expect(err).toMatchObject({ table: 'users' })
+      expect(retryableFor('SELECT * FROM "users"', false)(err)).toBe(true)
+    }
+  })
+
+  it('reads a column only from a string field: bun:sql\'s numeric `column` is a source position', () => {
+    const err = wrapPgError(makePgError('23505', { column: 27 as unknown as string }), 'INSERT', [])
+
+    expect((err as UniqueError).column).toBe('email')
   })
 })
