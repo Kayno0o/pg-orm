@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from '../../../src/index'
 import { diffColumn, diffComment, diffTableColumns } from '../../../src/migration/diff/columns'
+import { generateDownSql } from '../../../src/migration/reverse'
 
 function liveCol(name: string, overrides: Partial<{
   dataType: string
@@ -134,6 +135,14 @@ describe('diffColumn', () => {
     const ops = diffColumn('users', 'name', table.columns.name, liveCol('name', { isNullable: false }))
 
     expect(ops.some(o => o.sql.includes('DROP NOT NULL'))).toBe(true)
+  })
+
+  it('reverses a NOT NULL change either way, so a migration holding one can be rolled back', () => {
+    const required = defineTable('users', t => ({ id: t.serial().primaryKey(), name: t.text() }))
+    const optional = defineTable('users', t => ({ id: t.serial().primaryKey(), name: t.text().nullable() }))
+
+    expect(generateDownSql(diffColumn('users', 'name', required.columns.name, liveCol('name', { isNullable: true })))).toBe('ALTER TABLE "users" ALTER COLUMN "name" DROP NOT NULL;')
+    expect(generateDownSql(diffColumn('users', 'name', optional.columns.name, liveCol('name', { isNullable: false })))).toBe('ALTER TABLE "users" ALTER COLUMN "name" SET NOT NULL;')
   })
 
   it('sets default', () => {

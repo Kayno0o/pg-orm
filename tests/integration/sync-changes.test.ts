@@ -39,6 +39,19 @@ describe('sync() applies every change in one go', () => {
     expect((await sync([onAb])).ops).toEqual([])
   })
 
+  it('leaves a generated expression alone that Postgres prints back with quoted casts', async () => {
+    // Postgres reads this back with `'english'::regconfig` and `'A'::"char"`, the second a quoted type name.
+    const notes = defineTable('notes', t => ({
+      id: t.serial().primaryKey(),
+      title: t.varchar(255).default(''),
+      search: t.tsvector().generated(`setweight(to_tsvector('english', coalesce(title, '')), 'A')`).nullable(),
+    }))
+
+    await sync([notes])
+
+    expect((await sync([notes])).ops).toEqual([])
+  })
+
   it('changes a generated expression, turns a generated column plain and a plain one generated', async () => {
     const sum = defineTable('calc', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4(), total: t.int4().generated('a + b') }))
 

@@ -352,6 +352,7 @@ export function diffColumn(
       table: tableName,
       column: colName,
       sql: buildSetNotNullSql(tableName, colName),
+      down: buildDropNotNullSql(tableName, colName),
       destructive: false,
       description: `Set NOT NULL on "${colName}" in "${tableName}"`,
     })
@@ -362,6 +363,7 @@ export function diffColumn(
       table: tableName,
       column: colName,
       sql: buildDropNotNullSql(tableName, colName),
+      down: buildSetNotNullSql(tableName, colName),
       destructive: false,
       description: `Drop NOT NULL from "${colName}" in "${tableName}"`,
     })

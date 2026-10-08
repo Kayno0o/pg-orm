@@ -26,6 +26,6 @@ export const TIMESTAMP_SEPARATOR_RE = /^(\d{4}-\d{2}-\d{2}) /
 export const SHORT_OFFSET_RE = /([+-]\d{2})$/
 export const TIME_ZONE_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/
 
-// Pieces Postgres adds or drops when it prints an index predicate back (`WHERE ((kind = 'x'::text))` for `"kind" = 'x'`): casts, identifier quotes, parentheses and spacing.
-export const PREDICATE_CAST_RE = /::\w+(?: varying| precision| with(?:out)? time zone)?(?:\[\])*/g
+// Pieces Postgres adds or drops when it prints an index predicate or a generated expression back (`WHERE ((kind = 'x'::text))` for `"kind" = 'x'`): casts, a quoted type name like `::"char"` included, identifier quotes, parentheses and spacing.
+export const PREDICATE_CAST_RE = /::(?:"[^"]+"|\w+)(?: varying| precision| with(?:out)? time zone)?(?:\[\])*/g
 export const PREDICATE_NOISE_RE = /["()\s]/g
