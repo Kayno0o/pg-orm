@@ -6,7 +6,7 @@ import { applyTrait } from '../traits/index'
 import { createColumnTypes } from './column-types'
 import { ColumnBuilder, getColumnIndex } from './columns'
 import { createRelationTypes } from './relations'
-import { validateIdentifier, validateRawSqlFragment } from './validate'
+import { validateIdentifier, validateIndexMethod, validateRawSqlFragment } from './validate'
 
 // Registered globally so a table defined by another copy of the lib (a bundled dependency) still passes `isTableDef`.
 const TABLE_DEF: unique symbol = Symbol.for('pg-orm.TableDef') as never
@@ -183,6 +183,14 @@ export function defineTable(
     // Add composite or multi-column indexes
     withIndexes(idxDefs: IndexDef[]) {
       for (const idx of idxDefs) {
+        if (idx.name !== undefined)
+          validateIdentifier(idx.name, 'index')
+
+        for (const col of idx.columns)
+          validateIdentifier(col, 'index column')
+
+        validateIndexMethod(idx.method, `index "${idx.name ?? idx.columns.join('_')}"`)
+
         if (idx.where !== undefined)
           validateRawSqlFragment(idx.where, `index "${idx.name ?? idx.columns.join('_')}"`)
       }

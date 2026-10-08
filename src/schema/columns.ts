@@ -14,7 +14,7 @@ import type {
 } from '../types/index'
 import { phantom } from '../types/index'
 import { toSQLDefault } from './column-default'
-import { validateIdentifier } from './validate'
+import { validateFkAction, validateIdentifier, validateIndexMethod } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
 export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string } | undefined {
@@ -174,7 +174,9 @@ export class ColumnBuilder<
     if (typeof target === 'string')
       validateIdentifier(target, 'foreign key target table')
 
-    validateIdentifier(column, 'foreign key target column')
+    validateIdentifier(column, 'referenced column')
+    validateFkAction(opts?.onDelete, 'references() onDelete')
+    validateFkAction(opts?.onUpdate, 'references() onUpdate')
 
     this._references = {
       table: typeof target === 'string' ? () => ({ name: target }) : target,
@@ -201,6 +203,7 @@ export class ColumnBuilder<
 
   /** Create a B-tree index on this column (or specify method/partial filter). */
   index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateIndexMethod(opts?.method, 'index()')
     this._index = { method: opts?.method, where: opts?.where }
 
     return this._narrow()
@@ -208,6 +211,7 @@ export class ColumnBuilder<
 
   /** Mark this column as renamed from a previous name to avoid DROP+ADD data loss. */
   renamedFrom(oldName: string): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateIdentifier(oldName, 'renamedFrom column')
     this._renamedFrom = oldName
 
     return this._narrow()

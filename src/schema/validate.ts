@@ -37,6 +37,27 @@ export function validateIdentifier(name: string, context: string): void {
   }
 }
 
+const INDEX_METHODS = new Set(['btree', 'hash', 'gin', 'gist', 'brin'])
+const FK_ACTIONS = new Set(['cascade', 'restrict', 'set null', 'set default', 'no action'])
+
+/** An index access method, interpolated into `CREATE INDEX ... USING`: only the ones Postgres ships pass. */
+export function validateIndexMethod(method: string | undefined, context: string): void {
+  if (method !== undefined && !INDEX_METHODS.has(method))
+    throw new ValidationError(`Invalid index method "${method}" on ${context}: expected one of ${[...INDEX_METHODS].join(', ')}.`, context, { value: method })
+}
+
+/** A foreign key's ON DELETE / ON UPDATE action, interpolated into its DDL. */
+export function validateFkAction(action: string | undefined, context: string): void {
+  if (action !== undefined && !FK_ACTIONS.has(action))
+    throw new ValidationError(`Invalid foreign key action "${action}" on ${context}: expected one of ${[...FK_ACTIONS].join(', ')}.`, context, { value: action })
+}
+
+/** A length, precision or dimension count written into a type (`varchar(n)`, `vector(n)`): a positive integer, or zero where Postgres takes it (a numeric scale). */
+export function validateTypeArg(value: number, context: string, min = 1): void {
+  if (!Number.isInteger(value) || value < min)
+    throw new ValidationError(`Invalid ${context}: ${String(value)} is not an integer of at least ${min}.`, context, { value })
+}
+
 // Allowed PG ts_match languages — prevents injection via language parameter
 const TS_LANGUAGES = new Set([
   'simple',

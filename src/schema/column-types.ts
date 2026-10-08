@@ -1,5 +1,6 @@
 import type { HasDefault, NotNullable } from '../types/index'
 import { ColumnBuilder, getColumnBuilderPgType } from './columns'
+import { validateIdentifier, validateTypeArg } from './validate'
 
 // Column type factory — the `t` parameter in defineTable(name, t => ...)
 export interface ColumnTypes {
@@ -84,6 +85,13 @@ export interface ColumnTypes {
   xml: () => ColumnBuilder<string>
 }
 
+// A type argument as written into the type, once checked: it lands in DDL as is.
+function typeArg(value: number, context: string, min?: number): number {
+  validateTypeArg(value, context, min)
+
+  return value
+}
+
 /**
  * Per-type factory entries. Each builder is one line — adding a new pgType is
  * one new line here, no DSL changes. Variants (enum, array, numeric precision)
@@ -93,8 +101,8 @@ export function createColumnTypes(): ColumnTypes {
   return {
     uuid: () => new ColumnBuilder('uuid'),
     text: () => new ColumnBuilder('text'),
-    varchar: n => new ColumnBuilder(`varchar(${n})`),
-    char: n => new ColumnBuilder(`char(${n})`),
+    varchar: n => new ColumnBuilder(`varchar(${typeArg(n, 'varchar length')})`),
+    char: n => new ColumnBuilder(`char(${typeArg(n, 'char length')})`),
     citext: () => new ColumnBuilder('citext'),
 
     int2: () => new ColumnBuilder('int2'),
@@ -107,7 +115,7 @@ export function createColumnTypes(): ColumnTypes {
     float8: () => new ColumnBuilder('float8'),
     real: () => new ColumnBuilder('float4'),
     doublePrecision: () => new ColumnBuilder('float8'),
-    numeric: (p, s) => new ColumnBuilder(p != null ? s != null ? `numeric(${p},${s})` : `numeric(${p})` : 'numeric'),
+    numeric: (p, s) => new ColumnBuilder(p != null ? s != null ? `numeric(${typeArg(p, 'numeric precision')},${typeArg(s, 'numeric scale', 0)})` : `numeric(${typeArg(p, 'numeric precision')})` : 'numeric'),
     serial: () => new ColumnBuilder<number>('serial') as unknown as ColumnBuilder<number, NotNullable, HasDefault>,
     bigserial: () => new ColumnBuilder<bigint>('bigserial') as unknown as ColumnBuilder<bigint, NotNullable, HasDefault>,
 
@@ -127,6 +135,8 @@ export function createColumnTypes(): ColumnTypes {
     bytea: () => new ColumnBuilder('bytea'),
 
     enum: <const TValues extends readonly string[]>(name: string, values: TValues) => {
+      validateIdentifier(name, 'enum')
+
       const b = new ColumnBuilder<string>(name)
 
       // Store enum values for migration DDL (preserved through _build())
@@ -142,7 +152,7 @@ export function createColumnTypes(): ColumnTypes {
       return new ColumnBuilder<T[]>(`${pgType}[]`) as unknown as ColumnBuilder<T[]>
     },
 
-    vector: n => new ColumnBuilder(`vector(${n})`),
+    vector: n => new ColumnBuilder(`vector(${typeArg(n, 'vector dimensions')})`),
 
     inet: () => new ColumnBuilder('inet'),
     cidr: () => new ColumnBuilder('cidr'),
@@ -160,8 +170,8 @@ export function createColumnTypes(): ColumnTypes {
 
     money: () => new ColumnBuilder('money'),
 
-    bit: n => new ColumnBuilder(n != null ? `bit(${n})` : 'bit'),
-    varbit: n => new ColumnBuilder(n != null ? `varbit(${n})` : 'varbit'),
+    bit: n => new ColumnBuilder(n != null ? `bit(${typeArg(n, 'bit length')})` : 'bit'),
+    varbit: n => new ColumnBuilder(n != null ? `varbit(${typeArg(n, 'varbit length')})` : 'varbit'),
 
     xml: () => new ColumnBuilder('xml'),
   }
