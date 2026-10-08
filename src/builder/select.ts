@@ -1,4 +1,4 @@
-import type { AnyColumns, AnyRelations, AnyTableDef, InferRelationResult, InferSelect, RelationDef } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
@@ -14,6 +14,13 @@ type CountableRelations<TRelations extends AnyRelations> = {
 }[keyof TRelations] & string
 
 type RelationColumns<R> = R extends RelationDef<any, any, any, infer T> ? T['columns'] : AnyColumns
+
+// A joined table's columns, keyed `alias.col`; an outer join makes them nullable.
+type Joined<TJoin extends AnyColumns, TAlias extends string, TNullable extends boolean> = {
+  [K in keyof TJoin & string as `${TAlias}.${K}`]: TNullable extends true ? Nullable<TJoin[K]> : TJoin[K]
+}
+
+type Nullable<C> = C extends ColumnDef<infer T, any, infer D, infer P, infer G> ? ColumnDef<T, IsNullable, D, P, G> : C
 
 // What a result holds beyond the table columns (computed, include, withCount, aggregates), which reshaping the columns keeps.
 type Extras<TResult, TColumns extends AnyColumns> = Omit<TResult, keyof TColumns>
@@ -43,26 +50,28 @@ export function rawExpr<T>(sql: string): RawExpr<T> {
  * @template TResult  Row shape this builder will return. Defaults to
  *   `InferSelect<TColumns>`; reshaping methods narrow/widen it.
  * @template TGroup  The `groupBy` columns, which every column list keeps.
+ * @template TJoined  The columns of joined tables, keyed `alias.col`.
  */
 export class SelectBuilder<
   TColumns extends AnyColumns,
   TRelations extends AnyRelations = {},
   TResult = InferSelect<TColumns>,
-  TGroup extends keyof TColumns & string = never,
+  TGroup extends keyof (TColumns & TJoined) & string = never,
+  TJoined extends AnyColumns = {},
 > extends BaseBuilder {
   constructor(table: string) {
     super('select', table)
   }
 
   /** Select only the specified columns, keeping computed, include and withCount fields. */
-  pick<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns>, K[number] | TGroup> & Extras<TResult, TColumns>, TGroup> {
+  pick<K extends (keyof (TColumns & TJoined) & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Pick<InferSelect<TColumns & TJoined>, K[number] | TGroup> & Extras<TResult, TColumns & TJoined>, TGroup, TJoined> {
     this._state.columns = cols as string[]
 
     return this as never
   }
 
   /** Leave the specified columns out of the SELECT, keeping computed, include and withCount fields. Group columns stay. */
-  omit<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Omit<TResult, Exclude<K[number], TGroup>>, TGroup> {
+  omit<K extends (keyof (TColumns & TJoined) & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, Omit<TResult, Exclude<K[number], TGroup>>, TGroup, TJoined> {
     this._state.omitColumns = cols as string[]
 
     return this as never
@@ -73,12 +82,12 @@ export class SelectBuilder<
    * Example: `.computed(e => e.countCol(), 'total')`
    */
   computed<TAlias extends string, T>(
-    fn: (e: ExprBuilder<TColumns>) => AggResult<T>,
+    fn: (e: ExprBuilder<TColumns & TJoined>) => AggResult<T>,
     alias: TAlias,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>, TGroup> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, T>, TGroup, TJoined> {
     validateIdentifier(alias, 'computed alias')
 
-    const builder = createExprBuilder<TColumns>()
+    const builder = createExprBuilder<TColumns & TJoined>()
     const expr = fn(builder)
 
     this._state.computedColumns.push({ expr, alias })
@@ -105,7 +114,7 @@ export class SelectBuilder<
   computedRaw<TAlias extends string, TComputed = unknown>(
     raw: string | RawExpr<TComputed>,
     alias: TAlias,
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>, TGroup> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TComputed>, TGroup, TJoined> {
     validateIdentifier(alias, 'computed alias')
 
     const expr = typeof raw === 'string' ? raw : raw.sql
@@ -132,7 +141,7 @@ export class SelectBuilder<
   }
 
   /** Emit `SELECT DISTINCT ON (cols...)` — keep the first row per `cols` tuple. */
-  distinctOn<K extends (keyof TColumns & string)[]>(...cols: K): this {
+  distinctOn<K extends (keyof (TColumns & TJoined) & string)[]>(...cols: K): this {
     this._state.distinctOn = cols as string[]
 
     return this
@@ -142,8 +151,8 @@ export class SelectBuilder<
    * Set the WHERE clause, as either `{ col: value }` (entries ANDed) or an
    * `ExprBuilder` callback. Replaces any existing WHERE; a falsy `cond` is a no-op.
    */
-  where(cond: OptionalWhere<TColumns>): this {
-    replaceWhere<TColumns>(this._state, cond)
+  where(cond: OptionalWhere<TColumns & TJoined>): this {
+    replaceWhere<TColumns & TJoined>(this._state, cond)
 
     return this
   }
@@ -153,65 +162,59 @@ export class SelectBuilder<
    * clause too, and a falsy `cond` is a no-op — so optional filters need no
    * branching: `q.andWhere(status && { status })`.
    */
-  andWhere(cond: OptionalWhere<TColumns>): this {
-    appendWhere<TColumns>(this._state, [cond])
+  andWhere(cond: OptionalWhere<TColumns & TJoined>): this {
+    appendWhere<TColumns & TJoined>(this._state, [cond])
 
     return this
   }
 
   /** AND every truthy condition onto the WHERE clause. Falsy entries are skipped. */
-  whereAll(...conds: OptionalWhere<TColumns>[]): this {
-    appendWhere<TColumns>(this._state, conds)
+  whereAll(...conds: OptionalWhere<TColumns & TJoined>[]): this {
+    appendWhere<TColumns & TJoined>(this._state, conds)
 
     return this
   }
 
-  /** INNER JOIN another table. */
-  join(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateIdentifier(table, 'join table')
-    validateIdentifier(alias, 'join alias')
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.joins.push({ type: 'inner', table, alias, on: on(builder) })
-
-    return this
+  /** INNER JOIN another table. Given its table def, its columns are typed as `alias.col` in ON, where, orderBy and pick, a pick returning them under that name. */
+  join<TJoin extends AnyTableDef, TAlias extends string>(table: TJoin, alias: TAlias, on: (e: ExprBuilder<TColumns & TJoined & Joined<TJoin['columns'], TAlias, false>>) => ExprTape): SelectBuilder<TColumns, TRelations, TResult, TGroup, TJoined & Joined<TJoin['columns'], TAlias, false>>
+  join(table: string, alias: string, on: (e: ExprBuilder<TColumns & TJoined>) => ExprTape): this
+  join(table: AnyTableDef | string, alias: string, on: (e: ExprBuilder<any>) => ExprTape): any {
+    return this._join('inner', table, alias, on)
   }
 
-  /** LEFT JOIN another table. */
-  leftJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateIdentifier(table, 'leftJoin table')
-    validateIdentifier(alias, 'leftJoin alias')
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.joins.push({ type: 'left', table, alias, on: on(builder) })
-
-    return this
+  /** LEFT JOIN another table, its typed columns nullable. */
+  leftJoin<TJoin extends AnyTableDef, TAlias extends string>(table: TJoin, alias: TAlias, on: (e: ExprBuilder<TColumns & TJoined & Joined<TJoin['columns'], TAlias, true>>) => ExprTape): SelectBuilder<TColumns, TRelations, TResult, TGroup, TJoined & Joined<TJoin['columns'], TAlias, true>>
+  leftJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns & TJoined>) => ExprTape): this
+  leftJoin(table: AnyTableDef | string, alias: string, on: (e: ExprBuilder<any>) => ExprTape): any {
+    return this._join('left', table, alias, on)
   }
 
   /** RIGHT JOIN another table. */
-  rightJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateIdentifier(table, 'rightJoin table')
-    validateIdentifier(alias, 'rightJoin alias')
-    const builder = createExprBuilder<TColumns>()
-
-    this._state.joins.push({ type: 'right', table, alias, on: on(builder) })
-
-    return this
+  rightJoin<TJoin extends AnyTableDef, TAlias extends string>(table: TJoin, alias: TAlias, on: (e: ExprBuilder<TColumns & TJoined & Joined<TJoin['columns'], TAlias, false>>) => ExprTape): SelectBuilder<TColumns, TRelations, TResult, TGroup, TJoined & Joined<TJoin['columns'], TAlias, false>>
+  rightJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns & TJoined>) => ExprTape): this
+  rightJoin(table: AnyTableDef | string, alias: string, on: (e: ExprBuilder<any>) => ExprTape): any {
+    return this._join('right', table, alias, on)
   }
 
-  /** FULL OUTER JOIN another table. */
-  fullJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateIdentifier(table, 'fullJoin table')
-    validateIdentifier(alias, 'fullJoin alias')
-    const builder = createExprBuilder<TColumns>()
+  /** FULL OUTER JOIN another table, its typed columns nullable. */
+  fullJoin<TJoin extends AnyTableDef, TAlias extends string>(table: TJoin, alias: TAlias, on: (e: ExprBuilder<TColumns & TJoined & Joined<TJoin['columns'], TAlias, true>>) => ExprTape): SelectBuilder<TColumns, TRelations, TResult, TGroup, TJoined & Joined<TJoin['columns'], TAlias, true>>
+  fullJoin(table: string, alias: string, on: (e: ExprBuilder<TColumns & TJoined>) => ExprTape): this
+  fullJoin(table: AnyTableDef | string, alias: string, on: (e: ExprBuilder<any>) => ExprTape): any {
+    return this._join('full', table, alias, on)
+  }
 
-    this._state.joins.push({ type: 'full', table, alias, on: on(builder) })
+  private _join(type: 'inner' | 'left' | 'right' | 'full', target: AnyTableDef | string, alias: string, on: (e: ExprBuilder<any>) => ExprTape): this {
+    const table = typeof target === 'string' ? target : target.name
+
+    validateIdentifier(table, `${type} join table`)
+    validateIdentifier(alias, `${type} join alias`)
+    this._state.joins.push({ type, table, alias, on: on(createExprBuilder()) })
 
     return this
   }
 
   /** Add an ORDER BY clause. Can be called multiple times for multi-column ordering. */
-  orderBy(col: keyof TColumns & string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
+  orderBy(col: keyof (TColumns & TJoined) & string, dir: OrderDir = 'asc', nulls?: 'first' | 'last'): this {
     this._state.orderBy.push({ col, dir, nulls })
 
     return this
@@ -240,15 +243,15 @@ export class SelectBuilder<
   }
 
   /** GROUP BY one or more columns, which the SELECT then always lists. */
-  groupBy<K extends (keyof TColumns & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, TResult & Pick<InferSelect<TColumns>, K[number]>, K[number]> {
+  groupBy<K extends (keyof (TColumns & TJoined) & string)[]>(...cols: K): SelectBuilder<TColumns, TRelations, TResult & Pick<InferSelect<TColumns & TJoined>, K[number]>, K[number], TJoined> {
     this._state.groupBy = cols as string[]
 
     return this as never
   }
 
   /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
-  having(cond: WhereInput<TColumns>): this {
-    this._state.havingTape = compileWhere<TColumns>(cond)
+  having(cond: WhereInput<TColumns & TJoined>): this {
+    this._state.havingTape = compileWhere<TColumns & TJoined>(cond)
 
     return this
   }
@@ -340,17 +343,17 @@ export class SelectBuilder<
    */
   include<K extends keyof TRelations & string>(
     relation: K,
-  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }, TGroup>
+  ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }, TGroup, TJoined>
   include<K extends keyof TRelations & string, TTable extends AnyTableDef, TChildResult>(
     relation: K,
     table: TTable,
-    callback: (q: SelectBuilder<TTable['columns'], TTable['relations'], InferSelect<TTable['columns']>>) => SelectBuilder<TTable['columns'], TTable['relations'], TChildResult>,
+    callback: (q: SelectBuilder<TTable['columns'], TTable['relations'], InferSelect<TTable['columns']>>) => SelectBuilder<TTable['columns'], TTable['relations'], TChildResult, any, any>,
   ): SelectBuilder<TColumns, TRelations, TResult & {
     [P in K]: TRelations[P] extends RelationDef<'hasMany', any, any> ? TChildResult[]
       : TRelations[P] extends RelationDef<'hasManyThrough', any, any> ? TChildResult[]
         : TRelations[P] extends RelationDef<infer _K, any, infer N> ? N extends true ? TChildResult | null : TChildResult
           : TChildResult
-  }, TGroup>
+  }, TGroup, TJoined>
   include(
     relation: string,
     _table?: AnyTableDef,
@@ -368,7 +371,7 @@ export class SelectBuilder<
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
     relation: K,
     opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean },
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup> {
+  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup, TJoined> {
     const alias = opts?.as ?? `${relation}Count`
 
     validateIdentifier(alias, 'withCount alias')
@@ -387,9 +390,9 @@ export class SelectBuilder<
    * ```
    */
   aggregate<TAgg extends Record<string, AggResult<unknown>>>(
-    fn: (e: ExprBuilder<TColumns>) => TAgg,
-  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number } & Pick<InferSelect<TColumns>, TGroup> & Extras<TResult, TColumns>, TGroup> {
-    const builder = createExprBuilder<TColumns>()
+    fn: (e: ExprBuilder<TColumns & TJoined>) => TAgg,
+  ): SelectBuilder<TColumns, TRelations, { [K in keyof TAgg]: TAgg[K] extends AggResult<infer T> ? T : number } & Pick<InferSelect<TColumns & TJoined>, TGroup> & Extras<TResult, TColumns & TJoined>, TGroup, TJoined> {
+    const builder = createExprBuilder<TColumns & TJoined>()
     const aggs = fn(builder)
 
     this._state.columns = []

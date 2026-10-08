@@ -5,7 +5,7 @@
 import type { Dialect } from '../dialect'
 import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
-import { quote, quotePath } from '../sql/utils'
+import { qualifyCol } from '../sql/utils'
 
 const PARAM_RE = /\?/g
 
@@ -106,6 +106,23 @@ export interface TsQueryRef {
   query: string
 }
 
+const COLUMN_REF: unique symbol = Symbol('pg-orm.ColumnRef')
+
+/** A column standing where a comparison takes a value, so two columns compare without a bound parameter. Only `ref()` makes one. */
+export type ColumnRef = ExprTape & { readonly [COLUMN_REF]: true }
+
+export function columnRef(path: string): ColumnRef {
+  const tape: ExprTape = [{ op: OP_REF, path }]
+
+  Object.defineProperty(tape, COLUMN_REF, { value: true })
+
+  return tape as ColumnRef
+}
+
+export function isColumnRef(val: unknown): val is ColumnRef {
+  return Array.isArray(val) && (val as unknown as Record<symbol, unknown>)[COLUMN_REF] === true
+}
+
 // Branded aggregate result — carries the resolved type at the type level
 export type AggResult<T> = string & { readonly __aggType: T }
 
@@ -156,6 +173,11 @@ class ExprAssembler {
     return `$${this.pidx++}`
   }
 
+  // A comparison's right side: a column from `ref()`, else a bound value.
+  private operand(val: unknown): string {
+    return isColumnRef(val) ? this.walkSubTape(val) : this.nextParam(val)
+  }
+
   private walk(pos: number): WalkResult {
     const op = this.tape[pos]
 
@@ -173,7 +195,7 @@ class ExprAssembler {
 
   private walkCol(col: string | ExprTape): string {
     if (typeof col === 'string')
-      return this.qualifier ? `${quote(this.qualifier)}.${quote(col)}` : quote(col)
+      return qualifyCol(col, this.qualifier)
 
     return this.walkSubTape(col)
   }
@@ -223,14 +245,14 @@ class ExprAssembler {
     switch (op.op) {
       case OP_EQ: return op.val === null
         ? { sql: `${colSql} IS NULL`, next: pos + 1 }
-        : { sql: `${colSql} = ${this.nextParam(op.val)}`, next: pos + 1 }
+        : { sql: `${colSql} = ${this.operand(op.val)}`, next: pos + 1 }
       case OP_NEQ: return op.val === null
         ? { sql: `${colSql} IS NOT NULL`, next: pos + 1 }
-        : { sql: `${colSql} <> ${this.nextParam(op.val)}`, next: pos + 1 }
-      case OP_GT: return { sql: `${colSql} > ${this.nextParam(op.val)}`, next: pos + 1 }
-      case OP_GTE: return { sql: `${colSql} >= ${this.nextParam(op.val)}`, next: pos + 1 }
-      case OP_LT: return { sql: `${colSql} < ${this.nextParam(op.val)}`, next: pos + 1 }
-      case OP_LTE: return { sql: `${colSql} <= ${this.nextParam(op.val)}`, next: pos + 1 }
+        : { sql: `${colSql} <> ${this.operand(op.val)}`, next: pos + 1 }
+      case OP_GT: return { sql: `${colSql} > ${this.operand(op.val)}`, next: pos + 1 }
+      case OP_GTE: return { sql: `${colSql} >= ${this.operand(op.val)}`, next: pos + 1 }
+      case OP_LT: return { sql: `${colSql} < ${this.operand(op.val)}`, next: pos + 1 }
+      case OP_LTE: return { sql: `${colSql} <= ${this.operand(op.val)}`, next: pos + 1 }
       case OP_IN: {
         if (op.vals.length === 0)
           return { sql: 'FALSE', next: pos + 1 }
@@ -321,7 +343,7 @@ class ExprAssembler {
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
       }
       case OP_REF:
-        return { sql: quotePath(op.path), next: pos + 1 }
+        return { sql: qualifyCol(op.path, this.qualifier), next: pos + 1 }
       case OP_SCALAR:
         return { sql: `(${this.walkSubquery(op.subquery)})`, next: pos + 1 }
       case OP_IN_SUBQUERY: {

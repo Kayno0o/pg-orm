@@ -1,7 +1,7 @@
 import type { ExprTape } from './expr'
 import type { SelectBuilder } from './select'
 import { ValidationError } from '../errors/index'
-import { quote } from '../sql/utils'
+import { qualifyCol } from '../sql/utils'
 
 // --- Placeholder pattern (used by assembler + set-op for renumbering) ---
 export const PLACEHOLDER_RE = /\$(\d+)/g
@@ -47,7 +47,7 @@ export interface MergeWhen {
 }
 
 // --- INCLUDE (eager relation loading) ---
-export type IncludeCallback = (q: SelectBuilder<any, any, any>) => SelectBuilder<any, any, any>
+export type IncludeCallback = (q: SelectBuilder<any, any, any>) => SelectBuilder<any, any, any, any, any>
 
 export interface IncludeEntry {
   relation: string
@@ -229,12 +229,17 @@ export function cloneState(s: BuilderState): BuilderState {
 
 // --- Helpers ---
 
-export function quoteCols(cols: string[]): string {
-  return cols.map(quote).join(', ')
+export function quoteCols(cols: string[], qualifier?: string): string {
+  return cols.map(col => qualifyCol(col, qualifier)).join(', ')
 }
 
-export function formatOrderBy(entries: OrderEntry[]): string {
-  return entries.map(o => `${quote(o.col)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+export function formatOrderBy(entries: OrderEntry[], qualifier?: string): string {
+  return entries.map(o => `${qualifyCol(o.col, qualifier)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+}
+
+/** What a SELECT's bare columns are prefixed with: its own table once it joins another, where a bare name could be ambiguous. */
+export function joinQualifier(state: BuilderState): string | undefined {
+  return state.joins.length > 0 ? state.alias ?? state.table : undefined
 }
 
 /**

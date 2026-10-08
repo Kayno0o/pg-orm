@@ -261,9 +261,13 @@ q.orderBy('embedding', 'asc') // with vectorCosineDistance in computed
 ### JOINs, CTEs, Window Functions
 
 ```ts
-// JOIN
-q.join('orders', 'o', e => e.raw('"o"."userId" = "users"."id"'))
-q.leftJoin('profiles', 'p', e => e.raw('"p"."userId" = "users"."id"'))
+// JOIN: given the table def, its columns are typed as `alias.col` in ON, where, orderBy and pick (nullable on a left or full join)
+q.join(orders, 'o', e => e.eq('id', e.ref('o.userId'))).where({ 'o.status': 'paid' }).pick('id', 'name', 'o.total')
+// rows: { id, name, 'o.total' }; with no pick a joined select returns only the table's own columns
+q.leftJoin(profiles, 'p', e => e.eq('id', e.ref('p.userId')))
+
+// Compare two columns: e.ref() stands where a value would
+q.where(e => e.lt('stock', e.ref('minStock')))
 
 // CTE
 q.with('active_users', 'SELECT * FROM users WHERE active = true')

@@ -18,7 +18,7 @@ import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
 
-type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult>
+type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult, any, any>
 type Where<TC extends AnyColumns> = WhereInput<TC>
 /** What a find takes: a select callback, or a WHERE object (falsy for no filter). */
 type FindArg<TC extends AnyColumns, TR extends AnyRelations> = SelectCb<TC, TR> | OptionalWhereObject<TC>

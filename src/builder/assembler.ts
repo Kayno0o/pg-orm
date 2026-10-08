@@ -2,10 +2,10 @@ import type { Dialect } from '../dialect'
 import type { ExprTape } from './_tape'
 import type { BuilderState, MergeWhen } from './state'
 import { DialectError, ValidationError } from '../errors/index'
-import { quote } from '../sql/utils'
+import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { assembleExpr, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { formatOrderBy, isRawSql, PLACEHOLDER_RE, quoteCols, selectedColumns } from './state'
+import { formatOrderBy, isRawSql, joinQualifier, PLACEHOLDER_RE, quoteCols, selectedColumns } from './state'
 
 const RAW_PARAM_RE = /\?/g
 
@@ -133,15 +133,17 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${clauses.join(', ')}${guard}`)
 }
 
-function printWhere(sb: SqlBuilder, tape: ExprTape | null): void {
+function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): void {
   if (tape)
-    sb.push(`WHERE ${sb.inlineExpr(tape)}`)
+    sb.push(`WHERE ${sb.inlineExpr(tape, qualifier)}`)
 }
 
 // --- SELECT pieces ---
 
+// A joined column comes back under its `alias.col` name, so it neither collides with the table's own nor is lost.
 function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
-  const cols: string[] = selectedColumns(state)?.map(quote) ?? ['*']
+  const q = joinQualifier(state)
+  const cols: string[] = selectedColumns(state)?.map(col => col.includes('.') ? `${quotePath(col)} AS ${quote(col)}` : qualifyCol(col, q)) ?? [q ? `${quote(q)}.*` : '*']
 
   for (const cc of state.computedColumns) {
     // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
@@ -175,7 +177,7 @@ function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean):
 
   const distinct = state.distinct
     ? 'DISTINCT '
-    : state.distinctOn.length ? `DISTINCT ON (${quoteCols(state.distinctOn)}) ` : ''
+    : state.distinctOn.length ? `DISTINCT ON (${quoteCols(state.distinctOn, joinQualifier(state))}) ` : ''
 
   sb.push(`SELECT ${distinct}${printSelectColumns(sb, state)}`)
 }
@@ -194,24 +196,28 @@ function printJoins(sb: SqlBuilder, state: BuilderState): void {
     }
 
     const joinType = j.type.toUpperCase()
-    const onClause = j.on ? ` ON ${sb.inlineExpr(j.on)}` : ''
+    const onClause = j.on ? ` ON ${sb.inlineExpr(j.on, joinQualifier(state))}` : ''
 
     sb.push(`${joinType} JOIN ${quote(j.table)} AS ${quote(j.alias)}${onClause}`)
   }
 }
 
 function printGroupHaving(sb: SqlBuilder, state: BuilderState): void {
+  const q = joinQualifier(state)
+
   if (state.groupBy.length)
-    sb.push(`GROUP BY ${quoteCols(state.groupBy)}`)
+    sb.push(`GROUP BY ${quoteCols(state.groupBy, q)}`)
 
   if (state.havingTape)
-    sb.push(`HAVING ${sb.inlineExpr(state.havingTape)}`)
+    sb.push(`HAVING ${sb.inlineExpr(state.havingTape, q)}`)
 }
 
-function printWindows(sb: SqlBuilder, windows: BuilderState['windows']): void {
-  for (const w of windows) {
-    const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy)}` : ''
-    const ordBy = w.orderBy.length ? `ORDER BY ${formatOrderBy(w.orderBy)}` : ''
+function printWindows(sb: SqlBuilder, state: BuilderState): void {
+  const q = joinQualifier(state)
+
+  for (const w of state.windows) {
+    const partBy = w.partitionBy.length ? `PARTITION BY ${quoteCols(w.partitionBy, q)}` : ''
+    const ordBy = w.orderBy.length ? `ORDER BY ${formatOrderBy(w.orderBy, q)}` : ''
 
     sb.push(`WINDOW ${quote(w.name)} AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
   }
@@ -219,7 +225,7 @@ function printWindows(sb: SqlBuilder, windows: BuilderState['windows']): void {
 
 function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
   if (state.orderBy.length)
-    sb.push(`ORDER BY ${formatOrderBy(state.orderBy)}`)
+    sb.push(`ORDER BY ${formatOrderBy(state.orderBy, joinQualifier(state))}`)
 
   if (state.limit != null)
     sb.push(`LIMIT ${sb.pushParam(state.limit)}`)
@@ -256,8 +262,8 @@ export const PARTITION_RANK = '__pgorm_rn'
 
 // Rows numbered within each `limitPer` value, the window keeping the query's order, then cut to the offset and limit; the rank column comes back with the rows.
 function printPartitionedSelect(sb: SqlBuilder, state: BuilderState, column: string): void {
-  const order = state.orderBy.length ? ` ORDER BY ${formatOrderBy(state.orderBy)}` : ''
-  const rank = { expr: `ROW_NUMBER() OVER (PARTITION BY ${quote(column)}${order})`, alias: PARTITION_RANK }
+  const order = state.orderBy.length ? ` ORDER BY ${formatOrderBy(state.orderBy, joinQualifier(state))}` : ''
+  const rank = { expr: `ROW_NUMBER() OVER (PARTITION BY ${qualifyCol(column, joinQualifier(state))}${order})`, alias: PARTITION_RANK }
   const offset = state.offset ?? 0
 
   sb.push('SELECT * FROM (')
@@ -286,9 +292,9 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   printSelectHead(sb, state, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
   printJoins(sb, state)
-  printWhere(sb, selectWhere(state))
+  printWhere(sb, selectWhere(state), joinQualifier(state))
   printGroupHaving(sb, state)
-  printWindows(sb, state.windows)
+  printWindows(sb, state)
   printOrderLimit(sb, state)
   printLock(sb, state)
 

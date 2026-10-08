@@ -1,10 +1,11 @@
 import type { AnyColumnDef, AnyColumns } from '../types/index'
-import type { AggResult, ExprTape, SubqueryRef, TsQueryRef } from './_tape'
+import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef } from './_tape'
 import { ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { quote } from '../sql/utils'
 import { SINGLE_QUOTE_RE } from '../utils/regex'
 import {
+  columnRef,
   OP_AND,
   OP_ARRAY_CONTAINS,
   OP_ARRAY_OVERLAP,
@@ -28,7 +29,6 @@ import {
   OP_NOT_IN,
   OP_OR,
   OP_RAW,
-  OP_REF,
   OP_SCALAR,
   OP_TS_MATCH,
   OP_VEC_DISTANCE,
@@ -39,6 +39,7 @@ export {
   type AggResult,
   type AssembledExpr,
   assembleExpr,
+  type ColumnRef,
   type ExprOp,
   type ExprTape,
   OP_AND,
@@ -51,7 +52,8 @@ type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
 
 // --- Expression Builder (lambda surface that compiles to ExprTape) ---
 
-type ColVal<TColumns extends AnyColumns, K extends keyof TColumns & string> = TColumns[K]['_type']
+// A value, or a column from `ref()` to compare against.
+type ColVal<TColumns extends AnyColumns, K extends keyof TColumns & string> = TColumns[K]['_type'] | ColumnRef
 
 export interface ExprBuilder<TColumns extends AnyColumns> {
   // Logical combinators
@@ -107,8 +109,8 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   vectorL2Distance: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
   vectorInnerProduct: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
 
-  // Column reference
-  ref: (path: string) => ExprTape
+  /** A column by name (`col`, or `alias.col` of a joined or outer table), comparable as a value: `e.eq('authorId', e.ref('u.id'))`. */
+  ref: (path: string) => ColumnRef
 
   // Pattern convenience — auto-escape % and _ in user input
   startsWith: <K extends keyof TColumns & string>(col: K | ExprTape, prefix: string) => ExprTape
@@ -198,7 +200,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'l2' }],
   vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'inner' }],
 
-  ref: path => [{ op: OP_REF, path }],
+  ref: path => columnRef(path),
 
   startsWith: (col, prefix) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `${escapeLikePattern(prefix)}%` }],
   endsWith: (col, suffix) => [{ op: OP_ILIKE, col: col as string | ExprTape, pattern: `%${escapeLikePattern(suffix)}` }],

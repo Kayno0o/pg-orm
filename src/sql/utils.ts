@@ -18,6 +18,14 @@ export function quotePath(path: string): string {
   return path.split('.').map(quote).join('.')
 }
 
+/** A column as SQL: `alias.col` names a joined table's column, a bare one is prefixed with `qualifier` when given. */
+export function qualifyCol(col: string, qualifier?: string): string {
+  if (col.includes('.'))
+    return quotePath(col)
+
+  return qualifier ? `${quote(qualifier)}.${quote(col)}` : quote(col)
+}
+
 /**
  * Escape a string value for embedding as a SQL literal — doubles single quotes.
  * Returns the value wrapped in single quotes. Use only in DDL where parameter

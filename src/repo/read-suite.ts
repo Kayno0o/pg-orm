@@ -7,7 +7,7 @@ import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
 
-type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult>
+type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult, any, any>
 
 /** Read coordinator — binds deps and delegates to `ReadPipeline`. */
 export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelations = {}, TVirtuals extends AnyVirtuals = {}> {
