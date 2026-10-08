@@ -1,7 +1,7 @@
 {
   "name": "@kaynooo/pg-orm",
   "type": "module",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "description": "Lightweight ORM for Bun SQL with PostgreSQL support",
   "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
