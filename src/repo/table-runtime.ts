@@ -82,45 +82,43 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
     }
   }
 
+  // One lazy getter per virtual, shared by every row: it computes from the row it is read on, then replaces itself with the value.
+  const virtualDescriptors: PropertyDescriptorMap = {}
+
+  for (const [key, virt] of virtualEntries) {
+    virtualDescriptors[key] = {
+      get(this: Record<string, unknown>) {
+        let value: unknown
+
+        try {
+          value = virt.compute(this)
+        }
+        catch (err) {
+          const pkValue = this[primaryKey]
+          const rowRef = pkValue !== undefined
+            ? `row ${table.name}.${primaryKey}=${formatPkValue(pkValue)}`
+            : `row in table "${table.name}"`
+
+          throw new OrmError(
+            `Virtual field "${key}" on ${rowRef} threw during computation: ${err instanceof Error ? err.message : String(err)}`,
+            err,
+          )
+        }
+
+        Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true })
+
+        return value
+      },
+      enumerable: true,
+      configurable: true,
+    }
+  }
+
   function applyVirtuals<T extends Record<string, unknown>>(rows: T[]): T[] {
     if (virtualEntries.length === 0)
       return rows
 
-    const tableName = table.name
-
-    for (const row of rows) {
-      for (const [key, virt] of virtualEntries) {
-        Object.defineProperty(row, key, {
-          get() {
-            let value: unknown
-
-            try {
-              value = virt.compute(row)
-            }
-            catch (err) {
-              // Use the underlying row to read the PK, not `this` — `this` may
-              // be a row clone created by post-processing. `row` is the bound
-              // closure target that was actually passed to compute().
-              const pkValue = (row as Record<string, unknown>)[primaryKey]
-              const rowRef = pkValue !== undefined
-                ? `row ${tableName}.${primaryKey}=${formatPkValue(pkValue)}`
-                : `row in table "${tableName}"`
-
-              throw new OrmError(
-                `Virtual field "${key}" on ${rowRef} threw during computation: ${err instanceof Error ? err.message : String(err)}`,
-                err,
-              )
-            }
-
-            Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true })
-
-            return value
-          },
-          enumerable: true,
-          configurable: true,
-        })
-      }
-    }
+    for (const row of rows) Object.defineProperties(row, virtualDescriptors)
 
     return rows
   }

@@ -4,7 +4,7 @@ import { createTestDb } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
 
 function inClauseQueryCount(events: QueryEvent[]): number {
-  return events.filter(e => (/ IN \(/i).test(e.sql)).length
+  return events.filter(e => (/ = ANY\(/i).test(e.sql)).length
 }
 
 describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
@@ -42,7 +42,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
       expect(result.every(u => u.posts.length === 1)).toBe(true)
 
       // 3 IN-queries: 100 + 100 + 50
-      const inQueries = events.filter(e => (/FROM "posts".* IN \(/).test(e.sql))
+      const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
       expect(inQueries).toHaveLength(3)
     }
@@ -81,7 +81,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
 
       expect(result).toHaveLength(100)
 
-      const inQueries = events.filter(e => (/FROM "posts".* IN \(/).test(e.sql))
+      const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
       expect(inQueries).toHaveLength(1)
     }
@@ -119,7 +119,7 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
 
       expect(result).toHaveLength(101)
 
-      const inQueries = events.filter(e => (/FROM "posts".* IN \(/).test(e.sql))
+      const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
       expect(inQueries).toHaveLength(2)
       expect(inClauseQueryCount(inQueries)).toBe(2)
@@ -174,7 +174,7 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
 
     expect(result).toHaveLength(5000)
 
-    const inQueries = events.filter(e => (/FROM "posts".* IN \(/).test(e.sql))
+    const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
     expect(inQueries).toHaveLength(1)
   }, 60_000)
@@ -198,7 +198,7 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
 
     expect(result).toHaveLength(5001)
 
-    const inQueries = events.filter(e => (/FROM "posts".* IN \(/).test(e.sql))
+    const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
     expect(inQueries).toHaveLength(2)
   }, 60_000)

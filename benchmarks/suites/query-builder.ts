@@ -3,16 +3,13 @@ import { comments, posts, users } from '../schema'
 import { bench, defineSuite } from '../utils'
 
 export function queryBuilderSuite() {
-  const userCols = Object.keys(users.columns)
-  const postCols = Object.keys(posts.columns)
-
   return defineSuite('query-builder', [
     bench('simple.select', () => {
-      new SelectBuilder('bench_users', userCols).toSQL()
+      new SelectBuilder<typeof users.columns>(users).toSQL()
     }),
 
     bench('where.complex', () => {
-      new SelectBuilder('bench_users', userCols)
+      new SelectBuilder<typeof users.columns>(users)
         .where(e =>
           e.or(
             e.and(e.eq('role', 'admin'), e.like('name', 'A%')),
@@ -26,9 +23,9 @@ export function queryBuilderSuite() {
     }),
 
     bench('join.multi', () => {
-      new SelectBuilder('bench_posts', postCols)
-        .join('bench_users', 'u', e => e.raw('"u"."id" = "bench_posts"."authorId"'))
-        .join('bench_comments', 'c', e => e.raw('"c"."postId" = "bench_posts"."id"'))
+      new SelectBuilder<typeof posts.columns>(posts)
+        .join(users, 'u', e => e.eq('authorId', e.ref('u.id')))
+        .join(comments, 'c', e => e.eq('id', e.ref('c.postId')))
         .where(e => e.eq('published', true))
         .orderBy('id', 'desc')
         .limit(100)
@@ -36,7 +33,7 @@ export function queryBuilderSuite() {
     }),
 
     bench('aggregate', () => {
-      new SelectBuilder('bench_posts', postCols)
+      new SelectBuilder<typeof posts.columns>(posts)
         .groupBy('authorId')
         .aggregate(e => ({
           total: e.countCol(),
@@ -47,13 +44,18 @@ export function queryBuilderSuite() {
     }),
 
     bench('subquery', () => {
-      const sub = new SelectBuilder('bench_comments', Object.keys(comments.columns))
-        .where(e => e.raw('"bench_comments"."authorId" = "bench_users"."id"'))
+      const sub = new SelectBuilder<typeof comments.columns>(comments).where(e => e.eq('authorId', e.ref('bench_users.id')))
 
-      new SelectBuilder('bench_users', userCols)
+      new SelectBuilder<typeof users.columns>(users)
         .where(e => e.exists(sub))
         .orderBy('id', 'asc')
         .limit(20)
+        .toSQL()
+    }),
+
+    bench('in.1000', () => {
+      new SelectBuilder<typeof users.columns>(users)
+        .where({ id: Array.from({ length: 1000 }, (_, i) => i) })
         .toSQL()
     }),
   ])

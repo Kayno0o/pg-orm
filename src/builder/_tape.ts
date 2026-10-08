@@ -131,6 +131,11 @@ export function columnRef(path: string): ColumnRef {
   return sqlValue([{ op: OP_REF, path }])
 }
 
+// A value the Postgres array literal writes as it binds alone; an object (a json value, an expression) or an array keeps its own placeholder.
+function isArrayElement(val: unknown): boolean {
+  return val === null || typeof val !== 'object' || val instanceof Date
+}
+
 export function isSqlValue(val: unknown): val is TypedExpr<unknown> {
   return Array.isArray(val) && (val as unknown as Record<symbol, unknown>)[SQL_VALUE] === true
 }
@@ -276,21 +281,20 @@ class ExprAssembler {
       case OP_GTE: return { sql: `${colSql} >= ${this.operand(op.val)}`, next: pos + 1 }
       case OP_LT: return { sql: `${colSql} < ${this.operand(op.val)}`, next: pos + 1 }
       case OP_LTE: return { sql: `${colSql} <= ${this.operand(op.val)}`, next: pos + 1 }
-      case OP_IN: {
-        if (op.vals.length === 0)
-          return { sql: 'FALSE', next: pos + 1 }
-
-        const placeholders = op.vals.map(v => this.nextParam(v))
-
-        return { sql: `${colSql} IN (${placeholders.join(', ')})`, next: pos + 1 }
-      }
+      case OP_IN:
       case OP_NOT_IN: {
+        const negate = op.op === OP_NOT_IN
+
         if (op.vals.length === 0)
-          return { sql: 'TRUE', next: pos + 1 }
+          return { sql: negate ? 'TRUE' : 'FALSE', next: pos + 1 }
 
-        const placeholders = op.vals.map(v => this.nextParam(v))
+        // On Postgres a list of plain values binds as one array, so the statement reads the same whatever its length and never nears the bind-parameter limit.
+        if (this.dialect === 'postgres' && op.vals.every(isArrayElement))
+          return { sql: `${colSql} ${negate ? '<> ALL' : '= ANY'}(${this.nextParam(op.vals)})`, next: pos + 1 }
 
-        return { sql: `${colSql} NOT IN (${placeholders.join(', ')})`, next: pos + 1 }
+        const list = op.vals.map(v => this.operand(v))
+
+        return { sql: `${colSql} ${negate ? 'NOT IN' : 'IN'} (${list.join(', ')})`, next: pos + 1 }
       }
       case OP_IS_NULL: return { sql: `${colSql} IS NULL`, next: pos + 1 }
       case OP_IS_NOT_NULL: return { sql: `${colSql} IS NOT NULL`, next: pos + 1 }

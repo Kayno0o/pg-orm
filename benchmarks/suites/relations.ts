@@ -1,5 +1,5 @@
 import type { Database } from '../../src/index'
-import { posts, users } from '../schema'
+import { comments, posts, users } from '../schema'
 import { bench, defineSuite } from '../utils'
 
 export function relationsSuite(db: Database) {
@@ -8,22 +8,15 @@ export function relationsSuite(db: Database) {
 
   return defineSuite('relations', [
     bench('include.hasMany', async () => {
-      await userRepo.findMany(q =>
-        q.include('posts').limit(20),
-      )
+      await userRepo.read.findMany(q => q.include('posts').limit(20))
     }),
 
     bench('include.belongsTo', async () => {
-      await postRepo.findMany(q =>
-        q.include('author').limit(50),
-      )
+      await postRepo.read.findMany(q => q.include('author').limit(50))
     }),
 
     bench('include.nested', async () => {
-      await userRepo.findMany(q =>
-        q.include('posts', sq =>
-          sq.where(e => e.eq('published', true)).include('comments')).limit(10),
-      )
+      await userRepo.read.findMany(q => q.include('posts', posts, sq => sq.where({ published: true }).include('comments', comments, cq => cq)).limit(10))
     }),
   ])
 }

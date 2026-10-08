@@ -7,17 +7,15 @@ export function selectSuite(db: Database) {
 
   return defineSuite('select', [
     bench('findOne.byPk', async () => {
-      await repo.findOne(q => q.where(e => e.eq('id', 1)))
+      await repo.read.findById(1)
     }),
 
     bench('findMany.where', async () => {
-      await repo.findMany(q =>
-        q.where(e => e.eq('role', 'admin')).limit(50),
-      )
+      await repo.read.findMany(q => q.where({ role: 'admin' }).limit(50))
     }),
 
     bench('findMany.complexExpr', async () => {
-      await repo.findMany(q =>
+      await repo.read.findMany(q =>
         q.where(e =>
           e.or(
             e.and(e.eq('role', 'admin'), e.like('name', 'User 1%')),
@@ -28,11 +26,11 @@ export function selectSuite(db: Database) {
     }),
 
     bench('count', async () => {
-      await repo.count()
+      await repo.read.count()
     }),
 
     bench('exists', async () => {
-      await repo.exists(e => e.eq('id', 1))
+      await repo.read.exists({ id: 1 })
     }),
   ])
 }

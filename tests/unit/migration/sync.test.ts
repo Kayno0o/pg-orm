@@ -137,3 +137,41 @@ describe('syncSchema', () => {
     expect(result.ops.some(o => o.type === 'drop_table')).toBe(true)
   })
 })
+
+describe('syncSchema introspection', () => {
+  const tickets = defineTable('tickets', t => ({ id: t.serial().primaryKey(), state: t.enum('ticket_state', ['open', 'closed'] as const) }))
+  const registry = new Map([[tickets.name, tickets]]) as unknown as SyncContext['tables']
+  const columnReads = (queries: { sql: string }[]) => queries.filter(q => q.sql.includes('FROM information_schema.columns')).length
+
+  it('reads the schema once when no enum gains a value, the first transaction reading the enums alone', async () => {
+    const { ctx, txQueries } = makeCtx(registry)
+
+    await syncSchema(ctx, { allowDestructive: true })
+
+    expect(columnReads(txQueries)).toBe(1)
+    expect(txQueries.filter(q => q.sql.includes('FROM pg_type')).length).toBe(2)
+  })
+
+  it('adds a live enum\'s missing value in a transaction of its own, before the one applying the rest', async () => {
+    const transactions: string[][] = []
+    const { ctx } = makeCtx(registry)
+
+    ctx.transact = async <T>(fn: (query: QueryFn) => Promise<T>): Promise<T> => {
+      const run: string[] = []
+
+      transactions.push(run)
+
+      return fn(async (sql) => {
+        run.push(sql)
+
+        return sql.includes('FROM pg_type') ? [{ enum_name: 'ticket_state', enum_value: 'open', enumsortorder: 1 }] : EMPTY_ROWS
+      })
+    }
+
+    await syncSchema(ctx, { allowDestructive: true })
+
+    expect(transactions[0]!.some(sql => sql.includes('ADD VALUE'))).toBe(true)
+    expect(columnReads(transactions[0]!.map(sql => ({ sql })))).toBe(0)
+    expect(transactions[1]!.some(sql => sql.includes('ADD VALUE'))).toBe(false)
+  })
+})

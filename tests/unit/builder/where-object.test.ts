@@ -42,8 +42,8 @@ describe('object where shorthand', () => {
   it('maps an array to IN', () => {
     const { sql, params } = select().where({ id: [1, 2, 3] }).toSQL()
 
-    expect(sql).toBe('SELECT * FROM "users" WHERE "id" IN ($1, $2, $3)')
-    expect(params).toEqual([1, 2, 3])
+    expect(sql).toBe('SELECT * FROM "users" WHERE "id" = ANY($1)')
+    expect(params).toEqual([[1, 2, 3]])
   })
 
   it('maps an empty array to FALSE rather than invalid SQL', () => {
@@ -113,7 +113,7 @@ describe('object where operators', () => {
   })
 
   it('supports in, notIn and between', () => {
-    expect(select().where({ id: { notIn: [1, 2] } }).toSQL().sql).toBe('SELECT * FROM "users" WHERE "id" NOT IN ($1, $2)')
+    expect(select().where({ id: { notIn: [1, 2] } }).toSQL().sql).toBe('SELECT * FROM "users" WHERE "id" <> ALL($1)')
     expect(select().where({ age: { between: [10, 20] } }).toSQL().sql).toBe('SELECT * FROM "users" WHERE "age" BETWEEN $1 AND $2')
   })
 

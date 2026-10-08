@@ -7,23 +7,18 @@ export function paginationSuite(db: Database) {
 
   return defineSuite('pagination', [
     bench('offset.page1', async () => {
-      await repo.paginate({ page: 1, perPage: 20 })
+      await repo.read.paginate({ page: 1, perPage: 20 })
     }),
 
     bench('offset.page50', async () => {
-      await repo.paginate({ page: 50, perPage: 20 })
+      await repo.read.paginate({ page: 50, perPage: 20 })
     }),
 
     bench('cursor.forward', async () => {
-      const page1 = await repo.paginateCursor({ take: 20, column: 'id' })
+      const page1 = await repo.read.paginateCursor({ take: 20 })
 
-      if (page1.nextCursor != null) {
-        await repo.paginateCursor({
-          take: 20,
-          column: 'id',
-          cursor: page1.nextCursor,
-        })
-      }
+      if (page1.nextCursor != null)
+        await repo.read.paginateCursor({ take: 20, cursor: page1.nextCursor })
     }),
   ])
 }

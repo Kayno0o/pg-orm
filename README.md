@@ -228,7 +228,7 @@ their values. The two mix freely.
 q.where({ status: 'active' })
 q.where({ status: 'active', role: 'admin' })
 q.where({ deletedAt: null })          // IS NULL
-q.where({ role: ['admin', 'mod'] })   // IN (…), and an empty array matches nothing
+q.where({ role: ['admin', 'mod'] })   // = ANY($1), one array bound on Postgres; IN (…) on SQLite. An empty array matches nothing
 q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equality
 
 // ...with operators, several of which AND together
@@ -557,7 +557,8 @@ A read-only access mode is enforced on both dialects (`query_only` on SQLite). A
 ```ts
 // Offset-based
 const page = await repo.read.paginate({ page: 1, perPage: 20 })
-// { data, total, page, perPage, totalPages }
+// { data, total, page, perPage, totalPages }, read in one query: a window counts the matched rows
+// (a DISTINCT query, or an empty page past the first, runs a separate count)
 
 // The optional callback shapes the page. A filter it adds is reflected in `total`,
 // so `data` and `total` always describe the same row set.

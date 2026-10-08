@@ -47,7 +47,7 @@ describe('RelationResolver chunking', () => {
 
     await r.loadIncludes(parents(1), includes)
     expect(exec.queries.length).toBe(1)
-    expect(exec.queries[0]!.params).toEqual([1])
+    expect(exec.queries[0]!.params).toEqual([[1]])
   })
 
   test('parent ids === chunkSize → exactly one call, no split', async () => {
@@ -59,7 +59,7 @@ describe('RelationResolver chunking', () => {
 
     await r.loadIncludes(parents(1, 2, 3), includes)
     expect(exec.queries.length).toBe(1)
-    expect(exec.queries[0]!.params).toEqual([1, 2, 3])
+    expect(exec.queries[0]!.params).toEqual([[1, 2, 3]])
   })
 
   test('parent ids === chunkSize + 1 → two calls, sizes [chunkSize, 1]', async () => {
@@ -72,8 +72,8 @@ describe('RelationResolver chunking', () => {
 
     await r.loadIncludes(parents(1, 2, 3, 4), includes)
     expect(exec.queries.length).toBe(2)
-    expect(exec.queries[0]!.params).toEqual([1, 2, 3])
-    expect(exec.queries[1]!.params).toEqual([4])
+    expect(exec.queries[0]!.params).toEqual([[1, 2, 3]])
+    expect(exec.queries[1]!.params).toEqual([[4]])
   })
 
   test('parent ids === chunkSize * 3 → exactly three calls', async () => {
@@ -85,9 +85,9 @@ describe('RelationResolver chunking', () => {
 
     await r.loadIncludes(parents(1, 2, 3, 4, 5, 6), includes)
     expect(exec.queries.length).toBe(3)
-    expect(exec.queries[0]!.params).toEqual([1, 2])
-    expect(exec.queries[1]!.params).toEqual([3, 4])
-    expect(exec.queries[2]!.params).toEqual([5, 6])
+    expect(exec.queries[0]!.params).toEqual([[1, 2]])
+    expect(exec.queries[1]!.params).toEqual([[3, 4]])
+    expect(exec.queries[2]!.params).toEqual([[5, 6]])
   })
 
   test('deduplicates parent ids before chunking', async () => {
@@ -99,7 +99,7 @@ describe('RelationResolver chunking', () => {
 
     await r.loadIncludes(parents(1, 1, 2, 2, 3), includes)
     expect(exec.queries.length).toBe(1)
-    expect(exec.queries[0]!.params).toEqual([1, 2, 3])
+    expect(exec.queries[0]!.params).toEqual([[1, 2, 3]])
   })
 
   test('concatenates rows across chunks and groups them under the parent', async () => {

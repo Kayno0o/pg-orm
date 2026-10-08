@@ -94,13 +94,28 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** AND several tapes into one, returning the single tape unwrapped. */
+// A tape whose root is an AND lends its operands rather than nesting, so chained andWhere() calls print one flat AND.
 function andTapes(tapes: ExprTape[]): ExprTape {
   if (tapes.length === 1)
     return tapes[0]!
 
-  const combined: ExprTape = [{ op: OP_AND, count: tapes.length } as ExprOp]
+  const combined: ExprTape = [{ op: OP_AND, count: 0 } as ExprOp]
+  let count = 0
 
-  for (const tape of tapes) combined.push(...tape)
+  for (const tape of tapes) {
+    const root = tape[0]
+
+    if (root?.op === OP_AND) {
+      count += root.count
+      for (let i = 1; i < tape.length; i++) combined.push(tape[i]!)
+    }
+    else {
+      count++
+      for (const op of tape) combined.push(op)
+    }
+  }
+
+  combined[0] = { op: OP_AND, count }
 
   return combined
 }

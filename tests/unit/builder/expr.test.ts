@@ -103,14 +103,20 @@ describe('ExprBuilder - IN/NOT IN', () => {
   it('in generates IN', () => {
     const result = sql(e.in('status', ['active', 'pending']))
 
-    expect(result.sql).toBe('"status" IN ($1, $2)')
-    expect(result.params).toEqual(['active', 'pending'])
+    expect(result.sql).toBe('"status" = ANY($1)')
+    expect(result.params).toEqual([['active', 'pending']])
   })
 
   it('notIn generates NOT IN', () => {
     const result = sql(e.notIn('status', ['deleted']))
 
-    expect(result.sql).toBe('"status" NOT IN ($1)')
+    expect(result.sql).toBe('"status" <> ALL($1)')
+  })
+
+  it('keeps a list holding an expression or a json value as a list, and every list on SQLite', () => {
+    expect(sql(e.in('status', [e.ref('kind'), 'x']))).toEqual({ sql: '"status" IN ("kind", $1)', params: ['x'] })
+    expect(sql(e.in('status', [{ a: 1 }])).sql).toBe('"status" IN ($1)')
+    expect(assembleExpr(e.notIn('status', ['a', 'b']), 0, undefined, 'sqlite')).toEqual({ sql: '"status" NOT IN ($1, $2)', params: ['a', 'b'] })
   })
 
   it('in with empty array returns FALSE', () => {

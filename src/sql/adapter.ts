@@ -71,17 +71,32 @@ export function serializeParams(params: unknown[]): unknown[] {
   })
 }
 
+// A numeric array column (int4[], float4[]) bun:sql returns as a typed array; a bytea comes back as a Buffer, which stays one.
+function isNumericArray(val: unknown): val is ArrayLike<unknown> {
+  return ArrayBuffer.isView(val) && !(val instanceof Uint8Array) && !(val instanceof DataView)
+}
+
 /**
- * bun:sql returns TypedArrays (Int32Array, Float64Array, etc.) for numeric array columns.
- * Normalize them to plain JS arrays so callers always get Array, never TypedArray.
+ * Turn the typed arrays bun:sql returns for numeric array columns into plain arrays, so callers always get an Array.
+ * Every row shares its columns and each column its type, so the first non-null value of a column says whether it needs a pass: most results need none.
  */
 export function normalizeRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
+  const first = rows[0]
+
+  if (!first)
+    return rows
+
+  for (const key in first) {
+    const sample = rows.find(row => row[key] != null)?.[key]
+
+    if (!isNumericArray(sample))
+      continue
+
+    for (const row of rows) {
       const val = row[key]
 
-      if (ArrayBuffer.isView(val) && !(val instanceof DataView))
-        row[key] = Array.from(val as unknown as ArrayLike<unknown>)
+      if (isNumericArray(val))
+        row[key] = Array.from(val)
     }
   }
 

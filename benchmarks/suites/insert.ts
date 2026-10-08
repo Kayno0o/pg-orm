@@ -6,41 +6,32 @@ export function insertSuite(db: Database) {
   const repo = db.repo(users)
   let counter = 100_000
 
+  const batch = (label: string, size: number) => {
+    const base = counter
+
+    counter += size
+
+    return Array.from({ length: size }, (_, i) => ({ name: `${label} ${base + i}`, email: `bench-${label}-${base + i}@test.com` }))
+  }
+
   return defineSuite('insert', [
     bench('insertOne', async () => {
       counter++
-      const row = await repo.insertOne({
-        name: `BenchUser ${counter}`,
-        email: `bench-insert-${counter}@test.com`,
-      })
+      const id = await repo.write.insertOne({ name: `BenchUser ${counter}`, email: `bench-insert-${counter}@test.com` }, { pk: true })
 
-      await repo.forceDelete(e => e.eq('id', row.id))
+      await repo.write.forceDelete({ id })
     }, { ops: 50 }),
 
     bench('insertMany.100', async () => {
-      const base = counter
+      const ids = await repo.write.insertMany(batch('batch100', 100), { pk: true })
 
-      counter += 100
-      const rows = Array.from({ length: 100 }, (_, i) => ({
-        name: `Batch100 ${base + i}`,
-        email: `bench-batch100-${base + i}@test.com`,
-      }))
-      const inserted = await repo.insertMany(rows)
-
-      await repo.forceDelete(e => e.in('id', inserted.map(r => r.id)))
+      await repo.write.forceDelete({ id: ids })
     }, { ops: 10 }),
 
     bench('insertMany.1000', async () => {
-      const base = counter
+      const ids = await repo.write.insertMany(batch('batch1000', 1000), { pk: true })
 
-      counter += 1000
-      const rows = Array.from({ length: 1000 }, (_, i) => ({
-        name: `Batch1000 ${base + i}`,
-        email: `bench-batch1000-${base + i}@test.com`,
-      }))
-      const inserted = await repo.insertMany(rows)
-
-      await repo.forceDelete(e => e.in('id', inserted.map(r => r.id)))
+      await repo.write.forceDelete({ id: ids })
     }, { ops: 5 }),
   ])
 }

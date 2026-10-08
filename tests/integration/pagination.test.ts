@@ -1,4 +1,4 @@
-import type { Database } from '../../src/index'
+import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
@@ -72,6 +72,25 @@ describe('Offset Pagination', () => {
     const result = await repo.read.paginate({ page: 3, perPage: 5 })
 
     expect(result.data).toHaveLength(0)
+    expect(result.total).toBe(5)
+  })
+
+  it('reads a page and its total in one query', async () => {
+    await seedUsers(12)
+
+    const events: QueryEvent[] = []
+    const counted = createTestDb({ onQuery: e => events.push(e) })
+
+    try {
+      const result = await counted.repo(usersTable).read.paginate({ page: 2, perPage: 5 }, q => q.orderBy('age'))
+
+      expect(result.data.map(u => u.age)).toEqual([25, 26, 27, 28, 29])
+      expect(result.total).toBe(12)
+      expect(events).toHaveLength(1)
+    }
+    finally {
+      await counted.close()
+    }
   })
 
   it('supports where filter', async () => {

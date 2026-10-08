@@ -5,7 +5,7 @@ import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, migrationName, recordMigration } from './history'
 import { promptSync } from './interactive'
-import { planMigration } from './plan'
+import { planEnumAdditions, planMigration } from './plan'
 import { generateDownSql } from './reverse'
 import { MIGRATION_LOCK_KEY } from './types'
 
@@ -36,9 +36,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
   // If they succeed but the main transaction fails, the enum values persist harmlessly (skipped on retry via IF NOT EXISTS).
   if (!opts?.dryRun && dialect === 'postgres') {
     await ctx.transact(async (txQuery) => {
-      const preOps = await planMigration({ query: txQuery }, ctx.tables, dialect, ctx.schema, opts?.ignoreTables)
-
-      for (const op of preOps.filter(o => o.type === 'alter_enum_add'))
+      for (const op of await planEnumAdditions({ query: txQuery }, ctx.tables, ctx.schema, opts?.ignoreTables))
         await txQuery(`${op.sql};`, [])
     })
   }

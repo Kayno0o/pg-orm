@@ -4,6 +4,7 @@ import { deleteSuite } from './suites/delete'
 import { insertSuite } from './suites/insert'
 import { paginationSuite } from './suites/pagination'
 import { queryBuilderSuite } from './suites/query-builder'
+import { rawSuite } from './suites/raw'
 import { relationsSuite } from './suites/relations'
 import { selectSuite } from './suites/select'
 import { updateSuite } from './suites/update'
@@ -26,7 +27,9 @@ async function main() {
   console.log(`  ${counts.userCount} users, ${counts.postCount} posts, ${counts.commentCount} comments\n`)
 
   // ── Collect suites ──
+  const raw = rawSuite()
   const suites = [
+    raw.suite,
     insertSuite(db),
     selectSuite(db),
     updateSuite(db),
@@ -73,6 +76,7 @@ async function main() {
   await db.raw`DROP TABLE IF EXISTS bench_comments`
   await db.raw`DROP TABLE IF EXISTS bench_posts`
   await db.raw`DROP TABLE IF EXISTS bench_users`
+  await raw.close()
   await db.close()
 }
 

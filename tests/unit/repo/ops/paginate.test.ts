@@ -8,14 +8,10 @@ const users = defineTable('users', t => ({
 }))
 
 describe('paginate pipeline', () => {
-  it('returns data + totals derived from two queries', async () => {
+  it('returns data + totals from the page query', async () => {
     const { exec, pipeline } = setup(users)
 
-    // Order of preset: findMany then count both run in Promise.all; the first call
-    // to executor.query receives whichever the scheduler picks. We seed both rows
-    // and total identically so the test is order-independent.
-    exec.preset([{ id: 1, name: 'A' }, { id: 2, name: 'B' }])
-    exec.preset([{ count: '7' }])
+    exec.preset([{ id: 1, name: 'A', __pgorm_total: 7 }, { id: 2, name: 'B', __pgorm_total: 7 }])
 
     const result = await pipeline.paginate({ page: 2, perPage: 2 })
 

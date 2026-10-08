@@ -14,6 +14,18 @@ function select() {
 }
 
 describe('optional where conditions', () => {
+  it('prints chained conditions as one flat AND, an OR kept whole', () => {
+    const { sql, params } = select()
+      .where({ id: 1, age: 2 })
+      .andWhere({ name: 'a' })
+      .andWhere(e => e.or(e.eq('status', 'x'), e.eq('status', 'y')))
+      .whereAll({ age: 3 }, e => e.and(e.eq('name', 'b'), e.eq('id', 4)))
+      .toSQL()
+
+    expect(sql).toBe('SELECT * FROM "users" WHERE ("id" = $1 AND "age" = $2 AND "name" = $3 AND ("status" = $4 OR "status" = $5) AND "age" = $6 AND "name" = $7 AND "id" = $8)')
+    expect(params).toEqual([1, 2, 'a', 'x', 'y', 3, 'b', 4])
+  })
+
   it('treats a falsy where() as a no-op', () => {
     for (const falsy of [undefined, null, false, '', 0] as const)
       expect(select().where(falsy).toSQL().sql).toBe('SELECT * FROM "users"')

@@ -2,6 +2,22 @@ import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn
 import { SPACE_RE } from './regex'
 import { MIGRATION_TABLE } from './types'
 
+function queryEnumRows(executor: { query: QueryFn }, schema: string): Promise<Record<string, unknown>[]> {
+  return executor.query(`
+    SELECT t.typname AS enum_name, e.enumlabel AS enum_value, e.enumsortorder
+    FROM pg_type t
+    JOIN pg_enum e ON t.oid = e.enumtypid
+    JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = $1
+    ORDER BY t.typname, e.enumsortorder
+  `, [schema])
+}
+
+/** The schema's enum types and their values, without the rest of the introspection. */
+export async function introspectEnums(executor: { query: QueryFn }, schema = 'public'): Promise<LiveEnum[]> {
+  return buildLiveEnums(await queryEnumRows(executor, schema))
+}
+
 async function runIntrospectionQueries(executor: { query: QueryFn }, schema: string) {
   const colRows = await executor.query(`
     SELECT
@@ -49,14 +65,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     GROUP BY t.relname, c.conname
   `, [schema])
 
-  const enumRows = await executor.query(`
-    SELECT t.typname AS enum_name, e.enumlabel AS enum_value, e.enumsortorder
-    FROM pg_type t
-    JOIN pg_enum e ON t.oid = e.enumtypid
-    JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = $1
-    ORDER BY t.typname, e.enumsortorder
-  `, [schema])
+  const enumRows = await queryEnumRows(executor, schema)
 
   const fkRows = await executor.query(`
     SELECT

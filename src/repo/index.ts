@@ -24,6 +24,8 @@ export interface RepositoryConfig {
   maxIncludeDepth?: number
   defaultLimit?: number
   batchChunkSize?: number
+  /** @internal */
+  shared?: { runtime: TableRuntime, mappers: MapperFactory }
 }
 
 /**
@@ -80,9 +82,9 @@ export class Repository<
     this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = config.defaultLimit
 
-    this._rt = buildTableRuntime(this._table)
+    this._rt = config.shared?.runtime ?? buildTableRuntime(this._table)
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
-    this._map = createMapperFactory(this._table, dialectOf(this._exec))
+    this._map = config.shared?.mappers ?? createMapperFactory(this._table, dialectOf(this._exec))
 
     this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry)
     this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
@@ -119,6 +121,8 @@ export class Repository<
       maxIncludeDepth: this._maxIncludeDepth,
       defaultLimit: this._defaultLimit,
       batchChunkSize: this._batchChunkSize,
+      // The mappers coerce per dialect, so another database's repository builds its own.
+      shared: dialectOf(tx as Executable) === dialectOf(this._exec) ? { runtime: this._rt, mappers: this._map } : undefined,
     })
 
     this._boundCache.set(tx, bound)

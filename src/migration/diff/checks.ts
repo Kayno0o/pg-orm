@@ -13,17 +13,20 @@ const DIGITS_RE = /^\d*$/
  */
 export function diffChecks(desired: ReadonlyMap<string, AnyTableDef>, liveTables: LiveTable[], liveChecks: LiveCheck[]): MigrationOp[] {
   const ops: MigrationOp[] = []
+  const liveByName = new Map(liveTables.map(t => [t.name, t]))
+  const checksByTable = Map.groupBy(liveChecks, c => c.tableName)
 
   for (const [tableName, tableDef] of desired) {
-    const liveTable = liveTables.find(t => t.name === tableName)
+    const liveTable = liveByName.get(tableName)
 
     if (!liveTable)
       continue
 
     const liveColumns = new Set(liveTable.columns.map(c => c.name))
     const legacy = liveTable.columns.map(c => `${tableName}_${c.name}_check`)
-    const owned = liveChecks.filter(c => c.tableName === tableName && (HASHED_CHECK_RE.test(c.name) || legacy.some(prefix => isLegacyName(c.name, prefix))))
-    const liveNames = new Set(liveChecks.filter(c => c.tableName === tableName).map(c => c.name))
+    const tableChecks = checksByTable.get(tableName) ?? []
+    const owned = tableChecks.filter(c => HASHED_CHECK_RE.test(c.name) || legacy.some(prefix => isLegacyName(c.name, prefix)))
+    const liveNames = new Set(tableChecks.map(c => c.name))
     const wanted = new Map<string, string>()
 
     for (const [colName, colDef] of columnEntries(tableDef.columns)) {

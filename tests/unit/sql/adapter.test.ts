@@ -63,12 +63,18 @@ describe('normalizeRows', () => {
     expect(out[0]!.values).toEqual([1.5, 2.25])
   })
 
-  it('converts Uint8Array values to plain arrays', () => {
-    const rows = [{ bytes: new Uint8Array([10, 20, 30]) }]
-    const out = normalizeRows(rows)
+  it('keeps a Buffer, which is how a bytea comes back', () => {
+    const bytes = Buffer.from([10, 20, 30])
+    const out = normalizeRows([{ bytes }])
 
-    expect(Array.isArray(out[0]!.bytes)).toBe(true)
-    expect(out[0]!.bytes).toEqual([10, 20, 30])
+    expect(out[0]!.bytes).toBe(bytes)
+  })
+
+  it('converts a typed array found past a null in the first rows', () => {
+    const out = normalizeRows([{ scores: null }, { scores: new Int32Array([4]) }])
+
+    expect(out[1]!.scores).toEqual([4])
+    expect(Array.isArray(out[1]!.scores)).toBe(true)
   })
 
   it('does NOT convert DataView values', () => {

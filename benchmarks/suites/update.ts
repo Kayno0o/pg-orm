@@ -7,23 +7,15 @@ export function updateSuite(db: Database) {
 
   return defineSuite('update', [
     bench('updateMany', async () => {
-      await repo.updateMany(
-        { bio: 'Updated bio text' },
-        e => e.and(e.eq('role', 'admin'), e.like('name', 'User 1%')),
-      )
+      await repo.write.updateMany({ bio: 'Updated bio text' }, e => e.and(e.eq('role', 'admin'), e.like('name', 'User 1%')))
     }),
 
     bench('updateWithLock', async () => {
-      // Each call reads current version then updates, so it's always fresh
-      const row = await repo.findOne(q => q.where(e => e.eq('id', 1)))
+      // Each call reads the current version then updates, so it is always fresh
+      const row = await repo.read.findById(1)
 
-      if (row) {
-        await repo.updateWithLock(
-          { bio: `Locked update ${Date.now()}` },
-          e => e.eq('id', row.id),
-          row.version,
-        )
-      }
+      if (row)
+        await repo.write.updateWithLock({ bio: `Locked update ${Date.now()}` }, { id: row.id }, row.version)
     }, { ops: 50 }),
   ])
 }

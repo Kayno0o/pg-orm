@@ -10,41 +10,53 @@ const articles = defineTable('articles', t => ({
 })).withTrait(softDelete())
 
 describe('paginate', () => {
-  it('runs the page and the count off the same filters', async () => {
+  it('reads the page and its total in one query, a window counting every matched row', async () => {
     const { exec, pipeline } = setupReadPipeline(articles)
 
-    exec.preset([{ id: 1, title: 'a', published: true }])
-    exec.preset([{ count: 12 }])
+    exec.preset([{ id: 1, title: 'a', published: true, __pgorm_total: 12 }])
 
     const result = await pipeline.paginate({ page: 2, perPage: 5, where: { published: true } })
 
-    const [rows, counted] = exec.queries
-
-    expect(rows!.sql).toContain('WHERE ("published" = $1 AND "deletedAt" IS NULL)')
-    expect(rows!.sql).toContain('LIMIT')
-    expect(rows!.sql).toContain('OFFSET')
-    expect(counted!.sql).toContain('SELECT count(*)')
-    expect(counted!.sql).toContain('WHERE ("published" = $1 AND "deletedAt" IS NULL)')
-    expect(counted!.sql).not.toContain('LIMIT')
+    expect(exec.queries).toHaveLength(1)
+    expect(exec.queries[0]!.sql).toContain('CAST(count(*) OVER () AS double precision) AS "__pgorm_total"')
+    expect(exec.queries[0]!.sql).toContain('WHERE ("published" = $1 AND "deletedAt" IS NULL)')
+    expect(exec.queries[0]!.sql).toContain('LIMIT')
+    expect(Object.keys(result.data[0]!)).not.toContain('__pgorm_total')
     expect(result.total).toBe(12)
     expect(result.page).toBe(2)
     expect(result.totalPages).toBe(3)
   })
 
-  it('counts the rows the callback filtered, not the whole table', async () => {
+  it('counts on its own only for an empty page past the first, off the same filters', async () => {
     const { exec, pipeline } = setupReadPipeline(articles)
 
     exec.preset([])
-    exec.preset([{ count: 0 }])
+    exec.preset([{ count: 4 }])
 
-    await pipeline.paginate({ page: 1, perPage: 10 }, q => q.pick('id').where({ published: false }).orderBy('id', 'desc'))
-
+    const result = await pipeline.paginate({ page: 3, perPage: 10 }, q => q.pick('id').where({ published: false }).orderBy('id', 'desc'))
     const [rows, counted] = exec.queries
 
     expect(rows!.sql).toContain('SELECT "id"')
-    expect(rows!.sql).toContain('ORDER BY')
+    expect(counted!.sql).toContain('SELECT count(*)')
     expect(counted!.sql).toContain('"published" = $1')
     expect(counted!.sql).not.toContain('ORDER BY')
+    expect(counted!.sql).not.toContain('LIMIT')
+    expect(result.total).toBe(4)
+  })
+
+  it('knows an empty first page holds nothing, and keeps a separate count for a DISTINCT query', async () => {
+    const { exec, pipeline } = setupReadPipeline(articles)
+
+    exec.preset([])
+    expect((await pipeline.paginate({ page: 1, perPage: 10 })).total).toBe(0)
+    expect(exec.queries).toHaveLength(1)
+
+    exec.preset([{ title: 'a' }])
+    exec.preset([{ count: 1 }])
+    await pipeline.paginate({ page: 1, perPage: 10 }, q => q.pick('title').distinct())
+
+    expect(exec.queries).toHaveLength(3)
+    expect(exec.queries[1]!.sql).not.toContain('OVER')
   })
 
   it('includes trashed rows in both queries when asked', async () => {

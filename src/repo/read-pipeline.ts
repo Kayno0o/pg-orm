@@ -18,6 +18,16 @@ import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
 
+// The window column a page carries its total in.
+const PAGE_TOTAL = '__pgorm_total'
+
+interface ChildTable {
+  table: AnyTableDef
+  version: number
+  runtime: TableRuntime
+  mappers: MapperFactory
+}
+
 type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult, any, any>
 type Where<TC extends AnyColumns> = WhereInput<TC>
 /** What a find takes: a select callback, or a WHERE object (falsy for no filter). */
@@ -107,6 +117,7 @@ export class ReadPipeline<
   private _relations: RelationResolver
   private _mapper: MapperFactory
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
+  private _children = new Map<string, ChildTable>()
 
   constructor(ctx: ReadPipelineContext) {
     this._executor = ctx.executor
@@ -127,8 +138,13 @@ export class ReadPipeline<
   }
 
   async findMany(arg?: FindArg<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
-    const finalBuilder = asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
+    const { rows } = await this._select(asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)), opts)
 
+    return rows
+  }
+
+  // `withTotal` adds a window counting every matched row, read off the first row and dropped before mapping: a page and its total in one round trip, the total unknown when the page is empty.
+  private async _select(finalBuilder: SelectBuilder<TColumns, TRelations, any>, opts?: SelectOptions, withTotal = false): Promise<{ rows: any[], total?: number }> {
     this._runtime.behavior.prepareSelect(finalBuilder)
     this._resolveCounts(finalBuilder)
 
@@ -138,17 +154,33 @@ export class ReadPipeline<
       state.limit = opts.defaultLimit
     }
 
+    if (withTotal)
+      state.computedColumns.push({ expr: 'CAST(count(*) OVER () AS double precision)', alias: PAGE_TOTAL })
+
     const { sql, params } = finalBuilder.toSQL(this._dialect)
+
+    if (withTotal)
+      state.computedColumns.pop()
+
     const rows = await this._executor.query(sql, params)
+    let total: number | undefined
+
+    if (withTotal && rows.length > 0) {
+      total = Number(rows[0]![PAGE_TOTAL])
+
+      for (const row of rows) delete row[PAGE_TOTAL]
+    }
 
     // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
     const hasOnlyComputed = selectedColumns(state)?.length === 0 && state.computedColumns.length > 0
 
-    return this.processRows(rows, this._runtime.table.name, 'select', {
+    const processed = await this.processRows(rows, this._runtime.table.name, 'select', {
       mapper: this._mapper(finalBuilder),
       includes: state.includes,
       skipMapper: hasOnlyComputed,
     })
+
+    return { rows: processed, total }
   }
 
   async findOne(arg?: FindArg<TColumns, TRelations>): Promise<any | null> {
@@ -234,8 +266,8 @@ export class ReadPipeline<
       rows.withTrashed()
 
     // Branch before paging so `total` counts the same rows the page is drawn from, including any filter the callback added.
-    const counted = rows.branch().count()
-    const countState = counted.getState()
+    const countQuery = rows.branch().count() as SelectBuilder<TColumns, any, any>
+    const countState = countQuery.getState()
 
     countState.orderBy = []
     countState.limit = null
@@ -244,10 +276,19 @@ export class ReadPipeline<
 
     rows.limit(perPage).offset((page - 1) * perPage)
 
-    const [data, total] = await Promise.all([
-      this.findMany(() => rows as SelectBuilder<TColumns, TRelations, any>),
-      this._runCount(counted as SelectBuilder<TColumns, any, any>),
-    ])
+    const state = rows.getState()
+    const pageQuery = rows as SelectBuilder<TColumns, TRelations, any>
+
+    // A DISTINCT applies after the window, which would count the rows before it, so such a query keeps a count of its own.
+    if (state.distinct || state.distinctOn.length > 0) {
+      const [{ rows: data }, total] = await Promise.all([this._select(pageQuery), this._runCount(countQuery)])
+
+      return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
+    }
+
+    const { rows: data, total: windowTotal } = await this._select(pageQuery, undefined, true)
+    // An empty page past the first may still follow rows, which only a count can tell.
+    const total = windowTotal ?? (page === 1 ? 0 : await this._runCount(countQuery))
 
     return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
   }
@@ -474,16 +515,30 @@ export class ReadPipeline<
     return mapped
   }
 
+  // An included table's runtime and mapper factory, built once per definition and version rather than per include per query.
+  private _child(tableName: string): ChildTable | undefined {
+    const table = this._tableRegistry?.get(tableName)
+
+    if (!table)
+      return undefined
+
+    const cached = this._children.get(tableName)
+
+    if (cached?.table === table && cached.version === table._version)
+      return cached
+
+    const child = { table, version: table._version, runtime: buildTableRuntime(table), mappers: createMapperFactory(table, this._dialect) }
+
+    this._children.set(tableName, child)
+
+    return child
+  }
+
   private _runtimeFor(tableName: string): TableRuntime {
     if (tableName === this._runtime.table.name)
       return this._runtime
 
-    const table = this._tableRegistry?.get(tableName)
-
-    if (!table)
-      return this._runtime
-
-    return buildTableRuntime(table)
+    return this._child(tableName)?.runtime ?? this._runtime
   }
 
   // `builder`, an include callback's, shapes the mapper with its pick, omit and computed columns.
@@ -491,12 +546,9 @@ export class ReadPipeline<
     if (tableName === this._runtime.table.name)
       return this._mapper(builder)
 
-    const table = this._tableRegistry?.get(tableName)
+    const child = this._child(tableName)
 
-    if (!table)
-      return (row: Record<string, unknown>) => row
-
-    return createMapperFactory(table, this._dialect)(builder)
+    return child ? child.mappers(builder) : (row: Record<string, unknown>) => row
   }
 
   // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.

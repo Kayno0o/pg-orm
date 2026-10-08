@@ -164,8 +164,8 @@ describe('Security: Query values are always parameterized', () => {
     const payload = ['\'; DROP TABLE users; --', '1 OR 1=1']
     const result = sql(e.in('status', payload))
 
-    expect(result.sql).toBe('"status" IN ($1, $2)')
-    expect(result.params).toEqual(payload)
+    expect(result.sql).toBe('"status" = ANY($1)')
+    expect(result.params).toEqual([payload])
     expect(result.sql).not.toContain('DROP')
     expect(result.sql).not.toContain('OR')
   })
@@ -551,8 +551,8 @@ describe('Security: Second-order SQL injection via stored values', () => {
     const storedValues = ['normal', '\'; DROP TABLE users; --', '1 OR 1=1']
     const result = sql(e.in('id', storedValues))
 
-    expect(result.sql).toBe('"id" IN ($1, $2, $3)')
-    expect(result.params).toEqual(storedValues)
+    expect(result.sql).toBe('"id" = ANY($1)')
+    expect(result.params).toEqual([storedValues])
     expect(result.sql).not.toContain('DROP')
   })
 })
@@ -721,8 +721,7 @@ describe('Security: Compound attack vectors', () => {
     expect(result.params).toEqual([
       '\'; DROP TABLE users; --',
       '1 OR 1=1',
-      'active',
-      '\'; GRANT ALL TO public; --',
+      ['active', '\'; GRANT ALL TO public; --'],
       '0; DELETE FROM users',
       '100',
     ])
@@ -742,10 +741,10 @@ describe('Security: Compound attack vectors', () => {
     ))
 
     expect(result.sql).toContain('$1')
-    expect(result.sql).toContain('$6')
-    expect(result.params).toHaveLength(6)
-    // Verify sequential numbering
-    expect(result.sql).toMatch(/\$1.*\$2.*\$3.*\$4.*\$5.*\$6/)
+    expect(result.sql).toContain('$5')
+    expect(result.params).toHaveLength(5)
+    // Verify sequential numbering, the IN list bound as one array
+    expect(result.sql).toMatch(/\$1.*\$2.*\$3.*\$4.*\$5/)
   })
 
   it('handles unicode in values safely', () => {

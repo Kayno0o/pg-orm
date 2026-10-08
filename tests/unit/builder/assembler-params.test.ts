@@ -67,13 +67,13 @@ describe('assembler — parameter accounting (SELECT)', () => {
     expect(params).toEqual(['active', 10, 20])
   })
 
-  test('IN clause expands and contributes one param per value', () => {
-    const { sql, params } = new SelectBuilder<Cols>('users')
-      .where(e => e.in('id', [1, 2, 3, 4]))
-      .toSQL()
+  test('IN binds its list as one array on Postgres, one param per value on SQLite', () => {
+    const q = new SelectBuilder<Cols>('users').where(e => e.in('id', [1, 2, 3, 4]))
+    const { sql, params } = q.toSQL()
 
     assertParamShape(sql, params)
-    expect(params).toEqual([1, 2, 3, 4])
+    expect(params).toEqual([[1, 2, 3, 4]])
+    expect(q.toSQL('sqlite').params).toEqual([1, 2, 3, 4])
   })
 
   test('zero-param query has zero placeholders', () => {
