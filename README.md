@@ -913,7 +913,7 @@ input. They are explicitly marked `@trusted` in JSDoc:
 | `t.text().defaultRaw(sql)` | `DEFAULT sql` in DDL |
 | `t.text().index({ where })` | `WHERE` clause of a partial index. Validated at `defineTable()` to reject `;` / `--` / `/*` outside string literals. |
 | `q.computedRaw(expr, alias)`, `rawExpr(sql)` | SELECT-list expression |
-| `e.raw(sql, ...params)` | WHERE/ON fragment (positional `?` params are bound; the surrounding SQL is verbatim) |
+| `e.raw(sql, ...params)` | WHERE/ON fragment (positional `?` params are bound, `??` is a literal `?` for the jsonb `?`, `?|`, `?&` operators, a `?` inside quotes is left alone; the surrounding SQL is verbatim) |
 | `db.raw(sql, params)` / tagged template | full query body |
 
 Validation errors (invalid identifiers, non-finite numbers, unsafe delimiters,

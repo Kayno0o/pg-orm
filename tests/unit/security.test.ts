@@ -204,7 +204,7 @@ describe('Security: Query values are always parameterized', () => {
   it('JSONB subscript keys are parameterized', () => {
     const result = sql(e.jsonbSubscript('data', '\'; DROP TABLE users; --'))
 
-    expect(result.sql).toBe('("data" -> $1)')
+    expect(result.sql).toBe('("data" -> $1::text)')
     expect(result.params).toEqual(['\'; DROP TABLE users; --'])
     expect(result.sql).not.toContain('DROP')
   })

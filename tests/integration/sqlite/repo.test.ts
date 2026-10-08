@@ -196,7 +196,9 @@ describe('SQLite repositories', () => {
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
     expect((await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'])).row.id).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
-    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob' }], ['name'], undefined, { pk: true })).toHaveLength(2)
+    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob', rank: 0 }], ['name'], undefined, { pk: true })).toHaveLength(2)
+    // A row leaving out a copied column would have it reset to its default on conflict.
+    await expect(repo.write.upsertMany([{ name: 'Ken', rank: 7 }, { name: 'Rob' }], ['name'], undefined, { pk: true })).rejects.toThrow(ValidationError)
   })
 
   it('soft-deletes and restores, and bumps the version of an optimistic lock', async () => {

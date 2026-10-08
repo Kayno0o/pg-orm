@@ -1,7 +1,8 @@
 import type { Dialect } from '../dialect'
 import type { OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
-import { formatOrderBy, PLACEHOLDER_RE } from './state'
+import { shiftPlaceholders } from './_placeholders'
+import { formatOrderBy } from './state'
 
 type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 'EXCEPT ALL'
 
@@ -17,7 +18,10 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
   private _limit: number | null = null
   private _offset: number | null = null
 
-  private constructor(first: SetOperand) {
+  private constructor(first: SetOperand | undefined) {
+    if (!first)
+      throw new ValidationError('A set operation needs at least one query.', 'SetOperationBuilder')
+
     this.operands.push(first)
   }
 
@@ -25,7 +29,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!)
+    const builder = new SetOperationBuilder<T>(first)
 
     for (const q of rest) {
       builder.operators.push('UNION')
@@ -39,7 +43,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!)
+    const builder = new SetOperationBuilder<T>(first)
 
     for (const q of rest) {
       builder.operators.push('UNION ALL')
@@ -53,7 +57,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!)
+    const builder = new SetOperationBuilder<T>(first)
 
     for (const q of rest) {
       builder.operators.push('INTERSECT')
@@ -67,7 +71,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     ...queries: SetOperand[]
   ): SetOperationBuilder<T> {
     const [first, ...rest] = queries
-    const builder = new SetOperationBuilder<T>(first!)
+    const builder = new SetOperationBuilder<T>(first)
 
     for (const q of rest) {
       builder.operators.push('EXCEPT')
@@ -103,7 +107,18 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
     return this
   }
 
-  toSQL(dialect: Dialect = 'postgres'): { sql: string, params: unknown[] } {
+  /** Embedded as a subquery (`e.inSubquery`, `e.exists`), it is given the placeholders before it and its own dialect. */
+  toSQL(dialect?: Dialect): { sql: string, params: unknown[] }
+  toSQL(paramOffset: number, dialect?: Dialect): { sql: string, params: unknown[] }
+  toSQL(offsetOrDialect?: number | Dialect, maybeDialect?: Dialect): { sql: string, params: unknown[] } {
+    const paramOffset = typeof offsetOrDialect === 'number' ? offsetOrDialect : 0
+    const dialect = (typeof offsetOrDialect === 'number' ? maybeDialect : offsetOrDialect) ?? 'postgres'
+    const { sql, params } = this._toSQL(dialect)
+
+    return { sql: shiftPlaceholders(sql, paramOffset), params }
+  }
+
+  private _toSQL(dialect: Dialect): { sql: string, params: unknown[] } {
     const allParams: unknown[] = []
     const parts: string[] = []
 
@@ -113,7 +128,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
 
       const op = this.operands[i]!.toSQL(dialect)
       const offset = allParams.length
-      const sql = op.sql.replace(PLACEHOLDER_RE, (_, n) => `$${Number(n) + offset}`)
+      const sql = shiftPlaceholders(op.sql, offset)
 
       allParams.push(...op.params)
       // SQLite takes no parenthesized operand, but a subquery it selects from.

@@ -228,14 +228,14 @@ describe('ExprBuilder - JSONB', () => {
   it('jsonbSubscript generates parameterized -> path', () => {
     const result = sql(e.jsonbSubscript('data', 'a', 0, 'b'))
 
-    expect(result.sql).toBe('((("data" -> $1) -> $2) -> $3)')
+    expect(result.sql).toBe('((("data" -> $1::text) -> $2::int) -> $3::text)')
     expect(result.params).toEqual(['a', 0, 'b'])
   })
 
   it('jsonbSubscript parameterizes injection payloads', () => {
     const result = sql(e.jsonbSubscript('data', '\'; DROP TABLE users; --'))
 
-    expect(result.sql).toBe('("data" -> $1)')
+    expect(result.sql).toBe('("data" -> $1::text)')
     expect(result.params).toEqual(['\'; DROP TABLE users; --'])
   })
 })

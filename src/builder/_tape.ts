@@ -3,11 +3,10 @@
 // Public DSL lives in `./expr.ts`; this file is the implementation detail.
 
 import type { Dialect } from '../dialect'
-import { DialectError, ValidationError } from '../errors/index'
+import { DialectError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { qualifyCol } from '../sql/utils'
-
-const PARAM_RE = /\?/g
+import { bindRawParams } from './_placeholders'
 
 // What a LIKE pattern character becomes in a GLOB pattern, where `*`, `?` and `[` are the wildcards.
 const GLOB_WILDCARDS: Record<string, string> = { '%': '*', '_': '?' }
@@ -212,6 +211,10 @@ class ExprAssembler {
   }
 
   private walkLogical(op: ExprOp, pos: number): WalkResult {
+    // An empty AND holds, an empty OR does not; `()` is no SQL.
+    if ((op.op === OP_AND || op.op === OP_OR) && op.count === 0)
+      return { sql: op.op === OP_AND ? 'TRUE' : 'FALSE', next: pos + 1 }
+
     if (op.op === OP_AND || op.op === OP_OR) {
       const connector = op.op === OP_AND ? ' AND ' : ' OR '
       const parts: string[] = []
@@ -296,22 +299,7 @@ class ExprAssembler {
       case OP_NOT_EXISTS:
         return { sql: `NOT EXISTS (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
       case OP_RAW: {
-        let rawSql = op.sql
-        let paramIdx = 0
-        const params = op.params
-
-        rawSql = rawSql.replace(PARAM_RE, () => {
-          if (paramIdx >= params.length) {
-            throw new ValidationError(
-              `e.raw() SQL has more "?" placeholders than parameters (${params.length} provided)`,
-              'e.raw',
-            )
-          }
-
-          return this.nextParam(params[paramIdx++])
-        })
-
-        return { sql: rawSql, next: pos + 1 }
+        return { sql: bindRawParams(op.sql, op.params, 'e.raw()', value => this.nextParam(value)), next: pos + 1 }
       }
       case OP_JSONB_PATH:
         this.postgresOnly('jsonbPath()')
@@ -320,8 +308,11 @@ class ExprAssembler {
       case OP_JSONB_SUBSCRIPT: {
         let colSql = this.walkCol(op.col)
 
+        // Postgres cannot tell a bound key from an index, so each step says which it is.
         for (const segment of op.path) {
-          colSql = `(${colSql} -> ${this.nextParam(segment)})`
+          const cast = this.dialect === 'postgres' ? typeof segment === 'number' ? '::int' : '::text' : ''
+
+          colSql = `(${colSql} -> ${this.nextParam(segment)}${cast})`
         }
 
         return { sql: colSql, next: pos + 1 }
@@ -365,6 +356,10 @@ class ExprAssembler {
 
           return { sql: `EXISTS (SELECT 1 FROM json_each(${col}) WHERE "value" IN (${op.vals.map(v => this.nextParam(v)).join(', ')}))`, next: pos + 1 }
         }
+
+        // An empty ARRAY[] has no type Postgres can infer, and overlaps nothing anyway.
+        if (op.vals.length === 0)
+          return { sql: 'FALSE', next: pos + 1 }
 
         const placeholders = op.vals.map(v => this.nextParam(v))
 

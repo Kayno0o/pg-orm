@@ -3,8 +3,7 @@ import type { SelectBuilder } from './select'
 import { ValidationError } from '../errors/index'
 import { qualifyCol } from '../sql/utils'
 
-// --- Placeholder pattern (used by assembler + set-op for renumbering) ---
-export const PLACEHOLDER_RE = /\$(\d+)/g
+export { PLACEHOLDER_RE } from './_placeholders'
 
 // --- Operation tag ---
 export type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' | 'merge' | 'upsert' | 'count' | 'raw'
@@ -15,7 +14,7 @@ export interface OrderEntry { col: string, dir: OrderDir, nulls?: 'first' | 'las
 
 // --- JOIN ---
 export interface JoinEntry {
-  type: 'inner' | 'left' | 'right' | 'full' | 'lateral'
+  type: 'inner' | 'left' | 'right' | 'full'
   table: string
   alias: string
   on: ExprTape | null

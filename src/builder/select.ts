@@ -4,10 +4,10 @@ import type { AggResult, ExprBuilder, ExprTape } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
+import { placeholderNumbers } from './_placeholders'
 import { appendWhere, compileWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
-import { PLACEHOLDER_RE } from './state'
 
 type CountableRelations<TRelations extends AnyRelations> = {
   [K in keyof TRelations]: TRelations[K] extends RelationDef<'hasMany' | 'hasManyThrough', any, any, any> ? K : never
@@ -455,9 +455,7 @@ function validateCtePlaceholders(sql: string, params: unknown[], context: string
   const seen = new Set<number>()
   let max = 0
 
-  for (const m of sql.matchAll(PLACEHOLDER_RE)) {
-    const n = Number(m[1])
-
+  for (const n of placeholderNumbers(sql)) {
     seen.add(n)
 
     if (n > max)

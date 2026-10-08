@@ -287,7 +287,7 @@ describe('Complex query builder', () => {
         .where(e => e.eq(e.jsonbSubscript('metadata', 'address', 'city'), 'Paris'))
         .toSQL()
 
-      expect(sql).toContain('(("metadata" -> $1) -> $2)')
+      expect(sql).toContain('(("metadata" -> $1::text) -> $2::text)')
       expect(params).toContain('address')
       expect(params).toContain('city')
     })
@@ -297,7 +297,7 @@ describe('Complex query builder', () => {
         .where(e => e.eq(e.jsonbSubscript('tags', 0), 'important'))
         .toSQL()
 
-      expect(sql).toContain('("tags" -> $1)')
+      expect(sql).toContain('("tags" -> $1::int)')
       expect(params).toContain(0)
     })
   })

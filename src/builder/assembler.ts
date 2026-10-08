@@ -3,11 +3,10 @@ import type { ExprTape } from './_tape'
 import type { BuilderState, MergeWhen } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { qualifyCol, quote, quotePath } from '../sql/utils'
+import { bindRawParams, shiftPlaceholders } from './_placeholders'
 import { assembleExpr, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { formatOrderBy, isRawSql, joinQualifier, PLACEHOLDER_RE, quoteCols, selectedColumns } from './state'
-
-const RAW_PARAM_RE = /\?/g
+import { formatOrderBy, isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
 
 /**
  * Single bottleneck for placeholder counting and parameter accumulation.
@@ -65,7 +64,7 @@ function printCtes(sb: SqlBuilder, ctes: BuilderState['ctes']): void {
     // This preserves duplicate references (`$1 ... $1`) and out-of-order references
     // (`$2 ... $1`) — both would be silently miscompiled by occurrence-based mapping.
     const offset = sb.pidx - 1
-    const cteSql = c.sql.replace(PLACEHOLDER_RE, (_, n) => `$${Number(n) + offset}`)
+    const cteSql = shiftPlaceholders(c.sql, offset)
 
     sb.params.push(...c.params)
     sb.pidx += c.params.length
@@ -84,6 +83,21 @@ function printReturning(sb: SqlBuilder, returning: string[] | null, extra?: stri
   if (returning) {
     sb.push(`RETURNING ${returning.length ? quoteCols(returning) : '*'}${extra ? `, ${extra}` : ''}`)
   }
+}
+
+// The columns an insert writes. Rows writing different ones are refused: copying them on conflict would overwrite a column a row left out with its default.
+function incomingColumns(state: BuilderState): string[] {
+  if (state.insertValues)
+    return Object.keys(state.insertValues)
+
+  const rows = state.insertManyValues ?? []
+  const keys = [...new Set(rows.flatMap(row => Object.keys(row)))]
+  const missing = keys.find(k => rows.some(row => !(k in row)))
+
+  if (missing !== undefined)
+    throw new ValidationError(`ON CONFLICT DO UPDATE: some rows leave out "${missing}", which copying the incoming columns would reset to its default. Give every row the same columns, or name the columns to copy.`, 'onConflict', { field: missing })
+
+  return keys
 }
 
 function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
@@ -105,13 +119,8 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
 
   if (state.conflictUpdateCols?.length === 0) {
     const conflictSet = new Set(state.conflictTarget)
-    const valueKeys = state.insertValues
-      ? Object.keys(state.insertValues)
-      : state.insertManyValues?.[0]
-        ? Object.keys(state.insertManyValues[0])
-        : []
 
-    copies = valueKeys.filter(k => !conflictSet.has(k))
+    copies = incomingColumns(state).filter(k => !conflictSet.has(k))
   }
 
   const clauses = copies.filter(c => !(c in set)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
@@ -188,13 +197,6 @@ function printFrom(sb: SqlBuilder, state: BuilderState): void {
 
 function printJoins(sb: SqlBuilder, state: BuilderState): void {
   for (const j of state.joins) {
-    if (j.type === 'lateral') {
-      sb.postgresOnly('LATERAL joins')
-      sb.push(`CROSS JOIN LATERAL (${j.table}) AS ${quote(j.alias)}`)
-
-      continue
-    }
-
     const joinType = j.type.toUpperCase()
     const onClause = j.on ? ` ON ${sb.inlineExpr(j.on, joinQualifier(state))}` : ''
 
@@ -239,6 +241,9 @@ function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
 
 // A SQLite transaction holds the whole database's write lock from its first statement, so it never meets a locked row: the clause is dropped, which SKIP LOCKED included keeps the semantics.
 function printLock(sb: SqlBuilder, state: BuilderState): void {
+  if (state.skipLocked && !state.lockMode)
+    throw new ValidationError('skipLocked() needs a lock: call forUpdate(), forShare() or forNoKeyUpdate() too.', 'skipLocked')
+
   if (!state.lockMode || sb.dialect === 'sqlite')
     return
 
@@ -289,7 +294,10 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   if (wrapCount)
     sb.push(`SELECT ${countColumn(sb)} FROM (`)
 
-  printSelectHead(sb, state, state.op === 'count' && !wrapCount)
+  // The wrapped query lists its group columns: Postgres refuses a * that is not grouped.
+  const inner = wrapCount && !state.columns && state.groupBy.length > 0 ? { ...state, columns: [...state.groupBy] } : state
+
+  printSelectHead(sb, inner, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
   printJoins(sb, state)
   printWhere(sb, selectWhere(state), joinQualifier(state))
@@ -346,7 +354,7 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
   const rows = state.insertManyValues!
 
   if (rows.length === 0)
-    return
+    throw new ValidationError('InsertBuilder.many() needs at least one row.', 'InsertBuilder.many()')
 
   const keySet = new Set<string>()
 
@@ -355,6 +363,19 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
   }
 
   const keys = [...keySet]
+
+  // One row of defaults has its own syntax; several have none that names no column.
+  if (keys.length === 0) {
+    if (rows.length > 1)
+      throw new ValidationError('InsertBuilder.many(): rows with no columns cannot share one INSERT; insert them one by one.', 'InsertBuilder.many()')
+
+    sb.push(`INSERT INTO ${quote(state.table)} DEFAULT VALUES`)
+    printOnConflict(sb, state)
+    printReturning(sb, state.returning, state.returningExtra)
+
+    return
+  }
+
   const colList = quoteCols(keys)
   const valueSets = rows.map(row =>
     `(${keys.map(k => insertValue(sb, state, row, k)).join(', ')})`,
@@ -460,16 +481,15 @@ function printMergeWhen(sb: SqlBuilder, when: MergeWhen): void {
 
 function printMerge(sb: SqlBuilder, state: BuilderState): void {
   sb.postgresOnly('MERGE')
+
+  const source = state.joins[0]
+
+  if (!source || !state.mergeOn)
+    throw new ValidationError('MERGE needs a source and a match condition: call using() and on().', 'MergeBuilder')
+
   sb.push(`MERGE INTO ${quote(state.table)}`)
-
-  if (state.joins.length) {
-    const j = state.joins[0]!
-
-    sb.push(`USING ${quote(j.table)} AS ${quote(j.alias)}`)
-
-    if (state.mergeOn)
-      sb.push(`ON ${sb.inlineExpr(state.mergeOn)}`)
-  }
+  sb.push(`USING ${quote(source.table)} AS ${quote(source.alias)}`)
+  sb.push(`ON ${sb.inlineExpr(state.mergeOn)}`)
 
   for (const when of state.mergeWhen) {
     printMergeWhen(sb, when)
@@ -491,7 +511,8 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
   if (state.conflictTarget) {
     const target = quoteCols(state.conflictTarget)
     const updateCols = state.conflictUpdateCols ?? keys.filter(k => !state.conflictTarget!.includes(k))
-    const setClauses = updateCols.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
+    // With nothing else to copy the target is set to itself, so the conflicting row still comes back through RETURNING.
+    const setClauses = (updateCols.length > 0 ? updateCols : state.conflictTarget).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
 
     sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
   }
@@ -502,20 +523,7 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
 // --- RAW ---
 
 function printRaw(sb: SqlBuilder, state: BuilderState): void {
-  let paramIdx = 0
-  const params = state.rawParams
-  const rawSql = state.rawSql!.replace(RAW_PARAM_RE, () => {
-    if (paramIdx >= params.length) {
-      throw new ValidationError(
-        `raw SQL has more "?" placeholders than parameters (${params.length} provided)`,
-        'raw',
-      )
-    }
-
-    return sb.pushParam(params[paramIdx++])
-  })
-
-  sb.push(rawSql)
+  sb.push(bindRawParams(state.rawSql!, state.rawParams, 'raw', value => sb.pushParam(value)))
 }
 
 // --- Dispatcher ---
