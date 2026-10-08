@@ -118,11 +118,13 @@ A column is NOT NULL unless `.nullable()` says otherwise, in the database as in 
 t.text()                  // NOT NULL
 t.text().nullable()       // NULL allowed, typed `string | null`
 t.text().unique()         // UNIQUE constraint
-t.text().primaryKey()     // PRIMARY KEY
+t.text().primaryKey()     // PRIMARY KEY, required on insert unless it has a default (serial, defaultRaw)
 t.text().default('val')   // DEFAULT, from a JS value
 t.timestamptz().defaultRaw('now()') // DEFAULT, from raw SQL
 t.int4().check('val > 0') // CHECK constraint
 t.int4().generated('col1 + col2') // GENERATED ALWAYS AS ... STORED
+t.int4().references(() => users, 'id', { onDelete: 'cascade' }) // FOREIGN KEY, the target as a thunk
+t.int4().nullable().references('folders', 'id') // ...or by table name, which a self reference needs to stay typed
 ```
 
 > **No case conversion.** Column keys are used as PostgreSQL identifiers *verbatim* —

@@ -51,7 +51,7 @@ export interface ColumnConstraint {
 }
 
 export interface ForeignKeyRef {
-  readonly table: () => AnyTableDef
+  readonly table: () => { readonly name: string }
   readonly column: string
   readonly onDelete?: 'cascade' | 'restrict' | 'set null' | 'set default' | 'no action'
   readonly onUpdate?: 'cascade' | 'restrict' | 'set null' | 'set default' | 'no action'
@@ -267,23 +267,21 @@ export type InferSelect<TColumns extends AnyColumns> = {
     : ExtractColumnType<TColumns[K]>
 }
 
-// InferInsert: optional for columns with defaults, primary keys, nullables, generated
+// InferInsert: optional for columns with defaults and nullables, generated ones left out
 export type InferInsert<TColumns extends AnyColumns>
   // Required columns
   = { [K in keyof TColumns as
     IsColumnNullable<TColumns[K]> extends true ? never
       : IsColumnWithDefault<TColumns[K]> extends true ? never
-        : IsColumnPrimaryKey<TColumns[K]> extends true ? never
-          : IsColumnGenerated<TColumns[K]> extends true ? never
-            : K
+        : IsColumnGenerated<TColumns[K]> extends true ? never
+          : K
     ]: ExtractColumnType<TColumns[K]> }
   // Optional columns (exclude generated — can't be inserted)
     & { [K in keyof TColumns as
       IsColumnGenerated<TColumns[K]> extends true ? never
         : IsColumnNullable<TColumns[K]> extends true ? K
           : IsColumnWithDefault<TColumns[K]> extends true ? K
-            : IsColumnPrimaryKey<TColumns[K]> extends true ? K
-              : never
+            : never
       ]?: IsColumnNullable<TColumns[K]> extends true
         ? ExtractColumnType<TColumns[K]> | null
         : ExtractColumnType<TColumns[K]> }

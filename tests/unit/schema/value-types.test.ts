@@ -30,3 +30,38 @@ describe('column value types', () => {
     expect([items.name, row.name, badName, badKind, badData, badTags].length).toBe(6)
   })
 })
+
+const keyed = defineTable('value_keyed', t => ({
+  uuid: t.uuid().primaryKey(),
+  generatedUuid: t.uuid().primaryKey().defaultRaw('gen_random_uuid()'),
+  name: t.text(),
+}))
+
+const folders = defineTable('value_folders', t => ({
+  id: t.serial().primaryKey(),
+  parentId: t.int4().nullable().references('value_folders', 'id', { onDelete: 'cascade' }),
+}))
+
+describe('primary keys on insert', () => {
+  it('are required unless the column has a default', () => {
+    const ok: InferInsert<typeof keyed.columns> = { uuid: crypto.randomUUID(), name: 'n' }
+    // @ts-expect-error a uuid primary key with no default must be given
+    const missing: InferInsert<typeof keyed.columns> = { name: 'n' }
+    const serial: InferInsert<typeof folders.columns> = { parentId: null }
+
+    expect([ok, missing, serial, keyed.name].length).toBe(4)
+  })
+})
+
+describe('a self reference by table name', () => {
+  it('types the table without an annotation and points the FK at it', () => {
+    const row: InferSelect<typeof folders.columns> = { id: 1, parentId: null }
+
+    expect(row.parentId).toBeNull()
+    expect(folders.columns.parentId.references?.table().name).toBe('value_folders')
+  })
+
+  it('refuses a target name that is not an identifier', () => {
+    expect(() => defineTable('bad_ref', t => ({ x: t.int4().references('a"; DROP', 'id') }))).toThrow()
+  })
+})

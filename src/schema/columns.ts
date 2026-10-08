@@ -14,6 +14,7 @@ import type {
 } from '../types/index'
 import { phantom } from '../types/index'
 import { toSQLDefault } from './column-default'
+import { validateIdentifier } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
 export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string } | undefined {
@@ -96,11 +97,10 @@ export class ColumnBuilder<
     return this._narrow()
   }
 
-  /** Mark as primary key. Implies NOT NULL and optional on insert. */
-  primaryKey(): ColumnBuilder<TType, TNullable, HasDefault, IsPrimaryKey, TGenerated> {
+  /** Mark as primary key. Implies NOT NULL; required on insert unless the column has a default (`serial`, `.defaultRaw('gen_random_uuid()')`). */
+  primaryKey(): ColumnBuilder<TType, TNullable, TDefault, IsPrimaryKey, TGenerated> {
     this._constraints.push({ type: 'primary_key' })
 
-    // PK implies not null and has default (for type inference — PK is always optional on insert)
     return this._narrow()
   }
 
@@ -165,14 +165,19 @@ export class ColumnBuilder<
     return this._narrow()
   }
 
-  /** Add a FOREIGN KEY reference to another table's column. */
+  /** Add a FOREIGN KEY reference to another table's column. The target is a thunk, or the table's name, which a self reference takes to stay typed. */
   references(
-    target: () => AnyTableDef,
+    target: (() => AnyTableDef) | string,
     column: string,
     opts?: { onDelete?: ForeignKeyRef['onDelete'], onUpdate?: ForeignKeyRef['onUpdate'] },
   ): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    if (typeof target === 'string')
+      validateIdentifier(target, 'foreign key target table')
+
+    validateIdentifier(column, 'foreign key target column')
+
     this._references = {
-      table: target,
+      table: typeof target === 'string' ? () => ({ name: target }) : target,
       column,
       onDelete: opts?.onDelete,
       onUpdate: opts?.onUpdate,

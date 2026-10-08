@@ -1,6 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { defineTable } from '../../src/index'
+import { defineTable, ForeignKeyError } from '../../src/index'
 import { createTestDb } from '../helpers/db'
 
 const pairs = defineTable('pk_pairs', t => ({
@@ -14,15 +14,20 @@ const bigKeyed = defineTable('pk_big', t => ({
   v: t.text(),
 }))
 
+const folders = defineTable('pk_folders', t => ({
+  id: t.serial().primaryKey(),
+  parentId: t.int4().nullable().references('pk_folders', 'id', { onDelete: 'cascade' }),
+}))
+
 let db: Database
 
 beforeAll(async () => {
-  db = createTestDb({ tables: [pairs, bigKeyed] })
+  db = createTestDb({ tables: [pairs, bigKeyed, folders] })
   await db.sync({ allowDestructive: true })
 })
 
 beforeEach(async () => {
-  await db.raw('TRUNCATE "pk_pairs", "pk_big"')
+  await db.raw('TRUNCATE "pk_pairs", "pk_big", "pk_folders"')
 })
 
 afterAll(async () => {
@@ -62,5 +67,17 @@ describe('bigserial primary key writes', () => {
     expect(typeof id).toBe('bigint')
     expect(typeof ids[0]).toBe('bigint')
     expect(await db.repo(bigKeyed).write.updateById(id, { v: 'z' }, { pk: true })).toBe(id)
+  })
+})
+
+describe('Self-referencing foreign key by table name', () => {
+  it('is enforced and cascades', async () => {
+    const root = await db.repo(folders).write.insertOne({ parentId: null })
+
+    await db.repo(folders).write.insertOne({ parentId: root.id })
+    await expect(db.repo(folders).write.insertOne({ parentId: 999 })).rejects.toThrow(ForeignKeyError)
+
+    await db.repo(folders).write.deleteById(root.id)
+    expect(await db.repo(folders).read.count()).toBe(0)
   })
 })
