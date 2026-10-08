@@ -31,36 +31,6 @@ describe('Edge Cases — Unit', () => {
     })
   })
 
-  // --- 1.2 Circular include detection ---
-  describe('Circular include detection', () => {
-    it('detects circular include via nested dotted path', async () => {
-      const mock = new MockExecutor()
-
-      // Set up the table with relations
-      const tables = new Map<string, any>()
-
-      tables.set('users', usersTable)
-      tables.set('posts', postsTable)
-
-      // eslint-disable-next-line no-new
-      new Repository({ table: postsTable, executor: mock, tableRegistry: tables })
-
-      // Preset parent rows
-      mock.preset([{ id: 1, title: 'Test', body: 'Body', authorId: 1, publishedAt: null }])
-      // Preset author rows
-      mock.preset([{ id: 1, name: 'Alice', email: 'a@test.com', age: null, deletedAt: null, createdAt: new Date(), updatedAt: new Date() }])
-
-      // posts.author is fine, but posts.author -> users.posts would create a cycle
-      // The circular detection should catch when the same table.relation is visited again
-      // We test by trying to include 'author.posts' which means:
-      // 1. Load posts -> author (users table)
-      // 2. Load users -> posts (posts table) — but posts.author was already in the chain
-
-      // This specific case hits the depth limit rather than explicit cycle detection
-      // because the cycle manifests as A -> B -> A pattern across different repos
-    })
-  })
-
   // --- 1.3 Default query limit ---
   describe('Default query limit', () => {
     it('applies defaultLimit when no explicit limit is set', async () => {

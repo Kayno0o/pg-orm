@@ -9,19 +9,24 @@ export function collectParentIds(
   return [...new Set(rows.map(r => r[key]).filter(v => v != null))]
 }
 
-/** Last-wins index of `rows` by `row[key]`. */
+/** A join key two sides compare equal on whatever their numeric type: an int8 read raw as a string, a mapped bigint and an int4 number all meet. */
+export function relationKey(value: unknown): unknown {
+  return typeof value === 'bigint' || typeof value === 'number' ? String(value) : value
+}
+
+/** Last-wins index of `rows` by `relationKey(row[key])`. */
 export function indexBy<T extends Record<string, unknown>>(
   rows: T[],
   key: string,
 ): Map<unknown, T> {
   const out = new Map<unknown, T>()
 
-  for (const row of rows) out.set(row[key], row)
+  for (const row of rows) out.set(relationKey(row[key]), row)
 
   return out
 }
 
-/** Group `rows` by `row[key]`, preserving insertion order within each bucket. */
+/** Group `rows` by `relationKey(row[key])`, preserving insertion order within each bucket. */
 export function groupBy<T extends Record<string, unknown>>(
   rows: T[],
   key: string,
@@ -29,7 +34,7 @@ export function groupBy<T extends Record<string, unknown>>(
   const out = new Map<unknown, T[]>()
 
   for (const row of rows) {
-    const k = row[key]
+    const k = relationKey(row[key])
     const bucket = out.get(k)
 
     if (bucket)

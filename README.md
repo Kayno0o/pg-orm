@@ -167,14 +167,22 @@ const postsWithAll = await PostRepo.read.findMany(q =>
   q.include('author').include('comments'),
 )
 
-// Relation filtering
+// Relation filtering: the target table, then a callback shaping its rows (where, orderBy, pick, computed, nested include)
 const usersWithPublished = await UserRepo.read.findMany(q =>
-  q.include('posts', sq => sq.where({ published: true })),
+  q.include('posts', posts, sq => sq.where({ published: true })),
 )
 
+// A callback limit and offset apply per parent: each user's three latest posts
+const latest = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.orderBy('createdAt', 'desc').limit(3)))
+
+// A self reference nests like any other relation
+const chain = await EmployeeRepo.read.findMany(q => q.include('manager', employees, m => m.include('manager')))
+
 // A soft-delete target's trashed rows are left out, on every relation type, unless asked
-const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', sq => sq.withTrashed()))
+const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.withTrashed()))
 ```
+
+A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk.
 
 `withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows unless given `withDeleted: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
 

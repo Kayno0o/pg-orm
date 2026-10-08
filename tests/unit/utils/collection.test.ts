@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { collectParentIds, groupBy, indexBy } from '../../../src/utils/collection'
+import { collectParentIds, groupBy, indexBy, relationKey } from '../../../src/utils/collection'
 
 describe('collectParentIds', () => {
   test('empty rows → empty array', () => {
@@ -71,7 +71,7 @@ describe('indexBy', () => {
     const m = indexBy([{ id: 1, name: 'a' }], 'id')
 
     expect(m.size).toBe(1)
-    expect(m.get(1)).toEqual({ id: 1, name: 'a' })
+    expect(m.get(relationKey(1))).toEqual({ id: 1, name: 'a' })
   })
 
   test('duplicate keys → last wins', () => {
@@ -83,8 +83,8 @@ describe('indexBy', () => {
     const m = indexBy(rows, 'id')
 
     expect(m.size).toBe(2)
-    expect(m.get(1)).toEqual({ id: 1, v: 'second' })
-    expect(m.get(2)).toEqual({ id: 2, v: 'b' })
+    expect(m.get(relationKey(1))).toEqual({ id: 1, v: 'second' })
+    expect(m.get(relationKey(2))).toEqual({ id: 2, v: 'b' })
   })
 
   test('null key bucket retained (no skip)', () => {
@@ -107,7 +107,7 @@ describe('groupBy', () => {
     const m = groupBy([{ k: 1 }], 'k')
 
     expect(m.size).toBe(1)
-    expect(m.get(1)).toEqual([{ k: 1 }])
+    expect(m.get(relationKey(1))).toEqual([{ k: 1 }])
   })
 
   test('multi-bucket with insertion order preserved per bucket', () => {
@@ -121,8 +121,8 @@ describe('groupBy', () => {
     const m = groupBy(rows, 'k')
 
     expect(m.size).toBe(2)
-    expect(m.get(1)).toEqual([{ k: 1, v: 'a' }, { k: 1, v: 'c' }, { k: 1, v: 'e' }])
-    expect(m.get(2)).toEqual([{ k: 2, v: 'b' }, { k: 2, v: 'd' }])
+    expect(m.get(relationKey(1))).toEqual([{ k: 1, v: 'a' }, { k: 1, v: 'c' }, { k: 1, v: 'e' }])
+    expect(m.get(relationKey(2))).toEqual([{ k: 2, v: 'b' }, { k: 2, v: 'd' }])
   })
 
   test('bucket order = first-seen-key order', () => {
@@ -130,5 +130,13 @@ describe('groupBy', () => {
     const m = groupBy(rows, 'k')
 
     expect([...m.keys()]).toEqual(['b', 'a'])
+  })
+})
+
+describe('relationKey', () => {
+  test('meets an int8 read raw as a string, a bigint and an int4 number', () => {
+    expect(relationKey(5n)).toBe(relationKey('5'))
+    expect(relationKey(5)).toBe(relationKey('5'))
+    expect(relationKey('a-uuid')).toBe('a-uuid')
   })
 })

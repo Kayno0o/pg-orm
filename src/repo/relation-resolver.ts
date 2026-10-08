@@ -1,13 +1,14 @@
-import type { IncludeCallback, IncludeEntry } from '../builder/query'
+import type { IncludeEntry } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyRelationDef, AnyTableDef } from '../types/index'
+import { PARTITION_RANK } from '../builder/assembler'
 import { SelectBuilder } from '../builder/query'
+import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { dialectOf } from '../dialect'
-import { OrmError } from '../errors/index'
+import { OrmError, ValidationError } from '../errors/index'
 import { tableMeta } from '../schema/inspect'
-import { buildPlaceholders, quote } from '../sql/utils'
-import { collectParentIds, groupBy, indexBy } from '../utils/collection'
+import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
 
 /**
  * Callback interface supplied by the read pipeline so eager-loaded child rows
@@ -20,8 +21,16 @@ export interface RelationProcessor {
     rows: Record<string, unknown>[],
     tableName: string,
     source: 'select',
-    opts?: { skipMapper?: boolean },
+    // The include callback's builder, whose pick, omit and computed columns shape the mapper.
+    opts?: { skipMapper?: boolean, builder?: SelectBuilder<any, any, any> },
   ) => Promise<Record<string, unknown>[]>
+}
+
+interface ChildRows {
+  rows: Record<string, unknown>[]
+  nestedIncludes: IncludeEntry[]
+  // A callback's offset and limit, left to apply per parent in memory when the query cannot partition by parent.
+  slice?: { offset: number, limit: number | null }
 }
 
 /**
@@ -43,32 +52,16 @@ export class RelationResolver {
     private tableRegistry?: ReadonlyMap<string, AnyTableDef>,
   ) {}
 
+  // Includes are nested by hand through callbacks, so every chain is finite; the depth limit only bounds how deep one may go.
   async loadIncludes(
     parentRows: Record<string, unknown>[],
     includes: IncludeEntry[],
     processor?: RelationProcessor,
     depth = 0,
-    visited?: Set<string>,
   ): Promise<any[]> {
-    const seen = visited ?? new Set<string>()
-
-    // Check cycles before depth: a true cycle is a hard error regardless of how
-    // deep we are, and it's the more informative diagnostic. Depth is a fallback
-    // for accidental fan-out that doesn't manifest as a labeled cycle.
-    for (const inc of includes) {
-      const key = `${this.table.name}.${inc.relation}`
-
-      if (seen.has(key)) {
-        throw new OrmError(
-          `Circular include detected: "${key}" was already loaded in this include chain. `
-          + `Break the cycle by removing the redundant .include().`,
-        )
-      }
-    }
-
     if (depth > this.maxIncludeDepth) {
       throw new OrmError(
-        `Maximum include depth of ${this.maxIncludeDepth} exceeded. Check for circular includes or increase maxIncludeDepth.`,
+        `Maximum include depth of ${this.maxIncludeDepth} exceeded. Increase maxIncludeDepth to nest includes deeper.`,
       )
     }
 
@@ -85,15 +78,13 @@ export class RelationResolver {
       if (!rel)
         continue
 
-      const ctx = { depth, seen }
-
       tasks.push((async () => {
         if (rel.type === 'belongsTo')
-          await this._loadBelongsTo(parentRows, rel, inc, ctx, processor)
+          await this._loadBelongsTo(parentRows, rel, inc, depth, processor)
         else if (rel.type === 'hasOne' || rel.type === 'hasMany')
-          await this._loadHasOneOrMany(parentRows, rel, inc, ctx, processor)
+          await this._loadHasOneOrMany(parentRows, rel, inc, depth, processor)
         else if (rel.type === 'hasManyThrough' && rel.throughTable)
-          await this._loadHasManyThrough(parentRows, rel, inc, processor)
+          await this._loadHasManyThrough(parentRows, rel, inc, depth, processor)
       })())
     }
 
@@ -137,21 +128,29 @@ export class RelationResolver {
     return this.tableRegistry?.get(name)
   }
 
-  private _findPrimaryKey(table: AnyTableDef): string {
-    return table.primaryKey ?? DEFAULT_PRIMARY_KEY
+  private _primaryKey(table: AnyTableDef, relation: string): string {
+    const pk = table.primaryKey ?? DEFAULT_PRIMARY_KEY
+
+    if (pk.includes(',')) {
+      throw new ValidationError(
+        `include("${relation}"): "${table.name}" has a composite primary key (${pk}), which a relation cannot join on.`,
+        'include',
+        { field: relation },
+      )
+    }
+
+    return pk
   }
 
-  private _batchThroughQuery(rel: AnyRelationDef, targetPk: string, ids: unknown[], withTrashed: boolean): Promise<Record<string, unknown>[]> {
-    const trashCol = withTrashed ? null : this._softDeleteColumn(rel.targetTable)
-    const live = trashCol ? ` AND t.${quote(trashCol)} IS NULL` : ''
-
-    return this._runChunked(ids, chunk => ({
-      sql: `SELECT t.*, j.${quote(rel.throughFrom!)} AS "__pgorm_pivot_fk__"
-       FROM ${quote(rel.throughTable!)} j
-       JOIN ${quote(rel.targetTable)} t ON t.${quote(targetPk)} = j.${quote(rel.throughTo!)}
-       WHERE j.${quote(rel.throughFrom!)} IN (${buildPlaceholders(chunk.length)})${live}`,
-      params: chunk,
-    }))
+  // A parent row without its join column would match nothing and silently give every parent an empty relation.
+  private _requireParentKey(parentRows: Record<string, unknown>[], key: string, relation: string): void {
+    if (parentRows.length > 0 && !(key in parentRows[0]!)) {
+      throw new ValidationError(
+        `include("${relation}") joins on "${this.table.name}"."${key}", which the query's pick() or omit() leaves out.`,
+        'include',
+        { field: key },
+      )
+    }
   }
 
   private _softDeleteColumn(tableName: string): string | null {
@@ -160,35 +159,67 @@ export class RelationResolver {
     return table ? tableMeta(table).softDelete?.column ?? null : null
   }
 
-  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL.
-  private async _filteredBatchQuery(
+  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. `perParent` partitions a callback limit by `column`, otherwise it comes back as `slice`.
+  private async _childQuery(
     tableName: string,
     column: string,
     ids: unknown[],
-    callback?: IncludeCallback,
-  ): Promise<{ rows: Record<string, unknown>[], nestedIncludes: IncludeEntry[] }> {
+    inc: IncludeEntry,
+    perParent: boolean,
+    processor?: RelationProcessor,
+  ): Promise<ChildRows> {
     const base = new SelectBuilder<any, any>(tableName)
-    const filtered = callback ? callback(base) : base
+    const filtered = inc.callback ? inc.callback(base) : base
     const state = filtered.getState()
     const nestedIncludes = [...state.includes]
+    let slice: ChildRows['slice']
 
     state.includes = []
     state.softDeleteColumn = this._softDeleteColumn(tableName)
     state.tableColumns = Object.keys(this._resolveTable(tableName)?.columns ?? {})
 
-    const rows = await this._runChunked(ids, chunk => filtered.branch().andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor)))
+    if (selectedColumns(state)?.includes(column) === false) {
+      throw new ValidationError(
+        `include("${inc.relation}"): the callback's pick() or omit() leaves out "${tableName}"."${column}", which the related rows are matched on.`,
+        'include',
+        { field: column },
+      )
+    }
 
-    return { rows, nestedIncludes }
+    const limited = state.limit != null || state.offset != null
+
+    if (limited && perParent) {
+      state.limitPer = column
+    }
+    else if (limited) {
+      slice = { offset: state.offset ?? 0, limit: state.limit }
+      state.limit = null
+      state.offset = null
+    }
+
+    const raw = await this._runChunked(ids, chunk => filtered.branch().andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor)))
+
+    if (state.limitPer) {
+      for (const row of raw)
+        delete row[PARTITION_RANK]
+    }
+
+    const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, 'select', { builder: filtered }) : raw
+
+    return { rows, nestedIncludes, slice }
   }
 
   private async _loadBelongsTo(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     inc: IncludeEntry,
-    ctx: { depth: number, seen: Set<string> },
+    depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
     const fk = rel.foreignKey
+
+    this._requireParentKey(parentRows, fk, inc.relation)
+
     const parentIds = collectParentIds(parentRows, fk)
 
     if (parentIds.length === 0) {
@@ -198,32 +229,31 @@ export class RelationResolver {
     }
 
     const targetTable = this._resolveTable(rel.targetTable)
-    const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
-    let { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetPk, parentIds, inc.callback)
-
-    if (processor && childRows.length > 0)
-      childRows = await processor.processRows(childRows, rel.targetTable, 'select')
-
-    const indexed = indexBy(childRows, targetPk)
+    const targetPk = targetTable ? this._primaryKey(targetTable, inc.relation) : DEFAULT_PRIMARY_KEY
+    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetPk, parentIds, inc, true, processor)
+    const indexed = indexBy(rows, targetPk)
 
     for (const parent of parentRows) {
-      parent[inc.relation] = indexed.get(parent[fk]) ?? null
+      parent[inc.relation] = indexed.get(relationKey(parent[fk])) ?? null
     }
 
-    await this._loadNested(targetTable, childRows, nestedIncludes, inc.relation, ctx, processor)
+    await this._loadNested(targetTable, rows, nestedIncludes, depth, processor)
   }
 
   private async _loadHasOneOrMany(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     inc: IncludeEntry,
-    ctx: { depth: number, seen: Set<string> },
+    depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
-    const sourcePk = this._findPrimaryKey(this.table)
+    const sourcePk = this._primaryKey(this.table, inc.relation)
     const targetFk = rel.foreignKey
-    const parentIds = collectParentIds(parentRows, sourcePk)
     const isMany = rel.type === 'hasMany'
+
+    this._requireParentKey(parentRows, sourcePk, inc.relation)
+
+    const parentIds = collectParentIds(parentRows, sourcePk)
 
     if (parentIds.length === 0) {
       for (const row of parentRows) {
@@ -233,100 +263,98 @@ export class RelationResolver {
       return
     }
 
-    let { rows: childRows, nestedIncludes } = await this._filteredBatchQuery(rel.targetTable, targetFk, parentIds, inc.callback)
-
-    if (processor && childRows.length > 0)
-      childRows = await processor.processRows(childRows, rel.targetTable, 'select')
+    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetFk, parentIds, inc, true, processor)
 
     if (isMany) {
-      const grouped = groupBy(childRows, targetFk)
+      const grouped = groupBy(rows, targetFk)
 
       for (const parent of parentRows) {
-        parent[inc.relation] = grouped.get(parent[sourcePk]) ?? []
+        parent[inc.relation] = grouped.get(relationKey(parent[sourcePk])) ?? []
       }
     }
     else {
-      const indexed = indexBy(childRows, targetFk)
+      const indexed = indexBy(rows, targetFk)
 
       for (const parent of parentRows) {
-        parent[inc.relation] = indexed.get(parent[sourcePk]) ?? null
+        parent[inc.relation] = indexed.get(relationKey(parent[sourcePk])) ?? null
       }
     }
 
-    await this._loadNested(this._resolveTable(rel.targetTable), childRows, nestedIncludes, inc.relation, ctx, processor)
+    await this._loadNested(this._resolveTable(rel.targetTable), rows, nestedIncludes, depth, processor)
   }
 
-  // The pivot join takes no callback filter; a callback is read only for withTrashed().
+  // The pivot rows are read first, then the targets through the include's callback; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
     inc: IncludeEntry,
+    depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
     const relationName = inc.relation
-    const sourcePk = this._findPrimaryKey(this.table)
+    const sourcePk = this._primaryKey(this.table, relationName)
     const targetTable = this._resolveTable(rel.targetTable)
-    const targetPk = targetTable ? this._findPrimaryKey(targetTable) : 'id'
+    const targetPk = targetTable ? this._primaryKey(targetTable, relationName) : DEFAULT_PRIMARY_KEY
+    const from = rel.throughFrom!
+    const to = rel.throughTo!
+
+    this._requireParentKey(parentRows, sourcePk, relationName)
+
     const parentIds = collectParentIds(parentRows, sourcePk)
+    const pivots = await this._runChunked(parentIds, chunk => new SelectBuilder<any>(rel.throughTable!).pick(from, to).where(e => e.in(from, chunk)).toSQL(dialectOf(this.executor)))
+    const parentsByTarget = new Map<unknown, unknown[]>()
+    const targetIds: unknown[] = []
 
-    if (parentIds.length === 0) {
-      for (const row of parentRows) row[relationName] = []
+    for (const pivot of pivots) {
+      const key = relationKey(pivot[to])
+      const linked = parentsByTarget.get(key)
 
-      return
+      if (linked) {
+        linked.push(relationKey(pivot[from]))
+      }
+      else {
+        parentsByTarget.set(key, [relationKey(pivot[from])])
+        targetIds.push(pivot[to])
+      }
     }
 
-    const withTrashed = inc.callback?.(new SelectBuilder<any, any>(rel.targetTable)).getState().withTrashed ?? false
-    let rows = await this._batchThroughQuery(rel, targetPk, parentIds, withTrashed)
-
-    // The pivot key is read off before the row is mapped: a compiled mapper keeps only the target's own columns and would drop it. Mapping keeps row order, so the index still pairs each row with its key.
-    const pivotKeys = rows.map((row) => {
-      const key = row.__pgorm_pivot_fk__
-
-      delete row.__pgorm_pivot_fk__
-
-      return key
-    })
-
-    if (processor && rows.length > 0)
-      rows = await processor.processRows(rows, rel.targetTable, 'select')
-
+    const { rows, nestedIncludes, slice } = targetIds.length > 0
+      ? await this._childQuery(rel.targetTable, targetPk, targetIds, inc, false, processor)
+      : { rows: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
-    for (const [i, row] of rows.entries()) {
-      const key = pivotKeys[i]
-      const group = grouped.get(key)
+    for (const row of rows) {
+      for (const parent of parentsByTarget.get(relationKey(row[targetPk])) ?? []) {
+        const group = grouped.get(parent)
 
-      if (group)
-        group.push(row)
-      else
-        grouped.set(key, [row])
+        if (group)
+          group.push(row)
+        else
+          grouped.set(parent, [row])
+      }
     }
 
     for (const parent of parentRows) {
-      parent[relationName] = grouped.get(parent[sourcePk]) ?? []
+      const all = grouped.get(relationKey(parent[sourcePk])) ?? []
+
+      parent[relationName] = slice ? all.slice(slice.offset, slice.limit == null ? undefined : slice.offset + slice.limit) : all
     }
+
+    await this._loadNested(targetTable, rows, nestedIncludes, depth, processor)
   }
 
-  /**
-   * Recursively load nested includes against a child row set, propagating the
-   * visited-relation set so cycle detection sees the parent edge.
-   */
   private async _loadNested(
     targetTable: AnyTableDef | undefined,
     childRows: Record<string, unknown>[],
     nestedIncludes: IncludeEntry[],
-    relationName: string,
-    ctx: { depth: number, seen: Set<string> },
+    depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
-    if (nestedIncludes.length === 0 || !targetTable)
+    if (nestedIncludes.length === 0 || !targetTable || childRows.length === 0)
       return
 
-    const childVisited = new Set(ctx.seen)
-
-    childVisited.add(`${this.table.name}.${relationName}`)
     const childResolver = new RelationResolver(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)
 
-    await childResolver.loadIncludes(childRows, nestedIncludes, processor, ctx.depth + 1, childVisited)
+    await childResolver.loadIncludes(childRows, nestedIncludes, processor, depth + 1)
   }
 }

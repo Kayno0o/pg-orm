@@ -320,6 +320,7 @@ export class ReadPipeline<
 
       const mapped = await this.processRows(rows, this._runtime.table.name, 'select', {
         mapper: mapperFn,
+        includes: chunkState.includes,
         skipMapper: hasOnlyComputed,
       })
 
@@ -387,6 +388,7 @@ export class ReadPipeline<
     opts?: {
       skipMapper?: boolean
       mapper?: RowMapper<Record<string, unknown>>
+      builder?: SelectBuilder<any, any, any>
       includes?: IncludeEntry[]
     },
   ): Promise<Record<string, unknown>[]> {
@@ -395,7 +397,7 @@ export class ReadPipeline<
     let mapped = rows
 
     if (!opts?.skipMapper) {
-      const mapper = opts?.mapper ?? this._mapperForTable(tableName)
+      const mapper = opts?.mapper ?? this._mapperForTable(tableName, opts?.builder)
 
       mapped = mapChunk(mapper, rows)
     }
@@ -423,16 +425,17 @@ export class ReadPipeline<
     return buildTableRuntime(table)
   }
 
-  private _mapperForTable(tableName: string): RowMapper<Record<string, unknown>> {
+  // `builder`, an include callback's, shapes the mapper with its pick, omit and computed columns.
+  private _mapperForTable(tableName: string, builder: SelectBuilder<any, any, any> = new SelectBuilderCtor<any, any>(tableName)): RowMapper<Record<string, unknown>> {
     if (tableName === this._runtime.table.name)
-      return this._mapper(new SelectBuilderCtor<any, any>(tableName))
+      return this._mapper(builder)
 
     const table = this._tableRegistry?.get(tableName)
 
     if (!table)
       return (row: Record<string, unknown>) => row
 
-    return createMapperFactory(table, this._dialect)(new SelectBuilderCtor<any, any>(tableName))
+    return createMapperFactory(table, this._dialect)(builder)
   }
 
   // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.

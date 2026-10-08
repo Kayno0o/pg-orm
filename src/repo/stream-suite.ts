@@ -1,10 +1,15 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
+
+interface StreamOffsetOptions {
+  chunkSize?: number
+  unsafe?: boolean
+}
 
 /** Stream coordinator: `offset` (LIMIT/OFFSET chunks) and `cursor` (keyset). */
 export class StreamSuite<
@@ -31,10 +36,12 @@ export class StreamSuite<
   }
 
   /** Rows in LIMIT/OFFSET chunks, filtered by a WHERE object or shaped by a select callback. Rows may be skipped or repeated if the table changes meanwhile. */
+  offset<TResult>(cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult>, opts?: StreamOffsetOptions): AsyncGenerator<TResult & InferVirtuals<TVirtuals>, void, undefined>
+  offset(where?: OptionalWhereObject<TColumns>, opts?: StreamOffsetOptions): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined>
   offset(
     arg?: ((q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any>) | OptionalWhereObject<TColumns>,
-    opts: { chunkSize?: number, unsafe?: boolean } = {},
-  ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
+    opts: StreamOffsetOptions = {},
+  ): AsyncGenerator<any, void, undefined> {
     return this._pipeline.stream(arg, opts)
   }
 

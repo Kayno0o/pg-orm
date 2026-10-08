@@ -252,7 +252,31 @@ function selectWhere(state: BuilderState): ExprTape | null {
   return state.whereTape ? [{ op: OP_AND, count: 2 }, ...state.whereTape, ...live] : live
 }
 
+export const PARTITION_RANK = '__pgorm_rn'
+
+// Rows numbered within each `limitPer` value, the window keeping the query's order, then cut to the offset and limit; the rank column comes back with the rows.
+function printPartitionedSelect(sb: SqlBuilder, state: BuilderState, column: string): void {
+  const order = state.orderBy.length ? ` ORDER BY ${formatOrderBy(state.orderBy)}` : ''
+  const rank = { expr: `ROW_NUMBER() OVER (PARTITION BY ${quote(column)}${order})`, alias: PARTITION_RANK }
+  const offset = state.offset ?? 0
+
+  sb.push('SELECT * FROM (')
+  printSelect(sb, { ...state, computedColumns: [...state.computedColumns, rank], orderBy: [], limit: null, offset: null, limitPer: undefined, lockMode: null })
+  sb.push(`) AS "__pgorm_part" WHERE ${quote(PARTITION_RANK)} > ${sb.pushParam(offset)}`)
+
+  if (state.limit != null)
+    sb.push(`AND ${quote(PARTITION_RANK)} <= ${sb.pushParam(offset + state.limit)}`)
+
+  sb.push(`ORDER BY ${quote(PARTITION_RANK)}`)
+}
+
 function printSelect(sb: SqlBuilder, state: BuilderState): void {
+  if (state.limitPer && state.op === 'select' && (state.limit != null || state.offset != null)) {
+    printPartitionedSelect(sb, state, state.limitPer)
+
+    return
+  }
+
   // A grouped or distinct query has fewer result rows than matched rows, so its count wraps the query instead of replacing its column list.
   const wrapCount = state.op === 'count' && (state.groupBy.length > 0 || state.distinct || state.distinctOn.length > 0)
 

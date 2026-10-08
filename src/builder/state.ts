@@ -66,6 +66,8 @@ export interface BuilderState {
   omitColumns: string[]
   // The table's column names, set by the repository, so omit() can list the rest instead of fetching *.
   tableColumns?: readonly string[]
+  // An include's join column: limit and offset then apply per value of it, through ROW_NUMBER(), rather than to the whole batch.
+  limitPer?: string
   computedColumns: ComputedColumn[]
   // `withCount` requests, turned into computed columns by the repository, which knows the related tables.
   relationCounts: RelationCount[]
