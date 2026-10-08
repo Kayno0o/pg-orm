@@ -113,6 +113,8 @@ export interface BuilderState {
   includes: IncludeEntry[]
   // Soft-delete bypass
   withTrashed: boolean
+  // An UPDATE or DELETE without a WHERE is refused unless this says every row is meant.
+  allRows: boolean
   // Per-builder override for stream() chunk size. Unset → caller default.
   streamChunkSize?: number
 }
@@ -167,6 +169,7 @@ export function createState(op: QueryOp, table: string): BuilderState {
     rawParams: [],
     includes: [],
     withTrashed: false,
+    allRows: false,
   }
 }
 

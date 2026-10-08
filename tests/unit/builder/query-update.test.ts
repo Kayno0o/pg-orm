@@ -44,7 +44,7 @@ describe('UpdateBuilder', () => {
     const b = update()
 
     b._state.setValues = { version: rawSql('"version" + 1') }
-    b._state.whereTape = null
+    b._state.allRows = true
     const { sql } = b.toSQL()
 
     expect(sql).toContain('"version" = "version" + 1')
@@ -56,7 +56,7 @@ describe('UpdateBuilder', () => {
     const b = update()
 
     b._state.setValues = { name: { __raw: 'evil' } as never }
-    b._state.whereTape = null
+    b._state.allRows = true
     const { sql, params } = b.toSQL()
 
     expect(sql).not.toContain('evil')
@@ -85,8 +85,16 @@ describe('UpdateBuilder', () => {
     expect(a._state.whereTape).toBeNull()
   })
 
-  it('without where generates UPDATE without WHERE', () => {
-    const { sql } = update().set({ name: 'Bob' }).toSQL()
+  it('without where throws', () => {
+    expect(() => update().set({ name: 'Bob' }).toSQL()).toThrow(/has no WHERE/)
+  })
+
+  it('throws when every condition came out falsy', () => {
+    expect(() => update().set({ name: 'Bob' }).where(false).toSQL()).toThrow(/allRows\(\)/)
+  })
+
+  it('allRows() generates UPDATE without WHERE', () => {
+    const { sql } = update().set({ name: 'Bob' }).allRows().toSQL()
 
     expect(sql).toBe('UPDATE "users" SET "name" = $1')
   })
@@ -99,6 +107,7 @@ describe('UpdateBuilder', () => {
   it('multiple SET values', () => {
     const { sql, params } = update()
       .set({ name: 'Bob', age: 30 })
+      .allRows()
       .toSQL()
 
     expect(sql).toContain('"name" = $1')

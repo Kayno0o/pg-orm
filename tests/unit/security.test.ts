@@ -832,7 +832,7 @@ describe('Security P0: unbranded __raw objects do not bypass parameterization', 
     const b = new UpdateBuilder<any>('users')
 
     b._state.setValues = { name: { __raw: '\'; DROP TABLE users; --' } as never }
-    b._state.whereTape = null
+    b._state.allRows = true
     const { sql: out } = b.toSQL()
 
     expect(out).not.toContain('DROP')

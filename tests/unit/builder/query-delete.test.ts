@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { DeleteBuilder } from '../../../src/builder/query'
+import { ValidationError } from '../../../src/errors/index'
 
 interface Cols { id: any, name: any, [key: string]: any }
 
@@ -26,8 +27,16 @@ describe('DeleteBuilder', () => {
     expect(sql).toContain('RETURNING "id"')
   })
 
-  it('without where generates DELETE without WHERE', () => {
-    const { sql } = del().toSQL()
+  it('without where throws', () => {
+    expect(() => del().toSQL()).toThrow(ValidationError)
+  })
+
+  it('throws when every condition came out falsy', () => {
+    expect(() => del().where(undefined).andWhere(false).toSQL()).toThrow(/allRows\(\)/)
+  })
+
+  it('allRows() generates DELETE without WHERE', () => {
+    const { sql } = del().allRows().toSQL()
 
     expect(sql).toBe('DELETE FROM "users"')
   })

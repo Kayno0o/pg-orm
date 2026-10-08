@@ -344,6 +344,8 @@ function printUpdate(sb: SqlBuilder, state: BuilderState): void {
     )
   }
 
+  requireWhereOrAllRows(state)
+
   const setClauses = printSetClauses(sb, state.setValues)
 
   sb.push(`UPDATE ${quote(state.table)} SET ${setClauses}`)
@@ -351,7 +353,14 @@ function printUpdate(sb: SqlBuilder, state: BuilderState): void {
   printReturning(sb, state.returning)
 }
 
+// A falsy where() is a no-op, so a builder whose every condition came out falsy would otherwise reach the whole table.
+function requireWhereOrAllRows(state: BuilderState): void {
+  if (!state.whereTape && !state.allRows)
+    throw new ValidationError(`${state.op}() on "${state.table}" has no WHERE: call allRows() to reach every row on purpose.`, state.op)
+}
+
 function printDelete(sb: SqlBuilder, state: BuilderState): void {
+  requireWhereOrAllRows(state)
   sb.push(`DELETE FROM ${quote(state.table)}`)
   printWhere(sb, state.whereTape)
   printReturning(sb, state.returning)

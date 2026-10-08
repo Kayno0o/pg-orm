@@ -333,6 +333,9 @@ await repo.write.deleteById(1)
 await repo.write.deleteMany({ createdAt: { lt: cutoff } })
 await repo.write.deleteAll()
 
+// The raw update()/delete() builders refuse a statement left without a WHERE too, unless told
+const { sql, params } = repo.write.delete().allRows().toSQL()
+
 // Upsert — INSERT ... ON CONFLICT (conflictTarget) DO UPDATE
 await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
 await repo.write.upsertMany([{ ... }, { ... }], ['key'])

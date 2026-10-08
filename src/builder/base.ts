@@ -89,4 +89,11 @@ export abstract class WhereableMutationBuilder<TColumns extends AnyColumns = Any
 
     return this
   }
+
+  /** Allow the statement to run without a WHERE, reaching every row; without it, a statement left with no WHERE throws. */
+  allRows(): this {
+    this._state.allRows = true
+
+    return this
+  }
 }
