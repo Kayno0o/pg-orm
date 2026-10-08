@@ -449,7 +449,7 @@ export class WritePipeline<
   }): Promise<TResult> {
     const { pkColumns, table } = this._runtime
     // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys.
-    const whole = args.opts?.full || hasHooks(table, args.afterEvent)
+    const whole = !args.opts?.pk || hasHooks(table, args.afterEvent)
     const shape = new SelectBuilderCtor<AnyColumns>(table.name)
 
     args.builder.returning(...whole ? [] : pkColumns)
@@ -462,13 +462,13 @@ export class WritePipeline<
     return args.project(rows)
   }
 
-  // `rows` arrive mapped; the full form installs virtuals.
+  // `rows` arrive mapped; the row form installs virtuals.
   private _projectOne(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any {
     return this._projectMany(rows.slice(0, 1), opts)[0]
   }
 
   private _projectMany(rows: Record<string, unknown>[], opts?: WriteReturnOptions): any[] {
-    return opts?.full ? this._runtime.applyVirtuals(rows) : this._keys(rows)
+    return opts?.pk ? this._keys(rows) : this._runtime.applyVirtuals(rows)
   }
 
   // A composite key is an object holding each part.

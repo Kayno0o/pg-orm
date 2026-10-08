@@ -53,6 +53,7 @@ function closeSession(uuid: string, name: string, seconds: bigint, at: Date) {
         first_seen: u.coalesce(u.existing('first_seen'), u.excluded('first_seen')),
       }),
     },
+    { pk: true },
   )
 }
 
@@ -67,26 +68,26 @@ describe('upsert set from the existing row', () => {
   })
 
   it('copies no incoming column with columns: []', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'Kept', sessions: 3 })
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'Ignored' }, ['uuid'], { columns: [], set: u => ({ sessions: u.sub(u.existing('sessions'), 1) }) })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'Kept', sessions: 3 }, { pk: true })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'Ignored' }, ['uuid'], { columns: [], set: u => ({ sessions: u.sub(u.existing('sessions'), 1) }) }, { pk: true })
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ name: 'Kept', sessions: 2 })
   })
 
   it('writes a plain object or array to a json column as a value', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' })
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: () => ({ meta: { tag: 'x' }, list: ['a', 'b'] }) })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: () => ({ meta: { tag: 'x' }, list: ['a', 'b'] }) }, { pk: true })
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ meta: { tag: 'x' }, list: ['a', 'b'] })
     expect(await db.raw('SELECT jsonb_typeof("meta") AS meta, jsonb_typeof("list") AS list FROM "uc_players"')).toEqual([{ meta: 'object', list: 'array' }])
   })
 
   it('bumps updatedAt and the version on the updated row, as any update does', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
     await Bun.sleep(5)
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'b' }, ['uuid'])
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'b' }, ['uuid'], undefined, { pk: true })
 
     const after = await db.repo(players).read.findByIdOrThrow('p1')
 
@@ -95,25 +96,25 @@ describe('upsert set from the existing row', () => {
   })
 
   it('findOrCreate still leaves the existing row untouched', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
     await Bun.sleep(5)
-    await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'])
+    await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'], { pk: true })
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toEqual(before)
   })
 
   it('findOrCreate keeps the serial key of the existing row, which EXCLUDED holds the next value of', async () => {
-    const id = await db.repo(handles).write.insertOne({ handle: 'ada' })
+    const id = await db.repo(handles).write.insertOne({ handle: 'ada' }, { pk: true })
 
-    expect(await db.repo(handles).write.findOrCreate({ handle: 'ada' }, ['handle'])).toBe(id)
+    expect(await db.repo(handles).write.findOrCreate({ handle: 'ada' }, ['handle'], { pk: true })).toBe(id)
     expect((await db.repo(handles).read.findMany()).map(r => r.id)).toEqual([id])
   })
 
   it('rejects an expression of the wrong type at compile time', () => {
     // @ts-expect-error a text column cannot take a number
-    const typed = () => db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: u => ({ name: u.add(u.existing('sessions'), 1) }) })
+    const typed = () => db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: u => ({ name: u.add(u.existing('sessions'), 1) }) }, { pk: true })
 
     expect(typeof typed).toBe('function')
   })
@@ -127,7 +128,7 @@ describe('upsert guarded by a where', () => {
         e.raw('split_part("uc_kv"."value", \':\', 2)::int8 < ?', now),
         e.startsWith('value', `${token}:`),
       ),
-    })
+    }, { pk: true })
   }
 
   it('updates when the guard holds and returns null when it does not', async () => {
@@ -139,12 +140,13 @@ describe('upsert guarded by a where', () => {
   })
 
   it('takes the object form, naming the existing row', async () => {
-    await db.repo(kv).write.insertMany([{ key: 'k1', value: 'open' }, { key: 'k2', value: 'closed' }])
+    await db.repo(kv).write.insertMany([{ key: 'k1', value: 'open' }, { key: 'k2', value: 'closed' }], { pk: true })
 
     const written = await db.repo(kv).write.upsertMany(
       [{ key: 'k1', value: 'new' }, { key: 'k2', value: 'new' }, { key: 'k3', value: 'new' }],
       ['key'],
       { where: { value: 'open' } },
+      { pk: true },
     )
 
     expect([...written].sort()).toEqual(['k1', 'k3'])

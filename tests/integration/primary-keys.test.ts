@@ -31,36 +31,36 @@ afterAll(async () => {
 
 describe('Composite primary key writes', () => {
   it('return the key as an object holding each part', async () => {
-    const one = await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' })
-    const many = await db.repo(pairs).write.insertMany([{ a: 3, b: 4, v: 'y' }])
+    const one = await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' }, { pk: true })
+    const many = await db.repo(pairs).write.insertMany([{ a: 3, b: 4, v: 'y' }], { pk: true })
 
     expect(one).toEqual({ a: 1, b: 2 })
     expect(many).toEqual([{ a: 3, b: 4 }])
   })
 
   it('feed the returned key straight back into the by-id ops', async () => {
-    const key = await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' })
+    const key = await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' }, { pk: true })
 
-    expect(await db.repo(pairs).write.updateById(key, { v: 'y' })).toEqual(key)
-    expect(await db.repo(pairs).write.updateManyById([{ ...key, v: 'z' }])).toEqual([key])
+    expect(await db.repo(pairs).write.updateById(key, { v: 'y' }, { pk: true })).toEqual(key)
+    expect(await db.repo(pairs).write.updateManyById([{ ...key, v: 'z' }], { pk: true })).toEqual([key])
     expect((await db.repo(pairs).read.findByIdOrThrow(key)).v).toBe('z')
-    expect(await db.repo(pairs).write.deleteById(key)).toEqual(key)
+    expect(await db.repo(pairs).write.deleteById(key, { pk: true })).toEqual(key)
   })
 
   it('findOrCreate returns the existing key', async () => {
-    await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' })
+    await db.repo(pairs).write.insertOne({ a: 1, b: 2, v: 'x' }, { pk: true })
 
-    expect(await db.repo(pairs).write.findOrCreate({ a: 1, b: 2, v: 'ignored' }, ['a', 'b'])).toEqual({ a: 1, b: 2 })
+    expect(await db.repo(pairs).write.findOrCreate({ a: 1, b: 2, v: 'ignored' }, ['a', 'b'], { pk: true })).toEqual({ a: 1, b: 2 })
   })
 })
 
 describe('bigserial primary key writes', () => {
   it('return the key as a bigint, as typed', async () => {
-    const id = await db.repo(bigKeyed).write.insertOne({ v: 'x' })
-    const ids = await db.repo(bigKeyed).write.insertMany([{ v: 'y' }])
+    const id = await db.repo(bigKeyed).write.insertOne({ v: 'x' }, { pk: true })
+    const ids = await db.repo(bigKeyed).write.insertMany([{ v: 'y' }], { pk: true })
 
     expect(typeof id).toBe('bigint')
     expect(typeof ids[0]).toBe('bigint')
-    expect(await db.repo(bigKeyed).write.updateById(id, { v: 'z' })).toBe(id)
+    expect(await db.repo(bigKeyed).write.updateById(id, { v: 'z' }, { pk: true })).toBe(id)
   })
 })

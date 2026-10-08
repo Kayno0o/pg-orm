@@ -102,7 +102,7 @@ describe('write by id', () => {
     const { exec, rt, pipeline } = setupWritePipeline(users)
 
     exec.preset([{ id: 3 }])
-    await pipeline.updateById({ name: 'Bob' }, rt.pkWhere(3) as any)
+    await pipeline.updateById({ name: 'Bob' }, rt.pkWhere(3) as any, { pk: true })
 
     expect(exec.lastQuery!.sql).toBe('UPDATE "users" SET "name" = $1 WHERE "id" = $2 RETURNING "id"')
     expect(exec.lastQuery!.params).toEqual(['Bob', 3])
@@ -112,7 +112,7 @@ describe('write by id', () => {
     const { exec, rt, pipeline } = setupWritePipeline(users)
 
     exec.preset([{ id: 3 }])
-    await pipeline.deleteById(rt.pkWhere(3) as any)
+    await pipeline.deleteById(rt.pkWhere(3) as any, { pk: true })
 
     expect(exec.lastQuery!.sql).toBe('DELETE FROM "users" WHERE "id" = $1 RETURNING "id"')
   })
@@ -121,13 +121,13 @@ describe('write by id', () => {
     const { exec, pipeline } = setupWritePipeline(users)
 
     exec.preset([{ id: 3 }])
-    await pipeline.updateOne({ name: 'Bob' }, { name: 'Al' } as any)
+    await pipeline.updateOne({ name: 'Bob' }, { name: 'Al' } as any, { pk: true })
 
     expect(exec.lastQuery!.sql).toBe('UPDATE "users" SET "name" = $1 WHERE "id" IN (SELECT "id" FROM "users" WHERE "name" = $2 ORDER BY "id" ASC LIMIT $3) RETURNING "id"')
     expect(exec.lastQuery!.params).toEqual(['Bob', 'Al', 1])
 
     exec.preset([{ id: 3 }])
-    await pipeline.deleteOne({ name: 'Al' } as any)
+    await pipeline.deleteOne({ name: 'Al' } as any, { pk: true })
 
     expect(exec.lastQuery!.sql).toBe('DELETE FROM "users" WHERE "id" IN (SELECT "id" FROM "users" WHERE "name" = $1 ORDER BY "id" ASC LIMIT $2) RETURNING "id"')
   })

@@ -38,10 +38,10 @@ describe('Default error redaction — production safety baseline', () => {
     const repo = db.repo(usersTable)
     const secret = 'redact-test-leak@example.com'
 
-    await repo.write.insertOne({ name: 'Alice', email: secret })
+    await repo.write.insertOne({ name: 'Alice', email: secret }, { pk: true })
 
     try {
-      await repo.write.insertOne({ name: 'Bob', email: secret })
+      await repo.write.insertOne({ name: 'Bob', email: secret }, { pk: true })
       expect.unreachable('insertOne should have thrown UniqueError')
     }
     catch (err) {
@@ -60,10 +60,10 @@ describe('Default error redaction — production safety baseline', () => {
     const repo = db.repo(usersTable)
     const secret = 'redact-test-params@example.com'
 
-    await repo.write.insertOne({ name: 'Alice', email: secret })
+    await repo.write.insertOne({ name: 'Alice', email: secret }, { pk: true })
 
     try {
-      await repo.write.insertOne({ name: 'Bob', email: secret })
+      await repo.write.insertOne({ name: 'Bob', email: secret }, { pk: true })
       expect.unreachable('insertOne should have thrown UniqueError')
     }
     catch (err) {
@@ -80,10 +80,10 @@ describe('Default error redaction — production safety baseline', () => {
     const repo = db.repo(usersTable)
     const secret = 'redact-test-cause@example.com'
 
-    await repo.write.insertOne({ name: 'Alice', email: secret })
+    await repo.write.insertOne({ name: 'Alice', email: secret }, { pk: true })
 
     try {
-      await repo.write.insertOne({ name: 'Bob', email: secret })
+      await repo.write.insertOne({ name: 'Bob', email: secret }, { pk: true })
       expect.unreachable('insertOne should have thrown UniqueError')
     }
     catch (err) {
@@ -126,11 +126,11 @@ describe('Production error redaction', () => {
     const repo = db.repo(usersTable)
     const secret = 'prod-leak)tail@example.com'
 
-    await repo.write.insertOne({ name: 'Alice', email: secret })
+    await repo.write.insertOne({ name: 'Alice', email: secret }, { pk: true })
     process.env.NODE_ENV = 'production'
 
     try {
-      const unique = await thrown(() => repo.write.insertOne({ name: 'Bob', email: secret }))
+      const unique = await thrown(() => repo.write.insertOne({ name: 'Bob', email: secret }, { pk: true }))
       const badInput = await thrown(() => db.raw('SELECT $1::uuid', ['prod-secret-uuid']))
 
       expect(unique).toBeInstanceOf(UniqueError)

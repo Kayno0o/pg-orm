@@ -23,13 +23,13 @@ describe('Transaction rollback chains', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' })
+      await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' }, { pk: true })
 
       try {
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' })
+          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' }, { pk: true })
 
           throw new Error('rollback inner')
         })
@@ -48,11 +48,11 @@ describe('Transaction rollback chains', () => {
       await db.transaction(async (tx) => {
         const repo = db.repo(usersTable).using(tx)
 
-        await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' })
+        await repo.write.insertOne({ name: 'Outer', email: 'outer@chain.test' }, { pk: true })
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' })
+          await spRepo.write.insertOne({ name: 'Inner', email: 'inner@chain.test' }, { pk: true })
         })
 
         throw new Error('rollback outer')
@@ -68,12 +68,12 @@ describe('Transaction rollback chains', () => {
   it('mixed: SP1 commits, SP2 rolls back, outer commits → only SP1 visible', async () => {
     await db.transaction(async (tx) => {
       await tx.savepoint(async (sp1) => {
-        await db.repo(usersTable).using(sp1).write.insertOne({ name: 'SP1', email: 'sp1@chain.test' })
+        await db.repo(usersTable).using(sp1).write.insertOne({ name: 'SP1', email: 'sp1@chain.test' }, { pk: true })
       })
 
       try {
         await tx.savepoint(async (sp2) => {
-          await db.repo(usersTable).using(sp2).write.insertOne({ name: 'SP2', email: 'sp2@chain.test' })
+          await db.repo(usersTable).using(sp2).write.insertOne({ name: 'SP2', email: 'sp2@chain.test' }, { pk: true })
 
           throw new Error('rollback sp2')
         })
@@ -99,7 +99,7 @@ describe('Transaction rollback chains', () => {
       })
 
       await tx.savepoint(async (sp) => {
-        await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
+        await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' }, { pk: true })
       })
     })
 
@@ -120,7 +120,7 @@ describe('Transaction rollback chains', () => {
 
         try {
           await tx.savepoint(async (sp) => {
-            await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
+            await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' }, { pk: true })
 
             throw new Error('sp boom')
           })
@@ -141,7 +141,7 @@ describe('Transaction rollback chains', () => {
     try {
       await db.transaction(async (tx) => {
         await tx.savepoint(async (sp) => {
-          await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' })
+          await db.repo(usersTable).using(sp).write.insertOne({ name: 'X', email: 'x@chain.test' }, { pk: true })
 
           throw new Error('unhandled sp error')
         })

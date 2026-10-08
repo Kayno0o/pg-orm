@@ -23,20 +23,20 @@ describe('Error Wrapping - integration', () => {
   it('throws UniqueError on duplicate unique column', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'dup@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'dup@test.com' }, { pk: true })
 
     expect(
-      repo.write.insertOne({ name: 'Bob', email: 'dup@test.com' }),
+      repo.write.insertOne({ name: 'Bob', email: 'dup@test.com' }, { pk: true }),
     ).rejects.toThrow(UniqueError)
   })
 
   it('UniqueError has structured info', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'dup@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'dup@test.com' }, { pk: true })
 
     try {
-      await repo.write.insertOne({ name: 'Bob', email: 'dup@test.com' })
+      await repo.write.insertOne({ name: 'Bob', email: 'dup@test.com' }, { pk: true })
       expect.unreachable('should have thrown')
     }
     catch (err) {
@@ -65,7 +65,7 @@ describe('Error Wrapping - integration', () => {
       const postRepo = db.repo(postsTable)
 
       expect(
-        postRepo.write.insertOne({ title: 'Bad', body: 'body', authorId: 999999 }),
+        postRepo.write.insertOne({ title: 'Bad', body: 'body', authorId: 999999 }, { pk: true }),
       ).rejects.toThrow(ForeignKeyError)
     }
     finally {
@@ -82,7 +82,7 @@ describe('Error Wrapping - integration', () => {
 
     expect(
       // @ts-expect-error name is supposed to be non-nullable
-      repo.write.insertOne({ name: null, email: 'test@test.com' }),
+      repo.write.insertOne({ name: null, email: 'test@test.com' }, { pk: true }),
     ).rejects.toThrow(NotNullError)
   })
 

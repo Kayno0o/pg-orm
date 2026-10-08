@@ -75,21 +75,21 @@ describe('SQLite repositories', () => {
 
   it('inserts, finds, updates and deletes', async () => {
     const repo = db.repo(authorsTable)
-    const id = await repo.write.insertOne({ name: 'Ada' })
+    const id = await repo.write.insertOne({ name: 'Ada' }, { pk: true })
     const ada = await repo.read.findByIdOrThrow(id)
 
     expect(ada).toMatchObject({ name: 'Ada', email: null, active: true, rank: 0, deletedAt: null })
     expect(ada.createdAt).toBeInstanceOf(Date)
 
-    await repo.write.updateById(id, { email: 'ada@example.com', active: false })
+    await repo.write.updateById(id, { email: 'ada@example.com', active: false }, { pk: true })
 
     expect(await repo.read.findById(id)).toMatchObject({ email: 'ada@example.com', active: false })
-    expect(await repo.write.deleteById(id)).toBe(id)
+    expect(await repo.write.deleteById(id, { pk: true })).toBe(id)
     expect(await repo.read.findById(id)).toBeNull()
   })
 
   it('round-trips every column type it stores', async () => {
-    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Grace' })
+    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Grace' }, { pk: true })
     const publishedAt = new Date('2024-05-01T10:20:30.456Z')
     const big = 9223372036854775807n
     const id = await db.repo(books).write.insertOne({
@@ -101,7 +101,7 @@ describe('SQLite repositories', () => {
       sales: big,
       publishedAt,
       cover: new Uint8Array([1, 2, 3]),
-    })
+    }, { pk: true })
     const book = await db.repo(books).read.findByIdOrThrow(id)
 
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
@@ -115,7 +115,7 @@ describe('SQLite repositories', () => {
   })
 
   it('fills the defaults of a multi-row insert, which SQLite has no DEFAULT keyword for', async () => {
-    const ids = await db.repo(authorsTable).write.insertMany([{ name: 'A' }, { name: 'B', rank: 3 }])
+    const ids = await db.repo(authorsTable).write.insertMany([{ name: 'A' }, { name: 'B', rank: 3 }], { pk: true })
     const rows = await db.repo(authorsTable).read.findMany(q => q.orderBy('id'))
 
     expect(ids[1]).toBe(ids[0]! + 1)
@@ -123,12 +123,12 @@ describe('SQLite repositories', () => {
   })
 
   it('filters like Postgres: like is case-sensitive, ilike is not, arrays are searched', async () => {
-    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Linus' })
+    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Linus' }, { pk: true })
 
     await db.repo(books).write.insertMany([
       { title: 'Alpha_1', authorId, tags: ['a', 'b'] },
       { title: 'alpha*2', authorId, tags: ['c'] },
-    ])
+    ], { pk: true })
 
     const repo = db.repo(books)
     const titles = async (rows: Promise<{ title: string }[]>) => (await rows).map(b => b.title).sort()
@@ -143,11 +143,11 @@ describe('SQLite repositories', () => {
   })
 
   it('loads belongsTo, hasMany and hasManyThrough relations, and counts children', async () => {
-    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Knuth' })
-    const [first, second] = await db.repo(books).write.insertMany([{ title: 'TAOCP 1', authorId }, { title: 'TAOCP 2', authorId }])
-    const shelfId = await db.repo(shelves).write.insertOne({ label: 'Classics' })
+    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Knuth' }, { pk: true })
+    const [first, second] = await db.repo(books).write.insertMany([{ title: 'TAOCP 1', authorId }, { title: 'TAOCP 2', authorId }], { pk: true })
+    const shelfId = await db.repo(shelves).write.insertOne({ label: 'Classics' }, { pk: true })
 
-    await db.repo(shelfBooks).write.insertOne({ shelfId, bookId: first! })
+    await db.repo(shelfBooks).write.insertOne({ shelfId, bookId: first! }, { pk: true })
 
     const [book] = await db.repo(books).read.findMany(q => q.include('author').include('shelves').where({ id: first! }))
     const [author] = await db.repo(authorsTable).read.findMany(q => q.include('books').withCount('books'))
@@ -159,7 +159,7 @@ describe('SQLite repositories', () => {
   })
 
   it('paginates, by page and by cursor, and streams', async () => {
-    await db.repo(shelves).write.insertMany(Array.from({ length: 7 }, (_, i) => ({ label: `s${i}` })))
+    await db.repo(shelves).write.insertMany(Array.from({ length: 7 }, (_, i) => ({ label: `s${i}` })), { pk: true })
 
     const page = await db.repo(shelves).read.paginate({ page: 2, perPage: 3 })
     const first = await db.repo(shelves).read.paginateCursor({ column: 'id', take: 3 })
@@ -177,37 +177,37 @@ describe('SQLite repositories', () => {
 
   it('upserts, findOrCreate leaving the existing row untouched', async () => {
     const repo = db.repo(authorsTable)
-    const id = await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'])
+    const id = await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'], undefined, { pk: true })
 
-    expect(await repo.write.upsertOne({ name: 'Ken', rank: 5 }, ['name'])).toBe(id)
+    expect(await repo.write.upsertOne({ name: 'Ken', rank: 5 }, ['name'], undefined, { pk: true })).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
-    expect(await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'])).toBe(id)
+    expect(await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'], { pk: true })).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
-    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob' }], ['name'])).toHaveLength(2)
+    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob' }], ['name'], undefined, { pk: true })).toHaveLength(2)
   })
 
   it('soft-deletes and restores, and bumps the version of an optimistic lock', async () => {
-    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Dennis' })
+    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Dennis' }, { pk: true })
 
-    await db.repo(authorsTable).write.deleteById(authorId)
+    await db.repo(authorsTable).write.deleteById(authorId, { pk: true })
 
     expect(await db.repo(authorsTable).read.count()).toBe(0)
     expect(await db.repo(authorsTable).read.count(undefined, { withTrashed: true })).toBe(1)
 
-    await db.repo(authorsTable).write.restore({ id: authorId })
+    await db.repo(authorsTable).write.restore({ id: authorId }, { pk: true })
 
-    const bookId = await db.repo(books).write.insertOne({ title: 'C', authorId })
+    const bookId = await db.repo(books).write.insertOne({ title: 'C', authorId }, { pk: true })
 
-    await db.repo(books).write.updateWithLock({ title: 'The C Programming Language' }, { id: bookId }, 1)
+    await db.repo(books).write.updateWithLock({ title: 'The C Programming Language' }, { id: bookId }, 1, { pk: true })
 
     expect((await db.repo(books).read.findByIdOrThrow(bookId)).version).toBe(2)
-    await expect(db.repo(books).write.updateWithLock({ title: 'stale' }, { id: bookId }, 1)).rejects.toThrow()
+    await expect(db.repo(books).write.updateWithLock({ title: 'stale' }, { id: bookId }, 1, { pk: true })).rejects.toThrow()
   })
 
   it('updates many rows by id in one statement', async () => {
-    const [a, b] = await db.repo(authorsTable).write.insertMany([{ name: 'a' }, { name: 'b' }])
+    const [a, b] = await db.repo(authorsTable).write.insertMany([{ name: 'a' }, { name: 'b' }], { pk: true })
 
-    await db.repo(authorsTable).write.updateManyById([{ id: a!, rank: 10 }, { id: b!, rank: 20 }])
+    await db.repo(authorsTable).write.updateManyById([{ id: a!, rank: 10 }, { id: b!, rank: 20 }], { pk: true })
 
     expect((await db.repo(authorsTable).read.findMany(q => q.orderBy('id'))).map(r => r.rank)).toEqual([10, 20])
   })
@@ -215,31 +215,31 @@ describe('SQLite repositories', () => {
 
 describe('SQLite single-row writes', () => {
   it('updateOne and deleteOne reach one of several matches, a composite key included', async () => {
-    const [a, b] = await db.repo(authorsTable).write.insertMany([{ name: 'A', rank: 1 }, { name: 'B', rank: 1 }])
+    const [a, b] = await db.repo(authorsTable).write.insertMany([{ name: 'A', rank: 1 }, { name: 'B', rank: 1 }], { pk: true })
     const authorId = a!
-    const [first, second] = await db.repo(books).write.insertMany([{ title: 'One', authorId }, { title: 'Two', authorId }])
-    const shelfId = await db.repo(shelves).write.insertOne({ label: 'S' })
+    const [first, second] = await db.repo(books).write.insertMany([{ title: 'One', authorId }, { title: 'Two', authorId }], { pk: true })
+    const shelfId = await db.repo(shelves).write.insertOne({ label: 'S' }, { pk: true })
 
-    await db.repo(shelfBooks).write.insertMany([{ shelfId, bookId: first! }, { shelfId, bookId: second! }])
+    await db.repo(shelfBooks).write.insertMany([{ shelfId, bookId: first! }, { shelfId, bookId: second! }], { pk: true })
 
-    expect(await db.repo(authorsTable).write.updateOne({ rank: 2 }, { rank: 1 })).toBe(a!)
+    expect(await db.repo(authorsTable).write.updateOne({ rank: 2 }, { rank: 1 }, { pk: true })).toBe(a!)
     expect((await db.repo(authorsTable).read.findById(b!))?.rank).toBe(1)
-    expect(await db.repo(shelfBooks).write.deleteOne({ shelfId })).toEqual({ shelfId, bookId: [first!, second!].sort()[0]! })
+    expect(await db.repo(shelfBooks).write.deleteOne({ shelfId }, { pk: true })).toEqual({ shelfId, bookId: [first!, second!].sort()[0]! })
     expect(await db.repo(shelfBooks).read.count({ shelfId })).toBe(1)
   })
 
   it('throws on several matches with onMany: \'throw\', changing nothing', async () => {
-    await db.repo(authorsTable).write.insertMany([{ name: 'C', rank: 3 }, { name: 'D', rank: 3 }])
+    await db.repo(authorsTable).write.insertMany([{ name: 'C', rank: 3 }, { name: 'D', rank: 3 }], { pk: true })
 
-    await expect(db.repo(authorsTable).write.updateOne({ rank: 4 }, { rank: 3 }, { onMany: 'throw' })).rejects.toBeInstanceOf(MultipleRowsError)
+    await expect(db.repo(authorsTable).write.updateOne({ rank: 4 }, { rank: 3 }, { onMany: 'throw', pk: true })).rejects.toBeInstanceOf(MultipleRowsError)
     expect(await db.repo(authorsTable).read.count({ rank: 3 })).toBe(2)
   })
 
   it('changes the one row that matches with onMany: \'throw\'', async () => {
-    const id = await db.repo(authorsTable).write.insertOne({ name: 'E', rank: 6 })
+    const id = await db.repo(authorsTable).write.insertOne({ name: 'E', rank: 6 }, { pk: true })
 
-    expect(await db.repo(authorsTable).write.updateOne({ rank: 7 }, { rank: 6 }, { onMany: 'throw' })).toBe(id)
-    expect(await db.repo(authorsTable).write.deleteOne({ rank: 7 }, { onMany: 'throw' })).toBe(id)
+    expect(await db.repo(authorsTable).write.updateOne({ rank: 7 }, { rank: 6 }, { onMany: 'throw', pk: true })).toBe(id)
+    expect(await db.repo(authorsTable).write.deleteOne({ rank: 7 }, { onMany: 'throw', pk: true })).toBe(id)
     expect(await db.repo(authorsTable).read.count({ rank: 7 })).toBe(0)
   })
 })
@@ -247,13 +247,13 @@ describe('SQLite single-row writes', () => {
 describe('SQLite upserts on a soft-deleted row', () => {
   it('restore the trashed row, upsert taking the new values and findOrCreate keeping its own', async () => {
     const authors = db.repo(authorsTable)
-    const id = await authors.write.insertOne({ name: 'Back', rank: 1 })
+    const id = await authors.write.insertOne({ name: 'Back', rank: 1 }, { pk: true })
 
-    await authors.write.deleteById(id)
-    expect(await authors.write.findOrCreate({ name: 'Back', rank: 9 }, ['name'], { full: true })).toMatchObject({ id, rank: 1, deletedAt: null })
+    await authors.write.deleteById(id, { pk: true })
+    expect(await authors.write.findOrCreate({ name: 'Back', rank: 9 }, ['name'])).toMatchObject({ id, rank: 1, deletedAt: null })
 
-    await authors.write.deleteById(id)
-    expect(await authors.write.upsertOne({ name: 'Back', rank: 5 }, ['name'], undefined, { full: true })).toMatchObject({ id, rank: 5, deletedAt: null })
+    await authors.write.deleteById(id, { pk: true })
+    expect(await authors.write.upsertOne({ name: 'Back', rank: 5 }, ['name'])).toMatchObject({ id, rank: 5, deletedAt: null })
   })
 })
 
@@ -261,20 +261,20 @@ describe('SQLite constraint errors', () => {
   it('maps each violation onto the typed error, named as Postgres would name it', async () => {
     const repo = db.repo(authorsTable)
 
-    await repo.write.insertOne({ name: 'Ada' })
+    await repo.write.insertOne({ name: 'Ada' }, { pk: true })
 
-    await expect(repo.write.insertOne({ name: 'Ada' })).rejects.toMatchObject({ name: UniqueError.name, table: 'authors', constraint: 'authors_name_key' })
-    await expect(repo.write.insertOne({ name: 'Ada' })).rejects.toThrow(UniqueError)
+    await expect(repo.write.insertOne({ name: 'Ada' }, { pk: true })).rejects.toMatchObject({ name: UniqueError.name, table: 'authors', constraint: 'authors_name_key' })
+    await expect(repo.write.insertOne({ name: 'Ada' }, { pk: true })).rejects.toThrow(UniqueError)
     await expect(db.raw('INSERT INTO "authors" ("name", "rank") VALUES ($1, $2)', ['Neg', -1])).rejects.toThrow(CheckError)
     await expect(db.raw('INSERT INTO "authors" ("rank") VALUES (1)')).rejects.toThrow(NotNullError)
-    await expect(db.repo(books).write.insertOne({ title: 'Orphan', authorId: 999 })).rejects.toThrow(ForeignKeyError)
+    await expect(db.repo(books).write.insertOne({ title: 'Orphan', authorId: 999 }, { pk: true })).rejects.toThrow(ForeignKeyError)
   })
 
   it('cascades a delete along a foreign key', async () => {
-    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Gone' })
+    const authorId = await db.repo(authorsTable).write.insertOne({ name: 'Gone' }, { pk: true })
 
-    await db.repo(books).write.insertOne({ title: 'Left behind', authorId })
-    await db.repo(authorsTable).write.forceDelete({ id: authorId })
+    await db.repo(books).write.insertOne({ title: 'Left behind', authorId }, { pk: true })
+    await db.repo(authorsTable).write.forceDelete({ id: authorId }, { pk: true })
 
     expect(await db.repo(books).read.count()).toBe(0)
   })
@@ -282,16 +282,16 @@ describe('SQLite constraint errors', () => {
 
 describe('SQLite transactions', () => {
   it('commits, rolls back, and rolls a savepoint back alone', async () => {
-    await db.transaction(async tx => void await db.repo(shelves).using(tx).write.insertOne({ label: 'kept' }))
+    await db.transaction(async tx => void await db.repo(shelves).using(tx).write.insertOne({ label: 'kept' }, { pk: true }))
     await expect(db.transaction(async (tx) => {
-      await db.repo(shelves).using(tx).write.insertOne({ label: 'dropped' })
+      await db.repo(shelves).using(tx).write.insertOne({ label: 'dropped' }, { pk: true })
 
       throw new Error('rollback')
     })).rejects.toThrow('rollback')
     await db.transaction(async (tx) => {
-      await db.repo(shelves).using(tx).write.insertOne({ label: 'outer' })
+      await db.repo(shelves).using(tx).write.insertOne({ label: 'outer' }, { pk: true })
       await expect(tx.savepoint(async (sp) => {
-        await db.repo(shelves).using(sp).write.insertOne({ label: 'inner' })
+        await db.repo(shelves).using(sp).write.insertOne({ label: 'inner' }, { pk: true })
 
         throw new Error('rollback the savepoint')
       })).rejects.toThrow('rollback the savepoint')
@@ -307,13 +307,13 @@ describe('SQLite transactions', () => {
       release = resolve
     })
     const first = db.transaction(async (tx) => {
-      await db.repo(shelves).using(tx).write.insertOne({ label: 'first' })
+      await db.repo(shelves).using(tx).write.insertOne({ label: 'first' }, { pk: true })
       await held
       order.push('first committed')
     })
     const second = db.transaction(async (tx) => {
       order.push('second started')
-      await db.repo(shelves).using(tx).write.insertOne({ label: 'second' })
+      await db.repo(shelves).using(tx).write.insertOne({ label: 'second' }, { pk: true })
     })
     const outside = (async () => {
       order.push(`outside saw ${await db.repo(shelves).read.count()}`)
@@ -328,8 +328,8 @@ describe('SQLite transactions', () => {
 
   it('joins the running transaction from inside its body, and refuses an independent one there', async () => {
     await db.transaction(async () => {
-      await db.repo(shelves).write.insertOne({ label: 'joined' })
-      await db.transaction(async tx => void await db.repo(shelves).using(tx).write.insertOne({ label: 'nested' }))
+      await db.repo(shelves).write.insertOne({ label: 'joined' }, { pk: true })
+      await db.transaction(async tx => void await db.repo(shelves).using(tx).write.insertOne({ label: 'nested' }, { pk: true }))
 
       await expect(db.transaction({ independent: true }, noop)).rejects.toThrow(DialectError)
     })
@@ -359,7 +359,7 @@ describe('SQLite shutdown', () => {
 
     const running = own.transaction(async (tx) => {
       await held
-      await own.repo(shelves).using(tx).write.insertOne({ label: 'too late' })
+      await own.repo(shelves).using(tx).write.insertOne({ label: 'too late' }, { pk: true })
     })
 
     await Bun.sleep(10)
@@ -385,7 +385,7 @@ describe('SQLite shutdown', () => {
     const running = own.transaction(async () => {
       await held
 
-      return own.repo(shelves).write.insertOne({ label: 'during drain' })
+      return own.repo(shelves).write.insertOne({ label: 'during drain' }, { pk: true })
     })
 
     await Bun.sleep(10)

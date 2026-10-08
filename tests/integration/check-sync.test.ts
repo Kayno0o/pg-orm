@@ -52,8 +52,8 @@ describe('sync() and CHECK constraints', () => {
 
     expect(ops.map(op => op.type).sort()).toEqual(['add_constraint', 'drop_constraint', 'drop_constraint'])
     expect(await checks(after)).toEqual([expect.stringMatching(/^cs_items_qty_check_/)])
-    await expect(after.repo(v2).write.insertOne({ qty: 0, code: 'x' })).rejects.toBeInstanceOf(CheckError)
-    expect(await after.repo(v2).write.insertOne({ qty: 1, code: 'x' })).toBeGreaterThan(0)
+    await expect(after.repo(v2).write.insertOne({ qty: 0, code: 'x' }, { pk: true })).rejects.toBeInstanceOf(CheckError)
+    expect(await after.repo(v2).write.insertOne({ qty: 1, code: 'x' }, { pk: true })).toBeGreaterThan(0)
     expect((await after.sync()).ops).toEqual([])
   })
 

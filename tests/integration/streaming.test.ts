@@ -24,6 +24,7 @@ describe('Streaming', () => {
 
     await repo.write.insertMany(
       Array.from({ length: 10 }, (_, i) => ({ name: `User${i}`, email: `u${i}@test.com` })),
+      { pk: true },
     )
 
     const rows: any[] = []
@@ -40,6 +41,7 @@ describe('Streaming', () => {
 
     await repo.write.insertMany(
       Array.from({ length: 8 }, (_, i) => ({ name: `User${i}`, email: `u${i}@test.com` })),
+      { pk: true },
     )
 
     const rows: any[] = []
@@ -58,7 +60,7 @@ describe('Streaming', () => {
       { name: 'Alice', email: 'a@test.com', age: 30 },
       { name: 'Bob', email: 'b@test.com', age: 20 },
       { name: 'Charlie', email: 'c@test.com', age: 40 },
-    ])
+    ], { pk: true })
 
     const rows: any[] = []
 
@@ -72,7 +74,7 @@ describe('Streaming', () => {
   it('returns virtuals on streamed rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
 
     for await (const row of repo.stream.stream()) {
       // isDeleted is a virtual from softDelete trait

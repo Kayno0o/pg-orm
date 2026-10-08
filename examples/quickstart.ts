@@ -67,25 +67,25 @@ async function main() {
   await db.raw`DELETE FROM posts`
   await db.raw`DELETE FROM users`
 
-  // 7. Basic CRUD — insert (returns primary key only)
-  const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
+  // 7. Basic CRUD — insert (returns the written row; { pk: true } for only its key)
+  const alice = await UserRepo.write.insertOne({ name: 'Alice', email: 'ALICE@example.com' })
 
-  console.log('Inserted id:', aliceId)
+  console.log('Inserted id:', alice.id)
 
-  const bobId = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
+  const bob = await UserRepo.write.insertOne({ name: 'Bob', email: 'bob@example.com' })
 
-  // insert many posts (returns array of primary keys)
-  const insertedPostIds = await PostRepo.write.insertMany([
-    { title: 'Hello', body: 'First post', authorId: aliceId, published: true },
-    { title: 'World', body: 'Second post', authorId: aliceId, published: true },
-    { title: 'Draft', body: 'Unpublished', authorId: aliceId }, // omits 'published' — uses DB DEFAULT
-    { title: 'Bob post', body: 'Third post', authorId: bobId, published: true },
+  // insert many posts (returns the written rows)
+  const insertedPosts = await PostRepo.write.insertMany([
+    { title: 'Hello', body: 'First post', authorId: alice.id, published: true },
+    { title: 'World', body: 'Second post', authorId: alice.id, published: true },
+    { title: 'Draft', body: 'Unpublished', authorId: alice.id }, // omits 'published' — uses DB DEFAULT
+    { title: 'Bob post', body: 'Third post', authorId: bob.id, published: true },
   ])
 
-  console.log('Inserted posts:', insertedPostIds.length)
+  console.log('Inserted posts:', insertedPosts.length)
 
   // findOne — callback style
-  const found = await UserRepo.read.findOne(q => q.where(e => e.eq('id', aliceId)))
+  const found = await UserRepo.read.findOne(q => q.where(e => e.eq('id', alice.id)))
 
   console.log('Found user:', found?.name)
 
@@ -97,8 +97,7 @@ async function main() {
   // update
   const updated = await UserRepo.write.updateMany(
     { name: 'Alice Updated' },
-    e => e.eq('id', aliceId),
-    { full: true },
+    e => e.eq('id', alice.id),
   )
 
   console.log('Updated:', updated[0]?.name)
@@ -107,8 +106,8 @@ async function main() {
   const filtered = await PostRepo.read.findMany(q =>
     q.where(e =>
       e.or(
-        e.eq('authorId', aliceId),
-        e.and(e.eq('authorId', bobId), e.like('title', 'Bob%')),
+        e.eq('authorId', alice.id),
+        e.and(e.eq('authorId', bob.id), e.like('title', 'Bob%')),
       ),
     ),
   )
@@ -118,7 +117,7 @@ async function main() {
   // 9. Join query
   const joined = await PostRepo.read.findMany(q =>
     q.join('users', 'u', e => e.raw('"u"."id" = "posts"."authorId"'))
-      .where(e => e.eq('authorId', aliceId)),
+      .where(e => e.eq('authorId', alice.id)),
   )
 
   console.log('Joined posts:', joined.length)
@@ -185,7 +184,6 @@ async function main() {
       { title: 'Hello Updated' },
       e => e.eq('id', post.id),
       post.version,
-      { full: true },
     )
 
     console.log(`Post version after update: ${updatedPost.version}`)
@@ -205,7 +203,7 @@ async function main() {
 
   // --- NEW: Soft-delete awareness ---
   console.log('\n--- Soft Delete ---')
-  await UserRepo.write.deleteOne(e => e.eq('id', bobId))
+  await UserRepo.write.deleteOne(e => e.eq('id', bob.id))
   const activeUsers = await UserRepo.read.findMany()
 
   console.log(`Active users (soft-deleted excluded): ${activeUsers.length}`)
@@ -221,11 +219,11 @@ async function main() {
 
   // --- Insert and re-select with relations ---
   console.log('\n--- Insert and Re-select ---')
-  const newPostId = await PostRepo.write.insertOne(
-    { title: 'New Post', body: 'With author!', authorId: aliceId },
+  const created = await PostRepo.write.insertOne(
+    { title: 'New Post', body: 'With author!', authorId: alice.id },
   )
   const newPost = await PostRepo.read.findOneOrThrow(q =>
-    q.where(e => e.eq('id', newPostId)).include('author'),
+    q.where(e => e.eq('id', created.id)).include('author'),
   )
 
   console.log(`Inserted post "${newPost.title}" by ${newPost.author?.name}`)

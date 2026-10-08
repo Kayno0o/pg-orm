@@ -36,7 +36,7 @@ describe('SQL Injection E2E', () => {
     ]
 
     for (const payload of payloads) {
-      const userId = await repo.write.insertOne({ name: payload, email: `test-${Math.random()}@test.com` })
+      const userId = await repo.write.insertOne({ name: payload, email: `test-${Math.random()}@test.com` }, { pk: true })
       const user = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', userId)))
 
       // Value stored as literal string
@@ -52,7 +52,7 @@ describe('SQL Injection E2E', () => {
   it('handles injection payloads in where clauses', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
 
     // These should find no rows, not cause SQL errors
     const result = await repo.read.findMany(q =>
@@ -71,7 +71,7 @@ describe('SQL Injection E2E', () => {
   it('handles injection payloads in LIKE patterns', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
 
     const result = await repo.read.findMany(q =>
       q.where(e => e.like('name', `%'; DROP TABLE users; --%`)),
@@ -87,11 +87,11 @@ describe('SQL Injection E2E', () => {
 
   it('handles injection payloads in update set values', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
 
     const payload = `'; UPDATE users SET email='hacked'; --`
 
-    await repo.write.updateOne({ name: payload }, e => e.eq('id', userId))
+    await repo.write.updateOne({ name: payload }, e => e.eq('id', userId), { pk: true })
 
     const updated = await repo.read.findById(userId)
 
@@ -158,7 +158,7 @@ describe('Database.withContext()', () => {
       const repo = contextDb.repo(usersTable)
 
       await contextDb.withContext({ requestId: 'req-123', userId: 42 }, async () => {
-        await repo.write.insertOne({ name: 'Test', email: 'ctx@test.com' })
+        await repo.write.insertOne({ name: 'Test', email: 'ctx@test.com' }, { pk: true })
       })
 
       // Find the INSERT event
@@ -194,7 +194,7 @@ describe('Database.withContext()', () => {
 
       await contextDb.withContext({ requestId: 'outer', tenant: 't1' }, async () => {
         await contextDb.withContext({ requestId: 'inner' }, async () => {
-          await repo.write.insertOne({ name: 'Nest', email: 'nest@test.com' })
+          await repo.write.insertOne({ name: 'Nest', email: 'nest@test.com' }, { pk: true })
         })
       })
 
@@ -222,7 +222,7 @@ describe('Database.withContext()', () => {
         await contextDb.transaction(async (tx) => {
           const repo = contextDb.repo(usersTable).using(tx)
 
-          await repo.write.insertOne({ name: 'Tx', email: 'tx-ctx@test.com' })
+          await repo.write.insertOne({ name: 'Tx', email: 'tx-ctx@test.com' }, { pk: true })
         })
       })
 
@@ -318,6 +318,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
     // Seed 100 rows
     await repo.write.insertMany(
       Array.from({ length: 100 }, (_, i) => ({ name: `Seed${i}`, email: `seed-${i}@stream.test` })),
+      { pk: true },
     )
 
     // Start a cursor stream and, halfway through, insert more rows on a separate
@@ -335,6 +336,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
         // no duplicates, and every seed row is yielded.
         await repo.write.insertMany(
           Array.from({ length: 10 }, (_, i) => ({ name: `Late${i}`, email: `late-${i}@stream.test` })),
+          { pk: true },
         )
       }
     }
@@ -350,6 +352,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
 
     await repo.write.insertMany(
       Array.from({ length: 50 }, (_, i) => ({ name: `Del${i}`, email: `del-${i}@stream.test` })),
+      { pk: true },
     )
 
     const seen: string[] = []
@@ -361,7 +364,7 @@ describe('Streaming under concurrent INSERT/DELETE', () => {
       if (!deleted && seen.length === 10) {
         deleted = true
         // Delete rows we've already yielded — must not corrupt the cursor.
-        await repo.write.deleteMany(e => e.like('email', 'del-0%'))
+        await repo.write.deleteMany(e => e.like('email', 'del-0%'), { pk: true })
       }
     }
 
@@ -399,12 +402,12 @@ describe('FK-add migration on populated tables', () => {
       const parentIds: number[] = []
 
       for (let i = 0; i < 5; i++) {
-        parentIds.push(await parentRepo.write.insertOne({ name: `Parent${i}` }))
+        parentIds.push(await parentRepo.write.insertOne({ name: `Parent${i}` }, { pk: true }))
       }
 
       for (const pid of parentIds) {
-        await childRepo.write.insertOne({ parentId: pid, label: `child-of-${pid}` })
-        await childRepo.write.insertOne({ parentId: pid, label: `another-child-of-${pid}` })
+        await childRepo.write.insertOne({ parentId: pid, label: `child-of-${pid}` }, { pk: true })
+        await childRepo.write.insertOne({ parentId: pid, label: `another-child-of-${pid}` }, { pk: true })
       }
     }
     finally {

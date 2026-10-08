@@ -10,8 +10,8 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
       const repo = new Repository({ table: postsTable, executor: mock })
 
-      expect(repo.write.restore(e => e.eq('id', 1))).rejects.toThrow(OrmError)
-      expect(repo.write.restore(e => e.eq('id', 1))).rejects.toThrow('restore() requires softDelete trait')
+      expect(repo.write.restore(e => e.eq('id', 1), { pk: true })).rejects.toThrow(OrmError)
+      expect(repo.write.restore(e => e.eq('id', 1), { pk: true })).rejects.toThrow('restore() requires softDelete trait')
     })
 
     it('generates UPDATE SET deletedAt = NULL with isNotNull filter', async () => {
@@ -20,7 +20,7 @@ describe('Edge Cases — Unit', () => {
       mock.preset([{ id: 1, name: 'Alice', email: 'a@test.com', age: null, deletedAt: null, createdAt: new Date(), updatedAt: new Date() }])
       const repo = new Repository({ table: usersTable, executor: mock })
 
-      await repo.write.restore(e => e.eq('id', 1))
+      await repo.write.restore(e => e.eq('id', 1), { pk: true })
 
       expect(mock.queries.length).toBeGreaterThanOrEqual(1)
       const query = mock.queries[0]!
@@ -112,7 +112,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
       const repo = new Repository({ table: postsTable, executor: mock })
 
-      const result = await repo.write.upsertMany([], ['id'])
+      const result = await repo.write.upsertMany([], ['id'], undefined, { pk: true })
 
       expect(result).toEqual([])
       expect(mock.queries).toHaveLength(0)
@@ -133,6 +133,8 @@ describe('Edge Cases — Unit', () => {
           { title: 'Post 2', body: 'Body 2', authorId: 1 },
         ],
         ['title'],
+        undefined,
+        { pk: true },
       )
 
       expect(result).toHaveLength(2)
@@ -153,6 +155,8 @@ describe('Edge Cases — Unit', () => {
       await repo.write.upsertMany(
         [{ title: 'Post 1', body: 'Body 1', authorId: 1 }],
         ['title'],
+        undefined,
+        { pk: true },
       )
 
       const sql = mock.queries[0]!.sql
@@ -175,6 +179,7 @@ describe('Edge Cases — Unit', () => {
         [{ title: 'Post 1', body: 'Updated', authorId: 1 }],
         ['title'],
         ['body'],
+        { pk: true },
       )
 
       const sql = mock.queries[0]!.sql

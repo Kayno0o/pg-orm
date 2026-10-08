@@ -22,11 +22,11 @@ afterAll(async () => {
 describe('Optimistic lock — concurrency races', () => {
   it('two concurrent updateWithLock: exactly one wins, one rejects with StaleRecordError', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.write.insertOne({ name: 'race', value: 0 })
+    const id = await repo.write.insertOne({ name: 'race', value: 0 }, { pk: true })
 
     const results = await Promise.allSettled([
-      repo.write.updateWithLock({ value: 100 }, e => e.eq('id', id), 1),
-      repo.write.updateWithLock({ value: 200 }, e => e.eq('id', id), 1),
+      repo.write.updateWithLock({ value: 100 }, e => e.eq('id', id), 1, { pk: true }),
+      repo.write.updateWithLock({ value: 200 }, e => e.eq('id', id), 1, { pk: true }),
     ])
 
     const fulfilled = results.filter(r => r.status === 'fulfilled')
@@ -45,10 +45,10 @@ describe('Optimistic lock — concurrency races', () => {
   it('N=10 concurrent updates with same stale version: exactly one succeeds, nine fail', async () => {
     const N = 10
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.write.insertOne({ name: 'race-n', value: 0 })
+    const id = await repo.write.insertOne({ name: 'race-n', value: 0 }, { pk: true })
 
     const attempts = Array.from({ length: N }, (_, i) =>
-      repo.write.updateWithLock({ value: i + 1 }, e => e.eq('id', id), 1))
+      repo.write.updateWithLock({ value: i + 1 }, e => e.eq('id', id), 1, { pk: true }))
     const results = await Promise.allSettled(attempts)
 
     const fulfilled = results.filter(r => r.status === 'fulfilled')
@@ -67,7 +67,7 @@ describe('Optimistic lock — concurrency races', () => {
 
   it('sequential updates with proper version threading all succeed and increment by 1', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.write.insertOne({ name: 'seq', value: 0 })
+    const id = await repo.write.insertOne({ name: 'seq', value: 0 }, { pk: true })
     let current = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', id)))
 
     for (let i = 0; i < 5; i++) {
@@ -75,7 +75,6 @@ describe('Optimistic lock — concurrency races', () => {
         { value: current.value + 1 },
         e => e.eq('id', id),
         current.version,
-        { full: true },
       )
 
       expect(updated.version).toBe(current.version + 1)
@@ -88,12 +87,12 @@ describe('Optimistic lock — concurrency races', () => {
 
   it('update on deleted row throws StaleRecordError', async () => {
     const repo = db.repo(versionedItemsTable)
-    const id = await repo.write.insertOne({ name: 'rip', value: 0 })
+    const id = await repo.write.insertOne({ name: 'rip', value: 0 }, { pk: true })
 
-    await repo.write.deleteMany(e => e.eq('id', id))
+    await repo.write.deleteMany(e => e.eq('id', id), { pk: true })
 
     expect(
-      repo.write.updateWithLock({ value: 1 }, e => e.eq('id', id), 1),
+      repo.write.updateWithLock({ value: 1 }, e => e.eq('id', id), 1, { pk: true }),
     ).rejects.toBeInstanceOf(StaleRecordError)
   })
 
@@ -101,10 +100,11 @@ describe('Optimistic lock — concurrency races', () => {
     const repo = db.repo(versionedItemsTable)
     const ids = await repo.write.insertMany(
       Array.from({ length: 5 }, (_, i) => ({ name: `r${i}`, value: 0 })),
+      { pk: true },
     )
 
     const results = await Promise.all(
-      ids.map(id => repo.write.updateWithLock({ value: 42 }, e => e.eq('id', id), 1, { full: true })),
+      ids.map(id => repo.write.updateWithLock({ value: 42 }, e => e.eq('id', id), 1)),
     )
 
     expect(results).toHaveLength(5)

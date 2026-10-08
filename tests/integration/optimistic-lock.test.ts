@@ -22,7 +22,7 @@ afterAll(async () => {
 describe('Optimistic Lock', () => {
   it('inserts with default version 1', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 }, { pk: true })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     expect(item.version).toBe(1)
@@ -30,14 +30,13 @@ describe('Optimistic Lock', () => {
 
   it('updateWithLock succeeds with correct version', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 }, { pk: true })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     const updated = await repo.write.updateWithLock(
       { value: 200 },
       e => e.eq('id', itemId),
       item.version,
-      { full: true },
     )
 
     expect(updated.value).toBe(200)
@@ -46,7 +45,7 @@ describe('Optimistic Lock', () => {
 
   it('updateWithLock throws StaleRecordError on version mismatch', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 }, { pk: true })
     const item = await repo.read.findOneOrThrow(q => q.where(e => e.eq('id', itemId)))
 
     // First update succeeds
@@ -54,6 +53,7 @@ describe('Optimistic Lock', () => {
       { value: 200 },
       e => e.eq('id', itemId),
       item.version,
+      { pk: true },
     )
 
     // Second update with stale version should fail
@@ -61,19 +61,19 @@ describe('Optimistic Lock', () => {
       repo.write.updateWithLock(
         { value: 300 },
         e => e.eq('id', itemId),
-        item.version, // stale version (1, but now it's 2)
+        item.version,
+        { pk: true }, // stale version (1, but now it's 2)
       ),
     ).rejects.toThrow(StaleRecordError)
   })
 
   it('regular updateMany auto-increments version', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 }, { pk: true })
 
     const updated = await repo.write.updateMany(
       { value: 200 },
       e => e.eq('id', itemId),
-      { full: true },
     )
 
     expect(updated[0]!.version).toBe(2)
@@ -81,13 +81,13 @@ describe('Optimistic Lock', () => {
 
   it('multiple sequential updates increment version correctly', async () => {
     const repo = db.repo(versionedItemsTable)
-    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 })
+    const itemId = await repo.write.insertOne({ name: 'Item 1', value: 100 }, { pk: true })
 
-    let result = await repo.write.updateWithLock({ value: 200 }, e => e.eq('id', itemId), 1, { full: true })
+    let result = await repo.write.updateWithLock({ value: 200 }, e => e.eq('id', itemId), 1)
 
     expect(result.version).toBe(2)
 
-    result = await repo.write.updateWithLock({ value: 300 }, e => e.eq('id', itemId), 2, { full: true })
+    result = await repo.write.updateWithLock({ value: 300 }, e => e.eq('id', itemId), 2)
 
     expect(result.version).toBe(3)
   })

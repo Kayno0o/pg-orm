@@ -18,7 +18,7 @@ describe('WritePipeline updateMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const ids = await pipeline.updateMany({ name: 'New' }, e => e.eq('id', 1))
+    const ids = await pipeline.updateMany({ name: 'New' }, e => e.eq('id', 1), { pk: true })
 
     expect(ids).toEqual([1])
     expect(exec.lastQuery!.sql).toMatch(/UPDATE "users"/)
@@ -29,7 +29,7 @@ describe('WritePipeline updateMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, name: 'New' }])
-    const rows = await pipeline.updateMany({ name: 'New' }, e => e.eq('id', 1), { full: true })
+    const rows = await pipeline.updateMany({ name: 'New' }, e => e.eq('id', 1))
 
     expect(rows).toEqual([{ id: 1, name: 'New' }])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
@@ -39,7 +39,7 @@ describe('WritePipeline updateMany', () => {
     const { exec, pipeline } = setup(versioned)
 
     exec.preset([])
-    await pipeline.updateMany({ name: 'X' }, e => e.eq('id', 1))
+    await pipeline.updateMany({ name: 'X' }, e => e.eq('id', 1), { pk: true })
 
     expect(exec.lastQuery!.sql).toMatch(/"version" = "version" \+ 1/)
   })
@@ -50,17 +50,17 @@ describe('WritePipeline updateOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }, { id: 2 }])
-    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1))).toBe(1)
+    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1), { pk: true })).toBe(1)
 
     exec.preset([])
-    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1))).toBeNull()
+    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1), { pk: true })).toBeNull()
   })
 
   it('returns the first full row with { full: true }', async () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, name: 'A' }, { id: 2, name: 'B' }])
-    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1), { full: true })).toEqual({ id: 1, name: 'A' })
+    expect(await pipeline.updateOne({ name: 'X' }, e => e.eq('id', 1))).toEqual({ id: 1, name: 'A' })
   })
 })
 
@@ -68,7 +68,7 @@ describe('WritePipeline updateWithLock', () => {
   it('throws ValidationError when the table has no optimisticLock trait', async () => {
     const { pipeline } = setup(users)
 
-    await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 1))
+    await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 1, { pk: true }))
       .rejects
       .toBeInstanceOf(ValidationError)
   })
@@ -77,7 +77,7 @@ describe('WritePipeline updateWithLock', () => {
     const { exec, pipeline } = setup(versioned)
 
     exec.preset([])
-    await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3))
+    await expect(pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3, { pk: true }))
       .rejects
       .toBeInstanceOf(StaleRecordError)
   })
@@ -86,7 +86,7 @@ describe('WritePipeline updateWithLock', () => {
     const { exec, pipeline } = setup(versioned)
 
     exec.preset([{ id: 1 }])
-    const id = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3)
+    const id = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3, { pk: true })
 
     expect(id).toBe(1)
   })
@@ -95,7 +95,7 @@ describe('WritePipeline updateWithLock', () => {
     const { exec, pipeline } = setup(versioned)
 
     exec.preset([{ id: 1, name: 'X', version: 4 }])
-    const row = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3, { full: true })
+    const row = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3)
 
     expect(row).toEqual({ id: 1, name: 'X', version: 4 })
   })

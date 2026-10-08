@@ -27,7 +27,7 @@ async function seedUsers() {
     { name: 'A', email: 'a@test.com', age: 1 },
     { name: 'B', email: 'b@test.com', age: 2 },
     { name: 'C', email: 'c@test.com', age: 3 },
-  ])
+  ], { pk: true })
 }
 
 describe('updateManyById', () => {
@@ -35,7 +35,7 @@ describe('updateManyById', () => {
     const [a, b, c] = await seedUsers()
 
     statements = 0
-    const ids = await db.repo(usersTable).write.updateManyById([{ id: a!, age: 30 }, { id: b!, age: 20 }, { id: c!, age: 10 }])
+    const ids = await db.repo(usersTable).write.updateManyById([{ id: a!, age: 30 }, { id: b!, age: 20 }, { id: c!, age: 10 }], { pk: true })
 
     expect(statements).toBe(1)
     expect([...ids].sort()).toEqual([a!, b!, c!].sort())
@@ -48,7 +48,7 @@ describe('updateManyById', () => {
   it('leaves a column untouched on the rows that do not write it, and writes an explicit null', async () => {
     const [a, b] = await seedUsers()
 
-    await db.repo(usersTable).write.updateManyById([{ id: a!, name: 'A2' }, { id: b!, age: null }])
+    await db.repo(usersTable).write.updateManyById([{ id: a!, name: 'A2' }, { id: b!, age: null }], { pk: true })
 
     const [rowA, rowB] = await db.repo(usersTable).read.findMany(q => q.where({ id: [a!, b!] }).orderBy('id'))
 
@@ -59,11 +59,11 @@ describe('updateManyById', () => {
   it('runs beforeUpdate hooks and traits: updatedAt and the optimistic-lock version move', async () => {
     const [a] = await seedUsers()
     const before = await db.repo(usersTable).read.findByIdOrThrow(a!)
-    const item = await db.repo(versionedItemsTable).write.insertOne({ name: 'v' })
+    const item = await db.repo(versionedItemsTable).write.insertOne({ name: 'v' }, { pk: true })
 
     await Bun.sleep(5)
-    await db.repo(usersTable).write.updateManyById([{ id: a!, age: 99 }])
-    const [bumped] = await db.repo(versionedItemsTable).write.updateManyById([{ id: item, value: 5 }], { full: true })
+    await db.repo(usersTable).write.updateManyById([{ id: a!, age: 99 }], { pk: true })
+    const [bumped] = await db.repo(versionedItemsTable).write.updateManyById([{ id: item, value: 5 }])
 
     const after = await db.repo(usersTable).read.findByIdOrThrow(a!)
 
@@ -73,17 +73,17 @@ describe('updateManyById', () => {
 
   it('returns mapped rows with virtuals when asked for the full rows', async () => {
     const [a] = await seedUsers()
-    const [row] = await db.repo(usersTable).write.updateManyById([{ id: a!, name: 'Full' }], { full: true })
+    const [row] = await db.repo(usersTable).write.updateManyById([{ id: a!, name: 'Full' }])
 
     expect(row).toMatchObject({ id: a, name: 'Full', isDeleted: false })
   })
 
   it('round-trips jsonb and bigint values', async () => {
-    const doc = await db.repo(documentsTable).write.insertOne({ data: { name: 'd', tags: [] } })
-    const big = await db.repo(bigItemsTable).write.insertOne({ big: 1n })
+    const doc = await db.repo(documentsTable).write.insertOne({ data: { name: 'd', tags: [] } }, { pk: true })
+    const big = await db.repo(bigItemsTable).write.insertOne({ big: 1n }, { pk: true })
 
-    await db.repo(documentsTable).write.updateManyById([{ id: doc, data: { name: 'd2', tags: ['x'] } }])
-    await db.repo(bigItemsTable).write.updateManyById([{ id: big, big: 9007199254740993n }])
+    await db.repo(documentsTable).write.updateManyById([{ id: doc, data: { name: 'd2', tags: ['x'] } }], { pk: true })
+    await db.repo(bigItemsTable).write.updateManyById([{ id: big, big: 9007199254740993n }], { pk: true })
 
     expect((await db.repo(documentsTable).read.findByIdOrThrow(doc)).data).toEqual({ name: 'd2', tags: ['x'] })
     expect((await db.repo(bigItemsTable).read.findByIdOrThrow(big)).big).toBe(9007199254740993n)
@@ -91,7 +91,7 @@ describe('updateManyById', () => {
 
   it('skips a key that matches no row', async () => {
     const [a] = await seedUsers()
-    const ids = await db.repo(usersTable).write.updateManyById([{ id: a!, age: 7 }, { id: 999999, age: 7 }])
+    const ids = await db.repo(usersTable).write.updateManyById([{ id: a!, age: 7 }, { id: 999999, age: 7 }], { pk: true })
 
     expect(ids).toEqual([a!])
   })
@@ -100,7 +100,7 @@ describe('updateManyById', () => {
     const [a] = await seedUsers()
 
     await expect(db.transaction(async (tx) => {
-      await db.repo(usersTable).using(tx).write.updateManyById([{ id: a!, age: 50 }])
+      await db.repo(usersTable).using(tx).write.updateManyById([{ id: a!, age: 50 }], { pk: true })
 
       throw new Error('roll back')
     })).rejects.toThrow('roll back')

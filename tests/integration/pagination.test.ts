@@ -27,11 +27,12 @@ async function seedUsers(count: number) {
       email: `user${i + 1}@test.com`,
       age: 20 + i,
     })),
+    { pk: true },
   )
 }
 
 async function seedAges(ages: number[]) {
-  await db.repo(usersTable).write.insertMany(ages.map((age, i) => ({ name: `U${i}`, email: `age${i}@test.com`, age })))
+  await db.repo(usersTable).write.insertMany(ages.map((age, i) => ({ name: `U${i}`, email: `age${i}@test.com`, age })), { pk: true })
 }
 
 describe('Offset Pagination', () => {

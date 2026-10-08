@@ -71,20 +71,20 @@ await db.sync()
 const UserRepo = db.repo(users)
 const PostRepo = db.repo(posts)
 
-// Write ops return the primary key by default; pass `{ full: true }` for the full row.
-const aliceId = await UserRepo.write.insertOne({ name: 'Alice', email: 'alice@example.com' })
+// Write ops return the written row; pass `{ pk: true }` for only its primary key.
+const alice = await UserRepo.write.insertOne({ name: 'Alice', email: 'alice@example.com' })
 
 const allUsers = await UserRepo.read.findMany()
 
 const filtered = await PostRepo.read.findMany(q =>
-  q.where({ authorId: aliceId })
+  q.where({ authorId: alice.id })
    .orderBy('id', 'desc')
    .limit(10),
 )
 
-await UserRepo.write.updateById(aliceId, { name: 'Alice Updated' })
+await UserRepo.write.updateById(alice.id, { name: 'Alice Updated' })
 
-await UserRepo.write.deleteById(aliceId)
+await UserRepo.write.deleteById(alice.id)
 ```
 
 ## Schema Definition
@@ -279,7 +279,7 @@ q.groupBy('department').having(e => e.gt('count', 5))
 Repository operations are grouped into three suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findManyBy`, `findOneBy`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the primary key by default; pass `{ full: true }` for the full row(s)
+- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s)
 - `repo.stream` — `stream` (LIMIT/OFFSET) and `streamCursor` (keyset)
 
 `db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
@@ -308,25 +308,21 @@ await repo.read.count({ status: 'active' }, { withTrashed: true })
 
 ### Mutations
 
-By default, write operations return the **primary key** (a single id, or an array of
-ids for the `*Many` variants — `null` for the `*One` variants when nothing matched).
-A composite key comes back as an object holding each part, the shape the by-id ops take.
-Pass `{ full: true }` as the final argument to get the full row(s) back, with virtuals
-applied. Returning only the key keeps the common case cheap: `RETURNING "id"` instead of
-`RETURNING *`.
+Write operations return the **written row** with virtuals applied (an array for the `*Many` variants, `null` for the `*One` variants when nothing matched).
+Pass `{ pk: true }` as the final argument to get only the primary key back, `RETURNING "id"` instead of `RETURNING *`: a single id, or an object holding each part of a composite key, the shape the by-id ops take.
 
 ```ts
-// Insert — returns the primary key
-const id = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
-const ids = await repo.write.insertMany([{ ... }, { ... }])
+// Insert — returns the written row
+const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' })
+const rows = await repo.write.insertMany([{ ... }, { ... }])
 
-// ...or the full entity with `{ full: true }`
-const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { full: true })
+// ...or only its primary key with `{ pk: true }`
+const id = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
 
 // Update — the where takes both forms, and `updateById` spells out the common one
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
 // updateOne/deleteOne change only the first matching row by primary key, however many match
-const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
+const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 })
 // ...or throw MultipleRowsError, changing nothing, when several match
 await repo.write.updateOne({ name: 'Bob' }, { email }, { onMany: 'throw' })
 await repo.write.deleteOne({ email }, { onMany: 'throw' })
@@ -363,7 +359,7 @@ const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'],
 
 // Insert if missing, return the existing row otherwise — never overwrites
 await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
-const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'], { full: true })
+const alice = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
 ```
 
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
@@ -490,7 +486,7 @@ Which op fits which write. Each one is a single statement or a transaction, so t
 **Get or create**: one statement, needs a unique index on the target.
 
 ```ts
-const tag = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'], { full: true })
+const tag = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'])
 ```
 
 **Insert or update**: `upsertOne` copies the incoming columns on conflict; `set` computes from the existing row instead, `where` skips the update (and returns `null`).
@@ -526,10 +522,10 @@ await db.transaction(async (tx) => {
 **Several writes that must succeed together**: every repo in the body goes through `.using(tx)`; one that does not writes outside the transaction.
 
 ```ts
-const listId = await db.transaction(async (tx) => {
-  const id = await ListRepo.using(tx).write.insertOne({ ownerId, title })
-  await TierRepo.using(tx).write.insertMany(names.map((name, position) => ({ listId: id, name, position })))
-  return id
+const list = await db.transaction(async (tx) => {
+  const created = await ListRepo.using(tx).write.insertOne({ ownerId, title })
+  await TierRepo.using(tx).write.insertMany(names.map((name, position) => ({ listId: created.id, name, position })))
+  return created
 })
 ```
 

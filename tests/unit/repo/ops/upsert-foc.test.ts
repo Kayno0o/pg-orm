@@ -12,7 +12,7 @@ describe('WritePipeline upsertMany', () => {
   it('short-circuits on empty values without issuing a query', async () => {
     const { exec, pipeline } = setup(users)
 
-    const result = await pipeline.upsertMany([], ['email'])
+    const result = await pipeline.upsertMany([], ['email'], undefined, { pk: true })
 
     expect(result).toEqual([])
     expect(exec.queries).toHaveLength(0)
@@ -22,7 +22,7 @@ describe('WritePipeline upsertMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const ids = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'])
+    const ids = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { pk: true })
 
     expect(ids).toEqual([1])
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -34,7 +34,7 @@ describe('WritePipeline upsertMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const rows = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { full: true })
+    const rows = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'])
 
     expect(rows).toEqual([{ id: 1, email: 'a@x.com', name: 'A' }])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
@@ -46,7 +46,7 @@ describe('WritePipeline upsertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const id = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'])
+    const id = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], undefined, { pk: true })
 
     expect(id).toBe(1)
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -58,7 +58,7 @@ describe('WritePipeline upsertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const row = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], undefined, { full: true })
+    const row = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'])
 
     expect(row).toEqual({ id: 1, email: 'a@x.com', name: 'A' })
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
@@ -68,7 +68,7 @@ describe('WritePipeline upsertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], ['name'])
+    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], ['name'], { pk: true })
 
     expect(exec.lastQuery!.sql).toMatch(/DO UPDATE SET "name" = EXCLUDED\."name"/)
     expect(exec.lastQuery!.sql).not.toMatch(/"email" = EXCLUDED/)
@@ -80,8 +80,8 @@ describe('WritePipeline upsertOne', () => {
 
     one.exec.preset([{ id: 1 }])
     many.exec.preset([{ id: 1 }])
-    await one.pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'])
-    await many.pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'])
+    await one.pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], undefined, { pk: true })
+    await many.pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { pk: true })
 
     expect(one.exec.lastQuery!.sql).toBe(many.exec.lastQuery!.sql)
     expect(one.exec.lastQuery!.params).toEqual(many.exec.lastQuery!.params)
@@ -93,7 +93,7 @@ describe('WritePipeline findOrCreate', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const id = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'])
+    const id = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'], { pk: true })
 
     expect(id).toBe(1)
     expect(exec.lastQuery!.sql).toMatch(/ON CONFLICT/)
@@ -104,7 +104,7 @@ describe('WritePipeline findOrCreate', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1, email: 'a@x.com', name: 'A' }])
-    const row = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'], { full: true })
+    const row = await pipeline.findOrCreate({ email: 'a@x.com', name: 'A' }, ['email'])
 
     expect(row).toEqual({ id: 1, email: 'a@x.com', name: 'A' })
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)

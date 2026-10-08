@@ -24,7 +24,7 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
     })
 
     const count = await db.repo(usersTable).read.count()
@@ -37,7 +37,7 @@ describe('Transactions', () => {
       await db.transaction(async (tx) => {
         const repo = db.repo(usersTable).using(tx)
 
-        await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+        await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
 
         throw new Error('rollback!')
       })
@@ -55,13 +55,13 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
+      await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
 
       try {
         await tx.savepoint(async (sp) => {
           const spRepo = db.repo(usersTable).using(sp)
 
-          await spRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+          await spRepo.write.insertOne({ name: 'Bob', email: 'bob@test.com' }, { pk: true })
 
           throw new Error('savepoint rollback')
         })
@@ -83,7 +83,7 @@ describe('Transactions', () => {
     await db.transaction({ isolation: 'serializable' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'Serialized', email: 'serial@test.com' })
+      await repo.write.insertOne({ name: 'Serialized', email: 'serial@test.com' }, { pk: true })
     })
 
     const count = await db.repo(usersTable).read.count()
@@ -95,7 +95,7 @@ describe('Transactions', () => {
     await db.transaction({ isolation: 'read committed' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'RC', email: 'rc@test.com' })
+      await repo.write.insertOne({ name: 'RC', email: 'rc@test.com' }, { pk: true })
     })
 
     const count = await db.repo(usersTable).read.count()
@@ -105,7 +105,7 @@ describe('Transactions', () => {
 
   it('supports read-only access mode', async () => {
     // Insert a row first
-    await db.repo(usersTable).write.insertOne({ name: 'Existing', email: 'existing@test.com' })
+    await db.repo(usersTable).write.insertOne({ name: 'Existing', email: 'existing@test.com' }, { pk: true })
 
     await db.transaction({ isolation: 'read committed', accessMode: 'read only' }, async (tx) => {
       const repo = db.repo(usersTable).using(tx)
@@ -126,7 +126,7 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'TxUser', email: 'tx@test.com' })
+      await repo.write.insertOne({ name: 'TxUser', email: 'tx@test.com' }, { pk: true })
       const found = await repo.read.findOne(q => q.where(e => e.eq('email', 'tx@test.com')))
 
       expect(found).not.toBeNull()
@@ -137,12 +137,12 @@ describe('Transactions', () => {
     await db.transaction(async (tx) => {
       const repo = db.repo(usersTable).using(tx)
 
-      await repo.write.insertOne({ name: 'Outer', email: 'outer@test.com' })
+      await repo.write.insertOne({ name: 'Outer', email: 'outer@test.com' }, { pk: true })
 
       await tx.savepoint(async (sp1) => {
         const spRepo = db.repo(usersTable).using(sp1)
 
-        await spRepo.write.insertOne({ name: 'Inner', email: 'inner@test.com' })
+        await spRepo.write.insertOne({ name: 'Inner', email: 'inner@test.com' }, { pk: true })
       })
     })
 
@@ -226,7 +226,7 @@ describe('Transaction settlement', () => {
 describe('db.transaction() called inside a transaction body', () => {
   it('sees the outer transaction\'s uncommitted writes', async () => {
     await db.transaction(async (tx) => {
-      await db.repo(usersTable).using(tx).write.insertOne({ name: 'Outer', email: 'outer@test.com' })
+      await db.repo(usersTable).using(tx).write.insertOne({ name: 'Outer', email: 'outer@test.com' }, { pk: true })
 
       const seen = await db.transaction(async inner => db.repo(usersTable).using(inner).read.count({ email: 'outer@test.com' }))
 
@@ -237,7 +237,7 @@ describe('db.transaction() called inside a transaction body', () => {
   it('rolls back with the outer transaction', async () => {
     try {
       await db.transaction(async () => {
-        await db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Inner', email: 'inner@test.com' }))
+        await db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Inner', email: 'inner@test.com' }, { pk: true }))
 
         throw new Error('outer fails after the inner one returned')
       })
@@ -253,11 +253,11 @@ describe('db.transaction() called inside a transaction body', () => {
     const users = db.repo(usersTable)
 
     await db.transaction(async (tx) => {
-      await users.using(tx).write.insertOne({ name: 'Outer', email: 'kept@test.com' })
+      await users.using(tx).write.insertOne({ name: 'Outer', email: 'kept@test.com' }, { pk: true })
 
       try {
         await db.transaction(async (inner) => {
-          await users.using(inner).write.insertOne({ name: 'Inner', email: 'undone@test.com' })
+          await users.using(inner).write.insertOne({ name: 'Inner', email: 'undone@test.com' }, { pk: true })
 
           throw new Error('inner fails')
         })
@@ -266,7 +266,7 @@ describe('db.transaction() called inside a transaction body', () => {
         // the outer transaction is still usable
       }
 
-      await users.using(tx).write.insertOne({ name: 'After', email: 'after@test.com' })
+      await users.using(tx).write.insertOne({ name: 'After', email: 'after@test.com' }, { pk: true })
     })
 
     expect(await users.read.count({ email: ['kept@test.com', 'after@test.com'] })).toBe(2)
@@ -307,13 +307,13 @@ describe('db.transaction() called inside a transaction body', () => {
 
     await db.transaction(async () => {
       const results = await Promise.allSettled([
-        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'A', email: 'a@sibling.com' })),
+        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'A', email: 'a@sibling.com' }, { pk: true })),
         db.transaction(async (inner) => {
-          await users.using(inner).write.insertOne({ name: 'B', email: 'b@sibling.com' })
+          await users.using(inner).write.insertOne({ name: 'B', email: 'b@sibling.com' }, { pk: true })
 
           throw new Error('b fails')
         }),
-        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'C', email: 'c@sibling.com' })),
+        db.transaction(async inner => users.using(inner).write.insertOne({ name: 'C', email: 'c@sibling.com' }, { pk: true })),
       ])
 
       expect(results.map(r => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled'])
@@ -349,7 +349,7 @@ describe('db.transaction() called inside a transaction body', () => {
 
     await db.transaction(async (tx) => {
       tx.onCommit(() => {
-        followUp = db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Later', email: 'later@test.com' }))
+        followUp = db.transaction(async inner => db.repo(usersTable).using(inner).write.insertOne({ name: 'Later', email: 'later@test.com' }, { pk: true }))
       })
     })
 

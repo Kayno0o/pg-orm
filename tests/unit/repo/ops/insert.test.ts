@@ -12,7 +12,7 @@ describe('WritePipeline insertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 99 }])
-    const id = await pipeline.insertOne({ name: 'Alice' })
+    const id = await pipeline.insertOne({ name: 'Alice' }, { pk: true })
 
     expect(id).toBe(99)
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -23,7 +23,7 @@ describe('WritePipeline insertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 99, name: 'Alice' }])
-    const row = await pipeline.insertOne({ name: 'Alice' }, { full: true })
+    const row = await pipeline.insertOne({ name: 'Alice' })
 
     expect(row).toEqual({ id: 99, name: 'Alice' })
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)
@@ -40,7 +40,7 @@ describe('WritePipeline insertOne', () => {
     const { exec, pipeline } = setup(table)
 
     exec.preset([{ id: 1, name: 'Bob!' }])
-    await pipeline.insertOne({ name: 'Bob' })
+    await pipeline.insertOne({ name: 'Bob' }, { pk: true })
 
     expect(exec.lastQuery!.params).toContain('Bob!')
   })
@@ -53,7 +53,7 @@ describe('WritePipeline insertOne', () => {
     const { exec, pipeline } = setup(defaults)
 
     exec.preset([{ id: 7 }])
-    const id = await pipeline.insertOne({})
+    const id = await pipeline.insertOne({}, { pk: true })
 
     expect(id).toBe(7)
     // `() VALUES ()` is a Postgres syntax error — must be `DEFAULT VALUES`.
@@ -67,7 +67,7 @@ describe('WritePipeline insertMany', () => {
   it('short-circuits on empty array without issuing a query', async () => {
     const { exec, pipeline } = setup(users)
 
-    const result = await pipeline.insertMany([])
+    const result = await pipeline.insertMany([], { pk: true })
 
     expect(result).toEqual([])
     expect(exec.queries).toHaveLength(0)
@@ -77,7 +77,7 @@ describe('WritePipeline insertMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 10 }, { id: 11 }, { id: 12 }])
-    const ids = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }])
+    const ids = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }], { pk: true })
 
     expect(ids).toEqual([10, 11, 12])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING "id"/)
@@ -87,7 +87,7 @@ describe('WritePipeline insertMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
-    const rows = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }], { full: true })
+    const rows = await pipeline.insertMany([{ name: 'A' }, { name: 'B' }, { name: 'C' }])
 
     expect(rows).toEqual([{ id: 10, name: 'A' }, { id: 11, name: 'B' }, { id: 12, name: 'C' }])
     expect(exec.lastQuery!.sql).toMatch(/RETURNING \*/)

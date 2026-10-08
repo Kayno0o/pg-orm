@@ -33,18 +33,18 @@ afterAll(async () => {
 })
 
 async function seed() {
-  const [a, b] = await db.repo(lists).write.insertMany([{ title: 'a' }, { title: 'b' }])
+  const [a, b] = await db.repo(lists).write.insertMany([{ title: 'a' }, { title: 'b' }], { pk: true })
   const [, , trashed] = await db.repo(items).write.insertMany([
     { list_id: a!, done: true },
     { list_id: a! },
     { list_id: a!, done: true },
-  ])
+  ], { pk: true })
 
-  await db.repo(items).write.deleteById(trashed!)
+  await db.repo(items).write.deleteById(trashed!, { pk: true })
 
-  const [l1, l2] = await db.repo(labels).write.insertMany([{ name: 'x' }, { name: 'y' }])
+  const [l1, l2] = await db.repo(labels).write.insertMany([{ name: 'x' }, { name: 'y' }], { pk: true })
 
-  await db.repo(listLabels).write.insertMany([{ list_id: a!, label_id: l1! }, { list_id: a!, label_id: l2! }, { list_id: b!, label_id: l1! }])
+  await db.repo(listLabels).write.insertMany([{ list_id: a!, label_id: l1! }, { list_id: a!, label_id: l2! }, { list_id: b!, label_id: l1! }], { pk: true })
 
   return { a: a!, b: b! }
 }

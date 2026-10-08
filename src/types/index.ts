@@ -246,8 +246,8 @@ export type InferPrimaryKey<TColumns extends AnyColumns>
 
 /** Options controlling what a write operation returns. */
 export interface WriteReturnOptions {
-  /** Return the full entity (with virtuals applied) instead of just the primary key. */
-  full?: boolean
+  /** Return only the primary key instead of the written row (with virtuals applied). */
+  pk?: boolean
 }
 
 export interface UpdateOptions extends WriteReturnOptions {

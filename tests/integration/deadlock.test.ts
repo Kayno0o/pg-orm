@@ -24,27 +24,27 @@ describe('Deadlock detection', () => {
     const repo = db.repo(usersTable)
 
     // Insert two users
-    const aliceId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
-    const bobId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    const aliceId = await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
+    const bobId = await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' }, { pk: true })
 
     let deadlockDetected = false
 
     const tx1 = db.transaction(async (tx) => {
       const r = repo.using(tx)
 
-      await r.write.updateOne({ name: 'Alice-updated' }, e => e.eq('id', aliceId))
+      await r.write.updateOne({ name: 'Alice-updated' }, e => e.eq('id', aliceId), { pk: true })
       // Give tx2 time to lock bob
       await new Promise(resolve => setTimeout(resolve, 100))
-      await r.write.updateOne({ name: 'Bob-updated' }, e => e.eq('id', bobId))
+      await r.write.updateOne({ name: 'Bob-updated' }, e => e.eq('id', bobId), { pk: true })
     })
 
     const tx2 = db.transaction(async (tx) => {
       const r = repo.using(tx)
 
-      await r.write.updateOne({ name: 'Bob-updated2' }, e => e.eq('id', bobId))
+      await r.write.updateOne({ name: 'Bob-updated2' }, e => e.eq('id', bobId), { pk: true })
       // Give tx1 time to lock alice
       await new Promise(resolve => setTimeout(resolve, 100))
-      await r.write.updateOne({ name: 'Alice-updated2' }, e => e.eq('id', aliceId))
+      await r.write.updateOne({ name: 'Alice-updated2' }, e => e.eq('id', aliceId), { pk: true })
     })
 
     try {
@@ -65,8 +65,8 @@ describe('Deadlock detection', () => {
   it('FOR UPDATE SKIP LOCKED skips locked rows', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' })
-    await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' })
+    await repo.write.insertOne({ name: 'Alice', email: 'alice@test.com' }, { pk: true })
+    await repo.write.insertOne({ name: 'Bob', email: 'bob@test.com' }, { pk: true })
 
     let skippedCount = 0
 
@@ -95,7 +95,7 @@ describe('Deadlock detection', () => {
   it('serializable isolation detects write conflicts', async () => {
     const repo = db.repo(usersTable)
 
-    await repo.write.insertOne({ name: 'Counter', email: 'counter@test.com', age: 0 })
+    await repo.write.insertOne({ name: 'Counter', email: 'counter@test.com', age: 0 }, { pk: true })
 
     let serializationError = false
 
