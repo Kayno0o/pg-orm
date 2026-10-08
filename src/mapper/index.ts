@@ -165,20 +165,15 @@ function parsePgArrayLiteral(text: string): unknown {
   return pos === text.length ? result : text
 }
 
-// A row written before json values were bound as JSON holds an array as the JSON string of its Postgres literal: read back as the array it was.
-function legacyArrayLiteral(value: string): unknown {
-  const trimmed = value.trim()
-
-  return trimmed.startsWith('{') ? parsePgArrayLiteral(trimmed) : value
-}
-
-// SQLite hands back the JSON text it stores.
+// SQLite hands back the JSON text it stores; text that is not JSON is a row written before json values were bound as JSON, an array held as its Postgres literal.
 function parseJsonText(value: string): unknown {
   try {
     return JSON.parse(value)
   }
   catch {
-    return legacyArrayLiteral(value)
+    const trimmed = value.trim()
+
+    return trimmed.startsWith('{') ? parsePgArrayLiteral(trimmed) : value
   }
 }
 
@@ -199,8 +194,6 @@ function toDate(value: unknown): unknown {
 
 /** Runtime helpers the compiled mapper body calls as `h.<name>`. */
 const helpers = {
-  // Bun parses json and jsonb itself on Postgres: a string read back is a JSON string scalar, kept as is.
-  pgJson: (v: unknown): unknown => typeof v === 'string' ? legacyArrayLiteral(v) : v,
   sqliteJson: (v: unknown): unknown => typeof v === 'string' ? parseJsonText(v) : v,
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
@@ -240,8 +233,9 @@ function accessorFor(col: string, pgType: string, dialect: Dialect): string | un
   if (needsBigintCoercion(pgType))
     return bigintAccessor(col)
 
+  // Bun parses json and jsonb itself on Postgres: a string read back is a JSON string scalar, kept as is.
   if (needsJsonParse(pgType))
-    return helperAccessor(col, dialect === 'sqlite' ? 'sqliteJson' : 'pgJson')
+    return dialect === 'sqlite' ? helperAccessor(col, 'sqliteJson') : undefined
 
   // Bun reads an int8 array as strings on Postgres; SQLite stores one as JSON text holding them.
   if (pgType.endsWith('[]') && needsBigintCoercion(pgType.replace(ARRAY_SUFFIX_RE, '')))

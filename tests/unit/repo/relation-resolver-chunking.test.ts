@@ -30,6 +30,12 @@ function parents(...ids: number[]): Record<string, unknown>[] {
 }
 
 describe('RelationResolver chunking', () => {
+  test('an unknown relation throws rather than being skipped', async () => {
+    const r = makeResolver(new MockExecutor(), 10)
+
+    expect(r.loadIncludes(parents(1), [{ relation: 'childs', strategy: 'batch', callback: undefined }])).rejects.toThrow('"parents" has no relation "childs"')
+  })
+
   test('empty parent rows → executor never called', async () => {
     const exec = new MockExecutor()
     const r = makeResolver(exec, 10)

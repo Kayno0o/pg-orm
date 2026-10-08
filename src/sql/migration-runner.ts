@@ -39,8 +39,11 @@ export class MigrationRunner {
       return this.track(() => (this.sql as unknown as SqliteDriver).migrate(body))
 
     // The DDL and the history table name no schema, so the transaction resolves them in the configured one; `public` stays on the path for extension types (vector, citext).
+    // The pool's timeouts are for app queries: a table rewrite outlasts them, and `sync({ confirm })` holds the transaction open on its prompt.
     return this.track(() => asDriver(this.sql).begin(async (sqlTx) => {
       await asDriver(sqlTx).unsafe(`SET LOCAL search_path TO "${this.schema}", public`, [])
+      await asDriver(sqlTx).unsafe('SET LOCAL statement_timeout = 0', [])
+      await asDriver(sqlTx).unsafe('SET LOCAL idle_in_transaction_session_timeout = 0', [])
 
       return body(sqlTx)
     }))
@@ -60,6 +63,7 @@ export class MigrationRunner {
 
       try {
         await query(`SET search_path TO "${this.schema}", public`, [])
+        await query('SET statement_timeout = 0', [])
         await query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY])
 
         try {
@@ -70,9 +74,10 @@ export class MigrationRunner {
         }
       }
       finally {
-        // The connection goes back to the pool: its search_path must not follow it there.
+        // The connection goes back to the pool: its search_path and lifted timeout must not follow it there.
         try {
           await query('RESET search_path', [])
+          await query('RESET statement_timeout', [])
         }
         finally {
           conn.release()

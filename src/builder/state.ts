@@ -210,23 +210,24 @@ export function selectedColumns(s: BuilderState): string[] | null {
 }
 
 /** What a builder is built on: a table name, or a table definition, every column name then checked against its columns. */
-export type TableTarget = string | { readonly name: string, readonly columns: object }
+export type TableTarget = string | { readonly name: string, readonly columns: object, readonly _version?: number }
 
-const columnLists = new WeakMap<object, readonly string[]>()
+// Keyed on the version too: a trait adds its columns to the same object.
+const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[] }>()
 
 /** The state for a builder on `table`, knowing its columns when given its definition. */
 export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
   if (typeof table === 'string')
     return createState(op, table)
 
-  let columns = columnLists.get(table.columns)
+  let cached = columnLists.get(table.columns)
 
-  if (!columns) {
-    columns = Object.keys(table.columns)
-    columnLists.set(table.columns, columns)
+  if (!cached || cached.version !== table._version) {
+    cached = { version: table._version, columns: Object.keys(table.columns) }
+    columnLists.set(table.columns, cached)
   }
 
-  return { ...createState(op, table.name), tableColumns: columns }
+  return { ...createState(op, table.name), tableColumns: cached.columns }
 }
 
 export function cloneState(s: BuilderState): BuilderState {

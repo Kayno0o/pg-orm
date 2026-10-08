@@ -24,6 +24,8 @@ type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
 const INSERTED_FLAG = '__pgorm_inserted'
 const FIND_OR_CREATE_ATTEMPTS = 3
+// SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
+const SQLITE_OR_TERMS = 500
 
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
@@ -63,6 +65,8 @@ export class WritePipeline<
   private _runtime: TableRuntime
   private _mapperFactory: ReturnType<typeof createMapperFactory>
   private _sqliteDefaults?: Record<string, string>
+  // Set on the pipeline a chunked write runs its chunks on: after-write hooks wait for the last chunk, so none fires for rows a later chunk rolls back.
+  private _deferredAfter?: [event: 'afterInsert' | 'afterUpdate' | 'afterDelete', rows: Record<string, unknown>[]][]
 
   constructor(ctx: WritePipelineContext) {
     this._executor = ctx.executor
@@ -151,19 +155,24 @@ export class WritePipeline<
     if (rows.length <= size)
       return write(this, rows)
 
-    const run = async (pipeline: WritePipeline<TColumns, TVirtuals>): Promise<TResult[]> => {
+    const deferred: NonNullable<typeof this._deferredAfter> = []
+    const run = async (exec: Executable): Promise<TResult[]> => {
+      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime })
       const out: TResult[] = []
+
+      pipeline._deferredAfter = deferred
 
       for (let i = 0; i < rows.length; i += size)
         out.push(...await write(pipeline, rows.slice(i, i + size)))
 
       return out
     }
+    const out = this._executor.atomic ? await this._executor.atomic(run) : await run(this._executor)
 
-    if (!this._executor.atomic)
-      return run(this)
+    for (const [event, written] of deferred)
+      await this._runtime.runAfter(event, written)
 
-    return this._executor.atomic(exec => run(new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime })))
+    return out
   }
 
   // --- Update ---
@@ -421,11 +430,17 @@ export class WritePipeline<
     if (conflicting.length === 0)
       return () => true
 
-    const present = new SelectBuilderCtor<TColumns>(table)
-      .pick(...target as (keyof TColumns & string)[])
-      .where(e => e.or(...conflicting.map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
-    const { sql, params } = present.toSQL(dialectOf(this._executor))
-    const existing = new Set((await this._executor.query(sql, params)).map(keyOf))
+    const existing = new Set<string>()
+
+    for (let i = 0; i < conflicting.length; i += SQLITE_OR_TERMS) {
+      const present = new SelectBuilderCtor<TColumns>(table)
+        .pick(...target as (keyof TColumns & string)[])
+        .where(e => e.or(...conflicting.slice(i, i + SQLITE_OR_TERMS).map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
+      const { sql, params } = present.toSQL(dialectOf(this._executor))
+
+      for (const row of await this._executor.query(sql, params))
+        existing.add(keyOf(row))
+    }
 
     return raw => !existing.has(keyOf(raw))
   }
@@ -575,7 +590,12 @@ export class WritePipeline<
 
   // A write that touched no row fires no after-write hook.
   private async _runAfterWrite(event: 'afterInsert' | 'afterUpdate' | 'afterDelete', rows: Record<string, unknown>[]): Promise<void> {
-    if (rows.length > 0)
+    if (rows.length === 0)
+      return
+
+    if (this._deferredAfter)
+      this._deferredAfter.push([event, rows])
+    else
       await this._runtime.runAfter(event, rows)
   }
 

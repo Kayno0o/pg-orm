@@ -13,6 +13,9 @@ interface Flags { allowDestructive: boolean, dryRun: boolean }
 
 const FLAGS: Record<string, keyof Flags> = { '--allow-destructive': 'allowDestructive', '--dry-run': 'dryRun' }
 
+// A flag a command ignores is refused, so `rollback --dry-run` never rolls back for real.
+const COMMAND_FLAGS: Record<string, (keyof Flags)[]> = { generate: ['allowDestructive', 'dryRun'], sync: ['allowDestructive', 'dryRun'], apply: ['dryRun'] }
+
 async function loadConfig(): Promise<Required<Pick<PgOrmConfig, 'migrationsDir'>> & PgOrmConfig> {
   const cfgPath = resolve(process.cwd(), 'pg-orm.config.ts')
 
@@ -193,6 +196,15 @@ async function main(): Promise<void> {
     console.log(HELP)
 
     return
+  }
+
+  const refused = Object.entries(FLAGS).find(([, flag]) => flags[flag] && !COMMAND_FLAGS[cmd]?.includes(flag))
+
+  if (refused) {
+    console.error(`${refused[0]} does nothing for ${cmd}
+
+${HELP}`)
+    process.exit(1)
   }
 
   const cfg = await loadConfig()

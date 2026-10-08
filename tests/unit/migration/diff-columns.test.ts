@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable } from '../../../src/index'
-import { diffColumn, diffTableColumns } from '../../../src/migration/diff/columns'
+import { diffColumn, diffComment, diffTableColumns } from '../../../src/migration/diff/columns'
 
 function liveCol(name: string, overrides: Partial<{
   dataType: string
@@ -198,5 +198,12 @@ describe('diffColumn', () => {
 
       expect(diffColumn('items', name, colDef, liveCol(name, { dataType, defaultValue, isNullable: false }))).toEqual([])
     }
+  })
+})
+
+describe('diffComment', () => {
+  it('treats an empty comment as none, as Postgres stores it', () => {
+    expect(diffComment('t', 'c', '', null)).toEqual([])
+    expect(diffComment('t', 'c', 'x', null)).toHaveLength(1)
   })
 })

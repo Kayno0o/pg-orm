@@ -121,14 +121,12 @@ describe('mapper json coercion', () => {
     expect(result.data).toEqual({ parsed: true })
   })
 
-  it('json columns force JIT path (not identity) even with no pick/omit', () => {
-    const cols = makeCols({ id: 'int4', data: 'jsonb' })
-    const mapper = compileMapper(cols)
-    const row = { id: 1, data: '{"a":1}' }
-    const result = mapper(row)
+  it('keeps a json string scalar on Postgres, a Postgres array literal look-alike included, on the identity path', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const row = { id: 1, data: '{1,2}' }
 
-    // identity would return same reference; JIT returns a fresh object
-    expect(result).not.toBe(row)
+    expect(mapper(row)).toBe(row)
+    expect(mapper({ id: 2, data: '{{name}}' }).data).toBe('{{name}}')
   })
 
   it('respects pick when json columns are present', () => {
@@ -147,15 +145,15 @@ describe('mapper json coercion', () => {
     expect(result).not.toHaveProperty('name')
   })
 
-  it('falls back to parsing Postgres array literal strings for jsonb', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+  it('falls back to parsing Postgres array literal text for jsonb on SQLite', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }), undefined, undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, data: '{"#### 1 ###","#    D   #","#    @   #","##########"}' })
 
     expect(result.data).toEqual(['#### 1 ###', '#    D   #', '#    @   #', '##########'])
   })
 
-  it('parses Postgres array literal with numbers and nulls for jsonb', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+  it('parses Postgres array literal text with numbers and nulls for jsonb on SQLite', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }), undefined, undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, data: '{1,NULL,3,true,false}' })
 
     expect(result.data).toEqual([1, null, 3, true, false])

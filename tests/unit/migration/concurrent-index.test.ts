@@ -57,5 +57,6 @@ describe('concurrent indexes', () => {
     expect(inside).toContain('ALTER TABLE "t" ADD COLUMN "x" int;')
     expect(inside).toContain('CREATE INDEX "k"')
     expect(inside).not.toContain('CONCURRENTLY')
+    expect(splitOutsideTransaction('CREATE INDEX CONCURRENTLY IF NOT EXISTS "i" ON "t" ("x");\r\nSELECT 1;\r\n').outside).toEqual(['CREATE INDEX CONCURRENTLY IF NOT EXISTS "i" ON "t" ("x")'])
   })
 })

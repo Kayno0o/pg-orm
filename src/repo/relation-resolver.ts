@@ -65,18 +65,14 @@ export class RelationResolver {
       )
     }
 
-    const relations = this.table.relations
-
-    if (!relations)
-      return parentRows
-
+    const relations = this.table.relations ?? {}
     const tasks: Promise<void>[] = []
 
     for (const inc of includes) {
       const rel = relations[inc.relation] as AnyRelationDef | undefined
 
       if (!rel)
-        continue
+        throw new ValidationError(`include(): "${this.table.name}" has no relation "${inc.relation}"`, 'include', { value: inc.relation })
 
       tasks.push((async () => {
         if (rel.type === 'belongsTo')

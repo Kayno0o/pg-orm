@@ -121,6 +121,9 @@ function incomingColumns(state: BuilderState): string[] {
   if (state.insertValues)
     return Object.keys(state.insertValues)
 
+  if (state.insertSelect)
+    return state.insertSelect.columns
+
   const rows = state.insertManyValues ?? []
   const keys = [...new Set(rows.flatMap(row => Object.keys(row)))]
   const missing = keys.find(k => rows.some(row => !(k in row)))
@@ -608,6 +611,9 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
 
   if (state.conflictTarget) {
+    if (!state.conflictTarget.length)
+      throw new ValidationError('ON CONFLICT DO UPDATE needs the conflict target: name the columns in onConflict().', 'onConflict')
+
     const target = quoteCols(state.conflictTarget)
     const updateCols = state.conflictUpdateCols ?? keys.filter(k => !state.conflictTarget!.includes(k))
     // With nothing else to copy the target is set to itself, so the conflicting row still comes back through RETURNING.

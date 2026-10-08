@@ -43,7 +43,7 @@ export function placeholderNumbers(sql: string): number[] {
 export function bindRawParams(sql: string, params: unknown[], context: string, bind: (value: unknown) => string): string {
   let next = 0
 
-  return replaceOutsideQuotes(sql, RAW_PARAM_RE, (match) => {
+  const bound = replaceOutsideQuotes(sql, RAW_PARAM_RE, (match) => {
     if (match === '??')
       return '?'
 
@@ -52,4 +52,9 @@ export function bindRawParams(sql: string, params: unknown[], context: string, b
 
     return bind(params[next++])
   })
+
+  if (next < params.length)
+    throw new ValidationError(`${context} SQL has fewer "?" placeholders than parameters (${next} used, ${params.length} provided)`, context)
+
+  return bound
 }

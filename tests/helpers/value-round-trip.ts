@@ -32,7 +32,7 @@ export function valueRoundTripCases(db: () => Database): void {
   })
 
   it('JSON string, boolean and number scalars round-trip unchanged', async () => {
-    for (const doc of ['123', 'true', 'hello', '{"a":1}', true, false, 0, 12.5, { a: [1, 2] }])
+    for (const doc of ['123', 'true', 'hello', '{"a":1}', '{1,2}', '{{name}}', true, false, 0, 12.5, { a: [1, 2] }])
       expect((await roundTrip({ doc })).doc).toEqual(doc)
   })
 

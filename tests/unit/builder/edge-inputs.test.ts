@@ -67,6 +67,7 @@ describe('builders on edge inputs', () => {
 
     expect(sql).toBe('SELECT * FROM "t" WHERE "j" ? $1 AND "k" = \'what?\'')
     expect(params).toEqual(['k'])
+    expect(() => select().where(e => e.raw('"k" = ?', 1, 2)).toSQL()).toThrow('fewer "?" placeholders than parameters')
   })
 
   it('jsonbSubscript says whether each step is a key or an index on Postgres', () => {

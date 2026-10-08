@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { DeleteBuilder, SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
 import { ValidationError } from '../../../src/errors/index'
-import { defineTable, isColumn, whereColumn } from '../../../src/index'
+import { defineTable, isColumn, softDelete, whereColumn } from '../../../src/index'
 
 const users = defineTable('cc_users', t => ({
   id: t.serial().primaryKey(),
@@ -16,6 +16,14 @@ const runtime = (name: string) => name as keyof Cols & string
 const select = () => new SelectBuilder<Cols>(users)
 
 describe('a builder on a table definition refuses a column the table does not have', () => {
+  it('knows a column a trait added after a builder already read the table', () => {
+    const late = defineTable('cc_late', t => ({ id: t.serial().primaryKey() }))
+
+    expect(() => new SelectBuilder<any>(late).pick('deletedAt').toSQL()).toThrow(ValidationError)
+    late.withTrait(softDelete())
+    expect(new SelectBuilder<any>(late).pick('deletedAt').toSQL().sql).toBe('SELECT "deletedAt" FROM "cc_late"')
+  })
+
   it('in WHERE, both forms, and in e.ref()', () => {
     expect(() => select().where({ [runtime('nme')]: 'x' }).toSQL()).toThrow(ValidationError)
     expect(() => select().where(e => e.eq(runtime('nme'), 'x')).toSQL()).toThrow(ValidationError)

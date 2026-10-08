@@ -306,8 +306,8 @@ class ExprAssembler {
         ? { sql: `${colSql} LIKE ${this.nextParam(op.pattern)} ESCAPE '\\'`, next: pos + 1 }
         : { sql: `${colSql} ILIKE ${this.nextParam(op.pattern)}`, next: pos + 1 }
       case OP_BETWEEN: {
-        const plo = this.nextParam(op.lo)
-        const phi = this.nextParam(op.hi)
+        const plo = this.operand(op.lo)
+        const phi = this.operand(op.hi)
 
         return { sql: `${colSql} BETWEEN ${plo} AND ${phi}`, next: pos + 1 }
       }

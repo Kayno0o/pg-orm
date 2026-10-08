@@ -11,6 +11,21 @@ const marks = defineTable('bw_marks', t => ({
   n: t.int4(),
 }))
 
+// The same table with after-write hooks counting the rows they see.
+const hooked = defineTable('bw_marks', t => ({
+  id: t.serial().primaryKey(),
+  code: t.text().unique(),
+  n: t.int4(),
+}))
+const fired = { afterInsert: 0, afterUpdate: 0 }
+
+hooked.hook('afterInsert', (written) => {
+  fired.afterInsert += written.length
+})
+hooked.hook('afterUpdate', (written) => {
+  fired.afterUpdate += written.length
+})
+
 const ROWS = 100_000
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-bulk-'))
 
@@ -35,6 +50,8 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
 
   beforeEach(async () => {
     await db.raw('DELETE FROM "bw_marks"')
+    fired.afterInsert = 0
+    fired.afterUpdate = 0
   })
 
   afterAll(async () => {
@@ -62,6 +79,21 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
 
     await expect(db.repo(marks).write.insertMany(batch, { pk: true })).rejects.toThrow(UniqueError)
     expect(await db.repo(marks).read.count()).toBe(0)
+  }, 60_000)
+
+  it('fires after-write hooks once every chunk landed, and none for rows a later chunk rolled back', async () => {
+    await expect(db.repo(hooked).write.insertMany([...rows(ROWS - 1), { code: 'c0', n: 0 }], { pk: true })).rejects.toThrow(UniqueError)
+    expect(fired.afterInsert).toBe(0)
+
+    await db.repo(hooked).write.insertMany(rows(ROWS), { pk: true })
+    expect(fired.afterInsert).toBe(ROWS)
+  }, 60_000)
+
+  it('tells inserted from updated rows on a hooked upsert of thousands', async () => {
+    await db.repo(marks).write.insertMany(rows(1500), { pk: true })
+    await db.repo(hooked).write.upsertMany(rows(3000, 1), ['code'], ['n'], { pk: true })
+
+    expect(fired).toEqual({ afterInsert: 1500, afterUpdate: 1500 })
   }, 60_000)
 
   it('stays all-or-nothing inside a transaction, as a savepoint', async () => {

@@ -199,8 +199,8 @@ export function defineTable(
 
         validateIndexMethod(idx.method, `index "${idx.name ?? idx.columns.join('_')}"`)
 
-        if (idx.where !== undefined)
-          validateRawSqlFragment(idx.where, `index "${idx.name ?? idx.columns.join('_')}"`)
+        for (const fragment of [...idx.expressions ?? [], ...idx.where === undefined ? [] : [idx.where]])
+          validateRawSqlFragment(fragment, `index "${idx.name ?? idx.columns.join('_')}"`)
       }
       ;(table.indexes as IndexDef[]).push(...idxDefs)
       bump()

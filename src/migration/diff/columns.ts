@@ -127,7 +127,8 @@ function diffUniques(tableName: string, tableDef: AnyTableDef, liveTable: LiveTa
 
 /** The op setting the comment of a table, or of one of its columns, when it differs from the live one; reverted by setting the live one back. */
 export function diffComment(tableName: string, colName: string | undefined, desired: string | undefined, live: string | null | undefined): MigrationOp[] {
-  if ((desired ?? null) === (live ?? null))
+  // Postgres stores an empty comment as none.
+  if ((desired || null) === (live ?? null))
     return []
 
   return [{

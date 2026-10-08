@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
+import { DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../../../src/builder/query'
 import { DialectError, ValidationError } from '../../../src/errors/index'
 
 const select = () => new SelectBuilder<any>('t')
@@ -11,6 +11,10 @@ describe('expressions the builder used to leave to raw SQL', () => {
     expect(where(e => e.isNotDistinctFrom('a', 1)).sql).toBe('SELECT * FROM "t" WHERE "a" IS NOT DISTINCT FROM $1')
     expect(where(e => e.notLike('a', 'x%')).sql).toBe('SELECT * FROM "t" WHERE NOT ("a" LIKE $1)')
     expect(where(e => e.notIlike('a', 'x%')).sql).toBe('SELECT * FROM "t" WHERE NOT ("a" ILIKE $1)')
+  })
+
+  it('BETWEEN takes a column reference or an expression for either bound', () => {
+    expect(where(e => e.between('x', e.ref('u.lo'), e.coalesce('hi', 9)))).toEqual({ sql: 'SELECT * FROM "t" WHERE "x" BETWEEN "u"."lo" AND COALESCE("hi", $1)', params: [9] })
   })
 
   it('jsonb @> binds its value as JSON, on Postgres only', () => {
@@ -111,6 +115,13 @@ describe('writes reading other tables', () => {
   it('bare ON CONFLICT DO NOTHING; DO UPDATE without a target throws', () => {
     expect(new InsertBuilder<any>('t').values({ a: 1 }).onConflict().doNothing().toSQL().sql).toBe('INSERT INTO "t" ("a") VALUES ($1) ON CONFLICT DO NOTHING')
     expect(() => new InsertBuilder<any>('t').values({ a: 1 }).onConflict([]).doUpdate('a').toSQL()).toThrow(ValidationError)
+  })
+
+  it('INSERT ... SELECT copies its selected columns on conflict, and an upsert without a target throws', () => {
+    const q = new InsertBuilder<any>('archive').fromSelect(['id', 'name'], new SelectBuilder<any>('t').pick('id', 'name')).onConflict(['id']).doUpdate().toSQL()
+
+    expect(q.sql).toBe('INSERT INTO "archive" ("id", "name") SELECT "id", "name" FROM "t" ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"')
+    expect(() => new UpsertBuilder<any>('t').values({ a: 1 }).onConflict().toSQL()).toThrow(ValidationError)
   })
 
   it('UPDATE ... FROM qualifies its own columns and sets from the other table', () => {

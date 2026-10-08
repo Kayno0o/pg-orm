@@ -93,6 +93,12 @@ describe('pg-orm CLI', () => {
     expect(await columns()).toEqual(['id', 'title'])
     expect(await admin.raw(`SELECT to_regclass('"${SCHEMA}"."legacy"')::text AS found`)).toEqual([{ found: `${SCHEMA}.legacy` }])
     expect((await cli(dir, ['status'], '2')).out).toContain('Schema: no drift')
+
+    const rollback = await cli(dir, ['rollback', '--dry-run'], '2')
+
+    expect(rollback.code).toBe(1)
+    expect(rollback.out).toContain('--dry-run does nothing for rollback')
+    expect(await columns()).toEqual(['id', 'title'])
   })
 
   it('writes no file and records nothing when the apply fails', async () => {
