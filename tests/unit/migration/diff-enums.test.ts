@@ -7,25 +7,24 @@ function registry(...tables: any[]) {
 }
 
 describe('collectEnumRequirements', () => {
-  it('collects enum names, values, and usages from desired tables', () => {
+  it('collects enum names and values from desired tables, an enum array included', () => {
     const table = defineTable('users', t => ({
       id: t.serial().primaryKey(),
       status: t.enum('user_status', ['active', 'inactive'] as const).notNull(),
+      roles: t.array(t.enum('user_role', ['admin', 'member'] as const)),
     }))
-    const { neededEnums, enumUsages } = collectEnumRequirements(registry(table))
+    const neededEnums = collectEnumRequirements(registry(table))
 
     expect(neededEnums.get('user_status')).toEqual(['active', 'inactive'])
-    expect(enumUsages.get('user_status')).toEqual([{ table: 'users', column: 'status' }])
+    expect(neededEnums.get('user_role')).toEqual(['admin', 'member'])
   })
 
-  it('returns empty maps when no enums are used', () => {
+  it('returns an empty map when no enums are used', () => {
     const table = defineTable('users', t => ({
       id: t.serial().primaryKey(),
     }))
-    const { neededEnums, enumUsages } = collectEnumRequirements(registry(table))
 
-    expect(neededEnums.size).toBe(0)
-    expect(enumUsages.size).toBe(0)
+    expect(collectEnumRequirements(registry(table)).size).toBe(0)
   })
 })
 
@@ -33,7 +32,6 @@ describe('diffEnums', () => {
   it('creates missing enum', () => {
     const ops = diffEnums(
       new Map([['user_status', ['active', 'inactive']]]),
-      new Map([['user_status', []]]),
       [],
     )
 
@@ -46,7 +44,6 @@ describe('diffEnums', () => {
   it('adds missing enum values', () => {
     const ops = diffEnums(
       new Map([['user_status', ['active', 'inactive', 'banned']]]),
-      new Map([['user_status', []]]),
       [{ name: 'user_status', values: ['active', 'inactive'] }],
     )
 
@@ -59,8 +56,8 @@ describe('diffEnums', () => {
   it('recreates enum when values are removed', () => {
     const ops = diffEnums(
       new Map([['user_status', ['active']]]),
-      new Map([['user_status', [{ table: 'users', column: 'status' }]]]),
       [{ name: 'user_status', values: ['active', 'inactive'] }],
+      [{ name: 'users', columns: [{ name: 'status', dataType: 'user_status', isNullable: false, defaultValue: null, isPrimaryKey: false, isUnique: false, isGenerated: false }] }],
     )
 
     expect(ops.length).toBeGreaterThanOrEqual(3)
@@ -69,12 +66,12 @@ describe('diffEnums', () => {
     expect(ops.some(o => o.sql.includes('CREATE TYPE'))).toBe(true)
     expect(ops.some(o => o.sql.includes('DROP TYPE'))).toBe(true)
     expect(ops.some(o => o.sql.includes('RENAME TO'))).toBe(true)
+    expect(ops.some(o => o.sql.includes('ALTER TABLE "users" ALTER COLUMN "status"'))).toBe(true)
   })
 
   it('returns empty when enum matches', () => {
     const ops = diffEnums(
       new Map([['user_status', ['active', 'inactive']]]),
-      new Map([['user_status', []]]),
       [{ name: 'user_status', values: ['active', 'inactive'] }],
     )
 

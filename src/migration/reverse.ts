@@ -3,6 +3,7 @@ import type { MigrationOp } from './types'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
 import { ADD_CONSTRAINT_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
+import { fkConstraintName } from './ddl'
 
 export interface DownSqlOptions {
   /** Enable defense-in-depth identifier validation at the down-SQL boundary. */
@@ -77,9 +78,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
     case 'add_fk': {
       const table = requireIdent(op.table, 'down.add_fk.table', opts)
       const column = requireIdent(op.column, 'down.add_fk.column', opts)
-      // Constraint name format: <table>_<column>_fkey — re-validate the
-      // assembled name to catch length-overflow against PG's 63-byte limit.
-      const constraint = `${table}_${column}_fkey`
+      const constraint = fkConstraintName(table, column)
 
       validateOptional(constraint, 'down.add_fk.constraint', opts)
 

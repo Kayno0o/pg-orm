@@ -666,6 +666,9 @@ afterAll(() => database.drop())
 - A primary key added, moved or extended is applied: dropping the old one is destructive, and fails while foreign keys still point at it.
 - A generated column whose expression changed gets `SET EXPRESSION` (Postgres 17 or later); one made plain keeps its values (`DROP EXPRESSION`); a plain column made generated is dropped and added again, which is destructive.
 - A column renamed with `renamedFrom()` keeps its foreign key and its UNIQUE constraint, under their old names.
+- A type change casts the values (`USING "col"::<type>`) unless Postgres converts them itself (text to varchar, int to bigint, date to timestamp), which refuses a value too long rather than cutting it. A json array becomes a Postgres array through its text. The column's default is dropped before and set again after.
+- An enum losing values is replaced by a new type, every live column of it (arrays included) converted, its default dropped and set again. A row holding a removed value makes the sync fail.
+- Index and constraint names longer than Postgres' 63 bytes are cut, with a hash of the full name kept.
 
 ### CHECK constraints
 

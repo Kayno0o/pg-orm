@@ -1,6 +1,7 @@
 import type { MigrationOp } from '../../../src/migration/types'
 import { describe, expect, it } from 'bun:test'
 import { ValidationError } from '../../../src/errors/index'
+import { fkConstraintName } from '../../../src/migration/ddl'
 import { generateDownSql, generateReverseOp } from '../../../src/migration/reverse'
 
 function op(partial: Partial<MigrationOp> & Pick<MigrationOp, 'type' | 'sql' | 'description'>): MigrationOp {
@@ -218,15 +219,13 @@ describe('generateDownSql', () => {
       ).toThrow(ValidationError)
     })
 
-    it('rejects fk constraint that would exceed PG 63-byte identifier limit', () => {
+    it('drops a long fk constraint under the name it was created with, within the 63-byte limit', () => {
       const longTable = 'a'.repeat(40)
       const longColumn = 'b'.repeat(40)
+      const sql = generateDownSql([op({ type: 'add_fk', table: longTable, column: longColumn, sql: '', description: '' })], { validate: true })
 
-      expect(() =>
-        generateDownSql([
-          op({ type: 'add_fk', table: longTable, column: longColumn, sql: '', description: '' }),
-        ], { validate: true }),
-      ).toThrow(ValidationError)
+      expect(sql).toBe(`ALTER TABLE "${longTable}" DROP CONSTRAINT IF EXISTS "${fkConstraintName(longTable, longColumn)}";`)
+      expect(fkConstraintName(longTable, longColumn)).toHaveLength(63)
     })
 
     it('rejects rename_column when matched names are valid but table is malicious', () => {

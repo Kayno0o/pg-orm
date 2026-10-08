@@ -148,8 +148,13 @@ export function createColumnTypes(): ColumnTypes {
 
     array: <T>(inner: ColumnBuilder<T>) => {
       const pgType = getColumnBuilderPgType(inner)
+      const b = new ColumnBuilder<T[]>(`${pgType}[]`)
 
-      return new ColumnBuilder<T[]>(`${pgType}[]`) as unknown as ColumnBuilder<T[]>
+      // An enum array needs its type created as an enum column does.
+      b._enumName = inner._enumName
+      b._enumValues = inner._enumValues
+
+      return b as unknown as ColumnBuilder<T[]>
     },
 
     vector: n => new ColumnBuilder(`vector(${typeArg(n, 'vector dimensions')})`),

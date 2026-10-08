@@ -170,7 +170,7 @@ describe('diffSchema — extended migration tests', () => {
 
     expect(alterOp).toBeDefined()
     expect(alterOp!.destructive).toBe(true)
-    expect(alterOp!.sql).toBe('ALTER TABLE "sokoban_level" ALTER COLUMN "rows" TYPE text[] USING "rows"::text[]')
+    expect(alterOp!.sql).toBe(`ALTER TABLE "sokoban_level" ALTER COLUMN "rows" TYPE text[] USING translate("rows"::text, '[]', '{}')::text[]`)
   })
 
   it('adds USING clause when changing json to text[]', () => {
@@ -192,7 +192,7 @@ describe('diffSchema — extended migration tests', () => {
     const alterOp = ops.find(o => o.type === 'alter_column' && o.column === 'tags')
 
     expect(alterOp).toBeDefined()
-    expect(alterOp!.sql).toContain('USING "tags"::text[]')
+    expect(alterOp!.sql).toContain(`USING translate("tags"::text, '[]', '{}')::text[]`)
   })
 
   it('does not add USING clause for implicitly-cast type changes', () => {

@@ -16,10 +16,12 @@ import {
   buildSetDefaultSql,
   buildSetExpressionSql,
   buildSetNotNullSql,
-  needsUsingCast,
   normalizeExpression,
   normalizeType,
+  primaryKeyName,
   sameDefault,
+  uniqueConstraintName,
+  usingClause,
 } from '../ddl'
 import { SERIAL_TYPE_RE } from '../regex'
 import { columnEntries } from '../types'
@@ -106,7 +108,7 @@ function diffPrimaryKey(tableName: string, tableDef: AnyTableDef, liveTable: Liv
     : [{
       type: 'drop_constraint',
       table: tableName,
-      sql: buildDropConstraintSql(tableName, liveTable.primaryKeyConstraint ?? `${tableName}_pkey`),
+      sql: buildDropConstraintSql(tableName, liveTable.primaryKeyConstraint ?? primaryKeyName(tableName)),
       destructive: true,
       description: `Drop primary key (${live.join(', ')}) of "${tableName}"`,
     }]
@@ -195,15 +197,11 @@ export function diffColumnType(
     ]
   }
 
-  const usingClause = needsUsingCast(ctx.liveType, ctx.desiredType)
-    ? ` USING "${colName}"::${ctx.colDef.pgType}`
-    : ''
-
   return [{
     type: 'alter_column',
     table: tableName,
     column: colName,
-    sql: buildAlterColumnTypeSql(tableName, colName, ctx.colDef.pgType, usingClause),
+    sql: buildAlterColumnTypeSql(tableName, colName, ctx.colDef.pgType, usingClause(colName, ctx.liveType, ctx.desiredType, ctx.colDef.pgType)),
     destructive: true,
     description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
   }]
@@ -257,7 +255,23 @@ export function diffColumn(
     })
   }
 
-  if (desiredType !== liveType)
+  const retyped = desiredType !== liveType
+  // A default is not cast along with its column: it is dropped before the type changes and set again after. A vector column is added anew instead.
+  const dropsDefault = retyped && !desiredType.startsWith('vector') && !liveType.startsWith('vector')
+    && liveCol.defaultValue !== null && !isOwnSequenceDefault(colDef, liveCol.defaultValue)
+
+  if (dropsDefault) {
+    ops.push({
+      type: 'alter_column',
+      table: tableName,
+      column: colName,
+      sql: buildDropDefaultSql(tableName, colName),
+      destructive: false,
+      description: `Drop default from "${colName}" in "${tableName}" before its type changes`,
+    })
+  }
+
+  if (retyped)
     ops.push(...diffColumnType(tableName, colName, { colDef, desiredType, liveType }))
 
   const desiredUnique = colDef.constraints.some((c: ColumnConstraint) => c.type === 'unique')
@@ -277,7 +291,7 @@ export function diffColumn(
       type: 'drop_constraint',
       table: tableName,
       column: colName,
-      sql: buildDropConstraintSql(tableName, liveCol.uniqueConstraint ?? `${tableName}_${colName}_key`),
+      sql: buildDropConstraintSql(tableName, liveCol.uniqueConstraint ?? uniqueConstraintName(tableName, colName)),
       destructive: true,
       description: `Drop UNIQUE constraint on "${colName}" in "${tableName}"`,
     })
@@ -306,9 +320,9 @@ export function diffColumn(
     })
   }
 
-  if (!liveCol.isPrimaryKey && desiredExpr === undefined) {
+  if ((!liveCol.isPrimaryKey || dropsDefault) && desiredExpr === undefined) {
     const desiredDefault = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')?.value ?? null
-    const liveDefault = liveCol.defaultValue
+    const liveDefault = dropsDefault ? null : liveCol.defaultValue
 
     if (desiredDefault === null && liveDefault !== null && !isOwnSequenceDefault(colDef, liveDefault)) {
       ops.push({

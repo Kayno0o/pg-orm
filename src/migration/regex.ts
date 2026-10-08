@@ -7,6 +7,9 @@ export const WHERE_RE = /\bWHERE\b/i
 // A type split into its name, its modifier and its array brackets: `varchar(10)[]`. A schema qualifier and identifier quotes are dropped before.
 export const TYPE_PARTS_RE = /^([^()[\]]*)(?:\(([^)]*)\))?((?:\[\d*\])*)$/
 export const TYPE_QUALIFIER_RE = /^[^(]*\./
+// A length or precision inside a normalized type (`character varying(10)`, `timestamp(3) with time zone`), and its array brackets.
+export const TYPE_MODIFIER_RE = /\(\d+(?:,\d+)?\)/g
+export const ARRAY_SUFFIX_RE = /\[\]$/
 export const SERIAL_TYPE_RE = /^(?:small|big)?serial[248]?$/i
 
 // The parts of a default expression: a quoted literal is kept verbatim, the rest loses its spacing, its case and its casts (`''::text`, `::character varying(10)[]`).

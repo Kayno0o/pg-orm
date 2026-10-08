@@ -30,7 +30,8 @@ export function columnChecks(tableName: string, colName: string, colDef: AnyColu
     if (meta.pattern != null)
       throw new DialectError(`pattern() on "${tableName}"."${colName}", a Postgres regular expression`, dialect)
 
-    if (meta.enumValues)
+    // An enum array is JSON text there, which a list of values cannot check.
+    if (meta.enumValues && !colDef.pgType.endsWith('[]'))
       exprs.push(`"${colName}" IN (${meta.enumValues.map(v => `'${escapeLiteralBody(v)}'`).join(', ')})`)
   }
 

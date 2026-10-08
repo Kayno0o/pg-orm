@@ -2,7 +2,10 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef } from '../type
 import { escapeLiteralBody } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
-import { DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
+import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
+
+// Postgres truncates a longer identifier, which then never reads back as the name it was created under.
+const MAX_IDENTIFIER_BYTES = 63
 
 export function generateCreateTable(name: string, table: AnyTableDef): string {
   const { colDefs, pkCols, uniqueCols } = collectConstraints(table, (col, def) => generateColumnDDL(col, def, name))
@@ -212,12 +215,38 @@ function parseTimestamp(text: string, ignoreZone: boolean): number {
   return Date.parse(`${date}T${TIME_ZONE_RE.test(zoned) ? zoned : `${zoned}Z`}`)
 }
 
-// PostgreSQL can implicitly cast between many scalar types (int -> bigint,
-// varchar -> text, etc.), but not from json/jsonb to an array type. When such
-// a change is requested via ALTER COLUMN ... TYPE, Postgres requires an
-// explicit USING expression.
-export function needsUsingCast(liveType: string, desiredType: string): boolean {
-  return (liveType === 'json' || liveType === 'jsonb') && desiredType.endsWith('[]')
+// Types Postgres casts between on assignment, which ALTER COLUMN ... TYPE uses without a USING clause and which, unlike an explicit cast, refuses a string too long instead of cutting it.
+const TYPE_FAMILIES: Record<string, string> = {
+  'text': 'string',
+  'character varying': 'string',
+  'character': 'string',
+  'smallint': 'number',
+  'integer': 'number',
+  'bigint': 'number',
+  'numeric': 'number',
+  'real': 'number',
+  'double precision': 'number',
+  'date': 'time',
+  'timestamp without time zone': 'time',
+  'timestamp with time zone': 'time',
+}
+
+/**
+ * The USING clause changing a column from `liveType` to `desiredType` (both normalized) needs: none within a family Postgres casts on assignment, an explicit cast otherwise (text to integer, uuid, boolean or an enum).
+ * A json array becomes a Postgres one through its text, brackets turned into braces, as json has no cast to an array.
+ */
+export function usingClause(colName: string, liveType: string, desiredType: string, pgType: string): string {
+  const live = liveType.replace(TYPE_MODIFIER_RE, '')
+  const desired = desiredType.replace(TYPE_MODIFIER_RE, '')
+  const family = TYPE_FAMILIES[live.replace(ARRAY_SUFFIX_RE, '')]
+
+  if (live === desired || (family !== undefined && live.endsWith('[]') === desired.endsWith('[]') && family === TYPE_FAMILIES[desired.replace(ARRAY_SUFFIX_RE, '')]))
+    return ''
+
+  if ((live === 'json' || live === 'jsonb') && desired.endsWith('[]'))
+    return ` USING translate("${colName}"::text, '[]', '{}')::${pgType}`
+
+  return ` USING "${colName}"::${pgType}`
 }
 
 // --- Table lifecycle ---
@@ -276,12 +305,37 @@ export function buildDropDefaultSql(tableName: string, colName: string): string 
 
 // --- Constraint lifecycle ---
 
+/** `<base><suffix>` cut to Postgres' 63-byte limit, a hash of the full name kept so two long names stay apart and the name reads back as it was created. */
+export function fitIdentifier(base: string, suffix: string): string {
+  const full = `${base}${suffix}`
+
+  // Identifiers are ASCII, validated at definition time, so a character is a byte.
+  if (full.length <= MAX_IDENTIFIER_BYTES)
+    return full
+
+  const hash = new Bun.CryptoHasher('sha256').update(full).digest('hex').slice(0, 8)
+
+  return `${base.slice(0, MAX_IDENTIFIER_BYTES - suffix.length - hash.length - 1)}_${hash}${suffix}`
+}
+
+export function uniqueConstraintName(tableName: string, colName: string): string {
+  return fitIdentifier(`${tableName}_${colName}`, '_key')
+}
+
+export function primaryKeyName(tableName: string): string {
+  return fitIdentifier(tableName, '_pkey')
+}
+
+export function fkConstraintName(tableName: string, colName: string): string {
+  return fitIdentifier(`${tableName}_${colName}`, '_fkey')
+}
+
 export function buildAddUniqueConstraintSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_key" UNIQUE ("${colName}")`
+  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${uniqueConstraintName(tableName, colName)}" UNIQUE ("${colName}")`
 }
 
 export function buildAddPrimaryKeySql(tableName: string, columns: string[]): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_pkey" PRIMARY KEY (${columns.map(c => `"${c}"`).join(', ')})`
+  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${primaryKeyName(tableName)}" PRIMARY KEY (${columns.map(c => `"${c}"`).join(', ')})`
 }
 
 export function buildAddCheckSql(tableName: string, name: string, expr: string): string {
@@ -296,7 +350,7 @@ export function buildDropConstraintSql(tableName: string, constraintName: string
 
 export function buildAddFkSql(tableName: string, colName: string, ref: ForeignKeyRef): string {
   const targetTable = ref.table()
-  let sql = `ALTER TABLE "${tableName}" ADD CONSTRAINT "${tableName}_${colName}_fkey" FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
+  let sql = `ALTER TABLE "${tableName}" ADD CONSTRAINT "${fkConstraintName(tableName, colName)}" FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
 
   if (ref.onDelete)
     sql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
@@ -314,9 +368,7 @@ export function buildDropFkSql(tableName: string, constraintName: string): strin
 // --- Index lifecycle ---
 
 export function buildIndexName(tableName: string, columns: string[], unique: boolean): string {
-  const suffix = unique ? 'unique' : 'idx'
-
-  return `${tableName}_${columns.join('_')}_${suffix}`
+  return fitIdentifier(`${tableName}_${columns.join('_')}`, unique ? '_unique' : '_idx')
 }
 
 export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
@@ -333,7 +385,7 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef): string {
 }
 
 export function buildDropIndexSql(name: string): string {
-  return `DROP INDEX "${name}"`
+  return `DROP INDEX IF EXISTS "${name}"`
 }
 
 // --- Enum lifecycle ---
@@ -348,25 +400,40 @@ export function buildAlterEnumAddSql(name: string, value: string): string {
   return `ALTER TYPE "${name}" ADD VALUE IF NOT EXISTS '${escapeEnumValue(value)}'`
 }
 
-export function buildEnumReplacementSqls(
-  enumName: string,
-  values: string[],
-  usages: { table: string, column: string }[],
-): string[] {
+/** A live column typed with an enum, or an array of it. */
+export interface EnumUsage {
+  table: string
+  column: string
+  array: boolean
+  /** Whether it has a default, which cannot be cast to the new type and is dropped first. */
+  hasDefault: boolean
+  /** The default it gets back once the type is replaced: its definition's. */
+  restoreDefault?: string
+}
+
+export function buildEnumReplacementSqls(enumName: string, values: string[], usages: EnumUsage[]): string[] {
   const escapedValues = values.map(v => `'${escapeEnumValue(v)}'`).join(', ')
-  const tmpName = `${enumName}_new`
+  const tmpName = fitIdentifier(enumName, '_new')
   const sqls: string[] = [
     `CREATE TYPE "${tmpName}" AS ENUM (${escapedValues})`,
   ]
 
   for (const usage of usages) {
-    sqls.push(
-      `ALTER TABLE "${usage.table}" ALTER COLUMN "${usage.column}" TYPE "${tmpName}" USING "${usage.column}"::text::"${tmpName}"`,
-    )
+    const brackets = usage.array ? '[]' : ''
+
+    if (usage.hasDefault)
+      sqls.push(buildDropDefaultSql(usage.table, usage.column))
+
+    sqls.push(`ALTER TABLE "${usage.table}" ALTER COLUMN "${usage.column}" TYPE "${tmpName}"${brackets} USING "${usage.column}"::text${brackets}::"${tmpName}"${brackets}`)
   }
 
   sqls.push(`DROP TYPE "${enumName}"`)
   sqls.push(`ALTER TYPE "${tmpName}" RENAME TO "${enumName}"`)
+
+  for (const usage of usages) {
+    if (usage.restoreDefault !== undefined)
+      sqls.push(buildSetDefaultSql(usage.table, usage.column, usage.restoreDefault))
+  }
 
   return sqls
 }

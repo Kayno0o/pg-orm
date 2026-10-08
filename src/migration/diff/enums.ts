@@ -1,7 +1,8 @@
 import type { AnyColumnDef, AnyTableDef } from '../../types/index'
-import type { LiveEnum, MigrationOp } from '../types'
+import type { EnumUsage } from '../ddl'
+import type { LiveEnum, LiveTable, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { buildAlterEnumAddSql, buildCreateEnumSql, buildEnumReplacementSqls } from '../ddl'
+import { buildAlterEnumAddSql, buildCreateEnumSql, buildEnumReplacementSqls, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 
 export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
@@ -14,37 +15,56 @@ export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: s
   return null
 }
 
-export function collectEnumRequirements(
-  desired: ReadonlyMap<string, AnyTableDef>,
-): {
-  neededEnums: Map<string, string[]>
-  enumUsages: Map<string, { table: string, column: string }[]>
-} {
+/** The enum types the definitions use, an array of one included, with their values. */
+export function collectEnumRequirements(desired: ReadonlyMap<string, AnyTableDef>): Map<string, string[]> {
   const neededEnums = new Map<string, string[]>()
-  const enumUsages = new Map<string, { table: string, column: string }[]>()
 
-  for (const [tableName, tableDef] of desired) {
-    for (const [colName, colDef] of columnEntries(tableDef.columns)) {
+  for (const tableDef of desired.values()) {
+    for (const [, colDef] of columnEntries(tableDef.columns)) {
       const enumInfo = extractEnumInfo(colDef)
 
-      if (enumInfo) {
+      if (enumInfo)
         neededEnums.set(enumInfo.name, enumInfo.values)
-
-        if (!enumUsages.has(enumInfo.name))
-          enumUsages.set(enumInfo.name, [])
-
-        enumUsages.get(enumInfo.name)!.push({ table: tableName, column: colName })
-      }
     }
   }
 
-  return { neededEnums, enumUsages }
+  return neededEnums
+}
+
+// The live columns typed with the enum, which its replacement must convert before the old type can go, with the default each gets back from its definition.
+function liveUsages(enumName: string, liveTables: LiveTable[], desired: ReadonlyMap<string, AnyTableDef>): EnumUsage[] {
+  const scalar = normalizeType(enumName)
+  const usages: EnumUsage[] = []
+
+  for (const table of liveTables) {
+    for (const col of table.columns) {
+      const type = normalizeType(col.dataType)
+
+      if (type !== scalar && type !== `${scalar}[]`)
+        continue
+
+      const tableDef = desired.get(table.name)
+      const entries = tableDef ? columnEntries(tableDef.columns) : []
+      const colDef = (entries.find(([name]) => name === col.name) ?? entries.find(([, c]) => getColumnMeta(c).renamedFrom === col.name))?.[1]
+
+      usages.push({
+        table: table.name,
+        column: col.name,
+        array: type !== scalar,
+        hasDefault: col.defaultValue !== null,
+        restoreDefault: col.defaultValue === null ? undefined : colDef?.constraints.find(c => c.type === 'default')?.value,
+      })
+    }
+  }
+
+  return usages
 }
 
 export function diffEnums(
   neededEnums: Map<string, string[]>,
-  enumUsages: Map<string, { table: string, column: string }[]>,
   liveEnums: LiveEnum[],
+  liveTables: LiveTable[] = [],
+  desired: ReadonlyMap<string, AnyTableDef> = new Map(),
 ): MigrationOp[] {
   const ops: MigrationOp[] = []
   const liveEnumMap = new Map(liveEnums.map(e => [e.name, e]))
@@ -79,8 +99,7 @@ export function diffEnums(
     const removedValues = liveEnum.values.filter(v => !values.includes(v))
 
     if (removedValues.length > 0) {
-      const usages = enumUsages.get(enumName) ?? []
-      const sqls = buildEnumReplacementSqls(enumName, values, usages)
+      const sqls = buildEnumReplacementSqls(enumName, values, liveUsages(enumName, liveTables, desired))
 
       for (const sql of sqls) {
         ops.push({
