@@ -6,6 +6,7 @@ import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
+import { OP_IN_SUBQUERY } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
@@ -158,9 +159,33 @@ export class WritePipeline<
   }
 
   async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this.updateMany(set, where, opts)
+    const rows = await this.updateMany(set, this._firstMatch(requireWhere(where, 'updateOne'), opts?.withTrashed), opts)
 
     return rows[0] ?? null
+  }
+
+  /** Update the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
+  async updateById(set: InferUpdate<TColumns>, key: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const rows = await this.updateMany(set, key, opts)
+
+    return rows[0] ?? null
+  }
+
+  // The first row by primary key that `where` matches, as a WHERE of its own: `updateOne` and `deleteOne` change that one row, however many match. Trashed rows are passed over unless `withTrashed`, as the outer statement would skip them.
+  private _firstMatch(where: Where<TColumns>, withTrashed?: boolean): Where<TColumns> {
+    const { pkColumns, table } = this._runtime
+    const first = new SelectBuilderCtor<TColumns>(table.name)
+      .pick(...pkColumns as (keyof TColumns & string)[])
+      .where(where)
+      .limit(1)
+
+    for (const col of pkColumns)
+      first.orderBy(col as keyof TColumns & string)
+
+    if (!withTrashed)
+      this._runtime.behavior.prepareSelect(first)
+
+    return () => [{ op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }]
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
@@ -236,7 +261,14 @@ export class WritePipeline<
   }
 
   async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const rows = await this.deleteMany(where, opts)
+    const rows = await this._delete(this._firstMatch(requireWhere(where, 'deleteOne')), false, opts)
+
+    return rows[0] ?? null
+  }
+
+  /** Delete the row a primary key names: the key bounds the statement, so it needs no `_firstMatch`. */
+  async deleteById(key: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const rows = await this.deleteMany(key, opts)
 
     return rows[0] ?? null
   }

@@ -213,6 +213,22 @@ describe('SQLite repositories', () => {
   })
 })
 
+describe('SQLite single-row writes', () => {
+  it('updateOne and deleteOne reach one of several matches, a composite key included', async () => {
+    const [a, b] = await db.repo(authorsTable).write.insertMany([{ name: 'A', rank: 1 }, { name: 'B', rank: 1 }])
+    const authorId = a!
+    const [first, second] = await db.repo(books).write.insertMany([{ title: 'One', authorId }, { title: 'Two', authorId }])
+    const shelfId = await db.repo(shelves).write.insertOne({ label: 'S' })
+
+    await db.repo(shelfBooks).write.insertMany([{ shelfId, bookId: first! }, { shelfId, bookId: second! }])
+
+    expect(await db.repo(authorsTable).write.updateOne({ rank: 2 }, { rank: 1 })).toBe(a!)
+    expect((await db.repo(authorsTable).read.findById(b!))?.rank).toBe(1)
+    expect(await db.repo(shelfBooks).write.deleteOne({ shelfId })).toEqual({ shelfId, bookId: [first!, second!].sort()[0]! })
+    expect(await db.repo(shelfBooks).read.count({ shelfId })).toBe(1)
+  })
+})
+
 describe('SQLite constraint errors', () => {
   it('maps each violation onto the typed error, named as Postgres would name it', async () => {
     const repo = db.repo(authorsTable)

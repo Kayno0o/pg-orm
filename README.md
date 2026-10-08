@@ -325,6 +325,7 @@ const alice = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' },
 
 // Update — the where takes both forms, and `updateById` spells out the common one
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
+// updateOne/deleteOne change only the first matching row by primary key, however many match
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 }, { full: true })
 await repo.write.updateById(1, { name: 'Bob' })
 

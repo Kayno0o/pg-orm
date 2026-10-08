@@ -62,6 +62,7 @@ export const OP_SCALAR = 24 as const // scalar subquery
 export const OP_ARRAY_CONTAINS = 25 as const
 export const OP_ARRAY_OVERLAP = 26 as const
 export const OP_JSONB_SUBSCRIPT = 27 as const
+export const OP_IN_SUBQUERY = 28 as const // (a, b) IN (SELECT a, b ...)
 
 export type ExprOp
   = | { op: typeof OP_AND, count: number }
@@ -91,6 +92,7 @@ export type ExprOp
     | { op: typeof OP_ARRAY_CONTAINS, col: string | ExprTape, val: unknown }
     | { op: typeof OP_ARRAY_OVERLAP, col: string | ExprTape, vals: unknown[] }
     | { op: typeof OP_JSONB_SUBSCRIPT, col: string | ExprTape, path: (string | number)[] }
+    | { op: typeof OP_IN_SUBQUERY, cols: string[], subquery: SubqueryRef }
 
 export type ExprTape = ExprOp[]
 
@@ -322,6 +324,11 @@ class ExprAssembler {
         return { sql: quotePath(op.path), next: pos + 1 }
       case OP_SCALAR:
         return { sql: `(${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      case OP_IN_SUBQUERY: {
+        const cols = op.cols.map(col => this.walkCol(col))
+
+        return { sql: `${cols.length === 1 ? cols[0] : `(${cols.join(', ')})`} IN (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      }
       // On SQLite an array column holds JSON text, its elements read through json_each.
       case OP_ARRAY_CONTAINS:
         return this.dialect === 'sqlite'

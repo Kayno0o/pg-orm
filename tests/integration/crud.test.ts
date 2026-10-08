@@ -219,6 +219,33 @@ describe('CRUD - updateOne', () => {
 
     expect(result).toBeNull()
   })
+
+  it('changes only the first of several matching rows, by primary key', async () => {
+    const repo = db.repo(usersTable)
+    const [first, second] = await repo.write.insertMany([
+      { name: 'Twin', email: 'twin1@test.com', age: 5 },
+      { name: 'Twin', email: 'twin2@test.com', age: 5 },
+    ])
+
+    expect(await repo.write.updateOne({ age: 9 }, { age: 5 })).toBe(first!)
+    expect((await repo.read.findById(second!))?.age).toBe(5)
+  })
+})
+
+describe('CRUD - deleteOne', () => {
+  it('deletes only the first of several matching rows, passing over trashed ones', async () => {
+    const repo = db.repo(usersTable)
+    const [first, second, third] = await repo.write.insertMany([
+      { name: 'Twin', email: 'twin1@test.com', age: 5 },
+      { name: 'Twin', email: 'twin2@test.com', age: 5 },
+      { name: 'Twin', email: 'twin3@test.com', age: 5 },
+    ])
+
+    expect(await repo.write.deleteOne({ age: 5 })).toBe(first!)
+    expect(await repo.write.deleteOne({ age: 5 })).toBe(second!)
+    expect(await repo.read.count({ age: 5 })).toBe(1)
+    expect((await repo.read.findById(third!))?.age).toBe(5)
+  })
 })
 
 describe('CRUD - deleteMany', () => {

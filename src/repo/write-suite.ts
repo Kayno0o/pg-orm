@@ -56,7 +56,7 @@ export class WriteSuite<
   async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions & { full?: false }): Promise<InferPrimaryKey<TColumns> | null>
   async updateById(id: unknown, set: InferUpdate<TColumns>, opts: UpdateOptions & { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    return this._pipeline.updateOne(set, this._rt.pkWhere(id) as Where<TColumns>, opts)
+    return this._pipeline.updateById(set, this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
   /** Update many rows in one statement, each with its own values: `updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1 }])`. Rows may write different columns; a row whose key matches nothing is skipped. */
@@ -88,7 +88,7 @@ export class WriteSuite<
   async deleteById(id: unknown): Promise<InferPrimaryKey<TColumns> | null>
   async deleteById(id: unknown, opts: { full: true }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async deleteById(id: unknown, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    return this._pipeline.deleteOne(this._rt.pkWhere(id) as Where<TColumns>, opts)
+    return this._pipeline.deleteById(this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
   /**
