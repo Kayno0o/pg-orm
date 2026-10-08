@@ -2,11 +2,11 @@ import type { Dialect } from '../dialect'
 import type { AnyTableDef } from '../types/index'
 import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError } from '../errors/index'
-import { TIMESTAMP_DELIM_RE } from '../utils/regex'
-import { djb2Hash, ensureMigrationTable, recordMigration } from './history'
+import { djb2Hash, ensureMigrationTable, migrationName, recordMigration } from './history'
 import { promptSync } from './interactive'
 import { planMigration } from './plan'
 import { generateDownSql } from './reverse'
+import { MIGRATION_LOCK_KEY } from './types'
 
 export interface SyncContext {
   query: QueryFn
@@ -21,9 +21,6 @@ export interface SyncOptions {
   dryRun?: boolean
   confirm?: boolean
 }
-
-// Stable hash key for `pg_advisory_xact_lock` — derived once from "pg-orm-sync".
-const SYNC_LOCK_KEY = 741953258
 
 /**
  * Auto-migrate: introspect the live DB, diff against registered tables, and apply DDL.
@@ -47,7 +44,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
   // The lock is transaction-scoped and auto-released on commit/rollback.
   return ctx.transact(async (txQuery) => {
     if (dialect === 'postgres')
-      await txQuery('SELECT pg_advisory_xact_lock($1)', [SYNC_LOCK_KEY])
+      await txQuery('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_KEY])
 
     const txExecutor = { query: txQuery }
     const ops = await planMigration(txExecutor, ctx.tables, dialect, ctx.schema)
@@ -82,12 +79,11 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
         await txQuery(`${op.sql};`, [])
 
       await ensureMigrationTable(txExecutor, dialect)
-      const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
       const downSql = generateDownSql(ops, { validate: true, dialect })
       const hash = djb2Hash(sqlStr)
 
       await recordMigration(txExecutor, {
-        name: `${timestamp}_sync`,
+        name: migrationName('sync'),
         sqlHash: hash,
         upSql: sqlStr,
         downSql,

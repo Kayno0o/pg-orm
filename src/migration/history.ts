@@ -1,7 +1,15 @@
 import type { Dialect } from '../dialect'
 import type { QueryFn } from './types'
 import { dialectOf } from '../dialect'
+import { TIMESTAMP_DELIM_RE } from '../utils/regex'
 import { MIGRATION_TABLE } from './types'
+
+/** A migration name that sorts in creation order and stays unique however fast migrations come: the time to the millisecond, then a random suffix. */
+export function migrationName(label: string): string {
+  const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 23)
+
+  return `${timestamp}_${crypto.randomUUID().slice(0, 8)}_${label}`
+}
 
 /** Ensure the migration history table exists. */
 export async function ensureMigrationTable(executor: { query: QueryFn, dialect?: Dialect }, dialect = dialectOf(executor)): Promise<void> {

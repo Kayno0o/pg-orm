@@ -624,6 +624,7 @@ for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
 const { sql, ops } = await db.sync({ dryRun: true })  // preview changes
 await db.sync()                                         // apply changes
 await db.sync({ allowDestructive: true })               // allow DROP TABLE/COLUMN
+await db.rollback(2)                                    // run the down SQL of the last 2 migrations
 
 // Check drift
 const { hasDrift, drift } = await getMigrationStatus(db, db.getTablesRegistry())
@@ -659,6 +660,8 @@ afterAll(() => database.drop())
 - `drop()` drops the copy with `WITH (FORCE)`, closing the app's connections to it. A run that crashed leaves its copies, named `<database>_t<suffix>`.
 - The user in `url` needs `CREATEDB`, and the server, Postgres 13 or later for `WITH (FORCE)`, a `postgres` database to connect to while creating them.
 - Each file needs modules of its own for `DATABASE_URL` to differ between files: under plain `bun test` the preload runs once, and every file shares that one copy.
+
+Each sync is recorded in `_pgorm_migrations` under a name unique to the millisecond plus a random suffix, with the down SQL reversing it. A drop, a type change or a SQLite rebuild has no reverse: `rollback()` refuses a migration holding one with a `MigrationError`, before running or recording anything. A rollback, like a sync, runs in one transaction holding an advisory lock.
 
 ### What sync() changes in place
 

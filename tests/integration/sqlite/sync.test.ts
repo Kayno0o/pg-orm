@@ -204,7 +204,7 @@ describe('sync() on SQLite', () => {
     expect((await db.raw<{ name: string }>('SELECT "name" FROM pragma_table_info(\'authors\')')).map(c => c.name)).toEqual(['id', 'name'])
   })
 
-  it('rolls back a rebuild, whose down SQL only says it cannot be reversed', async () => {
+  it('refuses to roll back a rebuild, which has no reverse, leaving the history as it was', async () => {
     const open = file()
 
     await open([authorsV1]).sync()
@@ -213,7 +213,8 @@ describe('sync() on SQLite', () => {
 
     await db.sync()
 
-    expect((await db.rollback()).rolledBack).toHaveLength(1)
+    await expect(db.rollback()).rejects.toThrow(MigrationError)
+    expect((await getMigrationHistory(db)).map(m => m.direction)).toEqual(['up', 'up'])
   })
 
   it('refuses a migration from inside a transaction, which holds the one connection', async () => {

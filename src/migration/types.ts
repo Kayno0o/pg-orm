@@ -3,6 +3,9 @@ import type { AnyColumnDef, AnyColumns } from '../types/index'
 // Internal migration tracking table name
 export const MIGRATION_TABLE = '_pgorm_migrations'
 
+// The `pg_advisory_xact_lock` key every migration transaction takes, so two never interleave: derived once from "pg-orm-sync".
+export const MIGRATION_LOCK_KEY = 741953258
+
 export interface LiveColumn {
   name: string
   dataType: string

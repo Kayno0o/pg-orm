@@ -3,7 +3,7 @@ import type { AnyTableDef } from '../types/index'
 import type { MigrationFile, MigrationOp } from './types'
 import { dialectOf } from '../dialect'
 import { DestructiveOpError, MigrationError } from '../errors/index'
-import { TIMESTAMP_DELIM_RE } from '../utils/regex'
+import { migrationName } from './history'
 import { planMigration } from './plan'
 import { generateDownSql } from './reverse'
 
@@ -36,12 +36,11 @@ export async function generateMigration(
     )
   }
 
-  const timestamp = new Date().toISOString().replace(TIMESTAMP_DELIM_RE, '-').slice(0, 19)
   const upSql = ops.map(o => `${o.sql};`).join('\n\n')
   const downSql = generateDownSql(ops, { dialect: dialectOf(executor) })
 
   return {
-    name: `${timestamp}_migration`,
+    name: migrationName('migration'),
     up: upSql,
     down: downSql,
   }

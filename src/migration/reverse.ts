@@ -15,6 +15,9 @@ export interface DownSqlOptions {
 // validateIdentifier(). The forward path already validates at schema-definition
 // time, but down-SQL is built from MigrationOp shapes that future code paths may
 // construct independently — so we re-validate at the boundary where strings become SQL.
+/** The comment an op with no reverse leaves in down SQL, which `rollback()` refuses to run. */
+export const IRREVERSIBLE_MARKER = '-- Cannot reverse:'
+
 function requireIdent(value: string | undefined, context: string, opts?: DownSqlOptions): string {
   if (value == null || value === '') {
     throw new ValidationError(
@@ -90,7 +93,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       const name = op.sql.match(ADD_CONSTRAINT_RE)?.[1]
 
       if (!name)
-        return `-- Cannot reverse: ${op.description}`
+        return `${IRREVERSIBLE_MARKER} ${op.description}`
 
       validateOptional(name, 'down.add_constraint.name', opts)
 
@@ -112,7 +115,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
     }
 
     default:
-      return `-- Cannot reverse: ${op.description}`
+      return `${IRREVERSIBLE_MARKER} ${op.description}`
   }
 }
 

@@ -1,7 +1,10 @@
 import type { Dialect } from '../dialect'
+import type { MigrationHistoryEntry } from './history'
 import type { QueryFn } from './types'
 import { MigrationError, ValidationError } from '../errors/index'
-import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
+import { djb2Hash, getMigrationHistory, recordMigration } from './history'
+import { IRREVERSIBLE_MARKER } from './reverse'
+import { MIGRATION_LOCK_KEY } from './types'
 
 export interface RollbackContext {
   query: QueryFn
@@ -18,41 +21,27 @@ export async function rollbackMigrations(
   if (!Number.isInteger(count) || count < 1)
     throw new ValidationError(`rollback count must be a positive integer, got ${count}`, 'rollback', { value: count })
 
-  const history = await getMigrationHistory(ctx, ctx.dialect)
-
-  const upMigrations = history.filter(m => m.direction === 'up')
-  const downIds = new Set(
-    history.filter(m => m.direction === 'down').map(m => m.name),
-  )
-  const pendingRollbacks = upMigrations
-    .filter(m => !downIds.has(m.name))
-    .slice(-count)
-    .reverse()
-
-  if (pendingRollbacks.length === 0) {
-    return { rolledBack: [], sql: '' }
-  }
-
-  const rolledBack: string[] = []
-  const sqlParts: string[] = []
-
   return ctx.transact(async (txQuery) => {
     const txExecutor = { query: txQuery }
 
-    for (const migration of pendingRollbacks) {
-      if (!migration.downSql || migration.downSql.trim() === '') {
-        throw new MigrationError(
-          `Cannot rollback migration "${migration.name}": no down SQL recorded`,
-          'apply',
-          migration.name,
-        )
-      }
+    // Locked and read inside the transaction, which resolves the history table in the configured schema and keeps a concurrent sync or rollback out.
+    if (ctx.dialect !== 'sqlite')
+      await txQuery('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_KEY])
 
+    const pendingRollbacks = liveMigrations(await getMigrationHistory(txExecutor, ctx.dialect)).slice(-count).reverse()
+
+    // Checked for all of them before any runs, so a refusal leaves the schema and the history as they were.
+    for (const migration of pendingRollbacks)
+      assertReversible(migration)
+
+    const rolledBack: string[] = []
+    const sqlParts: string[] = []
+
+    for (const migration of pendingRollbacks) {
       // Execute the entire down SQL as a single call (avoids naive `;` splitting
       // which breaks on semicolons inside string literals or dollar-quoted blocks)
       await txQuery(migration.downSql, [])
 
-      await ensureMigrationTable(txExecutor, ctx.dialect)
       await recordMigration(txExecutor, {
         name: migration.name,
         sqlHash: djb2Hash(migration.downSql),
@@ -67,4 +56,34 @@ export async function rollbackMigrations(
 
     return { rolledBack, sql: sqlParts.join('\n\n') }
   })
+}
+
+function assertReversible(migration: MigrationHistoryEntry): void {
+  if (!migration.downSql || migration.downSql.trim() === '')
+    throw new MigrationError(`Cannot rollback migration "${migration.name}": no down SQL recorded`, 'apply', migration.name)
+
+  const irreversible = migration.downSql.split('\n').filter(line => line.startsWith(IRREVERSIBLE_MARKER))
+
+  if (irreversible.length > 0)
+    throw new MigrationError(`Cannot rollback migration "${migration.name}": ${irreversible.map(line => line.slice(IRREVERSIBLE_MARKER.length).trim()).join('; ')} has no reverse`, 'apply', migration.name)
+}
+
+// The applied migrations not rolled back since, oldest first: each rollback cancels the latest application of its name, which a name applied twice (re-applied, or two syncs sharing a name before names were unique) needs.
+function liveMigrations(history: MigrationHistoryEntry[]): MigrationHistoryEntry[] {
+  const live: MigrationHistoryEntry[] = []
+
+  for (const entry of history) {
+    if (entry.direction === 'up') {
+      live.push(entry)
+
+      continue
+    }
+
+    const applied = live.findLastIndex(m => m.name === entry.name)
+
+    if (applied >= 0)
+      live.splice(applied, 1)
+  }
+
+  return live
 }
