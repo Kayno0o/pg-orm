@@ -226,8 +226,8 @@ describe('SelectBuilder', () => {
       average: e.avg('age'),
     })).toSQL()
 
-    expect(sql).toContain('SUM("age") AS "total"')
-    expect(sql).toContain('AVG("age") AS "average"')
+    expect(sql).toContain('CAST(SUM("age") AS double precision) AS "total"')
+    expect(sql).toContain('CAST(AVG("age") AS double precision) AS "average"')
   })
 
   it('withTrashed sets flag', () => {

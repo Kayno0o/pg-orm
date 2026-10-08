@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { Database as SqliteDatabase } from 'bun:sqlite'
 import { ConnectionError, DialectError, MigrationError, ValidationError } from '../errors/index'
-import { isJsonParam } from './json-param'
+import { bigintAsString, isJsonParam } from './json-param'
 import { toSqliteText } from './sqlite-text'
 
 // How long a write waits for another connection holding the file's lock before SQLITE_BUSY.
@@ -31,7 +31,7 @@ function toBinding(value: unknown): SQLQueryBindings {
     return null
 
   if (isJsonParam(value))
-    return JSON.stringify(value.value) ?? null
+    return JSON.stringify(value.value, bigintAsString) ?? null
 
   if (value instanceof Date)
     return value.toISOString()
@@ -42,7 +42,7 @@ function toBinding(value: unknown): SQLQueryBindings {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint' || ArrayBuffer.isView(value))
     return value as SQLQueryBindings
 
-  return JSON.stringify(value)
+  return JSON.stringify(value, bigintAsString)
 }
 
 async function settledWithin(work: Promise<unknown>, ms: number): Promise<void> {

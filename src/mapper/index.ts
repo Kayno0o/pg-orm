@@ -55,6 +55,9 @@ function needsJsonParse(pgType: string): boolean {
   return pgType === 'json' || pgType === 'jsonb'
 }
 
+const ARRAY_SUFFIX_RE = /(?:\[\])+$/
+const DATE_TYPES = new Set(['date', 'timestamp', 'timestamptz'])
+
 /**
  * Parse a PostgreSQL array literal into a JS array.
  * Handles empty arrays, quoted strings, unquoted items, and nested arrays.
@@ -162,32 +165,54 @@ function parsePgArrayLiteral(text: string): unknown {
   return pos === text.length ? result : text
 }
 
-/**
- * Parse a value coming from a json/jsonb column.
- * Some drivers/serializers return PostgreSQL array literals instead of JSON for
- * arrays, so we fall back to parsing those when JSON.parse fails.
- */
-function parseJsonValue(value: string): unknown {
+// A row written before json values were bound as JSON holds an array as the JSON string of its Postgres literal: read back as the array it was.
+function legacyArrayLiteral(value: string): unknown {
+  const trimmed = value.trim()
+
+  return trimmed.startsWith('{') ? parsePgArrayLiteral(trimmed) : value
+}
+
+// SQLite hands back the JSON text it stores.
+function parseJsonText(value: string): unknown {
   try {
     return JSON.parse(value)
   }
   catch {
-    const trimmed = value.trim()
-
-    if (trimmed.startsWith('{'))
-      return parsePgArrayLiteral(trimmed)
-
-    return value
+    return legacyArrayLiteral(value)
   }
 }
 
-function jsonAccessor(col: string): string {
-  const key = JSON.stringify(col)
+function deepMap(value: unknown, leaf: (v: unknown) => unknown): unknown {
+  if (Array.isArray(value))
+    return value.map(item => deepMap(item, leaf))
 
-  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'string' ? parseJsonValue(r[${key}]) : r[${key}])`
+  return value == null ? value : leaf(value)
 }
 
-const SQLITE_DATE_TYPES = new Set(['date', 'timestamp', 'timestamptz'])
+function toBigInt(value: unknown): unknown {
+  return typeof value === 'bigint' ? value : BigInt(value as string | number)
+}
+
+function toDate(value: unknown): unknown {
+  return value instanceof Date ? value : new Date(value as string)
+}
+
+/** Runtime helpers the compiled mapper body calls as `h.<name>`. */
+const helpers = {
+  // Bun parses json and jsonb itself on Postgres: a string read back is a JSON string scalar, kept as is.
+  pgJson: (v: unknown): unknown => typeof v === 'string' ? legacyArrayLiteral(v) : v,
+  sqliteJson: (v: unknown): unknown => typeof v === 'string' ? parseJsonText(v) : v,
+  bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
+  dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
+}
+
+type Helpers = typeof helpers
+
+function helperAccessor(col: string, helper: keyof Helpers): string {
+  const key = JSON.stringify(col)
+
+  return `(r[${key}] == null ? r[${key}] : h.${helper}(r[${key}]))`
+}
 
 // SQLite hands back what it stores: 0 or 1 for a boolean, the ISO string a Date was bound as, a number for a numeric, the JSON text of an array.
 function sqliteAccessor(col: string, pgType: string): string | undefined {
@@ -196,14 +221,14 @@ function sqliteAccessor(col: string, pgType: string): string | undefined {
   if (pgType === 'bool')
     return `(r[${key}] == null ? r[${key}] : Boolean(r[${key}]))`
 
-  if (SQLITE_DATE_TYPES.has(pgType))
+  if (DATE_TYPES.has(pgType))
     return `(r[${key}] == null || r[${key}] instanceof Date ? r[${key}] : new Date(r[${key}]))`
 
   if (pgType.startsWith('numeric'))
     return `(r[${key}] == null ? r[${key}] : String(r[${key}]))`
 
   if (pgType.endsWith('[]'))
-    return jsonAccessor(col)
+    return DATE_TYPES.has(pgType.replace(ARRAY_SUFFIX_RE, '')) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
 
   return undefined
 }
@@ -213,7 +238,11 @@ function accessorFor(col: string, pgType: string, dialect: Dialect): string | un
     return bigintAccessor(col)
 
   if (needsJsonParse(pgType))
-    return jsonAccessor(col)
+    return helperAccessor(col, dialect === 'sqlite' ? 'sqliteJson' : 'pgJson')
+
+  // Bun reads an int8 array as strings on Postgres; SQLite stores one as JSON text holding them.
+  if (pgType.endsWith('[]') && needsBigintCoercion(pgType.replace(ARRAY_SUFFIX_RE, '')))
+    return helperAccessor(col, 'bigintArray')
 
   return dialect === 'sqlite' ? sqliteAccessor(col, pgType) : undefined
 }
@@ -258,13 +287,10 @@ export function compileMapper<TColumns extends AnyColumns>(
 
   // JIT mapper: column names are validated at defineTable() time (not user input).
   // Compiled once per unique column shape, cached, and reused across all queries.
-  // parseJsonValue is passed as a runtime helper so the generated code can fall
-  // back from JSON.parse to PostgreSQL array-literal parsing for mis-serialized
-  // json/jsonb values.
   // eslint-disable-next-line no-new-func -- JIT row mapper: source is built from schema-validated column names, not user input
-  const fn = new Function('r', 'parseJsonValue', body) as (r: Record<string, unknown>, parseJsonValue: (v: string) => unknown) => Record<string, unknown>
+  const fn = new Function('r', 'h', body) as (r: Record<string, unknown>, h: Helpers) => Record<string, unknown>
 
-  return (row: Record<string, unknown>) => fn(row, parseJsonValue)
+  return (row: Record<string, unknown>) => fn(row, helpers)
 }
 
 function identityMapper(row: Record<string, unknown>): Record<string, unknown> {

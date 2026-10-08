@@ -119,9 +119,9 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   arrayContains: <K extends keyof TColumns & string>(col: K | ExprTape, val: unknown) => ExprTape
   arrayOverlap: <K extends keyof TColumns & string>(col: K | ExprTape, vals: unknown[]) => ExprTape
 
-  // Aggregate expressions — return branded strings carrying the resolved result type
-  sum: <K extends keyof TColumns & string>(col: K) => AggResult<number>
-  avg: <K extends keyof TColumns & string>(col: K) => AggResult<number>
+  // Aggregate expressions, branded strings carrying the result type. sum, avg and countCol are cast to double precision so both dialects hand back a number, exact up to 2^53; sum and avg are null when no row has a value.
+  sum: <K extends keyof TColumns & string>(col: K) => AggResult<number | null>
+  avg: <K extends keyof TColumns & string>(col: K) => AggResult<number | null>
   min: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>>
   max: <K extends keyof TColumns & string>(col: K) => AggResult<ColType<TColumns, K>>
   countCol: <K extends keyof TColumns & string>(col?: K) => AggResult<number>
@@ -208,11 +208,11 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],
 
   // Aggregate functions — return raw SQL strings (cast to AggResult for type-level branding)
-  sum: col => `SUM(${quote(col as string)})` as AggResult<number>,
-  avg: col => `AVG(${quote(col as string)})` as AggResult<number>,
+  sum: col => `CAST(SUM(${quote(col as string)}) AS double precision)` as AggResult<number | null>,
+  avg: col => `CAST(AVG(${quote(col as string)}) AS double precision)` as AggResult<number | null>,
   min: col => `MIN(${quote(col as string)})` as AggResult<unknown>,
   max: col => `MAX(${quote(col as string)})` as AggResult<unknown>,
-  countCol: col => (col !== undefined ? `COUNT(${quote(col as string)})` : 'COUNT(*)') as AggResult<number>,
+  countCol: col => `CAST(COUNT(${col !== undefined ? quote(col as string) : '*'}) AS double precision)` as AggResult<number>,
 
   // JSON/Array aggregate functions
   jsonAgg: col => `json_agg(${quote(col as string)})` as AggResult<unknown[]>,

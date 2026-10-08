@@ -84,13 +84,8 @@ export class WritePipeline<
     for (const [key, val] of Object.entries(values)) {
       const col = cols[key]
 
-      if (
-        col
-        && (col.pgType === 'json' || col.pgType === 'jsonb')
-        && val !== null
-        && val !== undefined
-        && (Array.isArray(val) || typeof val === 'object')
-      ) {
+      // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
+      if (col && (col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined) {
         out[key] = jsonParam(val)
       }
       else {

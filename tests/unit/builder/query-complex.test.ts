@@ -191,8 +191,8 @@ describe('Complex query builder', () => {
         .having(e => e.raw('COUNT(*) > ?', 5))
         .toSQL()
 
-      expect(sql).toContain('COUNT(*) AS "total"')
-      expect(sql).toContain('AVG("salary") AS "avgSalary"')
+      expect(sql).toContain('CAST(COUNT(*) AS double precision) AS "total"')
+      expect(sql).toContain('CAST(AVG("salary") AS double precision) AS "avgSalary"')
       expect(sql).toContain('GROUP BY "department"')
       expect(sql).toContain('HAVING COUNT(*) > $1')
     })
@@ -206,7 +206,7 @@ describe('Complex query builder', () => {
         .aggregate(e => ({ total: e.sum('salary') }))
         .toSQL()
 
-      expect(sql).toContain('SUM("salary") AS "total"')
+      expect(sql).toContain('CAST(SUM("salary") AS double precision) AS "total"')
     })
 
     it('generates AVG aggregate', () => {
@@ -214,7 +214,7 @@ describe('Complex query builder', () => {
         .aggregate(e => ({ avg: e.avg('salary') }))
         .toSQL()
 
-      expect(sql).toContain('AVG("salary") AS "avg"')
+      expect(sql).toContain('CAST(AVG("salary") AS double precision) AS "avg"')
     })
 
     it('generates MIN and MAX', () => {
@@ -234,7 +234,7 @@ describe('Complex query builder', () => {
         .aggregate(e => ({ cnt: e.countCol() }))
         .toSQL()
 
-      expect(sql).toContain('COUNT(*) AS "cnt"')
+      expect(sql).toContain('CAST(COUNT(*) AS double precision) AS "cnt"')
     })
 
     it('generates COUNT with column', () => {
@@ -242,7 +242,7 @@ describe('Complex query builder', () => {
         .aggregate(e => ({ cnt: e.countCol('email') }))
         .toSQL()
 
-      expect(sql).toContain('COUNT("email") AS "cnt"')
+      expect(sql).toContain('CAST(COUNT("email") AS double precision) AS "cnt"')
     })
 
     it('generates json_agg', () => {
@@ -441,7 +441,7 @@ describe('Complex query builder', () => {
         .where(e => e.gt(e.scalar(subq), 1000))
         .toSQL()
 
-      expect(sql).toContain('(SELECT SUM("amount") AS "total" FROM "orders"')
+      expect(sql).toContain('(SELECT CAST(SUM("amount") AS double precision) AS "total" FROM "orders"')
     })
 
     it('numbers the params of a subquery after the outer ones', () => {

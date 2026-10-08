@@ -415,7 +415,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
     // Even if a column name somehow contained code-like strings,
     // JSON.stringify in the mapper prevents code injection
     const columns = {
-      safe_col: { sqlType: 'text', constraints: [] },
+      safe_col: { pgType: 'text', constraints: [] },
     } as unknown as AnyColumns
     const mapper = compileMapper(columns)
 
@@ -427,7 +427,7 @@ describe('Security: JIT mapper cannot execute arbitrary code', () => {
 
   it('mapper returns undefined for missing properties, does not throw', () => {
     const columns = {
-      name: { sqlType: 'text', constraints: [] },
+      name: { pgType: 'text', constraints: [] },
     } as unknown as AnyColumns
     const mapper = compileMapper(columns, ['name'])
     const result = mapper({})

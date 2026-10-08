@@ -29,3 +29,8 @@ export function jsonParam(value: unknown): JsonParam {
 export function isJsonParam(value: unknown): value is JsonParam {
   return typeof value === 'object' && value !== null && JSON_PARAM in value
 }
+
+/** A `JSON.stringify` replacer writing a bigint, which JSON has no form for, as its decimal string. */
+export function bigintAsString(_key: string, value: unknown): unknown {
+  return typeof value === 'bigint' ? value.toString() : value
+}

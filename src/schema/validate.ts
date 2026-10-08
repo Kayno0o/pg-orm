@@ -5,6 +5,8 @@ import { ValidationError } from '../errors/index'
 // and ensures safety when names are embedded in JIT-compiled Function() sources.
 
 const IDENTIFIER_RE = /^[a-z_]\w*$/i
+// `__proto__` as a key of the mapper's object literal would set the row's prototype; names wrapped in double underscores are the engine's.
+const ENGINE_NAME_RE = /^__\w*__$/
 const MAX_IDENTIFIER_BYTES = 63
 
 export function validateIdentifier(name: string, context: string): void {
@@ -12,6 +14,14 @@ export function validateIdentifier(name: string, context: string): void {
     throw new ValidationError(
       `Invalid ${context} name: "${name}". `
       + 'Identifiers must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.',
+      context,
+      { value: name },
+    )
+  }
+
+  if (ENGINE_NAME_RE.test(name)) {
+    throw new ValidationError(
+      `Invalid ${context} name: "${name}". Names wrapped in double underscores, such as __proto__, are reserved by JavaScript.`,
       context,
       { value: name },
     )

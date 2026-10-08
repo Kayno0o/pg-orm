@@ -86,22 +86,22 @@ describe('mapper bigint coercion', () => {
 })
 
 describe('mapper json coercion', () => {
-  it('parses jsonb string values into objects', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+  it('parses the JSON text SQLite hands back for jsonb', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }), undefined, undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, data: '{"name":"doc","tags":["a"]}' })
 
     expect(result.data).toEqual({ name: 'doc', tags: ['a'] })
   })
 
-  it('parses json string values into objects', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', data: 'json' }))
+  it('parses the JSON text SQLite hands back for json', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'json' }), undefined, undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, data: '{"ok":true}' })
 
     expect(result.data).toEqual({ ok: true })
   })
 
   it('parses jsonb array string values', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }), undefined, undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, data: '[1,2,3]' })
 
     expect(result.data).toEqual([1, 2, 3])
@@ -132,7 +132,7 @@ describe('mapper json coercion', () => {
   })
 
   it('respects pick when json columns are present', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), ['id', 'data'])
+    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), ['id', 'data'], undefined, undefined, 'sqlite')
     const result = mapper({ id: 1, name: 'ignored', data: '{"a":1}' })
 
     expect(result).toEqual({ id: 1, data: { a: 1 } })
@@ -140,7 +140,7 @@ describe('mapper json coercion', () => {
   })
 
   it('respects omit when json columns are present', () => {
-    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), undefined, ['name'])
+    const mapper = compileMapper(makeCols({ id: 'int4', name: 'text', data: 'jsonb' }), undefined, ['name'], undefined, 'sqlite')
     const result = mapper({ id: 1, name: 'gone', data: '{"a":1}' })
 
     expect(result).toEqual({ id: 1, data: { a: 1 } })
@@ -166,6 +166,27 @@ describe('mapper json coercion', () => {
     const result = mapper({ id: 1, data: 'not json at all' })
 
     expect(result.data).toBe('not json at all')
+  })
+
+  it('keeps a JSON string scalar Bun already parsed on Postgres, never parsing it a second time', () => {
+    const mapper = compileMapper(makeCols({ id: 'int4', data: 'jsonb' }))
+
+    expect(mapper({ id: 1, data: '123' }).data).toBe('123')
+    expect(mapper({ id: 1, data: 'true' }).data).toBe('true')
+    expect(mapper({ id: 1, data: '{"a":1}' }).data).toBe('{"a":1}')
+  })
+})
+
+describe('mapper array coercion', () => {
+  it('reads an int8 array as bigints on both dialects', () => {
+    expect(compileMapper(makeCols({ ids: 'int8[]' }))({ ids: ['1', '9007199254740993', null] }).ids).toEqual([1n, 9007199254740993n, null])
+    expect(compileMapper(makeCols({ ids: 'int8[][]' }), undefined, undefined, undefined, 'sqlite')({ ids: '[["1"],["2"]]' }).ids).toEqual([[1n], [2n]])
+  })
+
+  it('reads a timestamp array on SQLite as dates', () => {
+    const at = new Date(0)
+
+    expect(compileMapper(makeCols({ at: 'timestamptz[]' }), undefined, undefined, undefined, 'sqlite')({ at: JSON.stringify([at]) }).at).toEqual([at])
   })
 })
 

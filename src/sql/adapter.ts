@@ -2,7 +2,7 @@ import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { OrmError, wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
-import { isJsonParam } from './json-param'
+import { bigintAsString, isJsonParam } from './json-param'
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -38,10 +38,17 @@ export function serializePgArray(val: unknown[]): string {
       return serializePgArray(item)
 
     if (typeof item === 'string')
-      return `"${item.replace(BACKSLASH_RE, '\\\\').replace(DOUBLE_QUOTE_RE, '\\"')}"`
+      return quoteElement(item)
 
     if (typeof item === 'boolean')
       return item ? 'true' : 'false'
+
+    // A Date goes in as its ISO string and an object, a json or jsonb element, as its JSON text: String() would give neither.
+    if (item instanceof Date)
+      return quoteElement(item.toISOString())
+
+    if (typeof item === 'object')
+      return quoteElement(JSON.stringify(item, bigintAsString))
 
     return String(item)
   })
@@ -49,12 +56,16 @@ export function serializePgArray(val: unknown[]): string {
   return `{${items.join(',')}}`
 }
 
+function quoteElement(text: string): string {
+  return `"${text.replace(BACKSLASH_RE, '\\\\').replace(DOUBLE_QUOTE_RE, '\\"')}"`
+}
+
 export function serializeParams(params: unknown[]): unknown[] {
   return params.map((p) => {
-    // A json/jsonb value goes to the driver as it is: bun encodes objects and arrays to JSON
-    // itself, and anything done to it here would be encoded a second time.
+    // A json/jsonb value goes to the driver as it is: bun encodes objects, arrays and strings to JSON itself, and anything done to it here would be encoded a second time.
+    // A bare boolean or number bun binds with its own type, which a json column refuses, so one goes in as an object encoding to it.
     if (isJsonParam(p))
-      return p.value
+      return typeof p.value === 'boolean' || typeof p.value === 'number' ? { toJSON: () => p.value } : p.value
 
     return Array.isArray(p) ? serializePgArray(p) : p
   })

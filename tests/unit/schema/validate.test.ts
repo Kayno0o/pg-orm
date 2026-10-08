@@ -20,6 +20,12 @@ describe('validateIdentifier', () => {
     expect(() => validateIdentifier('user.name', 'column')).toThrow()
   })
 
+  it('rejects __proto__ and other names wrapped in double underscores, keeping a leading one', () => {
+    expect(() => validateIdentifier('__proto__', 'column')).toThrow(/reserved by JavaScript/)
+    expect(() => validateIdentifier('__defineGetter__', 'column')).toThrow(/reserved by JavaScript/)
+    expect(() => validateIdentifier('__v', 'column')).not.toThrow()
+  })
+
   it('rejects empty strings', () => {
     expect(() => validateIdentifier('', 'table')).toThrow()
   })

@@ -311,11 +311,11 @@ describe('ExprBuilder - Ref', () => {
 
 describe('ExprBuilder - Aggregates', () => {
   it('sum generates SUM()', () => {
-    expect(e.sum('amount') as string).toBe('SUM("amount")')
+    expect(e.sum('amount') as string).toBe('CAST(SUM("amount") AS double precision)')
   })
 
   it('avg generates AVG()', () => {
-    expect(e.avg('price') as string).toBe('AVG("price")')
+    expect(e.avg('price') as string).toBe('CAST(AVG("price") AS double precision)')
   })
 
   it('min generates MIN()', () => {
@@ -327,8 +327,8 @@ describe('ExprBuilder - Aggregates', () => {
   })
 
   it('countCol generates COUNT()', () => {
-    expect(e.countCol('id') as string).toBe('COUNT("id")')
-    expect(e.countCol() as string).toBe('COUNT(*)')
+    expect(e.countCol('id') as string).toBe('CAST(COUNT("id") AS double precision)')
+    expect(e.countCol() as string).toBe('CAST(COUNT(*) AS double precision)')
   })
 
   it('jsonAgg generates json_agg()', () => {
