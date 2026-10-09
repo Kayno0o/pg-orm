@@ -51,8 +51,12 @@ jobs:
           su postgres -c "pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql' -w start"
           su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test' SUPERUSER;\""
           su postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
-          # Verify connectivity
-          PGPASSWORD=test psql -h 127.0.0.1 -U test -d orm_test -c "SELECT 1"
+          # The image's cluster trusts every TCP connection, which would let the wrong-password test sign in: ask for the password, as the docker-compose Postgres does.
+          sed -i -E 's/^(host[[:space:]].*[[:space:]])trust$/\1scram-sha-256/' /var/lib/postgresql/data/pg_hba.conf
+          su postgres -c "pg_ctl -D /var/lib/postgresql/data reload"
+          # Verify connectivity, and that a wrong password is refused
+          if psql "postgres://test:wrong@127.0.0.1/orm_test" -c "SELECT 1"; then echo "a wrong password was let in" >&2; exit 1; fi
+          psql "postgres://test:test@127.0.0.1/orm_test" -c "SELECT 1"
 
       - name: Install project deps
         run: bun install --frozen-lockfile
