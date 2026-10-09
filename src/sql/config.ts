@@ -7,42 +7,42 @@ import { DialectError, ValidationError } from '../errors/index'
 
 export interface DbConfig {
   /** `postgres://user:pass@host:5432/db`, or `sqlite://./data/app.db` (`sqlite://:memory:` in memory) for a SQLite file, which ignores the pool and connection options. */
-  url?: string
-  hostname?: string
-  port?: number
-  database?: string
-  username?: string
-  password?: string | (() => string | Promise<string>)
+  url?: string | undefined
+  hostname?: string | undefined
+  port?: number | undefined
+  database?: string | undefined
+  username?: string | undefined
+  password?: string | (() => string | Promise<string>) | undefined
   pool?: {
-    max?: number
-    idleTimeout?: number
-    maxLifetime?: number
-    connectionTimeout?: number
-  }
-  tls?: boolean | object
-  prepare?: boolean
+    max?: number | undefined
+    idleTimeout?: number | undefined
+    maxLifetime?: number | undefined
+    connectionTimeout?: number | undefined
+  } | undefined
+  tls?: boolean | object | undefined
+  prepare?: boolean | undefined
   /** @deprecated No-op — bun:sql manages its own prepared statement cache */
-  cacheSize?: number
-  tables?: AnyTableDef[]
+  cacheSize?: number | undefined
+  tables?: AnyTableDef[] | undefined
   /** Schema name for introspection queries (default: 'public') */
-  schema?: string
+  schema?: string | undefined
   /** Maximum depth for nested `.include()` relation loading (default: 5) */
-  maxIncludeDepth?: number
+  maxIncludeDepth?: number | undefined
   /** Rows per IN (...) chunk in batched relation loading (default: 5000) */
-  batchChunkSize?: number
+  batchChunkSize?: number | undefined
   /** `statement_timeout` in milliseconds, set on every connection of the pool: plain queries and transactions alike. */
-  statementTimeout?: number
+  statementTimeout?: number | undefined
   /**
    * `idle_in_transaction_session_timeout` in milliseconds, set on every connection of the pool.
    * Kills server-side connections that hold a transaction open without activity past the timeout: the prod safety net for forgotten `await`s inside a `tx => ...` callback.
    */
-  idleInTransactionTimeout?: number
+  idleInTransactionTimeout?: number | undefined
   /**
    * Sent as the connection's `application_name`. Visible in `pg_stat_activity`
    * and PG server logs, which makes filtering and incident attribution far easier
    * when multiple apps share a database.
    */
-  application_name?: string
+  application_name?: string | undefined
   /**
    * Log every query as `[1.234ms] SELECT … WHERE "id" = 42` — the SQL with its
    * `$n` placeholders filled in. `true` writes to `console.log` (colorized when
@@ -59,22 +59,22 @@ export interface DbConfig {
    * new Database({ debug: line => logger.debug(line) })
    * ```
    */
-  debug?: boolean | ((line: string) => void)
+  debug?: boolean | ((line: string) => void) | undefined
   /** Query logging callback — called after every query */
-  onQuery?: (event: QueryEvent) => void
+  onQuery?: ((event: QueryEvent) => void) | undefined
   /** Slow query callback — called when a query exceeds the threshold */
-  onSlowQuery?: (event: SlowQueryEvent) => void
+  onSlowQuery?: ((event: SlowQueryEvent) => void) | undefined
   /** Slow query threshold in milliseconds (default: 1000) */
-  slowQueryThreshold?: number
+  slowQueryThreshold?: number | undefined
   /** Called when any query fails — receives the error, SQL, and params */
-  onError?: (event: QueryErrorEvent) => void
+  onError?: ((event: QueryErrorEvent) => void) | undefined
   /** Called when ping() fails — useful for logging connection issues */
-  onPingError?: (error: unknown) => void
+  onPingError?: ((error: unknown) => void) | undefined
   /**
    * Receives an error the ORM cannot rethrow without changing an outcome already settled: a failing onCommit/onRollback callback, a stream safety warning, a pool close at shutdown, or a query hook (`onQuery`, `onSlowQuery`, `onError`) that threw or rejected, which never fails the query it reports.
    * If unset, or if it throws itself, the error goes to `console.warn`.
    */
-  onCallbackError?: (event: CallbackErrorEvent) => void
+  onCallbackError?: ((event: CallbackErrorEvent) => void) | undefined
   /**
    * Scrub sensitive values from `QueryError.params`. Receives the positional
    * param array and returns the redacted copy. Called for every QueryError-
@@ -95,12 +95,12 @@ export interface DbConfig {
    * the QueryError constructor — intentionally, so programming bugs in the
    * redactor surface loudly rather than masquerading as missing params.
    */
-  redactParams?: (params: unknown[]) => unknown[]
+  redactParams?: ((params: unknown[]) => unknown[]) | undefined
   /**
    * Default LIMIT applied to findMany() when no explicit .limit() is set.
    * Disabled by default (no limit). Set to a positive number to enable.
    */
-  defaultLimit?: number
+  defaultLimit?: number | undefined
   /**
    * Retry a statement outside a transaction with exponential backoff: any statement after a deadlock or serialization failure, and a SELECT after a dropped connection (PG codes 08xxx, 57P01).
    * A SELECT is judged by its leading keyword and assumed side-effect free, so one calling a side-effecting function retries too. A retried statement reaches the query hooks once, with its final outcome.
@@ -108,14 +108,14 @@ export interface DbConfig {
    */
   retry?: {
     /** Maximum number of retry attempts (default: 0, disabled) */
-    maxRetries?: number
+    maxRetries?: number | undefined
     /** Initial delay in milliseconds before first retry (default: 100) */
-    baseDelayMs?: number
+    baseDelayMs?: number | undefined
     /** Maximum delay between retries in milliseconds (default: 5000) */
-    maxDelayMs?: number
+    maxDelayMs?: number | undefined
     /** Also retry writes after a dropped connection, which can apply one twice when it had committed before the reply was lost (default: false) */
-    writes?: boolean
-  }
+    writes?: boolean | undefined
+  } | undefined
 }
 
 /**
