@@ -4,6 +4,7 @@ import type { AnyColumns } from '../types/index'
 /**
  * JIT row mapper: pre-compile row-to-object mappers via `new Function()` at startup.
  * Each schema gets exactly one compiled mapper function. No per-row overhead.
+ * A process where `new Function` throws (`bun --disallow-code-generation-from-strings`) maps through closures instead.
  *
  * **Security model:** Column names are validated at `defineTable()` time against
  * `/^[a-zA-Z_][a-zA-Z0-9_]*$/` — only safe identifiers pass. They are additionally
@@ -43,12 +44,6 @@ const WS_RE = /\s/
 // Schemas declare these as bigint, so the mapper coerces in the JIT body.
 function needsBigintCoercion(pgType: string): boolean {
   return pgType === 'int8' || pgType === 'bigserial'
-}
-
-function bigintAccessor(col: string): string {
-  const key = JSON.stringify(col)
-
-  return `(r[${key}] == null ? r[${key}] : typeof r[${key}] === 'bigint' ? r[${key}] : BigInt(r[${key}]))`
 }
 
 function needsJsonParse(pgType: string): boolean {
@@ -197,63 +192,110 @@ function toBytes(value: unknown): unknown {
   return typeof value === 'string' ? Buffer.from(value.slice(2), 'hex') : value
 }
 
-/** Runtime helpers the compiled mapper body calls as `h.<name>`. */
-const helpers = {
+/** How a column's non-null value is coerced; the compiled mapper body calls these as `h.<name>`. */
+const coercions = {
+  bigint: toBigInt,
+  bool: (v: unknown): unknown => Boolean(v),
+  date: toDate,
+  numeric: (v: unknown): unknown => String(v),
   sqliteJson: (v: unknown): unknown => typeof v === 'string' ? parseJsonText(v) : v,
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
   byteaArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBytes),
 }
 
-type Helpers = typeof helpers
-
-function helperAccessor(col: string, helper: keyof Helpers): string {
-  const key = JSON.stringify(col)
-
-  return `(r[${key}] == null ? r[${key}] : h.${helper}(r[${key}]))`
-}
+type Coercions = typeof coercions
+type Coercion = keyof Coercions
 
 const TIME_PRECISION_RE = /\(\d\)$/
 
 // SQLite hands back what it stores: 0 or 1 for a boolean, the ISO string a Date was bound as, a number for a numeric, the JSON text of an array.
-function sqliteAccessor(col: string, pgType: string): string | undefined {
-  const key = JSON.stringify(col)
-
+function sqliteCoercion(pgType: string): Coercion | undefined {
   if (pgType === 'bool')
-    return `(r[${key}] == null ? r[${key}] : Boolean(r[${key}]))`
+    return 'bool'
 
   // A precision (`timestamptz(3)`) changes nothing to how the value is stored.
   if (DATE_TYPES.has(pgType.replace(TIME_PRECISION_RE, '')))
-    return `(r[${key}] == null || r[${key}] instanceof Date ? r[${key}] : new Date(r[${key}]))`
+    return 'date'
 
   if (pgType.startsWith('numeric'))
-    return `(r[${key}] == null ? r[${key}] : String(r[${key}]))`
+    return 'numeric'
 
   if (pgType.endsWith('[]')) {
     const element = pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')
 
     if (element === 'bytea')
-      return helperAccessor(col, 'byteaArray')
+      return 'byteaArray'
 
-    return DATE_TYPES.has(element) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
+    return DATE_TYPES.has(element) ? 'dateArray' : 'sqliteJson'
   }
 
   return undefined
 }
 
-function accessorFor(col: string, pgType: string, dialect: Dialect): string | undefined {
+function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
   if (needsBigintCoercion(pgType))
-    return bigintAccessor(col)
+    return 'bigint'
 
   // Bun parses json and jsonb itself on Postgres: a string read back is a JSON string scalar, kept as is.
   if (needsJsonParse(pgType))
-    return dialect === 'sqlite' ? helperAccessor(col, 'sqliteJson') : undefined
+    return dialect === 'sqlite' ? 'sqliteJson' : undefined
 
   // Bun reads an int8 array as strings on Postgres; SQLite stores one as JSON text holding them.
   if (pgType.endsWith('[]') && needsBigintCoercion(pgType.replace(ARRAY_SUFFIX_RE, '')))
-    return helperAccessor(col, 'bigintArray')
+    return 'bigintArray'
 
-  return dialect === 'sqlite' ? sqliteAccessor(col, pgType) : undefined
+  return dialect === 'sqlite' ? sqliteCoercion(pgType) : undefined
+}
+
+type Field = readonly [key: string, coercion: Coercion | undefined]
+
+let _codegenAllowed: boolean | undefined
+
+function codegenAllowed(): boolean {
+  if (_codegenAllowed === undefined) {
+    try {
+      // eslint-disable-next-line no-new-func -- probes whether this process lets a mapper be compiled at all
+      _codegenAllowed = new Function('return true')() === true
+    }
+    catch {
+      _codegenAllowed = false
+    }
+  }
+
+  return _codegenAllowed
+}
+
+function compiledMapper(fields: Field[]): RowMapper<Record<string, unknown>> {
+  // Column names are validated against /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable() time and aliases by validateIdentifier(), so they are safe to embed; JSON.stringify adds an additional escaping layer.
+  const assignments = fields
+    .map(([name, coercion]) => {
+      const key = JSON.stringify(name)
+
+      return `  ${key}: ${coercion ? `(r[${key}] == null ? r[${key}] : h.${coercion}(r[${key}]))` : `r[${key}]`}`
+    })
+    .join(',\n')
+
+  // eslint-disable-next-line no-new-func -- JIT row mapper: source is built from schema-validated column names, not user input
+  const fn = new Function('r', 'h', `return {\n${assignments}\n}`) as (r: Record<string, unknown>, h: Coercions) => Record<string, unknown>
+
+  return (row: Record<string, unknown>) => fn(row, coercions)
+}
+
+function closureMapper(fields: Field[]): RowMapper<Record<string, unknown>> {
+  const resolved = fields.map(([name, coercion]) => [name, coercion && coercions[coercion]] as const)
+
+  return (row: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {}
+
+    for (const [name, coerce] of resolved) {
+      const value = row[name]
+
+      out[name] = coerce && value != null ? coerce(value) : value
+    }
+
+    return out
+  }
 }
 
 export function compileMapper<TColumns extends AnyColumns>(
@@ -266,13 +308,13 @@ export function compileMapper<TColumns extends AnyColumns>(
   const colNames = pick ?? Object.keys(columns)
   const filteredCols = omit ? colNames.filter(c => !omit.includes(c)) : colNames
   const allKeys = Object.keys(columns)
-  const coerced = new Map<string, string>()
+  const coerced = new Map<string, Coercion>()
 
   for (const c of allKeys) {
-    const accessor = accessorFor(c, columns[c]!.pgType, dialect)
+    const coercion = coercionFor(columns[c]!.pgType, dialect)
 
-    if (accessor)
-      coerced.set(c, accessor)
+    if (coercion)
+      coerced.set(c, coercion)
   }
 
   // Fast path: full identity only when no coercion is needed. Computed aliases ride
@@ -281,25 +323,12 @@ export function compileMapper<TColumns extends AnyColumns>(
     return identityMapper
   }
 
-  // JIT: compile a function that picks the needed fields, coercing int8/bigint
-  // and json/jsonb columns. Column names are validated against
-  // /^[a-zA-Z_][a-zA-Z0-9_]*$/ at defineTable() time, so they are safe to embed.
-  // JSON.stringify adds an additional escaping layer.
-  const assignments = filteredCols
-    .map(c => `  ${JSON.stringify(c)}: ${coerced.get(c) ?? `r[${JSON.stringify(c)}]`}`)
-    // A computed alias names an expression, not a column, so nothing is known about
-    // its type and it is carried through as the driver returned it. Aliases pass
-    // validateIdentifier() at build time, same as column names.
-    .concat((computed ?? []).filter(alias => !filteredCols.includes(alias)).map(alias => `  ${JSON.stringify(alias)}: r[${JSON.stringify(alias)}]`))
-    .join(',\n')
-  const body = `return {\n${assignments}\n}`
+  const fields: Field[] = filteredCols
+    .map((c): Field => [c, coerced.get(c)])
+    // A computed alias names an expression, not a column, so nothing is known about its type and it is carried through as the driver returned it.
+    .concat((computed ?? []).filter(alias => !filteredCols.includes(alias)).map((alias): Field => [alias, undefined]))
 
-  // JIT mapper: column names are validated at defineTable() time (not user input).
-  // Compiled once per unique column shape, cached, and reused across all queries.
-  // eslint-disable-next-line no-new-func -- JIT row mapper: source is built from schema-validated column names, not user input
-  const fn = new Function('r', 'h', body) as (r: Record<string, unknown>, h: Helpers) => Record<string, unknown>
-
-  return (row: Record<string, unknown>) => fn(row, helpers)
+  return codegenAllowed() ? compiledMapper(fields) : closureMapper(fields)
 }
 
 function identityMapper(row: Record<string, unknown>): Record<string, unknown> {

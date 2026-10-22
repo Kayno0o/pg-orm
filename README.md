@@ -10,7 +10,7 @@ Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/a
 - **Relation loading** — batched `include()` (no N+1), supports `belongsTo`, `hasMany`, `hasOne`, `hasManyThrough`
 - **Auto-migration** — `db.sync()` introspects your live DB and applies DDL diffs
 - **Traits** — composable behaviors: `softDelete()`, `timestamps()`, `optimisticLock()`
-- **JIT mappers** — compiled at schema-definition time for fast row-to-object mapping
+- **JIT mappers** — compiled at schema-definition time for fast row-to-object mapping, with a closure fallback for processes run with `--disallow-code-generation-from-strings`
 - **Hooks** — `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `afterSelect`
 - **Transactions** — full support with savepoints, isolation levels, and statement timeouts
 - **Streaming** — async iterator with chunked fetching
