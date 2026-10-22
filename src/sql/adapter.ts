@@ -6,7 +6,7 @@ import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
 import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 /** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */
-export type DriverQuery = Promise<unknown[]> & { cancel?: () => void }
+export type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string> }
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -153,5 +153,63 @@ async function untilAborted(query: DriverQuery, signal: AbortSignal): Promise<un
   }
   finally {
     signal.removeEventListener('abort', cancel)
+  }
+}
+
+/**
+ * Run a `COPY ... FROM STDIN` statement, writing `chunks` to it with backpressure, and resolve to the rows it loaded.
+ * Postgres only. The signal bound by `Database.withSignal` cancels it; an error thrown by `chunks` ends it and is rethrown as is.
+ */
+export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
+  const signal = querySignalStorage.getStore()
+
+  throwIfAborted(signal, sqlStr)
+
+  const query = asDriver(sql).unsafe(sqlStr, [])
+  const writer = query.writable!().getWriter()
+  // Settled from the start: the statement can fail while chunks are still being written, before anything awaits it.
+  const outcome = settle(signal ? untilAborted(query, signal) : query)
+  let interrupted: { error: unknown } | undefined
+
+  try {
+    for await (const chunk of chunks) {
+      throwIfAborted(signal, sqlStr)
+      await writer.write(chunk)
+    }
+
+    await writer.close()
+  }
+  catch (error) {
+    interrupted = { error }
+
+    try {
+      await writer.abort(error)
+    }
+    catch {
+      // The stream already failed with the statement's own error, which `outcome` holds.
+    }
+  }
+
+  const result = await outcome
+
+  if (result.ok)
+    return (result.value as unknown as { count: number }).count
+
+  if (signal?.aborted && isCancellation(result.error))
+    throw new AbortError(sqlStr, [], signal.reason)
+
+  // An aborted stream fails the statement with a cancellation that only echoes what interrupted it.
+  if (interrupted && isCancellation(result.error))
+    throw interrupted.error
+
+  throw result.error instanceof OrmError ? result.error : wrapPgError(result.error, sqlStr, [])
+}
+
+async function settle<T>(work: Promise<T>): Promise<{ ok: true, value: T } | { ok: false, error: unknown }> {
+  try {
+    return { ok: true, value: await work }
+  }
+  catch (error) {
+    return { ok: false, error }
   }
 }

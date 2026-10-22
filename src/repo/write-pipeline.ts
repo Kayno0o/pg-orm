@@ -4,18 +4,19 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { MAX_BIND_PARAMS, STATEMENT_PARAM_RESERVE } from '../constants'
-import { dialectOf } from '../dialect'
+import { dialectOf, requirePostgres } from '../dialect'
 import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
+import { copyField } from '../sql/copy'
 import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
@@ -23,9 +24,41 @@ import { createMapperFactory } from './_mapper'
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
 const INSERTED_FLAG = '__pgorm_inserted'
+// The size a COPY's rows are batched to before each write to the stream.
+const COPY_CHUNK_CHARS = 64 * 1024
 const FIND_OR_CREATE_ATTEMPTS = 3
 // SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
 const SQLITE_OR_TERMS = 500
+
+async function* prepend<T>(first: T, rest: Iterator<T> | AsyncIterator<T>): AsyncGenerator<T> {
+  try {
+    yield first
+
+    for (let next = await rest.next(); !next.done; next = await rest.next())
+      yield next.value
+  }
+  finally {
+    await rest.return?.()
+  }
+}
+
+// A COPY's column list is fixed by its first row, so every later one must set exactly those columns.
+function assertCopyRow(row: Record<string, unknown>, columns: string[], expected: ReadonlySet<string>): void {
+  let set = 0
+
+  for (const key in row) {
+    if (row[key] === undefined)
+      continue
+
+    if (!expected.has(key))
+      throw new ValidationError(`copyFrom rows must all set the columns the first one sets (${columns.join(', ')}): one also sets "${key}"`, 'copyFrom', { field: key })
+
+    set++
+  }
+
+  if (set !== columns.length)
+    throw new ValidationError(`copyFrom rows must all set the columns the first one sets (${columns.join(', ')}): one leaves ${columns.filter(c => row[c] === undefined).join(', ')} unset`, 'copyFrom')
+}
 
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
@@ -138,6 +171,67 @@ export class WritePipeline<
       project: written => pipeline._projectMany(written, opts),
       opts,
     }))
+  }
+
+  /** Load rows through `COPY ... FROM STDIN`, skipping hooks: the columns the first row sets are the ones every row must set. */
+  async copyFrom(rows: Iterable<InferInsert<TColumns>> | AsyncIterable<InferInsert<TColumns>>): Promise<number> {
+    requirePostgres(dialectOf(this._executor), 'copyFrom')
+
+    if (!this._executor.copyIn)
+      throw new OrmError('copyFrom needs an executor that runs COPY')
+
+    const iterator = Symbol.asyncIterator in rows ? rows[Symbol.asyncIterator]() : rows[Symbol.iterator]()
+    const first = await iterator.next()
+
+    if (first.done)
+      return 0
+
+    const columns = this._copyColumns(first.value as Record<string, unknown>)
+    const table = this._runtime.table.name
+
+    return this._executor.copyIn(`COPY ${quote(table)} (${columns.map(quote).join(', ')}) FROM STDIN`, this._copyChunks(first.value as Record<string, unknown>, iterator, columns))
+  }
+
+  private _copyColumns(row: Record<string, unknown>): string[] {
+    const table = this._runtime.table
+    const columns = Object.keys(row).filter(key => row[key] !== undefined)
+
+    if (columns.length === 0)
+      throw new ValidationError(`copyFrom on "${table.name}" got a row setting no column`, 'copyFrom')
+
+    for (const name of columns) {
+      const col = table.columns[name]
+
+      if (!col)
+        throw new ValidationError(`"${table.name}" has no column "${name}"`, 'copyFrom', { field: name })
+
+      if (col.constraints.some((c: ColumnConstraint) => c.type === 'generated'))
+        throw new ValidationError(`"${table.name}"."${name}" is a generated column, which COPY cannot write`, 'copyFrom', { field: name })
+    }
+
+    return columns
+  }
+
+  private async* _copyChunks(first: Record<string, unknown>, rest: Iterator<unknown> | AsyncIterator<unknown>, columns: string[]): AsyncGenerator<string> {
+    const table = this._runtime.table
+    const json = columns.map(name => table.columns[name]!.pgType === 'json' || table.columns[name]!.pgType === 'jsonb')
+    const expected = new Set(columns)
+    let buffer = ''
+
+    for await (const value of prepend(first, rest)) {
+      const row = value as Record<string, unknown>
+
+      assertCopyRow(row, columns, expected)
+      buffer += `${columns.map((name, i) => copyField(row[name], json[i]!)).join('\t')}\n`
+
+      if (buffer.length >= COPY_CHUNK_CHARS) {
+        yield buffer
+        buffer = ''
+      }
+    }
+
+    if (buffer)
+      yield buffer
   }
 
   /**

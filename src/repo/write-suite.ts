@@ -40,6 +40,14 @@ export class WriteSuite<
     return this._pipeline.insertMany(values, opts)
   }
 
+  /**
+   * Load rows through Postgres `COPY ... FROM STDIN`, far faster than `insertMany` for a bulk load, streaming an async iterable without holding it in memory; resolves to the row count.
+   * Skips hooks like the statement builders, and returns no rows. Every row sets the columns the first one sets, the others taking their DEFAULT.
+   */
+  async copyFrom(rows: Iterable<InferInsert<TColumns>> | AsyncIterable<InferInsert<TColumns>>): Promise<number> {
+    return this._pipeline.copyFrom(rows)
+  }
+
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {

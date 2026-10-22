@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { SQL } from 'bun'
 import { requirePostgres } from '../dialect'
 import { ConnectionError } from '../errors/index'
-import { asDriver, unsafeQuery } from './adapter'
+import { asDriver, copyIn, unsafeQuery } from './adapter'
 import { BaseExecutor } from './base-executor'
 import { registerInstance, unregisterInstance } from './cleanup'
 import { DrainCoordinator } from './drain'
@@ -57,6 +57,11 @@ export class ConnectionLifecycle extends BaseExecutor {
 
   override query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     return this.track(() => this._observed(sqlStr, params, () => this._retry.runStatement(sqlStr, () => unsafeQuery(this.sql, sqlStr, params, this._dialect))))
+  }
+
+  // Never retried: the chunks it streamed are consumed, so a second attempt would load nothing.
+  override copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
+    return this.track(() => this._observed(sqlStr, [], () => copyIn(this.sql, sqlStr, chunks)))
   }
 
   /** Run a unit of work the drain waits for: rejected once closing has begun unless issued from inside work already running, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */

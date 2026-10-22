@@ -2,7 +2,7 @@ import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { logParams, queryLogsRedacted } from '../errors/index'
-import { unsafeQuery } from './adapter'
+import { copyIn, unsafeQuery } from './adapter'
 
 /**
  * Async-local storage for query context. `Database.withContext(ctx, fn)` runs
@@ -80,6 +80,8 @@ export interface Executable {
   migrateOutside?: <T>(fn: (query: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>) => Promise<T>
   /** Runs `fn` all-or-nothing: in a transaction, or a savepoint of the running one. A write spanning several statements goes through it. */
   atomic?: <T>(fn: (exec: Executable) => Promise<T>) => Promise<T>
+  /** Runs a `COPY ... FROM STDIN` statement fed with `chunks`, resolving to the rows loaded. Postgres only. */
+  copyIn?: (sql: string, chunks: AsyncIterable<string>) => Promise<number>
 }
 
 // Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
@@ -141,10 +143,14 @@ export abstract class BaseExecutor implements Executable {
     return this._observed(sqlStr, params, () => unsafeQuery(this.sql, sqlStr, params, this._dialect))
   }
 
+  copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
+    return this._observed(sqlStr, [], () => copyIn(this.sql, sqlStr, chunks))
+  }
+
   // Runs `run` as one query for the hooks: a retried statement reports once, its outcome after the last attempt.
-  protected async _observed(sqlStr: string, params: unknown[], run: () => Promise<Record<string, unknown>[]>): Promise<Record<string, unknown>[]> {
+  protected async _observed<T>(sqlStr: string, params: unknown[], run: () => Promise<T>): Promise<T> {
     const start = performance.now()
-    let result: Record<string, unknown>[]
+    let result: T
 
     try {
       result = await run()

@@ -86,6 +86,12 @@ export class TransactionClient extends BaseExecutor {
     return super.query(sqlStr, params)
   }
 
+  override async copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
+    this._assertOpen()
+
+    return super.copyIn(sqlStr, chunks)
+  }
+
   private _assertOpen(): void {
     if (this._settled)
       throw new ValidationError('A query on a transaction that already committed or rolled back: work started in its body outlived it', 'transaction')

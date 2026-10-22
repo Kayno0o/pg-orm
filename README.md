@@ -444,6 +444,19 @@ What each op gives when no row matches:
 | `updateWithLock` | throws `NotFoundError`, or `StaleRecordError` when the row is there at another version |
 | `findOrCreate` | never misses: `{ row, created }` |
 
+### Bulk load with COPY
+
+`repo.write.copyFrom(rows)` streams rows through `COPY ... FROM STDIN`, far faster than `insertMany` for large loads and with no bind-parameter limit. It takes an array or any (async) iterable and resolves to the number of rows loaded.
+
+```ts
+const loaded = await repo.write.copyFrom(readCsvRows('users.csv')) // an async generator of { name, email }
+```
+
+- Postgres only: SQLite throws `DialectError`.
+- It skips hooks and returns no rows, like `repo.write.insert()`. Column DEFAULTs (and the traits relying on them) still apply.
+- Every row sets exactly the columns the first row sets; the others take their DEFAULT. A later row setting other columns throws `ValidationError` and nothing is loaded. Generated columns are refused.
+- The load is one statement: a constraint violation or an error thrown by the source loads nothing. It is never retried, runs in a transaction under `repo.using(tx)`, and stops with `AbortError` under `db.withSignal`.
+
 ## Traits
 
 ```ts

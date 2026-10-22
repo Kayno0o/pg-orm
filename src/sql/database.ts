@@ -114,6 +114,10 @@ export class Database extends BaseExecutor {
     return this._connection.query(sqlStr, params)
   }
 
+  override copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
+    return this._connection.copyIn(sqlStr, chunks)
+  }
+
   get schema(): string {
     return this._connection.schema
   }
