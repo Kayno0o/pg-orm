@@ -679,6 +679,23 @@ for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
 
 > **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use `stream.cursor()` instead, or run inside a `REPEATABLE READ` transaction.
 
+## Cancellation
+
+`db.withSignal(signal, fn)` binds an `AbortSignal` to every statement run inside `fn`: repo reads and writes, relation loads, streams, `db.raw` and transaction bodies. Aborting it cancels the statement in flight on the server, and every later one rejects with `AbortError` without being sent.
+
+```ts
+// Give up on a slow report after 2 seconds
+const rows = await db.withSignal(AbortSignal.timeout(2000), () => ReportRepo.read.findMany({ year: 2026 }))
+
+// Stop work for a request the client walked away from
+app.get('/export', req => db.withSignal(req.signal, () => exportRows()))
+```
+
+- An aborted transaction body rolls back, and a transaction started under an aborted signal never opens.
+- `AbortError` is never retried; its `cause` is the signal's `reason`.
+- Nested calls abort on either signal.
+- On SQLite a statement already running finishes: the signal is checked before each one.
+
 ## Migration
 
 ```ts
@@ -821,6 +838,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `AuthenticationError` | 28xxx | Credentials refused, never retried |
 | `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it |
 | `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
+| `AbortError` | - | The signal bound by `db.withSignal` aborted; `cause` is its reason, never retried |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |
 | `NotFoundError` | - | `findOneOrThrow`/`findByIdOrThrow` found nothing, or `updateWithLock` matched no row |
 | `MultipleRowsError` | - | `updateOne`/`deleteOne` with `onMany: 'throw'` matched several rows; nothing changed |

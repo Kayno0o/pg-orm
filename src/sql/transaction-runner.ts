@@ -4,6 +4,7 @@ import type { ExecutorHooks } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { DeadlockError, OrmError, SerializationError, ValidationError, wrapPgError } from '../errors/index'
+import { querySignalStorage, throwIfAborted } from './abort'
 import { asDriver } from './adapter'
 import { queryContextStorage, reportCallbackError } from './base-executor'
 import { computeBackoff } from './retry'
@@ -53,6 +54,9 @@ export class TransactionRunner {
     const fn = typeof fnOrOpts === 'function' ? fnOrOpts : maybeFn!
     const opts = typeof fnOrOpts === 'object' ? fnOrOpts : undefined
     const outer = this._joinable()
+    const signal = querySignalStorage.getStore()
+
+    throwIfAborted(signal)
 
     if (outer && this.joins(opts))
       return this._runNested(outer, fn, opts)
@@ -60,11 +64,12 @@ export class TransactionRunner {
     // Capture the ALS-bound context at the call site so the tx body re-enters
     // the same scope. bun:sql's `begin()` schedules its callback through a path
     // that may not preserve `AsyncLocalStorage` propagation; pinning the scope
-    // here keeps `Database.withContext` working inside transactions.
+    // here keeps `Database.withContext` and `Database.withSignal` working inside transactions.
     const ambientContext = queryContextStorage.getStore()
     const inScope = this.captureScope()
+    const withSignal = <R>(body: () => Promise<R>): Promise<R> => signal ? querySignalStorage.run(signal, body) : body()
     const runInContext = <R>(body: () => Promise<R>): Promise<R> =>
-      inScope(() => ambientContext ? queryContextStorage.run(ambientContext, body) : body())
+      inScope(() => ambientContext ? queryContextStorage.run(ambientContext, () => withSignal(body)) : withSignal(body))
     const maxRetries = opts?.retry?.maxRetries ?? 0
 
     for (let attempt = 0; ; attempt++) {

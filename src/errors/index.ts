@@ -110,6 +110,14 @@ export class TimeoutError extends QueryError {
   }
 }
 
+/** A statement cancelled, or never sent, because the signal bound by `Database.withSignal` aborted; `cause` is the signal's reason. Never retried. */
+export class AbortError extends QueryError {
+  constructor(query = '', params: unknown[] = [], reason?: unknown) {
+    super('Query aborted', query, params, reason)
+    this.name = 'AbortError'
+  }
+}
+
 /** The database refused the credentials (PG codes 28xxx). Not retried: the same credentials fail again. */
 export class AuthenticationError extends QueryError {
   readonly code: string

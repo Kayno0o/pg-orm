@@ -10,6 +10,7 @@ import { dialectOfUrl, sqliteFilename } from '../dialect'
 import { setParamRedactor } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { Repository } from '../repo/index'
+import { querySignalStorage } from './abort'
 import { BaseExecutor, queryContextStorage } from './base-executor'
 import { normalizeDbConfig, validateDbConfig } from './config'
 import { ConnectionLifecycle } from './connection-lifecycle'
@@ -327,5 +328,20 @@ export class Database extends BaseExecutor {
     const merged = outer ? { ...outer, ...ctx } : ctx
 
     return queryContextStorage.run(merged, fn)
+  }
+
+  /**
+   * Run `fn` with `signal` bound to async-local storage: aborting it cancels the statement in flight and every later one inside `fn` (repos, relation loads, streams, `db.raw`, transaction bodies) rejects with `AbortError` without being sent.
+   * An aborted transaction body rolls back. Nested calls abort on either signal. On SQLite a statement already running finishes; the signal is checked before each one.
+   *
+   * @example
+   * ```ts
+   * const rows = await db.withSignal(AbortSignal.timeout(2000), () => repo.read.findMany({ status: 'open' }))
+   * ```
+   */
+  async withSignal<T>(signal: AbortSignal, fn: () => Promise<T> | T): Promise<T> {
+    const outer = querySignalStorage.getStore()
+
+    return querySignalStorage.run(outer ? AbortSignal.any([outer, signal]) : signal, fn)
   }
 }

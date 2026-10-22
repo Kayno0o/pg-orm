@@ -45,6 +45,7 @@ export { defineConfig, type PgOrmConfig } from './define-config'
 export { type Dialect } from './dialect'
 // Errors
 export {
+  AbortError,
   AfterHookError,
   AuthenticationError,
   BeforeHookError,

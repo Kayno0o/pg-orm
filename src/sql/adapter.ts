@@ -1,8 +1,12 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
-import { OrmError, wrapPgError } from '../errors/index'
+import { AbortError, OrmError, wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
+import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
 import { bigintAsString, byteaHex, isJsonParam } from './json-param'
+
+/** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */
+export type DriverQuery = Promise<unknown[]> & { cancel?: () => void }
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -11,7 +15,7 @@ import { bigintAsString, byteaHex, isJsonParam } from './json-param'
  * every caller fully typed.
  */
 export interface BunSqlDriver {
-  unsafe: (sqlStr: string, params: unknown[]) => Promise<unknown[]>
+  unsafe: (sqlStr: string, params: unknown[]) => DriverQuery
   begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   close: (opts?: { timeout?: number }) => Promise<void>
@@ -115,15 +119,39 @@ export async function unsafeQuery(
   params: unknown[],
   dialect: Dialect = 'postgres',
 ): Promise<Record<string, unknown>[]> {
+  const signal = querySignalStorage.getStore()
+
   try {
+    throwIfAborted(signal, sqlStr, params)
+
     if (dialect === 'sqlite')
       return await asDriver(sql).unsafe(sqlStr, params) as Record<string, unknown>[]
 
-    const rows = await asDriver(sql).unsafe(sqlStr, serializeParams(params)) as Record<string, unknown>[]
+    const query = asDriver(sql).unsafe(sqlStr, serializeParams(params))
+    const rows = await (signal ? untilAborted(query, signal) : query) as Record<string, unknown>[]
 
     return normalizeRows(rows)
   }
   catch (err) {
+    if (signal?.aborted && isCancellation(err))
+      throw new AbortError(sqlStr, params, signal.reason)
+
     throw err instanceof OrmError ? err : wrapPgError(err, sqlStr, params)
+  }
+}
+
+async function untilAborted(query: DriverQuery, signal: AbortSignal): Promise<unknown[]> {
+  // A listener returning the query, as `cancel()` does, makes Bun report its rejection as uncaught even though it is awaited below.
+  const cancel = (): void => {
+    query.cancel?.()
+  }
+
+  signal.addEventListener('abort', cancel, { once: true })
+
+  try {
+    return await query
+  }
+  finally {
+    signal.removeEventListener('abort', cancel)
   }
 }
