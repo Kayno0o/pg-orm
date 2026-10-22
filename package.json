@@ -37,6 +37,9 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "bun": ">=1.4.4"
+  },
   "scripts": {
     "build": "rm -rf ./dist && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --sourcemap=external --production && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",

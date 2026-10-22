@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { OrmError } from '../../../src/errors/index'
-import { asDriver, normalizeRows, serializeParams, unsafeQuery } from '../../../src/sql/adapter'
+import { asDriver, copyIn, normalizeRows, serializeParams, unsafeQuery } from '../../../src/sql/adapter'
 
 describe('asDriver', () => {
   it('returns the same reference (pure type cast)', () => {
@@ -170,5 +170,15 @@ describe('unsafeQuery', () => {
     await unsafeQuery(sql, 'SELECT * FROM users WHERE id = $1', [1])
 
     expect(receivedSql).toBe('SELECT * FROM users WHERE id = $1')
+  })
+})
+
+describe('copyIn', () => {
+  it('refuses a Bun whose queries cannot stream COPY FROM STDIN, naming the version it needs', async () => {
+    const sql = { unsafe: async () => [] } as any
+
+    await expect(copyIn(sql, 'COPY "t" ("a") FROM STDIN', (async function* () {
+      yield 'a\n'
+    })())).rejects.toThrow(new OrmError(`copyFrom needs Bun 1.4.4 or later, whose bun:sql streams COPY FROM STDIN (running ${Bun.version})`))
   })
 })

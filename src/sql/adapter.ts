@@ -166,7 +166,12 @@ export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chun
   throwIfAborted(signal, sqlStr)
 
   const query = asDriver(sql).unsafe(sqlStr, [])
-  const writer = query.writable!().getWriter()
+
+  // A bun:sql query is sent once awaited, so refusing here sends nothing.
+  if (typeof query.writable !== 'function')
+    throw new OrmError(`copyFrom needs Bun 1.4.4 or later, whose bun:sql streams COPY FROM STDIN (running ${Bun.version})`)
+
+  const writer = query.writable().getWriter()
   // Settled from the start: the statement can fail while chunks are still being written, before anything awaits it.
   const outcome = settle(signal ? untilAborted(query, signal) : query)
   let interrupted: { error: unknown } | undefined

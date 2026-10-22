@@ -452,7 +452,7 @@ What each op gives when no row matches:
 const loaded = await repo.write.copyFrom(readCsvRows('users.csv')) // an async generator of { name, email }
 ```
 
-- Postgres only: SQLite throws `DialectError`.
+- Postgres only: SQLite throws `DialectError`. It needs Bun 1.4.4 or later, whose `bun:sql` streams COPY; an older Bun gets an `OrmError` saying so.
 - It skips hooks and returns no rows, like `repo.write.insert()`. Column DEFAULTs (and the traits relying on them) still apply.
 - Every row sets exactly the columns the first row sets; the others take their DEFAULT. A later row setting other columns throws `ValidationError` and nothing is loaded. Generated columns are refused.
 - The load is one statement: a constraint violation or an error thrown by the source loads nothing. It is never retried, runs in a transaction under `repo.using(tx)`, and stops with `AbortError` under `db.withSignal`.
@@ -707,6 +707,7 @@ app.get('/export', req => db.withSignal(req.signal, () => exportRows()))
 - An aborted transaction body rolls back, and a transaction started under an aborted signal never opens.
 - `AbortError` is never retried; its `cause` is the signal's `reason`.
 - Nested calls abort on either signal.
+- Cancelling the statement in flight needs Bun 1.4.4 or later; on an older Bun it runs to its end, and only the statements after it are refused.
 - On SQLite a statement already running finishes: the signal is checked before each one.
 
 ## Migration
