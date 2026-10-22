@@ -2,7 +2,7 @@ import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { OrmError, wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
-import { bigintAsString, isJsonParam } from './json-param'
+import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -48,6 +48,9 @@ export function serializePgArray(val: unknown[]): string {
     // A Date goes in as its ISO string and an object, a json or jsonb element, as its JSON text: String() would give neither.
     if (item instanceof Date)
       return quoteElement(item.toISOString())
+
+    if (item instanceof Uint8Array)
+      return quoteElement(byteaHex(item))
 
     if (typeof item === 'object')
       return quoteElement(JSON.stringify(item, bigintAsString))

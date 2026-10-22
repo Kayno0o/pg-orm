@@ -192,11 +192,17 @@ function toDate(value: unknown): unknown {
   return value instanceof Date ? value : new Date(value as string)
 }
 
+// A byte array element sits in a SQLite array's JSON text as its `\x` hex.
+function toBytes(value: unknown): unknown {
+  return typeof value === 'string' ? Buffer.from(value.slice(2), 'hex') : value
+}
+
 /** Runtime helpers the compiled mapper body calls as `h.<name>`. */
 const helpers = {
   sqliteJson: (v: unknown): unknown => typeof v === 'string' ? parseJsonText(v) : v,
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
+  byteaArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBytes),
 }
 
 type Helpers = typeof helpers
@@ -223,8 +229,14 @@ function sqliteAccessor(col: string, pgType: string): string | undefined {
   if (pgType.startsWith('numeric'))
     return `(r[${key}] == null ? r[${key}] : String(r[${key}]))`
 
-  if (pgType.endsWith('[]'))
-    return DATE_TYPES.has(pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
+  if (pgType.endsWith('[]')) {
+    const element = pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')
+
+    if (element === 'bytea')
+      return helperAccessor(col, 'byteaArray')
+
+    return DATE_TYPES.has(element) ? helperAccessor(col, 'dateArray') : helperAccessor(col, 'sqliteJson')
+  }
 
   return undefined
 }

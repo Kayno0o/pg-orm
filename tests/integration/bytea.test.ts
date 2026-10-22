@@ -9,6 +9,7 @@ const blobs = defineTable('by_blobs', t => ({
   id: t.serial().primaryKey(),
   data: t.bytea().nullable(),
   nums: t.array(t.int4()).nullable(),
+  bins: t.array(t.bytea()).nullable(),
 }))
 
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-bytea-'))
@@ -44,5 +45,23 @@ describe.each(dialects)('bytea and numeric arrays on %s', (_name, open) => {
     expect([...rows[1]!.data!]).toEqual([1, 2, 255])
     expect(Array.isArray(rows[1]!.nums)).toBe(true)
     expect(rows[1]!.nums).toEqual([3, 4])
+  })
+
+  it('round-trips a bytea array, an empty buffer included', async () => {
+    const repo = db.repo(blobs)
+    const row = await repo.write.insertOne({ bins: [Buffer.from([0, 1, 255]), Buffer.alloc(0)] })
+    const read = await repo.read.findByIdOrThrow(row.id)
+
+    expect(read.bins!.map(b => [...b])).toEqual([[0, 1, 255], []])
+  })
+
+  it('matches a bytea column against an array of buffers', async () => {
+    const repo = db.repo(blobs)
+
+    await repo.write.insertOne({ data: Buffer.from([9, 8]) })
+
+    const rows = await repo.read.findMany({ data: { in: [Buffer.from([9, 8]), Buffer.from([7])] } })
+
+    expect(rows.map(r => [...r.data!])).toEqual([[9, 8]])
   })
 })

@@ -34,3 +34,15 @@ export function isJsonParam(value: unknown): value is JsonParam {
 export function bigintAsString(_key: string, value: unknown): unknown {
   return typeof value === 'bigint' ? value.toString() : value
 }
+
+/** The hex form Postgres reads a `bytea` from, `\x0102`: what a byte array element is written as in an array literal and, on SQLite, in an array's JSON text. */
+export function byteaHex(bytes: Uint8Array): string {
+  return `\\x${Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('hex')}`
+}
+
+/** A `JSON.stringify` replacer for an array column's JSON text on SQLite: a bigint as its decimal string, a byte array as its `\x` hex. */
+export function arrayElementAsJson(this: Record<string, unknown>, key: string, value: unknown): unknown {
+  const raw = this[key]
+
+  return raw instanceof Uint8Array ? byteaHex(raw) : bigintAsString(key, value)
+}

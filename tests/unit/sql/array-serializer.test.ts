@@ -50,6 +50,10 @@ describe('serializePgArray', () => {
     expect(serializePgArray([[1, 2], [3, 4]])).toBe('{{1,2},{3,4}}')
   })
 
+  it('serializes byte array elements as bytea hex', () => {
+    expect(serializePgArray([Buffer.from([0, 255]), new Uint8Array([1, 2, 3]).subarray(1)])).toBe('{"\\\\x00ff","\\\\x0203"}')
+  })
+
   it('serializes mixed-type elements (numbers and strings)', () => {
     expect(serializePgArray(['Seb', 'Sebouille', 'Sebobar'])).toBe('{"Seb","Sebouille","Sebobar"}')
   })
