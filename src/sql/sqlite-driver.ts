@@ -219,6 +219,8 @@ export class SqliteDriver implements SqliteHandle {
 
     try {
       await previous
+      // Opening sets WAL mode, which answers SQLITE_BUSY while another process is opening the same file.
+      await this._waitBusy(() => this._open())
 
       return await fn()
     }
