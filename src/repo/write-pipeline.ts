@@ -4,7 +4,7 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
@@ -90,6 +90,7 @@ function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<T
 export interface WritePipelineContext {
   executor: Executable
   runtime: TableRuntime
+  hooks: HookContext
 }
 
 /**
@@ -105,6 +106,7 @@ export class WritePipeline<
 > {
   private _executor: Executable
   private _runtime: TableRuntime
+  private _hooks: HookContext
   private _mapperFactory: ReturnType<typeof createMapperFactory>
   private _sqliteDefaults?: Record<string, string>
   // Set on the pipeline a chunked write runs its chunks on: after-write hooks wait for the last chunk, so none fires for rows a later chunk rolls back.
@@ -113,6 +115,7 @@ export class WritePipeline<
   constructor(ctx: WritePipelineContext) {
     this._executor = ctx.executor
     this._runtime = ctx.runtime
+    this._hooks = ctx.hooks
     this._mapperFactory = createMapperFactory(this._runtime.table, dialectOf(ctx.executor))
   }
 
@@ -162,7 +165,7 @@ export class WritePipeline<
   // --- Insert ---
 
   async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const v = this._normalizeValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
+    const v = this._normalizeValues(await this._runtime.runBefore('beforeInsert', values, this._hooks) as Record<string, unknown>) as InferInsert<TColumns>
 
     return this._execute({
       builder: skipConflicts(new InsertBuilderCtor<TColumns>(this._runtime.table).values(v), opts),
@@ -176,7 +179,7 @@ export class WritePipeline<
     if (values.length === 0)
       return []
 
-    const v = (await this._runtime.runBeforeMany('beforeInsert', values))
+    const v = (await this._runtime.runBeforeMany('beforeInsert', values, this._hooks))
       .map(row => this._normalizeValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
 
     return this._chunked(v, (pipeline, rows) => pipeline._execute({
@@ -262,7 +265,7 @@ export class WritePipeline<
 
     const deferred: NonNullable<typeof this._deferredAfter> = []
     const run = async (exec: Executable): Promise<TResult[]> => {
-      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime })
+      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime, hooks: this._hooks })
       const out: TResult[] = []
 
       pipeline._deferredAfter = deferred
@@ -275,7 +278,7 @@ export class WritePipeline<
     const out = this._executor.atomic ? await this._executor.atomic(run) : await run(this._executor)
 
     for (const [event, written] of deferred)
-      await this._runtime.runAfter(event, written)
+      await this._runtime.runAfter(event, written, this._hooks)
 
     return out
   }
@@ -284,7 +287,7 @@ export class WritePipeline<
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const filter = requireWhere(where, 'updateMany')
-    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
+    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', set, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
       .where(filter)
@@ -420,7 +423,7 @@ export class WritePipeline<
         throw new ValidationError(`updateManyById(): two rows on "${table.name}" share one ${pkColumns.join(', ')}.`, 'updateManyById', { field: pkColumns.join(', ') })
 
       seen.add(identity)
-      prepared.push({ key, set: this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch)) })
+      prepared.push({ key, set: this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch, this._hooks)) })
     }
 
     // Each row binds its key and every column some row sets.
@@ -471,13 +474,13 @@ export class WritePipeline<
 
   // A `null` where is every row, which only `deleteAll` passes.
   private async _delete(where: Where<TColumns> | null, force: boolean, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    await this._runtime.runBefore('beforeDelete', undefined)
+    await this._runtime.runBefore('beforeDelete', undefined, this._hooks)
 
     // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
     const softSet = force ? null : this._runtime.behavior.softDeleteSet<TColumns>()
     const hardDelete = new DeleteBuilderCtor<TColumns>(this._runtime.table)
     const builder = softSet
-      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet), where)
+      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet, this._hooks), where)
       : where ? hardDelete.where(where) : hardDelete.allRows()
 
     return this._execute({
@@ -499,9 +502,11 @@ export class WritePipeline<
     if (values.length === 0)
       return []
 
-    const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
-      .map(row => this._normalizeValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
-    const conflict = await this._conflictUpdate(update)
+    // A row an upsert writes may be inserted, so it goes through the insert hooks first.
+    const inserted = await this._runtime.runBeforeMany('beforeUpsert', await this._runtime.runBeforeMany('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>[]
+    const { rows: hooked, columns } = await this._updateHookedRows(inserted)
+    const v = hooked.map(row => this._normalizeValues(row)) as InferInsert<TColumns>[]
+    const conflict = this._conflictUpdate(update, columns)
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
       const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
@@ -570,22 +575,41 @@ export class WritePipeline<
     return rows[0] ?? null
   }
 
-  // The row an upsert updates is updated like any other: `beforeUpdate` hooks (timestamps) and the version bump apply to it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
-  private async _conflictUpdate(update?: UpsertUpdate<TColumns>): Promise<ConflictUpdate<TColumns>> {
+  /**
+   * Runs `beforeUpdate` on each upsert row, as the update it may become: what a hook sets or changes is written into the row, for the conflict update to take through EXCLUDED, so the inserted row carries it too.
+   * Gives the rows and those columns, which every row must set alike, a row lacking one inserting its default and updating to it.
+   */
+  private async _updateHookedRows(rows: Record<string, unknown>[]): Promise<{ rows: Record<string, unknown>[], columns: string[] }> {
+    if (!hasHooks(this._runtime.table, 'beforeUpdate'))
+      return { rows, columns: [] }
+
+    const hooked = await this._runtime.runBeforeMany('beforeUpdate', rows.map(row => ({ ...row })), this._hooks)
+    const changed = hooked.map((row, i) => Object.keys(row).filter(col => !Object.hasOwn(rows[i]!, col) || row[col] !== rows[i]![col]))
+    const columns = [...new Set(changed.flat())]
+    const uneven = columns.find(col => hooked.some(row => !Object.hasOwn(row, col)))
+
+    if (uneven !== undefined)
+      throw new ValidationError(`upsert on "${this._runtime.table.name}": a beforeUpdate hook set "${uneven}" on some rows only, where the conflict update writes it for every row.`, 'upsert', { field: uneven })
+
+    return { rows: hooked, columns }
+  }
+
+  // The row an upsert updates is updated like any other: the columns `beforeUpdate` hooks set (timestamps), taken from the incoming row, and the version bump apply to it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
+  private _conflictUpdate(update: UpsertUpdate<TColumns> | undefined, hookedColumns: string[]): ConflictUpdate<TColumns> {
     const spec: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
-    const hooked = await this._runtime.runBefore('beforeUpdate', {})
     const lock = this._runtime.behavior.getOptimisticLockColumn()
     const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
     for (const col of spec.columns ?? [])
       columnOf(this._runtime.table, col, 'upsert')
 
-    if (!spec.set && Object.keys(hooked).length === 0 && !lock && !trashCol)
+    if (!spec.set && hookedColumns.length === 0 && !lock && !trashCol)
       return spec
 
     return {
       ...spec,
       set: (u) => {
+        const hooked = Object.fromEntries(hookedColumns.map(col => [col, u.excluded(col as keyof TColumns & string)]))
         const set: Record<string, unknown> = { ...hooked, ...trashCol && { [trashCol]: u.excluded(trashCol) }, ...spec.set?.(u) }
 
         if (lock)
@@ -609,7 +633,7 @@ export class WritePipeline<
    * A row deleted between those statements sends it round again, a few times at most.
    */
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
-    const v = this._normalizeValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>)
+    const v = this._normalizeValues(await this._runtime.runBefore('beforeUpsert', await this._runtime.runBefore('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>)
     const { table } = this._runtime
     const key = Object.fromEntries(conflictTarget.map((col) => {
       if (v[col] === undefined || v[col] === null)
@@ -635,8 +659,11 @@ export class WritePipeline<
 
       const [found] = await this._select(key)
 
-      if (found)
+      if (found) {
+        await this._runtime.runAfter('afterSelect', [found], this._hooks)
+
         return { row: found, created: false }
+      }
     }
 
     throw new OrmError(`findOrCreate() on "${table.name}": the row conflicting with the insert was deleted before it could be read, ${FIND_OR_CREATE_ATTEMPTS} times over.`)
@@ -663,7 +690,7 @@ export class WritePipeline<
       )
     }
 
-    const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>)
+    const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks)
     const builder = this._runtime.behavior.buildRestoreUpdate(s, where)
 
     return this._execute({
@@ -715,7 +742,7 @@ export class WritePipeline<
     if (this._deferredAfter)
       this._deferredAfter.push([event, rows])
     else
-      await this._runtime.runAfter(event, rows)
+      await this._runtime.runAfter(event, rows, this._hooks)
   }
 
   // `rows` arrive mapped; the row form installs virtuals.

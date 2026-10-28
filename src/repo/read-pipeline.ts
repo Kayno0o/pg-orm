@@ -3,7 +3,7 @@ import type { IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, InferPrimaryKey, InferSelect, PrimaryKeyColumn, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferPrimaryKey, InferSelect, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -57,6 +57,7 @@ export interface ReadPipelineContext {
   runtime: TableRuntime
   relations: RelationResolver
   mapper: MapperFactory
+  hooks: HookContext
   tableRegistry?: ReadonlyMap<string, AnyTableDef>
 }
 
@@ -142,6 +143,7 @@ export class ReadPipeline<
   private _runtime: TableRuntime
   private _relations: RelationResolver
   private _mapper: MapperFactory
+  private _hooks: HookContext
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
   private _children = new Map<string, ChildTable>()
 
@@ -151,6 +153,7 @@ export class ReadPipeline<
     this._runtime = ctx.runtime
     this._relations = ctx.relations
     this._mapper = ctx.mapper
+    this._hooks = ctx.hooks
     this._tableRegistry = ctx.tableRegistry
   }
 
@@ -556,7 +559,7 @@ export class ReadPipeline<
       mapped = mapChunk(mapper, rows)
     }
 
-    await runtime.runAfter('afterSelect', mapped)
+    await runtime.runAfter('afterSelect', mapped, this._hooks)
 
     mapped = runtime.applyVirtuals(mapped)
 

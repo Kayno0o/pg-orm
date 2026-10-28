@@ -1,3 +1,4 @@
+import type { Repository } from '../repo/index'
 import type { Trait } from '../traits'
 
 // Branded type for SQL identifiers
@@ -245,12 +246,17 @@ export type HookEvent
     | 'beforeDelete' | 'afterDelete'
     | 'afterSelect' | 'beforeUpsert'
 
+/** A hook's second argument: `repo(table)` reads and writes through the executor the hooked operation runs on, so a hook under `repo.using(tx)` queries inside that transaction. */
+export interface HookContext {
+  repo: <TColumns extends AnyColumns, TRelations extends AnyRelations, TVirtuals extends AnyVirtuals>(table: TableDef<string, TColumns, TRelations, TVirtuals>) => Repository<TColumns, TRelations, TVirtuals>
+}
+
 export type HookHandler<TColumns extends AnyColumns, E extends HookEvent>
-  = E extends 'afterSelect' ? (rows: InferSelect<TColumns>[]) => InferSelect<TColumns>[] | void | Promise<InferSelect<TColumns>[] | void>
-    : E extends 'beforeInsert' | 'beforeUpsert' ? (row: InferInsert<TColumns>) => InferInsert<TColumns> | void | Promise<InferInsert<TColumns> | void>
-      : E extends 'beforeUpdate' ? (row: Partial<InferSelect<TColumns>>) => Partial<InferSelect<TColumns>> | void | Promise<Partial<InferSelect<TColumns>> | void>
-        : E extends 'afterInsert' | 'afterUpdate' | 'afterDelete' ? (rows: InferSelect<TColumns>[]) => void | Promise<void>
-          : E extends 'beforeDelete' ? () => void | Promise<void>
+  = E extends 'afterSelect' ? (rows: InferSelect<TColumns>[], ctx: HookContext) => InferSelect<TColumns>[] | void | Promise<InferSelect<TColumns>[] | void>
+    : E extends 'beforeInsert' | 'beforeUpsert' ? (row: InferInsert<TColumns>, ctx: HookContext) => InferInsert<TColumns> | void | Promise<InferInsert<TColumns> | void>
+      : E extends 'beforeUpdate' ? (row: Partial<InferSelect<TColumns>>, ctx: HookContext) => Partial<InferSelect<TColumns>> | void | Promise<Partial<InferSelect<TColumns>> | void>
+        : E extends 'afterInsert' | 'afterUpdate' | 'afterDelete' ? (rows: InferSelect<TColumns>[], ctx: HookContext) => void | Promise<void>
+          : E extends 'beforeDelete' ? (_: undefined, ctx: HookContext) => void | Promise<void>
             : never
 
 export type HookRegistry = Partial<Record<HookEvent, ((...args: any[]) => any)[]>>

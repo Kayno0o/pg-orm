@@ -1,5 +1,5 @@
 import type { Database, Executable, TransactionClient } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, TableDef } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -68,6 +68,8 @@ export class Repository<
   private _maxPageSize: number
   // One rebound repository per transaction client, so `repo.using(tx)` in a loop does not rebuild the runtime, resolver and mapper each time.
   private _boundCache = new WeakMap<object, Repository<TColumns, TRelations, TVirtuals>>()
+  // The repositories hooks reach through `ctx.repo(table)`, on this one's executor, rebuilt when the table def is mutated.
+  private _hookRepos = new WeakMap<AnyTableDef, { version: number, repo: Repository<AnyColumns, AnyRelations, AnyVirtuals> }>()
 
   /** Read suite — `findMany`, `findOne`, `count`, `paginate*`, `select()`, etc. */
   readonly read: ReadSuite<TColumns, TRelations, TVirtuals>
@@ -89,9 +91,37 @@ export class Repository<
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
     this._map = config.shared?.mappers ?? createMapperFactory(this._table, dialectOf(this._exec))
 
-    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry, this._maxPageSize)
-    this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
-    this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry)
+    const hooks: HookContext = { repo: table => this._hookRepo(table) }
+
+    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry, this._maxPageSize, hooks)
+    this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, hooks)
+    this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry, hooks)
+  }
+
+  private _hookRepo<C extends AnyColumns, R extends AnyRelations, V extends AnyVirtuals>(table: TableDef<string, C, R, V>): Repository<C, R, V> {
+    const def = table as AnyTableDef
+
+    if (def === this._table)
+      return this as unknown as Repository<C, R, V>
+
+    const cached = this._hookRepos.get(def)
+
+    if (cached && cached.version === def._version)
+      return cached.repo as unknown as Repository<C, R, V>
+
+    const repo = new Repository<AnyColumns, AnyRelations, AnyVirtuals>({
+      table: def,
+      executor: this._exec,
+      tableRegistry: this._tableRegistry,
+      maxIncludeDepth: this._maxIncludeDepth,
+      defaultLimit: this._defaultLimit,
+      maxPageSize: this._maxPageSize,
+      batchChunkSize: this._batchChunkSize,
+    })
+
+    this._hookRepos.set(def, { version: def._version, repo })
+
+    return repo as unknown as Repository<C, R, V>
   }
 
   /** The table definition this repository reads and writes, typed for generic code: `isColumn(repo.table, name)`, `whereColumn(repo.table, name, value)`. */

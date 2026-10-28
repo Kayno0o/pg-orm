@@ -1,6 +1,6 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
@@ -20,15 +20,17 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     rt: TableRuntime,
     rel: RelationResolver,
     map: MapperFactory,
-    defaultLimit?: number,
-    tableRegistry?: ReadonlyMap<string, AnyTableDef>,
-    maxPageSize?: number,
+    defaultLimit: number | undefined,
+    tableRegistry: ReadonlyMap<string, AnyTableDef> | undefined,
+    maxPageSize: number | undefined,
+    hooks: HookContext,
   ) {
     this._pipeline = new ReadPipeline<TColumns, TRelations, TVirtuals>({
       executor: exec,
       runtime: rt,
       relations: rel,
       mapper: map,
+      hooks,
       tableRegistry,
     })
     this._defaultLimit = defaultLimit

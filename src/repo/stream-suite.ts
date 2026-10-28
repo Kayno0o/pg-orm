@@ -1,6 +1,6 @@
 import type { OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { CopyToOptions, StreamCursorOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
@@ -25,13 +25,15 @@ export class StreamSuite<
     rt: TableRuntime,
     rel: RelationResolver,
     map: MapperFactory,
-    tableRegistry?: ReadonlyMap<string, AnyTableDef>,
+    tableRegistry: ReadonlyMap<string, AnyTableDef> | undefined,
+    hooks: HookContext,
   ) {
     this._pipeline = new ReadPipeline<TColumns, TRelations, TVirtuals>({
       executor: exec,
       runtime: rt,
       relations: rel,
       mapper: map,
+      hooks,
       tableRegistry,
     })
   }

@@ -1,7 +1,7 @@
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
@@ -23,8 +23,9 @@ export class WriteSuite<
   constructor(
     _exec: Executable,
     _rt: TableRuntime,
+    hooks: HookContext,
   ) {
-    this._pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: _exec, runtime: _rt })
+    this._pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: _exec, runtime: _rt, hooks })
     this._rt = _rt
   }
 

@@ -167,6 +167,7 @@ export type {
   ColumnType,
   ForeignKeyRef,
   HasDefault,
+  HookContext,
   HookEvent,
   HookHandler,
   HookRegistry,

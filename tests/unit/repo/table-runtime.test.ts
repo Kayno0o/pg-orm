@@ -1,7 +1,10 @@
+import type { HookContext } from '../../../src/types/index'
 import { describe, expect, it } from 'bun:test'
 import { AfterHookError, BeforeHookError, OrmError } from '../../../src/errors/index'
 import { defineTable } from '../../../src/index'
 import { buildTableRuntime } from '../../../src/repo/table-runtime'
+
+const ctx = {} as HookContext
 
 function makePlain() {
   return defineTable('plain', t => ({
@@ -50,7 +53,7 @@ describe('buildTableRuntime.runBefore', () => {
     const rt = buildTableRuntime(makePlain())
     const input = { name: 'Alice' }
 
-    expect(await rt.runBefore('beforeInsert', input)).toBe(input)
+    expect(await rt.runBefore('beforeInsert', input, ctx)).toBe(input)
   })
 
   it('runs a single hook and returns its mutated value', async () => {
@@ -59,7 +62,7 @@ describe('buildTableRuntime.runBefore', () => {
     t.hook('beforeInsert', row => ({ ...row, name: row.name.toUpperCase() }))
     const rt = buildTableRuntime(t)
 
-    expect(await rt.runBefore('beforeInsert', { name: 'alice' })).toEqual({ name: 'ALICE' })
+    expect(await rt.runBefore('beforeInsert', { name: 'alice' }, ctx)).toEqual({ name: 'ALICE' })
   })
 
   it('chains multiple hooks in sequence', async () => {
@@ -69,7 +72,7 @@ describe('buildTableRuntime.runBefore', () => {
     t.hook('beforeInsert', row => ({ ...row, name: `${row.name}-b` }))
     const rt = buildTableRuntime(t)
 
-    expect(await rt.runBefore('beforeInsert', { name: 'x' })).toEqual({ name: 'x-a-b' })
+    expect(await rt.runBefore('beforeInsert', { name: 'x' }, ctx)).toEqual({ name: 'x-a-b' })
   })
 
   it('wraps a throwing before-hook in BeforeHookError', async () => {
@@ -80,7 +83,7 @@ describe('buildTableRuntime.runBefore', () => {
     })
     const rt = buildTableRuntime(t)
 
-    await expect(rt.runBefore('beforeInsert', { name: 'x' })).rejects.toBeInstanceOf(BeforeHookError)
+    await expect(rt.runBefore('beforeInsert', { name: 'x' }, ctx)).rejects.toBeInstanceOf(BeforeHookError)
   })
 })
 
@@ -89,7 +92,7 @@ describe('buildTableRuntime.runBeforeMany', () => {
     const rt = buildTableRuntime(makePlain())
     const arr = [{ name: 'a' }, { name: 'b' }]
 
-    expect(await rt.runBeforeMany('beforeInsert', arr)).toBe(arr)
+    expect(await rt.runBeforeMany('beforeInsert', arr, ctx)).toBe(arr)
   })
 
   it('applies hook to each element in parallel', async () => {
@@ -98,7 +101,7 @@ describe('buildTableRuntime.runBeforeMany', () => {
     t.hook('beforeInsert', async row => ({ ...row, name: row.name.toUpperCase() }))
     const rt = buildTableRuntime(t)
 
-    const out = await rt.runBeforeMany('beforeInsert', [{ name: 'a' }, { name: 'b' }, { name: 'c' }])
+    const out = await rt.runBeforeMany('beforeInsert', [{ name: 'a' }, { name: 'b' }, { name: 'c' }], ctx)
 
     expect(out.map(r => r.name)).toEqual(['A', 'B', 'C'])
   })
@@ -108,7 +111,7 @@ describe('buildTableRuntime.runAfter', () => {
   it('is a no-op when no hooks are registered', async () => {
     const rt = buildTableRuntime(makePlain())
 
-    await expect(rt.runAfter('afterInsert', [])).resolves.toBeUndefined()
+    await expect(rt.runAfter('afterInsert', [], ctx)).resolves.toBeUndefined()
   })
 
   it('wraps a throwing after-hook in AfterHookError', async () => {
@@ -119,8 +122,8 @@ describe('buildTableRuntime.runAfter', () => {
     })
     const rt = buildTableRuntime(t)
 
-    await expect(rt.runAfter('afterInsert', [])).rejects.toBeInstanceOf(AfterHookError)
-    await expect(rt.runAfter('afterInsert', [])).rejects.toMatchObject({
+    await expect(rt.runAfter('afterInsert', [], ctx)).rejects.toBeInstanceOf(AfterHookError)
+    await expect(rt.runAfter('afterInsert', [], ctx)).rejects.toMatchObject({
       table: 'plain',
       hook: 'afterInsert',
       committed: true,

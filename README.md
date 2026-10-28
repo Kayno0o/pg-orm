@@ -433,7 +433,7 @@ const { row: alice, created } = await repo.write.findOrCreate({ email: 'a@test.c
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
-An upsert that updates is an update: `beforeUpdate` hooks (so `timestamps()`'s `updatedAt`) and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`.
+An upsert that updates is an update: `beforeUpdate` hooks, run on each incoming row (so `timestamps()`'s `updatedAt`), and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`.
 
 An upsert fires `afterInsert` for the rows it inserted and `afterUpdate` for the ones it updated (on SQLite, told apart by reading the conflicting keys first, so a row inserted concurrently in between counts as updated). `findOrCreate` fires `afterInsert` only when it created the row.
 
@@ -544,7 +544,32 @@ users.hook('afterSelect', (rows) => {
 
 Available hooks: `beforeInsert`, `afterInsert`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`, `afterSelect`, `beforeUpsert`
 
+Which hooks each operation runs, in order:
+
+| Operation | Hooks |
+| --- | --- |
+| `insertOne`, `insertMany` | `beforeInsert` on each row, `afterInsert` |
+| `updateOne`, `updateMany`, `updateById`, `updateWithLock` | `beforeUpdate` on the `set`, `afterUpdate` |
+| `updateManyById` | `beforeUpdate` on each row's patch, `afterUpdate` |
+| `deleteOne`, `deleteMany`, `deleteById`, `deleteAll` | `beforeDelete`, then on a `softDelete` table `beforeUpdate` on the soft-delete `set`, `afterDelete` |
+| `forceDelete` | `beforeDelete`, `afterDelete` |
+| `restore` | `beforeUpdate`, `afterUpdate` |
+| `upsertOne`, `upsertMany` | `beforeInsert`, `beforeUpsert` and `beforeUpdate` on each row, then `afterInsert` for the rows inserted and `afterUpdate` for the ones updated |
+| `findOrCreate` | `beforeInsert`, `beforeUpsert`, then `afterInsert` when it created the row, `restore`'s hooks when it restored one, `afterSelect` when it found one |
+| `find*`, `paginate*`, `repo.stream.offset`, `repo.stream.cursor` | `afterSelect`, also on included relations' rows |
+| `count`, `exists`, `copyFrom`, `repo.stream.copyTo`, the statement builders, `db.raw` | none |
+
+A hook on many rows runs on one row after another, as `insertOne` would. On an upsert, `beforeUpdate` sees each incoming row; what it sets or changes is written into that row, so the conflict update takes it through `EXCLUDED` and the inserted row carries it too. It must set the same columns on every row of the upsert.
+
 The `after*` hooks receive every written row whole and mapped, the same shape `afterSelect` gets, so a table with an after-write hook returns all its columns from each write. A write that touched no row fires no after-write hook.
+
+Every hook gets a second argument, `ctx`: `ctx.repo(table)` is a repository on the executor the hooked operation runs on, so a hook under `repo.using(tx)` reads and writes inside that transaction and rolls back with it.
+
+```ts
+posts.hook('afterInsert', async (rows, ctx) => {
+  await ctx.repo(auditLog).write.insertMany(rows.map(row => ({ postId: row.id })), { pk: true })
+})
+```
 
 ## Transactions
 

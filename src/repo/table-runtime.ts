@@ -1,5 +1,5 @@
 import type { WhereObject } from '../builder/query'
-import type { AnyColumns, AnyTableDef, HookEvent } from '../types/index'
+import type { AnyColumns, AnyTableDef, HookContext, HookEvent } from '../types/index'
 import type { TableBehavior } from './table-behavior'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { AfterHookError, BeforeHookError, OrmError, ValidationError } from '../errors/index'
@@ -27,9 +27,9 @@ export interface TableRuntime {
   pkWhere: (id: unknown) => WhereObject<AnyColumns>
 
   // Hook surface
-  runBefore: <T>(event: HookEvent, value: T) => Promise<T>
-  runBeforeMany: <T>(event: HookEvent, values: T[]) => Promise<T[]>
-  runAfter: (event: HookEvent, rows?: unknown[]) => Promise<void>
+  runBefore: <T>(event: HookEvent, value: T, ctx: HookContext) => Promise<T>
+  runBeforeMany: <T>(event: HookEvent, values: T[], ctx: HookContext) => Promise<T[]>
+  runAfter: (event: HookEvent, rows: unknown[] | undefined, ctx: HookContext) => Promise<void>
 
   // Virtual surface
   applyVirtuals: <T extends Record<string, unknown>>(rows: T[]) => T[]
@@ -46,36 +46,42 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
   // nothing to invalidate at runtime.
   const virtualEntries: VirtualEntry[] = table.virtuals ? Object.entries(table.virtuals) : []
 
-  async function runBefore<T>(event: HookEvent, value: T): Promise<T> {
+  async function runBefore<T>(event: HookEvent, value: T, ctx: HookContext): Promise<T> {
     if (!hasHooks(table, event))
       return value
 
     try {
-      return await runHooksAsync(table, event, value)
+      return await runHooksAsync(table, event, value, ctx)
     }
     catch (err) {
       throw new BeforeHookError(table.name, event, err)
     }
   }
 
-  async function runBeforeMany<T>(event: HookEvent, values: T[]): Promise<T[]> {
+  // One row after another, as `insertOne` runs them: a hook that queries never has thousands in flight at once.
+  async function runBeforeMany<T>(event: HookEvent, values: T[], ctx: HookContext): Promise<T[]> {
     if (!hasHooks(table, event))
       return values
 
     try {
-      return await Promise.all(values.map(row => runHooksAsync(table, event, row)))
+      const hooked: T[] = []
+
+      for (const row of values)
+        hooked.push(await runHooksAsync(table, event, row, ctx))
+
+      return hooked
     }
     catch (err) {
       throw new BeforeHookError(table.name, event, err)
     }
   }
 
-  async function runAfter(event: HookEvent, rows?: unknown[]): Promise<void> {
+  async function runAfter(event: HookEvent, rows: unknown[] | undefined, ctx: HookContext): Promise<void> {
     if (!hasHooks(table, event))
       return
 
     try {
-      await runHooksAsync(table, event, rows)
+      await runHooksAsync(table, event, rows, ctx)
     }
     catch (err) {
       throw new AfterHookError(table.name, event, err)

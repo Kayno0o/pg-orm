@@ -1,3 +1,4 @@
+import type { HookContext } from '../../../src/types/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable, optimisticLock, OrmError, softDelete, timestamps } from '../../../src/index'
 
@@ -91,7 +92,7 @@ describe('timestamps trait', () => {
 
     const hook = table.hooks.beforeUpdate![0]!
     const before = new Date()
-    const result = hook({})
+    const result = hook({}, {} as HookContext)
 
     // Hook is sync and always returns a value
     expect(result).toBeDefined()
