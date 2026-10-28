@@ -36,7 +36,9 @@
   },
   "files": [
     "LICENSE",
-    "dist"
+    "dist",
+    "llms-full.txt",
+    "llms.txt"
   ],
   "engines": {
     "bun": ">=1.4.4"
@@ -47,6 +49,7 @@
     "test:coverage": "rm -rf coverage coverage-report && bun test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
     "doc": "typedoc ./src/**/*.ts --out ./typedoc --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
     "check": "tsc --noEmit --strict",
+    "llms": "bun scripts/llms.ts",
     "lint:fix": "eslint . --fix --cache",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",

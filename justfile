@@ -2,6 +2,7 @@ fix:
   bun run circular
   bun run check
   bun run lint:fix
+  bun run llms
   bun run build
 
 # start PG, run the suite (any `bun test` args are forwarded), stop PG

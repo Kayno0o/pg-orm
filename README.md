@@ -25,6 +25,8 @@ bun add @kaynooo/pg-orm
 
 Requires [Bun](https://bun.sh) with `bun:sql` support.
 
+For coding agents, the package ships `llms.txt` (a map of this README) and `llms-full.txt` (the whole README) at its root.
+
 ## Quick Start
 
 ```ts

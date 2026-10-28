@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Runtime is **Bun only** — never `node`/`npm`/`npx`. Use `bun`/`bunx`.
 
-- **Verify before commit**: `just fix` — runs circular-dep check, typecheck (`tsc --noEmit --strict`), `eslint --fix`, and build, in that order. This is the standard "is it green" gate.
+- **Verify before commit**: `just fix` — runs circular-dep check, typecheck (`tsc --noEmit --strict`), `eslint --fix`, `bun run llms` (regenerates `llms.txt` / `llms-full.txt` from the README; `tests/unit/llms.test.ts` fails when they are stale), and build, in that order. This is the standard "is it green" gate.
 - **Tests**: `just test` — starts PG, runs the suite, stops PG (`bun run db:up && bun test && bun run db:down`). Extra args are forwarded to `bun test`: `just test tests/unit/builder`, `just test tests/unit/security.test.ts -t "rejects"`. PG is torn down even when tests fail.
   - Use bare `bun test` only when a PG is already up and you want to keep it running.
   - **Integration tests require a live PG** at `127.0.0.1:8532` (docker-compose, pgvector/pgvector:pg18, so the pgvector tests run; a Postgres without the extension skips them). `bun run db:up` waits for the healthcheck; reset with `bun run db:reset`. Connection string in `.env` / `.env.example`.
