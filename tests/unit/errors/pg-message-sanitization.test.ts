@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { sanitizePgErrorMessage, setParamRedactor, UniqueError, ValidationError, wrapPgError } from '../../../src/errors/index'
+import { sanitizePgErrorMessage, UniqueError, ValidationError, withParamRedactor, wrapPgError } from '../../../src/errors/index'
 
 afterEach(() => {
   delete process.env.REDACT_QUERY_LOGS
@@ -142,19 +142,12 @@ describe('production errors hold no row value, cause chain included', () => {
   it('REDACT_QUERY_LOGS=0 keeps query, params and cause raw in production, past a redactor', () => {
     process.env.NODE_ENV = 'production'
     process.env.REDACT_QUERY_LOGS = '0'
-    setParamRedactor(params => params.map(() => '***'))
+    const raw = driverError('duplicate key', { errno: '23505' })
+    const err = withParamRedactor(params => params.map(() => '***'), () => wrapPgError(raw, 'INSERT INTO "users"', ['secret'])) as UniqueError
 
-    try {
-      const raw = driverError('duplicate key', { errno: '23505' })
-      const err = wrapPgError(raw, 'INSERT INTO "users"', ['secret']) as UniqueError
-
-      expect(err.query).toBe('INSERT INTO "users"')
-      expect(err.params).toEqual(['secret'])
-      expect(err.cause).toBe(raw)
-    }
-    finally {
-      setParamRedactor(undefined)
-    }
+    expect(err.query).toBe('INSERT INTO "users"')
+    expect(err.params).toEqual(['secret'])
+    expect(err.cause).toBe(raw)
   })
 
   it('redacts ValidationError.value in production', () => {

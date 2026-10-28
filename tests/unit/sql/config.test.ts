@@ -29,6 +29,13 @@ describe('validateDbConfig', () => {
     expect(() => validateDbConfig({ idleInTransactionTimeout: Number.NaN })).toThrow(ValidationError)
   })
 
+  it('rejects a retry count that is not a non-negative integer, and a delay that is not a non-negative finite number', () => {
+    for (const retry of [{ maxRetries: Number.NaN }, { maxRetries: -1 }, { maxRetries: 1.5 }, { baseDelayMs: Infinity }, { maxDelayMs: -1 }])
+      expect(() => validateDbConfig({ retry })).toThrow(ValidationError)
+
+    expect(() => validateDbConfig({ retry: { maxRetries: 3, baseDelayMs: 0, maxDelayMs: 100 } })).not.toThrow()
+  })
+
   it('attaches the context and value to the ValidationError', () => {
     try {
       validateDbConfig({ statementTimeout: -1 })

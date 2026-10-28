@@ -4,12 +4,13 @@ import type { ExecutorHooks } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { DeadlockError, OrmError, SerializationError, ValidationError, wrapPgError } from '../errors/index'
-import { querySignalStorage, throwIfAborted } from './abort'
+import { querySignalStorage, sleepUnlessAborted, throwIfAborted } from './abort'
 import { asDriver } from './adapter'
 import { queryContextStorage, reportCallbackError } from './base-executor'
+import { validateRetry } from './config'
 import { computeBackoff } from './retry'
 import { TransactionClient } from './transaction'
-import { applyIsolation } from './tx-sql'
+import { applyIsolation, isolationStatement } from './tx-sql'
 
 export type TransactionHooks = ExecutorHooks
 
@@ -61,6 +62,10 @@ export class TransactionRunner {
     if (outer && this.joins(opts))
       return this._runNested(outer, fn, opts)
 
+    // Refused before BEGIN goes out, rather than failing a transaction already open.
+    validateRetry(opts?.retry, 'transaction.retry')
+    isolationStatement(opts ?? {})
+
     // Capture the ALS-bound context at the call site so the tx body re-enters
     // the same scope. bun:sql's `begin()` schedules its callback through a path
     // that may not preserve `AsyncLocalStorage` propagation; pinning the scope
@@ -82,16 +87,23 @@ export class TransactionRunner {
         return outcome.result
       }
 
-      if (attempt < maxRetries && (outcome.error instanceof SerializationError || outcome.error instanceof DeadlockError)) {
-        await Bun.sleep(computeBackoff(attempt, opts?.retry?.baseDelayMs ?? 100, opts?.retry?.maxDelayMs ?? 5000))
+      let error = outcome.error
 
-        continue
+      if (attempt < maxRetries && (error instanceof SerializationError || error instanceof DeadlockError)) {
+        try {
+          await sleepUnlessAborted(computeBackoff(attempt, opts?.retry?.baseDelayMs ?? 100, opts?.retry?.maxDelayMs ?? 5000), signal)
+
+          continue
+        }
+        catch (aborted) {
+          error = aborted
+        }
       }
 
       if (outcome.tx)
-        await this._fireTxCallbacks('onRollback', outcome.tx._onRollbackCallbacks, outcome.error)
+        await this._fireTxCallbacks('onRollback', outcome.tx._onRollbackCallbacks, error)
 
-      throw outcome.error
+      throw error
     }
   }
 
@@ -120,11 +132,13 @@ export class TransactionRunner {
         try {
           out = await this._active.run(tx, () => fn(tx))
         }
-        finally {
-          if (this.dialect === 'sqlite' && opts?.accessMode === 'read only')
-            await asDriver(sqlTx).unsafe('PRAGMA query_only = OFF', [])
+        catch (err) {
+          await this._leaveReadOnly(sqlTx, opts, true)
+
+          throw err
         }
 
+        await this._leaveReadOnly(sqlTx, opts, false)
         phase = 'commit'
 
         return out
@@ -146,10 +160,28 @@ export class TransactionRunner {
     }
   }
 
+  // SQLite has no read-only transaction: `query_only` stands in for one, and is lifted before the commit. A failure to lift it never hides the body's own error.
+  private async _leaveReadOnly(sqlTx: InstanceType<typeof SQL>, opts: TransactionOptions | undefined, bodyFailed: boolean): Promise<void> {
+    if (this.dialect !== 'sqlite' || opts?.accessMode !== 'read only')
+      return
+
+    try {
+      await asDriver(sqlTx).unsafe('PRAGMA query_only = OFF', [])
+    }
+    catch (err) {
+      if (!bodyFailed)
+        throw err
+    }
+  }
+
   // A nested call runs in a savepoint of the outer transaction: its writes commit or roll back with the outer one, and its own failure undoes only them. Its onCommit callbacks wait for the outer commit.
   private async _runNested<T>(outer: TransactionClient, fn: (tx: TransactionClient) => Promise<T>, opts?: TransactionOptions): Promise<T> {
     if (opts?.isolation || opts?.accessMode || opts?.retry)
       throw new ValidationError('transaction(): isolation, accessMode and retry cannot apply inside a running transaction, which this call joins (pass independent: true for a separate one).', 'transaction', { value: opts })
+
+    // Savepoints on one connection run one after another, so one opened on an outer client from inside its running savepoint would wait for that savepoint forever.
+    if (this._insideSavepointOf(outer))
+      throw new ValidationError('savepoint(): called on an outer transaction client from inside one of its savepoints, which it would wait for forever: use the client the savepoint body was given.', 'savepoint')
 
     const previous = this._nestedTail.get(outer)
     const current = this._afterSettled(previous, () => this._savepoint(outer, fn, opts))
@@ -157,6 +189,20 @@ export class TransactionRunner {
     this._nestedTail.set(outer, current)
 
     return current
+  }
+
+  private _insideSavepointOf(outer: TransactionClient): boolean {
+    const active = this._active.getStore()
+
+    if (!active || active === outer || active._settled)
+      return false
+
+    for (let tx = active._parent; tx; tx = tx._parent) {
+      if (tx === outer)
+        return true
+    }
+
+    return false
   }
 
   private async _afterSettled<T>(previous: Promise<unknown> | undefined, run: () => Promise<T>): Promise<T> {
@@ -178,6 +224,7 @@ export class TransactionRunner {
       const out = await asDriver(outer.sql).savepoint<T>(async (sqlSp) => {
         const inner = this._client(sqlSp)
 
+        inner._parent = outer
         inner._context = opts?.context ?? outer._context
         tx = inner
         phase = 'body'

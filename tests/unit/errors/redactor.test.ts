@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { QueryError, setParamRedactor } from '../../../src/errors/index'
+import { QueryError, withParamRedactor } from '../../../src/errors/index'
 
 afterEach(() => {
-  // Tests are global-state — always reset the redactor and env.
-  setParamRedactor(undefined)
   delete process.env.REDACT_QUERY_LOGS
 })
 
@@ -23,17 +21,13 @@ describe('paramRedactor', () => {
   })
 
   it('identity redactor → params preserved verbatim (explicit opt-out)', () => {
-    setParamRedactor(p => p)
-
-    const err = new QueryError('boom', 'SELECT $1', ['secret'])
+    const err = withParamRedactor(p => p, () => new QueryError('boom', 'SELECT $1', ['secret']))
 
     expect(err.params).toEqual(['secret'])
   })
 
   it('redactor return value is used', () => {
-    setParamRedactor(() => ['[redacted]'])
-
-    const err = new QueryError('boom', 'SELECT $1', ['secret'])
+    const err = withParamRedactor(() => ['[redacted]'], () => new QueryError('boom', 'SELECT $1', ['secret']))
 
     expect(err.params).toEqual(['[redacted]'])
   })
@@ -41,33 +35,32 @@ describe('paramRedactor', () => {
   it('redactor receives the original param array', () => {
     let captured: unknown[] = []
 
-    setParamRedactor((params) => {
+    withParamRedactor((params) => {
       captured = params
 
       return params.map(() => '*')
-    })
-
-    void new QueryError('boom', 'SELECT $1, $2', ['alice', 'pw123'])
+    }, () => new QueryError('boom', 'SELECT $1, $2', ['alice', 'pw123']))
 
     expect(captured).toEqual(['alice', 'pw123'])
   })
 
   it('a throwing redactor surfaces — does NOT mask programming bugs as []', () => {
     const bug = new Error('redactor crashed: cannot read property of undefined')
-
-    setParamRedactor(() => {
+    const redactor = (): unknown[] => {
       throw bug
-    })
+    }
 
-    expect(() => new QueryError('boom', 'SELECT $1', ['secret'])).toThrow(bug)
+    expect(() => withParamRedactor(redactor, () => new QueryError('boom', 'SELECT $1', ['secret']))).toThrow(bug)
   })
 
-  it('setParamRedactor(undefined) clears the redactor → falls back to safe default', () => {
-    setParamRedactor(() => ['x'])
-    setParamRedactor(undefined)
+  it('applies only to errors raised inside its scope, async work included', async () => {
+    const inside = await withParamRedactor(() => ['x'], async () => {
+      await Bun.sleep(0)
 
-    const err = new QueryError('boom', 'SELECT $1', ['raw'])
+      return new QueryError('boom', 'SELECT $1', ['raw'])
+    })
 
-    expect(err.params).toEqual(['[REDACTED]'])
+    expect(inside.params).toEqual(['x'])
+    expect(new QueryError('boom', 'SELECT $1', ['raw']).params).toEqual(['[REDACTED]'])
   })
 })

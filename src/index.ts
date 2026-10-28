@@ -70,7 +70,6 @@ export {
   type RetryableError,
   sanitizePgErrorMessage,
   SerializationError,
-  setParamRedactor,
   StaleRecordError,
   TimeoutError,
   TransactionAbortedError,

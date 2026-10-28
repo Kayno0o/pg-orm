@@ -146,12 +146,30 @@ export function validateDbConfig(cfg: DbConfig): void {
     )
   }
 
+  validateRetry(cfg.retry, 'DbConfig.retry')
+
   if (dialectOfUrl(cfg.url) === 'sqlite') {
     if (statementTimeout !== undefined)
       throw new DialectError('DbConfig.statementTimeout', 'sqlite')
 
     if (idleInTransactionTimeout !== undefined)
       throw new DialectError('DbConfig.idleInTransactionTimeout', 'sqlite')
+  }
+}
+
+/** Validate a `retry` option, the database's or a transaction's: a count that is not a whole number would retry nothing or forever, a delay that is not finite would never wake. */
+export function validateRetry(retry: { maxRetries?: number | undefined, baseDelayMs?: number | undefined, maxDelayMs?: number | undefined } | undefined, field: string): void {
+  if (!retry)
+    return
+
+  const { maxRetries, baseDelayMs, maxDelayMs } = retry
+
+  if (maxRetries !== undefined && (!Number.isInteger(maxRetries) || maxRetries < 0))
+    throw new ValidationError(`${field}.maxRetries must be a non-negative integer`, `${field}.maxRetries`, { value: maxRetries })
+
+  for (const [name, value] of [['baseDelayMs', baseDelayMs], ['maxDelayMs', maxDelayMs]] as const) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0))
+      throw new ValidationError(`${field}.${name} must be a non-negative finite number`, `${field}.${name}`, { value })
   }
 }
 

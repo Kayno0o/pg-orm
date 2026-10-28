@@ -7,7 +7,6 @@ import type { DbConfig } from './config'
 import type { TransactionClient, TransactionOptions } from './transaction'
 import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { dialectOfUrl, sqliteFilename } from '../dialect'
-import { setParamRedactor } from '../errors/index'
 import { clearMapperCache } from '../mapper/index'
 import { Repository } from '../repo/index'
 import { querySignalStorage } from './abort'
@@ -62,15 +61,13 @@ export class Database extends BaseExecutor {
     super()
     validateDbConfig(config)
 
-    if (config.redactParams)
-      setParamRedactor(config.redactParams)
-
     const hooks = {
-      onQuery: composeQueryLogger(config.debug, config.onQuery),
+      onQuery: composeQueryLogger(config.debug, config.onQuery, config.redactParams),
       onSlowQuery: config.onSlowQuery,
       onError: config.onError,
       onCallbackError: config.onCallbackError,
       slowQueryThreshold: config.slowQueryThreshold,
+      redactParams: config.redactParams,
     }
 
     this._dialect = dialectOfUrl(config.url)

@@ -32,6 +32,7 @@ export class TransactionClient extends BaseExecutor {
   /** @internal */ declare _context?: Record<string, unknown>
   /** @internal */ _settled = false
   /** @internal */ _nest?: <T>(fn: (tx: TransactionClient) => Promise<T>) => Promise<T>
+  /** @internal */ _parent?: TransactionClient
 
   constructor(sqlTx: InstanceType<typeof SQL>, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
     super()

@@ -175,17 +175,45 @@ export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chun
   // Settled from the start: the statement can fail while chunks are still being written, before anything awaits it.
   const outcome = settle(signal ? untilAborted(query, signal) : query)
   let interrupted: { error: unknown } | undefined
+  let sourceFailed = false
+  const iterator = chunks[Symbol.asyncIterator]()
+  // An abort settles this, so a source stalled on its next chunk does not hold the statement open.
+  const { promise: aborted, resolve: onAbort } = Promise.withResolvers<{ ok: false, error: unknown, aborted: true }>()
+  const abort = (): void => onAbort({ ok: false, error: new AbortError(sqlStr, [], signal?.reason), aborted: true })
+
+  signal?.addEventListener('abort', abort, { once: true })
 
   try {
-    for await (const chunk of chunks) {
+    for (;;) {
+      // Settled, so a read the abort left pending cannot reject unhandled later.
+      const next = settle(iterator.next())
+      const read = signal ? await Promise.race([next, aborted]) : await next
+
+      if (!read.ok) {
+        sourceFailed = !('aborted' in read)
+
+        throw read.error
+      }
+
+      if (read.value.done)
+        break
+
       throwIfAborted(signal, sqlStr)
-      await writer.write(chunk)
+      await writer.write(read.value.value)
     }
 
     await writer.close()
   }
   catch (error) {
     interrupted = { error }
+
+    // As `for await` would, the source is closed unless it failed itself; one an abort left stalled is not waited for.
+    if (!sourceFailed) {
+      const closing = closeSource(iterator)
+
+      if (!signal?.aborted)
+        await closing
+    }
 
     try {
       await writer.abort(error)
@@ -194,6 +222,8 @@ export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chun
       // The stream already failed with the statement's own error, which `outcome` holds.
     }
   }
+
+  signal?.removeEventListener('abort', abort)
 
   const result = await outcome
 
@@ -208,6 +238,15 @@ export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chun
     throw interrupted.error
 
   throw result.error instanceof OrmError ? result.error : wrapPgError(result.error, sqlStr, [])
+}
+
+async function closeSource(iterator: AsyncIterator<string>): Promise<void> {
+  try {
+    await iterator.return?.()
+  }
+  catch {
+    // the source failing as it closes changes nothing, the statement already failed
+  }
 }
 
 /**

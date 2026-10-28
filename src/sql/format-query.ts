@@ -1,3 +1,4 @@
+import type { ParamRedactor } from '../errors/index'
 import type { QueryEvent } from './base-executor'
 import type { DbConfig } from './config'
 import { logParams, queryLogsRedacted } from '../errors/index'
@@ -27,9 +28,7 @@ const RESET = '\x1B[0m'
  * database with untrusted values - it exists so you can read what ran.
  *
  * Redaction is inherited from the error layer: when `NODE_ENV=production` or
- * `REDACT_QUERY_LOGS=1` the whole line is `[REDACTED]`, and a `redactParams`
- * redactor (see `DbConfig.redactParams`) is applied to the values first.
- * `REDACT_QUERY_LOGS=0` renders the raw values, in production too.
+ * `REDACT_QUERY_LOGS=1` the whole line is `[REDACTED]`. The values are rendered as the event carries them, which an `onQuery` event has scrubbed or put through `DbConfig.redactParams` already.
  *
  * @example
  * ```ts
@@ -46,7 +45,7 @@ export function formatQuery(event: QueryEvent, opts: FormatQueryOptions = {}): s
   if (queryLogsRedacted())
     return `${prefix}[REDACTED]`
 
-  const params = logParams(event.params)
+  const { params } = event
 
   const sql = event.sql.replace(SQL_PLACEHOLDER_RE, (match, index: string) => {
     const param = params[Number(index) - 1]
@@ -70,6 +69,7 @@ export function formatQuery(event: QueryEvent, opts: FormatQueryOptions = {}): s
 export function composeQueryLogger(
   debug: DbConfig['debug'],
   onQuery: ((event: QueryEvent) => void) | undefined,
+  redactParams?: ParamRedactor,
 ): ((event: QueryEvent) => void) | undefined {
   if (!debug)
     return onQuery
@@ -84,7 +84,7 @@ export function composeQueryLogger(
 
     // The debug line, an explicit opt-in ignored in production, shows the values a hook gets scrubbed.
     if (!queryLogsRedacted())
-      sink(formatQuery({ ...event, params: (event as { [RAW_EVENT_PARAMS]?: unknown[] })[RAW_EVENT_PARAMS] ?? event.params }, { colors }))
+      sink(formatQuery({ ...event, params: logParams((event as { [RAW_EVENT_PARAMS]?: unknown[] })[RAW_EVENT_PARAMS] ?? event.params, redactParams) }, { colors }))
   }
 }
 

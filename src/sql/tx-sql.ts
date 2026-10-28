@@ -23,7 +23,7 @@ export type IsolationLevel = keyof typeof ISOLATION_SQL
 export type AccessMode = keyof typeof ACCESS_MODE_SQL
 
 /** The `SET TRANSACTION …` the options ask for, undefined when they set neither isolation nor access mode. Throws `ValidationError` for unknown values. */
-function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {
+export function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {
   const modes: string[] = []
 
   if (opts.isolation) {

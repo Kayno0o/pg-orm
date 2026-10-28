@@ -1,7 +1,8 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
+import type { ParamRedactor } from '../errors/index'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { redactedParams } from '../errors/index'
+import { redactedParams, withParamRedactor } from '../errors/index'
 import { copyIn, copyOut, unsafeQuery } from './adapter'
 
 /**
@@ -49,6 +50,7 @@ export interface ExecutorHooks {
   onError?: (event: QueryErrorEvent) => void
   onCallbackError?: (event: CallbackErrorEvent) => void
   slowQueryThreshold?: number
+  redactParams?: ParamRedactor
 }
 
 /** Route an error nothing can rethrow to `onCallbackError`, or to `console.warn` without one; a throwing channel is warned about too, never rethrown. */
@@ -100,6 +102,7 @@ export abstract class BaseExecutor implements Executable {
   protected _onError?: (event: QueryErrorEvent) => void
   /** @internal */ _onCallbackError?: (event: CallbackErrorEvent) => void
   protected _slowQueryThreshold = 1000
+  protected _redactParams?: ParamRedactor
   protected _context?: Record<string, unknown>
 
   get dialect(): Dialect {
@@ -108,7 +111,7 @@ export abstract class BaseExecutor implements Executable {
 
   /** @internal */
   get hooks(): ExecutorHooks {
-    return { onQuery: this._onQuery, onSlowQuery: this._onSlowQuery, onError: this._onError, onCallbackError: this._onCallbackError, slowQueryThreshold: this._slowQueryThreshold }
+    return { onQuery: this._onQuery, onSlowQuery: this._onSlowQuery, onError: this._onError, onCallbackError: this._onCallbackError, slowQueryThreshold: this._slowQueryThreshold, redactParams: this._redactParams }
   }
 
   protected _useHooks(hooks: ExecutorHooks): void {
@@ -116,6 +119,7 @@ export abstract class BaseExecutor implements Executable {
     this._onSlowQuery = hooks.onSlowQuery
     this._onError = hooks.onError
     this._onCallbackError = hooks.onCallbackError
+    this._redactParams = hooks.redactParams
 
     if (hooks.slowQueryThreshold != null)
       this._slowQueryThreshold = hooks.slowQueryThreshold
@@ -163,7 +167,7 @@ export abstract class BaseExecutor implements Executable {
     let result: T
 
     try {
-      result = await run()
+      result = await (this._redactParams ? withParamRedactor(this._redactParams, run) : run())
     }
     catch (err) {
       this._report(sqlStr, params, performance.now() - start, err)
@@ -182,7 +186,7 @@ export abstract class BaseExecutor implements Executable {
       return
 
     const ctx = this._currentContext()
-    const event: QueryEvent = { sql, params: redactedParams(params), durationMs, ...ctx ? { context: ctx } : {} }
+    const event: QueryEvent = { sql, params: redactedParams(params, this._redactParams), durationMs, ...ctx ? { context: ctx } : {} }
 
     Object.defineProperty(event, RAW_EVENT_PARAMS, { value: params })
     const slow = durationMs >= this._slowQueryThreshold

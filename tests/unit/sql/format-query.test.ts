@@ -1,6 +1,5 @@
 import type { QueryEvent } from '../../../src/index'
 import { afterEach, describe, expect, it } from 'bun:test'
-import { setParamRedactor } from '../../../src/index'
 import { composeQueryLogger, formatQuery } from '../../../src/sql/format-query'
 
 function event(sql: string, params: unknown[] = [], durationMs = 1.2345): QueryEvent {
@@ -12,7 +11,6 @@ const ORIGINAL_ENV = { ...process.env }
 afterEach(() => {
   process.env.NODE_ENV = ORIGINAL_ENV.NODE_ENV
   process.env.REDACT_QUERY_LOGS = ORIGINAL_ENV.REDACT_QUERY_LOGS
-  setParamRedactor(undefined)
 })
 
 describe('formatQuery: placeholder inlining', () => {
@@ -97,18 +95,8 @@ describe('formatQuery: redaction', () => {
     expect(formatQuery(event('SELECT $1', ['secret']), { duration: false })).toBe('[REDACTED]')
   })
 
-  it('applies a registered param redactor before inlining', () => {
-    setParamRedactor(params => params.map(() => '***'))
-
-    expect(formatQuery(event('SELECT $1', ['secret']), { duration: false })).toBe('SELECT \'***\'')
-  })
-
-  it('renders raw values when REDACT_QUERY_LOGS=0, in production and past a redactor', () => {
-    process.env.NODE_ENV = 'production'
-    process.env.REDACT_QUERY_LOGS = '0'
-    setParamRedactor(params => params.map(() => '***'))
-
-    expect(formatQuery(event('SELECT $1', ['secret']), { duration: false })).toBe('SELECT \'secret\'')
+  it('renders the values as the event carries them', () => {
+    expect(formatQuery(event('SELECT $1', ['[REDACTED]']), { duration: false })).toBe('SELECT \'[REDACTED]\'')
   })
 })
 
@@ -144,5 +132,17 @@ describe('composeQueryLogger', () => {
     process.env.NODE_ENV = 'development'
     logger(event('SELECT $1', ['x']))
     expect(lines).toEqual(['[1.234ms] SELECT \'x\''])
+  })
+
+  it('applies the database redactor to the debug line, unless REDACT_QUERY_LOGS=0', () => {
+    const lines: string[] = []
+    const logger = composeQueryLogger(line => lines.push(line), undefined, params => params.map(() => '***'))!
+
+    logger(event('SELECT $1', ['secret']))
+    process.env.NODE_ENV = 'production'
+    process.env.REDACT_QUERY_LOGS = '0'
+    logger(event('SELECT $1', ['secret']))
+
+    expect(lines).toEqual(['[1.234ms] SELECT \'***\'', '[1.234ms] SELECT \'secret\''])
   })
 })

@@ -608,6 +608,10 @@ await db.transaction({ isolation: 'serializable', retry: { maxRetries: 3 } }, as
 
 A read-only access mode is enforced on both dialects (`query_only` on SQLite). A transaction client is dead once its transaction settles: a query on it throws `ValidationError`, and a `db.transaction()` started by work that outlived the body (a timer) opens its own transaction instead of joining the finished one.
 
+A savepoint is opened on the client of the body that opens it: `tx.savepoint()` called from inside a savepoint of `tx` would wait for that savepoint to end, so it throws `ValidationError`. A `db.withSignal` abort ends a retry's backoff wait at once, with `AbortError`, as it does a `copyFrom` whose source stalled. Invalid `retry` options, on the database or a transaction, throw `ValidationError` before anything runs, as does an unknown isolation level or access mode.
+
+A query issued through `db` rather than `tx` from inside the body runs outside the transaction on Postgres, on another connection, but inside it on SQLite, which has one connection: go through `tx` or `repo.using(tx)`.
+
 ## Pagination
 
 ```ts
@@ -866,7 +870,8 @@ The file and its directory are created on first use, in WAL mode, with foreign k
 **What differs from Postgres:**
 
 - `like()` is case-sensitive, through `GLOB`; `ilike()` ignores ASCII case only.
-- Row locks (`forUpdate()`, `skipLocked()`, `noWait()`, `lockOf()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels and access modes are checked and then ignored: every transaction is serializable, and a `read only` one can still write.
+- Row locks (`forUpdate()`, `skipLocked()`, `noWait()`, `lockOf()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels are checked and then ignored: every transaction is serializable. A `read only` access mode is enforced through `query_only`.
+- A query issued through `db` (`db.raw()`, `db.repo(t)`) from inside a transaction body runs in that transaction, where Postgres runs it on another connection that sees none of the body's uncommitted writes. Code meant for both dialects goes through `tx` or `repo.using(tx)`.
 - An independent transaction (`{ independent: true }`) cannot be opened from inside another one.
 - Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique index by its columns too. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
@@ -925,7 +930,7 @@ values never leak into shared logs. The mode is resolved per error:
 
 - `NODE_ENV=production` **or** `REDACT_QUERY_LOGS=1` — hard-redact: `query` becomes `'[REDACTED]'` and `params` becomes `[]`.
 - `REDACT_QUERY_LOGS=0` — opt out entirely, in production too: raw SQL, params and driver messages are preserved verbatim, a `redactParams` included (use for local debugging only).
-- Otherwise — apply the configured `redactParams` if set, else the safe default that scrubs every param.
+- Otherwise — apply the `redactParams` of the `Database` that ran the statement if set, else the safe default that scrubs every param. Each `Database` keeps its own: two in one process never share one.
 
 In hard-redact mode no row value is reachable from an error: the message loses the values Postgres quotes back (`Key (email)=(...)`, `invalid input syntax for type uuid: "..."`), the raw driver error on `cause` is replaced by a copy holding only that message and its value-free fields (`code`, `errno`, `table`, `column`, `constraint`...), and `ValidationError.value` is `'[REDACTED]'`.
 
@@ -933,7 +938,7 @@ A `redactParams` redactor **must not throw** — a throwing redactor propagates 
 `QueryError` constructor by design, so the bug surfaces loudly instead of silently
 producing empty params.
 
-The `onQuery` / `onSlowQuery` / `onError` events follow the same rules for `params`: with no `redactParams` each value is scrubbed, `NODE_ENV` set or not, since a hook usually feeds a log shipper. `REDACT_QUERY_LOGS=0` or `redactParams: p => p` hands them the raw values. The `debug` line, an explicit opt-in ignored in hard-redact mode, still shows the values.
+The `onQuery` / `onSlowQuery` / `onError` events follow the same rules for `params`: with no `redactParams` each value is scrubbed, `NODE_ENV` set or not, since a hook usually feeds a log shipper. `REDACT_QUERY_LOGS=0` or `redactParams: p => p` hands them the raw values. The `debug` line, an explicit opt-in ignored in hard-redact mode, still shows the values, through `redactParams` when one is set. `formatQuery(event)` renders the params as the event carries them.
 
 `OrmError.cause` is not enumerable, as `Error.cause` is not, so `JSON.stringify(err)` or a logger spreading the error leaves the driver error out.
 

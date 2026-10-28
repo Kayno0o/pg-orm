@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import { describe, expect, it } from 'bun:test'
-import { OrmError, UniqueError } from '../../../src/errors/index'
+import { OrmError, UniqueError, ValidationError } from '../../../src/errors/index'
 import { queryContextStorage } from '../../../src/sql/base-executor'
 import { TransactionRunner } from '../../../src/sql/transaction-runner'
 
@@ -233,6 +233,41 @@ describe('TransactionRunner', () => {
           throw bodyError
         })).rejects.toBe(bodyError)
       })
+    })
+  })
+
+  describe('on SQLite', () => {
+    // A begin whose transaction handle answers every statement, failing the one lifting `query_only`.
+    function readOnlyRunner(begun: string[]): TransactionRunner {
+      const sqlTx = {
+        unsafe: async (sql: string) => {
+          if (sql === 'PRAGMA query_only = OFF')
+            throw new Error('restore failed')
+
+          return []
+        },
+      } as unknown as InstanceType<typeof SQL>
+
+      return new TransactionRunner(makeSqlFake(async (fn) => {
+        begun.push('BEGIN')
+
+        return fn(sqlTx)
+      }), {}, 'sqlite')
+    }
+
+    it('rethrows the error of the body when lifting query_only fails after it', async () => {
+      const bodyError = new Error('body failed')
+
+      await expect(readOnlyRunner([]).run({ accessMode: 'read only' }, async () => {
+        throw bodyError
+      })).rejects.toBe(bodyError)
+    })
+
+    it('refuses an unknown isolation level before BEGIN', async () => {
+      const begun: string[] = []
+
+      await expect(readOnlyRunner(begun).run({ isolation: 'bogus' as never }, async () => 'never runs')).rejects.toBeInstanceOf(ValidationError)
+      expect(begun).toEqual([])
     })
   })
 })

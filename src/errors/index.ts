@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 /**
  * Base error for all ORM errors. All typed errors extend this class.
  * Wraps the original driver error in `cause` for inspection.
@@ -13,8 +15,7 @@ export class OrmError extends Error {
 }
 
 /**
- * Optional global param redactor. Set via `setParamRedactor()` (typically wired
- * from `DbConfig.redactParams`) to scrub sensitive values from `QueryError.params`
+ * Optional per-Database param redactor, `DbConfig.redactParams`, to scrub sensitive values from `QueryError.params`
  * outside production. Receives the raw param array and returns the scrubbed copy.
  *
  * **The redactor MUST NOT throw.** If it does, the QueryError construction
@@ -30,13 +31,15 @@ export class OrmError extends Error {
  * The safe default prevents accidental data leaks in shared logs (Sentry,
  * stdout aggregators) when callers forget to wire a redactor.
  */
-type ParamRedactor = (params: unknown[]) => unknown[]
-let paramRedactor: ParamRedactor | undefined
+export type ParamRedactor = (params: unknown[]) => unknown[]
 
 const DEFAULT_PARAM_REDACTOR: ParamRedactor = params => params.map(() => '[REDACTED]')
+// The redactor of the Database whose statement is running, which the QueryError it raises applies.
+const redactorStorage = new AsyncLocalStorage<ParamRedactor>()
 
-export function setParamRedactor(fn: ParamRedactor | undefined): void {
-  paramRedactor = fn
+/** @internal */
+export function withParamRedactor<T>(redactor: ParamRedactor, fn: () => T): T {
+  return redactorStorage.run(redactor, fn)
 }
 
 /**
@@ -49,19 +52,19 @@ export function queryLogsRedacted(): boolean {
 }
 
 /** Params as `QueryError.params` and the query hooks' events carry them: none where query logs are redacted, raw on `REDACT_QUERY_LOGS=0`, else through `redactParams` or, without one, each value scrubbed. */
-export function redactedParams(params: unknown[]): unknown[] {
+export function redactedParams(params: unknown[], redactor: ParamRedactor | undefined): unknown[] {
   if (shouldRedact())
     return []
 
   if (rawRequested())
     return params
 
-  return paramRedactor ? paramRedactor(params) : DEFAULT_PARAM_REDACTOR(params)
+  return redactor ? redactor(params) : DEFAULT_PARAM_REDACTOR(params)
 }
 
 /** Params as a query log shows them outside hard-redact mode: through the configured `redactParams`, unless `REDACT_QUERY_LOGS=0` asks for them raw. */
-export function logParams(params: unknown[]): unknown[] {
-  return paramRedactor && !rawRequested() ? paramRedactor(params) : params
+export function logParams(params: unknown[], redactor: ParamRedactor | undefined): unknown[] {
+  return redactor && !rawRequested() ? redactor(params) : params
 }
 
 /**
@@ -84,7 +87,7 @@ export class QueryError extends OrmError {
 
     this.query = shouldRedact() ? '[REDACTED]' : query
     // A throwing redactor is not caught: it is a bug in the caller's code, which dropping the params would mask. See the ParamRedactor type doc above.
-    this.params = redactedParams(params)
+    this.params = redactedParams(params, redactorStorage.getStore())
   }
 }
 

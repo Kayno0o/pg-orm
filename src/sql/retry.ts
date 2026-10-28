@@ -1,4 +1,5 @@
 import { ConnectionError, DeadlockError, SerializationError } from '../errors/index'
+import { querySignalStorage, sleepUnlessAborted } from './abort'
 
 export interface RetryConfig {
   /** Maximum number of retry attempts (0 = disabled) */
@@ -13,11 +14,6 @@ export interface RetryConfig {
 
 // A statement starting with SELECT changes nothing, so running it again is harmless.
 const READ_ONLY_RE = /^\s*select\b/i
-
-/** Default predicate: transient connection drops and PG deadlocks. */
-export function isRetryable(err: unknown): boolean {
-  return err instanceof ConnectionError || err instanceof DeadlockError
-}
 
 /**
  * The retry predicate for one statement. A deadlock or serialization failure aborted the statement, so any statement retries.
@@ -38,13 +34,13 @@ export function computeBackoff(attempt: number, baseDelayMs: number, maxDelayMs:
 
 /**
  * Run `fn` and retry up to `cfg.maxRetries` times on errors matching `retryable`.
- * Sleeps with `computeBackoff` between attempts. Throws the last error if all
+ * Sleeps with `computeBackoff` between attempts, an abort of the signal `Database.withSignal` bound ending the sleep with `AbortError`. Throws the last error if all
  * attempts fail or the error isn't retryable.
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   cfg: RetryConfig,
-  retryable: (err: unknown) => boolean = isRetryable,
+  retryable: (err: unknown) => boolean,
 ): Promise<T> {
   if (cfg.maxRetries <= 0) {
     return await fn()
@@ -60,9 +56,7 @@ export async function withRetry<T>(
       lastError = err
 
       if (attempt < cfg.maxRetries && retryable(err)) {
-        const delay = computeBackoff(attempt, cfg.baseDelayMs, cfg.maxDelayMs)
-
-        await new Promise(resolve => setTimeout(resolve, delay))
+        await sleepUnlessAborted(computeBackoff(attempt, cfg.baseDelayMs, cfg.maxDelayMs), querySignalStorage.getStore())
 
         continue
       }
@@ -76,19 +70,16 @@ export async function withRetry<T>(
 
 /**
  * Stateful wrapper around `withRetry`. Created once per `Database` so call sites
- * don't have to thread `maxRetries`/`baseDelayMs`/`maxDelayMs` everywhere — they
- * just call `policy.run(fn)`.
+ * don't have to thread `maxRetries`/`baseDelayMs`/`maxDelayMs` everywhere.
  */
 export class RetryPolicy {
   // `stopped` turns retrying off for good, once the pool is closing and a dropped connection is no longer transient.
   constructor(private readonly cfg: RetryConfig, private readonly stopped: () => boolean = () => false) {}
 
-  run<T>(fn: () => Promise<T>, retryable: (err: unknown) => boolean = isRetryable): Promise<T> {
-    return withRetry(fn, this.cfg, err => !this.stopped() && retryable(err))
-  }
-
   /** Run one SQL statement, retrying only what `retryableFor` allows for it. */
   runStatement<T>(sql: string, fn: () => Promise<T>): Promise<T> {
-    return this.run(fn, retryableFor(sql, this.cfg.writes))
+    const retryable = retryableFor(sql, this.cfg.writes)
+
+    return withRetry(fn, this.cfg, err => !this.stopped() && retryable(err))
   }
 }
