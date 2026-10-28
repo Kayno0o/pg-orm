@@ -1,4 +1,4 @@
-import type { AnyColumnDef, AnyColumns, IsNullable } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyRelations, IsNullable } from '../types/index'
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import type { BuilderState } from './state'
 import { ValidationError } from '../errors/index'
@@ -7,7 +7,7 @@ import { createExprBuilder, OP_AND } from './expr'
 import { scalarColumnsOf } from './state'
 
 /** A WHERE callback. */
-export type WhereFn<TColumns extends AnyColumns> = (e: ExprBuilder<TColumns>) => ExprTape
+export type WhereFn<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = (e: ExprBuilder<TColumns, TRelations>) => ExprTape
 
 /**
  * Comparison operators accepted as the value of a column in the object WHERE
@@ -53,14 +53,14 @@ export type WhereObject<TColumns extends AnyColumns> = {
 }
 
 /** Either form a WHERE clause can take: a callback or the object shorthand. */
-export type WhereInput<TColumns extends AnyColumns> = WhereFn<TColumns> | WhereObject<TColumns>
+export type WhereInput<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = WhereFn<TColumns, TRelations> | WhereObject<TColumns>
 
 /**
  * A WHERE clause, or any falsy value meaning "skip this condition". Lets
  * optional filters be written inline (`q.andWhere(status && { status })`)
  * instead of branching around the builder.
  */
-export type OptionalWhere<TColumns extends AnyColumns> = WhereInput<TColumns> | null | undefined | false | '' | 0
+export type OptionalWhere<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = WhereInput<TColumns, TRelations> | null | undefined | false | '' | 0
 
 /** {@link OptionalWhere} without the callback form, for an argument where a function means a select callback instead. */
 export type OptionalWhereObject<TColumns extends AnyColumns> = Exclude<OptionalWhere<TColumns>, WhereFn<TColumns>>

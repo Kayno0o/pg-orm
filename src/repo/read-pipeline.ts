@@ -20,6 +20,7 @@ import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { isPlainObject } from '../utils/collection'
 import { createMapperFactory } from './_mapper'
+import { resolveRelationFilters } from './relation-filter'
 import { liftedScopes, resolveScopes } from './table-behavior'
 import { buildTableRuntime, isKeyValue } from './table-runtime'
 
@@ -166,7 +167,7 @@ export class ReadPipeline<
   select(): SelectBuilder<TColumns, TRelations> {
     const builder = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
 
-    this._runtime.behavior.prepareSelect(builder)
+    this._prepare(builder)
 
     return builder
   }
@@ -179,7 +180,7 @@ export class ReadPipeline<
 
   // `countQuery` rides along as a scalar subquery, which the database runs once, its result read off the first row and dropped before mapping: a page and its total in one round trip, the page still stopping at its LIMIT. The total is unknown when the page is empty.
   private async _select(finalBuilder: SelectBuilder<TColumns, TRelations, any>, opts?: SelectOptions, countQuery?: SelectBuilder<TColumns, any, any>): Promise<{ rows: any[], total?: number }> {
-    this._runtime.behavior.prepareSelect(finalBuilder)
+    this._prepare(finalBuilder)
     this._resolveCounts(finalBuilder)
 
     const state = finalBuilder.getState()
@@ -189,7 +190,7 @@ export class ReadPipeline<
     }
 
     if (countQuery) {
-      this._runtime.behavior.prepareSelect(countQuery)
+      this._prepare(countQuery)
       state.computedColumns.push({ expr: '', alias: PAGE_TOTAL, tape: [{ op: OP_SCALAR, subquery: countQuery }] })
     }
 
@@ -281,7 +282,7 @@ export class ReadPipeline<
   }
 
   private async _runCount(builder: SelectBuilder<TColumns, any, any>): Promise<number> {
-    this._runtime.behavior.prepareSelect(builder)
+    this._prepare(builder)
 
     const { sql, params } = builder.toSQL(this._dialect)
     const rows = await this._executor.query(sql, params)
@@ -294,7 +295,7 @@ export class ReadPipeline<
 
     builder.withoutScope(...liftedScopes(opts))
 
-    this._runtime.behavior.prepareSelect(builder)
+    this._prepare(builder)
 
     const { sql, params } = builder.toSQL(this._dialect)
     const rows = await this._executor.query(sql, params)
@@ -363,7 +364,7 @@ export class ReadPipeline<
       if (state.orderBy.length > 0 || state.limit != null || state.offset != null)
         throw new ValidationError('paginateCursor(): the callback must not set orderBy, limit or offset, which the cursor owns.', 'paginateCursor')
 
-      this._runtime.behavior.prepareSelect(b)
+      this._prepare(b)
 
       const picked = selectedColumns(state)
 
@@ -470,7 +471,7 @@ export class ReadPipeline<
 
     builder.withoutScope(...liftedScopes(opts))
 
-    this._runtime.behavior.prepareSelect(builder)
+    this._prepare(builder)
 
     const { sql, params } = builder.toSQL(this._dialect)
 
@@ -506,7 +507,7 @@ export class ReadPipeline<
     this._orderByKeyIfUnordered(finalBuilder)
 
     this._resolveCounts(finalBuilder)
-    this._runtime.behavior.prepareSelect(finalBuilder)
+    this._prepare(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const mapperFn = this._mapper(finalBuilder)
@@ -642,6 +643,15 @@ export class ReadPipeline<
       return this._mapper(builder)
 
     return this._child(tableName).mappers(builder)
+  }
+
+  // The relation filters in the WHERE need the registry, which the builder lacks.
+  private _prepare(builder: SelectBuilder<any, any, any>): void {
+    this._runtime.behavior.prepareSelect(builder)
+
+    const state = builder.getState()
+
+    state.whereTape &&= resolveRelationFilters(state.whereTape, this._runtime.table, state.alias ?? this._runtime.table.name, this._tableRegistry)
   }
 
   // A counted table outside the registry has no known soft-delete column, so its trashed rows would be counted.

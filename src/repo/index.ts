@@ -94,7 +94,7 @@ export class Repository<
     const hooks: HookContext = { repo: table => this._hookRepo(table) }
 
     this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry, this._maxPageSize, hooks)
-    this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, hooks)
+    this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, hooks, this._tableRegistry)
     this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry, hooks)
   }
 

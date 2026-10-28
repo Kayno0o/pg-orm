@@ -1,9 +1,9 @@
-import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef, ScopeOptions } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
-import type { AggResult, ExprBuilder, ExprTape, SubqueryRef, TypedExpr } from './expr'
+import type { AggResult, ExprBuilder, ExprTape, RelationWhere, SubqueryRef, TypedExpr } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry, TableTarget } from './state'
-import { SOFT_DELETE_SCOPE } from '../constants'
 import type { VectorSearchOptions } from './vector-search'
+import { SOFT_DELETE_SCOPE } from '../constants'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { placeholderNumbers } from './_placeholders'
@@ -154,7 +154,7 @@ export class SelectBuilder<
    * Set the WHERE clause, as either `{ col: value }` (entries ANDed) or an
    * `ExprBuilder` callback. Replaces any existing WHERE; a falsy `cond` is a no-op.
    */
-  where(cond: OptionalWhere<TColumns & TJoined>): this {
+  where(cond: OptionalWhere<TColumns & TJoined, TRelations>): this {
     replaceWhere<TColumns & TJoined>(this._state, cond)
 
     return this
@@ -165,14 +165,24 @@ export class SelectBuilder<
    * clause too, and a falsy `cond` is a no-op — so optional filters need no
    * branching: `q.andWhere(status && { status })`.
    */
-  andWhere(cond: OptionalWhere<TColumns & TJoined>): this {
+  andWhere(cond: OptionalWhere<TColumns & TJoined, TRelations>): this {
     appendWhere<TColumns & TJoined>(this._state, [cond])
 
     return this
   }
 
+  /** AND `e.has(relation, where, opts)`: rows with at least one related row matching `where`. */
+  whereHas<K extends keyof TRelations & string>(relation: K, where?: RelationWhere<TRelations[K]>, opts?: ScopeOptions): this {
+    return this.andWhere(e => e.has(relation, where, opts))
+  }
+
+  /** AND `e.doesntHave(relation, where, opts)`: rows with no related row matching `where`. */
+  whereDoesntHave<K extends keyof TRelations & string>(relation: K, where?: RelationWhere<TRelations[K]>, opts?: ScopeOptions): this {
+    return this.andWhere(e => e.doesntHave(relation, where, opts))
+  }
+
   /** AND every truthy condition onto the WHERE clause. Falsy entries are skipped. */
-  whereAll(...conds: OptionalWhere<TColumns & TJoined>[]): this {
+  whereAll(...conds: OptionalWhere<TColumns & TJoined, TRelations>[]): this {
     appendWhere<TColumns & TJoined>(this._state, conds)
 
     return this

@@ -1,4 +1,4 @@
-import type { AnyColumnDef, AnyColumns } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyRelations, AnyTableDef, RelationDef, ScopeOptions } from '../types/index'
 import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef, TypedExpr, VectorMetric } from './_tape'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateTsLanguage } from '../schema/validate'
@@ -17,6 +17,7 @@ import {
   OP_EXISTS,
   OP_GT,
   OP_GTE,
+  OP_HAS,
   OP_ILIKE,
   OP_IN,
   OP_IN_SUBQUERY,
@@ -66,7 +67,12 @@ type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
 // A value, or an expression from the builder (`ref()`, `coalesce()`, `caseWhen()`) to compare against.
 type ColVal<TColumns extends AnyColumns, K extends keyof TColumns & string> = TColumns[K]['_type'] | TypedExpr<unknown>
 
-export interface ExprBuilder<TColumns extends AnyColumns> {
+type RelationTarget<R> = R extends RelationDef<any, any, any, infer T> ? T : AnyTableDef
+
+/** A WHERE on a relation's rows, typed against its table: the callback `has()` and `whereHas()` take. */
+export type RelationWhere<R> = (e: ExprBuilder<RelationTarget<R>['columns'], RelationTarget<R>['relations']>) => ExprTape
+
+export interface ExprBuilder<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> {
   // Logical combinators
   and: (...exprs: ExprTape[]) => ExprTape
   or: (...exprs: ExprTape[]) => ExprTape
@@ -106,6 +112,11 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   /** `col IN (SELECT ...)`, or a row of columns against a subquery selecting as many. */
   inSubquery: <K extends keyof TColumns & string>(cols: K | K[], subquery: SubqueryRef) => ExprTape
   notInSubquery: <K extends keyof TColumns & string>(cols: K | K[], subquery: SubqueryRef) => ExprTape
+
+  /** Rows with at least one related row, matching `where` when given: a correlated `EXISTS` on the relation, its table's scopes applied unless `opts` lifts them. Resolved by the repository, so only a query run through one can print it. */
+  has: <K extends keyof TRelations & string>(relation: K, where?: RelationWhere<TRelations[K]>, opts?: ScopeOptions) => ExprTape
+  /** Rows with no related row matching `where`: `NOT EXISTS`, otherwise as `has()`. */
+  doesntHave: <K extends keyof TRelations & string>(relation: K, where?: RelationWhere<TRelations[K]>, opts?: ScopeOptions) => ExprTape
 
   /** `COALESCE(col, fallback)`: the column, or `fallback` where it is NULL. Usable in a where, an order and `computed()`. */
   coalesce: <K extends keyof TColumns & string>(col: K | ExprTape, fallback: ColVal<TColumns, K>) => TypedExpr<NonNullable<ColType<TColumns, K>>>
@@ -269,6 +280,9 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   scalar: subquery => [{ op: OP_SCALAR, subquery }],
   inSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: Array.isArray(cols) ? cols : [cols], subquery }],
   notInSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: Array.isArray(cols) ? cols : [cols], subquery, negate: true }],
+
+  has: (relation, where, scopes) => [{ op: OP_HAS, relation, negate: false, where, scopes }],
+  doesntHave: (relation, where, scopes) => [{ op: OP_HAS, relation, negate: true, where, scopes }],
 
   coalesce: (col, fallback) => sqlValue([{ op: OP_COALESCE, col, fallback }]),
   caseWhen: (whens, otherwise) => sqlValue([{ op: OP_CASE, whens, otherwise }]),

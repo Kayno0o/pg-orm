@@ -10,6 +10,7 @@ import { dialectOf } from '../dialect'
 import { OrmError, ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
+import { resolveRelationFilters } from './relation-filter'
 import { resolveScopes } from './table-behavior'
 
 /**
@@ -180,6 +181,8 @@ export class RelationResolver {
     state.includes = []
     state.scopes = resolveScopes(table)
     state.tableColumns = Object.keys(table.columns)
+
+    state.whereTape &&= resolveRelationFilters(state.whereTape, table, state.alias ?? tableName, this.tableRegistry)
 
     if (selectedColumns(state)?.includes(column) === false) {
       throw new ValidationError(

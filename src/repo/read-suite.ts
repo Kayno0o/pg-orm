@@ -74,11 +74,11 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.existsById(id, opts)
   }
 
-  async count(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<number> {
+  async count(where?: OptionalWhere<TColumns, TRelations>, opts?: ScopeOptions): Promise<number> {
     return this._pipeline.count(where, opts)
   }
 
-  async exists(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<boolean> {
+  async exists(where?: OptionalWhere<TColumns, TRelations>, opts?: ScopeOptions): Promise<boolean> {
     return this._pipeline.exists(where, opts)
   }
 

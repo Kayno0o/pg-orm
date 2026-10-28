@@ -244,6 +244,28 @@ const posts = await PostRepo.read.findMany(q =>
 // posts[0].commentsCount: number, posts[0].approvedCount: number
 ```
 
+### Filtering on Relations
+
+`whereHas(relation, where?, opts?)` keeps the rows with at least one related row matching `where`, `whereDoesntHave` those with none. Each becomes a correlated `EXISTS` subquery built from the relation's keys, on every relation type, and the callback is a WHERE typed against the target's columns and relations, so it nests. The same filter is `e.has()` and `e.doesntHave()` inside any WHERE callback, which composes with `e.and`, `e.or` and `e.not` and works in `count`, `exists`, `paginate`, streams, include callbacks, updates and deletes:
+
+```ts
+// users with a published post, and users with no post at all
+await UserRepo.read.findMany(q => q.whereHas('posts', p => p.eq('published', true)))
+await UserRepo.read.findMany(q => q.whereDoesntHave('posts'))
+
+// nested: posts whose author has a profile
+await PostRepo.read.findMany(q => q.whereHas('author', a => a.has('profile')))
+
+// inside an expression, and on a write
+await UserRepo.read.count(e => e.or(e.eq('role', 'admin'), e.has('posts')))
+await UserRepo.write.deleteMany(e => e.and(e.eq('status', 'pending'), e.doesntHave('posts')))
+
+// trashed related rows count only when asked, like any scope
+await UserRepo.read.findMany(q => q.whereHas('posts', undefined, { withTrashed: true }))
+```
+
+The related table's scopes apply, a soft-deleted pivot row links nothing, and `opts` lifts them by name (`withTrashed`, `withoutScopes`). As with `include`, the related table, a pivot included, must be in the database's `tables`, and a relation joining on a composite primary key throws a `ValidationError`. The repository resolves the subquery, so a builder printed outside one (`select().toSQL()`) throws instead.
+
 ## Query Builder
 
 Builders are mutable: every chained call changes the builder it is called on and returns it. To build several queries from a shared base, fork it with `branch()`, which copies the state so neither side sees the other's clauses. `values()`, `many()` and `set()` copy the object they are given.

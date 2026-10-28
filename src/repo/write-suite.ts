@@ -1,13 +1,13 @@
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder } from '../builder/query'
 import { WritePipeline } from './write-pipeline'
 
-type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
+type Where<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = WhereInput<TColumns, TRelations>
 type GuardedUpsert<TColumns extends AnyColumns> = ConflictUpdate<TColumns> & { where: Where<TColumns> }
 interface Unreturned { returning: false }
 
@@ -21,7 +21,7 @@ type UnguardedUpsert<TColumns extends AnyColumns> = (keyof TColumns & string)[] 
 /** Write coordinator — delegates to the deep `WritePipeline`. */
 export class WriteSuite<
   TColumns extends AnyColumns,
-  _TRelations extends AnyRelations = {},
+  TRelations extends AnyRelations = {},
   TVirtuals extends AnyVirtuals = {},
 > {
   private _pipeline: WritePipeline<TColumns, TVirtuals>
@@ -31,8 +31,9 @@ export class WriteSuite<
     _exec: Executable,
     _rt: TableRuntime,
     hooks: HookContext,
+    tableRegistry?: ReadonlyMap<string, AnyTableDef>,
   ) {
-    this._pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: _exec, runtime: _rt, hooks })
+    this._pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: _exec, runtime: _rt, hooks, tableRegistry })
     this._rt = _rt
   }
 
@@ -61,17 +62,17 @@ export class WriteSuite<
     return this._pipeline.copyFrom(rows)
   }
 
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & Unreturned): Promise<void>
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts: UpdateOptions & Unreturned): Promise<void>
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
     return unreturned(opts, await this._pipeline.updateMany(set, where, opts))
   }
 
   /** Update the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts: UpdateOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts: UpdateOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateOne(set, where, opts)
   }
 
@@ -89,23 +90,23 @@ export class WriteSuite<
     return this._pipeline.updateManyById(rows as Record<string, unknown>[], opts)
   }
 
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     return this._pipeline.updateWithLock(set, where, currentVersion, opts)
   }
 
-  async deleteMany(where: Where<TColumns>, opts: ScopedWriteOptions & Unreturned): Promise<void>
-  async deleteMany(where: Where<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async deleteMany(where: Where<TColumns>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async deleteMany(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+  async deleteMany(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & Unreturned): Promise<void>
+  async deleteMany(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async deleteMany(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async deleteMany(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
     return unreturned(opts, await this._pipeline.deleteMany(where, opts))
   }
 
   /** Delete the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
-  async deleteOne(where: Where<TColumns>, opts?: ScopedWriteOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async deleteOne(where: Where<TColumns>, opts: ScopedWriteOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async deleteOne(where: Where<TColumns>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async deleteOne(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async deleteOne(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async deleteOne(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.deleteOne(where, opts)
   }
 
@@ -141,10 +142,10 @@ export class WriteSuite<
     return this._pipeline.findOrCreate(values, conflictTarget)
   }
 
-  async restore(where: Where<TColumns>, opts: ScopedWriteOptions & Unreturned): Promise<void>
-  async restore(where: Where<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async restore(where: Where<TColumns>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async restore(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+  async restore(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & Unreturned): Promise<void>
+  async restore(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async restore(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async restore(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
     return unreturned(opts, await this._pipeline.restore(where, opts))
   }
 
@@ -156,10 +157,10 @@ export class WriteSuite<
     return unreturned(opts, await this._pipeline.deleteAll(opts))
   }
 
-  async forceDelete(where: Where<TColumns>, opts: ScopedWriteOptions & Unreturned): Promise<void>
-  async forceDelete(where: Where<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async forceDelete(where: Where<TColumns>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async forceDelete(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+  async forceDelete(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & Unreturned): Promise<void>
+  async forceDelete(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async forceDelete(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async forceDelete(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
     return unreturned(opts, await this._pipeline.forceDelete(where, opts))
   }
 

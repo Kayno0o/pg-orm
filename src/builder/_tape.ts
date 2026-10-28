@@ -3,6 +3,8 @@
 // Public DSL lives in `./expr.ts`; this file is the implementation detail.
 
 import type { Dialect } from '../dialect'
+import type { AnyColumns, ScopeOptions } from '../types/index'
+import type { ExprBuilder } from './expr'
 import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
 import { qualifyCol } from '../sql/utils'
@@ -66,6 +68,7 @@ export const OP_DISTINCT_FROM = 29 as const // a IS [NOT] DISTINCT FROM b
 export const OP_JSONB_CONTAINS = 30 as const // a @> b::text::jsonb
 export const OP_COALESCE = 31 as const
 export const OP_CASE = 32 as const
+export const OP_HAS = 33 as const // a relation filter, resolved to EXISTS by the repository
 
 export type VectorMetric = 'cosine' | 'l2' | 'inner' | 'l1' | 'hamming' | 'jaccard'
 
@@ -109,6 +112,7 @@ export type ExprOp
     | { op: typeof OP_JSONB_CONTAINS, col: string | ExprTape, val: unknown }
     | { op: typeof OP_COALESCE, col: string | ExprTape, fallback: unknown }
     | { op: typeof OP_CASE, whens: [ExprTape, unknown][], otherwise?: unknown }
+    | { op: typeof OP_HAS, relation: string, negate: boolean, where?: (e: ExprBuilder<AnyColumns>) => ExprTape, scopes?: ScopeOptions }
 
 export type ExprTape = ExprOp[]
 
@@ -351,6 +355,8 @@ class ExprAssembler {
         return { sql: `EXISTS (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
       case OP_NOT_EXISTS:
         return { sql: `NOT EXISTS (${this.walkSubquery(op.subquery)})`, next: pos + 1 }
+      case OP_HAS:
+        throw new ValidationError(`${op.negate ? 'doesntHave' : 'has'}("${op.relation}"): a relation filter needs the related table, which only a repository knows: run the query through db.repo().`, 'has', { field: op.relation })
       case OP_RAW: {
         return { sql: bindRawParams(op.sql, op.params, 'e.raw()', value => this.nextParam(value)), next: pos + 1 }
       }

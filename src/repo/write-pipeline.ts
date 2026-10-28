@@ -1,10 +1,11 @@
+import type { ExprTape } from '../builder/_tape'
 import type { BulkUpdateRow } from '../builder/bulk-update'
 import type { ConflictSet, ConflictValue } from '../builder/conflict'
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
@@ -20,6 +21,7 @@ import { copyField } from '../sql/copy'
 import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
+import { resolveRelationFilters } from './relation-filter'
 import { liftedScopes, resolveScopes } from './table-behavior'
 import { assertKeyValue, columnOf } from './table-runtime'
 
@@ -74,14 +76,6 @@ interface ReturnableBuilder {
 
 // The builders read a falsy WHERE as "no WHERE", and an empty AND as one every row passes, which on a write is every row: only `deleteAll` may ask for that, by name.
 // The trait conditions ANDed on later would hide an empty clause from the builder's own check, so it is compiled here, once, and handed on as its tape.
-function requireWhere<TColumns extends AnyColumns>(where: Where<TColumns>, op: string): Where<TColumns> {
-  const tape = where ? compileWhere<TColumns>(where) : undefined
-
-  if (!tape || holdsForEveryRow(tape))
-    throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op)
-
-  return () => tape
-}
 
 function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<TColumns>, opts?: InsertOptions<TColumns>): InsertBuilderCtor<TColumns> {
   return opts?.skipConflicts ? builder.onConflict(opts.skipConflicts).doNothing() : builder
@@ -92,6 +86,7 @@ export interface WritePipelineContext {
   executor: Executable
   runtime: TableRuntime
   hooks: HookContext
+  tableRegistry?: ReadonlyMap<string, AnyTableDef>
 }
 
 /**
@@ -108,6 +103,7 @@ export class WritePipeline<
   private _executor: Executable
   private _runtime: TableRuntime
   private _hooks: HookContext
+  private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
   private _mapperFactory: ReturnType<typeof createMapperFactory>
   private _sqliteDefaults?: Record<string, string>
   // Set on the pipeline a chunked write runs its chunks on: after-write hooks wait for the last chunk, so none fires for rows a later chunk rolls back.
@@ -117,7 +113,25 @@ export class WritePipeline<
     this._executor = ctx.executor
     this._runtime = ctx.runtime
     this._hooks = ctx.hooks
+    this._tableRegistry = ctx.tableRegistry
     this._mapperFactory = createMapperFactory(this._runtime.table, dialectOf(ctx.executor))
+  }
+
+  // The builders read a falsy WHERE as "no WHERE", and an empty AND as one every row passes, which on a write is every row: only `deleteAll` may ask for that, by name.
+  // The trait conditions ANDed on later would hide an empty clause from the builder's own check, so it is compiled here, once, its relation filters resolved, and handed on as its tape.
+  private _requireWhere(where: Where<TColumns>, op: string): Where<TColumns> {
+    const tape = where ? compileWhere<TColumns>(where) : undefined
+
+    if (!tape || holdsForEveryRow(tape))
+      throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op)
+
+    return this._resolved(tape)
+  }
+
+  private _resolved(tape: ExprTape): Where<TColumns> {
+    const resolved = resolveRelationFilters(tape, this._runtime.table, this._runtime.table.name, this._tableRegistry)
+
+    return () => resolved
   }
 
   /**
@@ -266,7 +280,7 @@ export class WritePipeline<
 
     const deferred: NonNullable<typeof this._deferredAfter> = []
     const run = async (exec: Executable): Promise<TResult[]> => {
-      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime, hooks: this._hooks })
+      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime, hooks: this._hooks, tableRegistry: this._tableRegistry })
       const out: TResult[] = []
 
       pipeline._deferredAfter = deferred
@@ -287,7 +301,7 @@ export class WritePipeline<
   // --- Update ---
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    const filter = requireWhere(where, 'updateMany')
+    const filter = this._requireWhere(where, 'updateMany')
     const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', set, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
@@ -305,7 +319,7 @@ export class WritePipeline<
   }
 
   async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow('updateOne', requireWhere(where, 'updateOne'), liftedScopes(opts), opts?.onMany)
+    const single = this._singleRow('updateOne', this._requireWhere(where, 'updateOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this.updateMany(set, single.where, opts)
 
     return rows[0] ?? await single.noMatch()
@@ -373,7 +387,7 @@ export class WritePipeline<
 
     const rows = await this.updateMany(
       set,
-      e => e.and(compileWhere<TColumns>(requireWhere(where, 'updateWithLock'), this._runtime.table.columns), e.eq(lockCol, currentVersion)),
+      e => e.and(compileWhere<TColumns>(this._requireWhere(where, 'updateWithLock'), this._runtime.table.columns), e.eq(lockCol, currentVersion)),
       opts,
     )
 
@@ -448,11 +462,11 @@ export class WritePipeline<
   // --- Delete ---
 
   async deleteMany(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    return this._delete(requireWhere(where, 'deleteMany'), false, opts)
+    return this._delete(this._requireWhere(where, 'deleteMany'), false, opts)
   }
 
   async deleteOne(where: Where<TColumns>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow('deleteOne', requireWhere(where, 'deleteOne'), liftedScopes(opts), opts?.onMany)
+    const single = this._singleRow('deleteOne', this._requireWhere(where, 'deleteOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this._delete(single.where, false, opts)
 
     return rows[0] ?? await single.noMatch()
@@ -470,7 +484,7 @@ export class WritePipeline<
   }
 
   async forceDelete(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    return this._delete(requireWhere(where, 'forceDelete'), true, opts)
+    return this._delete(this._requireWhere(where, 'forceDelete'), true, opts)
   }
 
   async purgeTrashed(olderThan: Date, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
@@ -724,7 +738,7 @@ export class WritePipeline<
     }
 
     const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks)
-    const builder = this._runtime.behavior.buildRestoreUpdate(s, where, liftedScopes(opts))
+    const builder = this._runtime.behavior.buildRestoreUpdate(s, where && this._resolved(compileWhere<TColumns>(where)), liftedScopes(opts))
 
     return this._execute({
       builder,
