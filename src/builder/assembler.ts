@@ -187,6 +187,9 @@ function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): 
 
 // --- SELECT pieces ---
 
+// The aggregates `jsonAgg`, `jsonbAgg` and `arrayAgg` print, which SQLite has no function for.
+const PG_AGGREGATE_RE = /^((?:json|jsonb|array)_agg)\(/
+
 // A joined column comes back under its `alias.col` name, so it neither collides with the table's own nor is lost.
 function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
   const q = joinQualifier(state)
@@ -202,6 +205,11 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
     // (rejects `;`, `--`, `/*`, dollar-quotes, unterminated strings). The
     // alias is bound by `validateIdentifier`. Do not introduce a new caller
     // here without applying both.
+    const pgAggregate = PG_AGGREGATE_RE.exec(cc.expr)
+
+    if (pgAggregate)
+      sb.postgresOnly(`${pgAggregate[1]}()`)
+
     const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier, null)})` : cc.expr
 
     cols.push(`${expr} AS ${quote(cc.alias)}`)
@@ -394,7 +402,11 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
     return
   }
 
-  const vals = state.insertValues!
+  const vals = state.insertValues
+
+  if (!vals)
+    throw new ValidationError(`INSERT INTO "${state.table}" has no row: call values(), many() or fromSelect().`, 'insert')
+
   const keys = Object.keys(vals)
 
   // No columns supplied → let every column take its default. `() VALUES ()` is a
@@ -593,31 +605,6 @@ function printMerge(sb: SqlBuilder, state: BuilderState): void {
   printReturning(sb, state)
 }
 
-// --- UPSERT ---
-
-function printUpsert(sb: SqlBuilder, state: BuilderState): void {
-  const vals = state.insertValues!
-  const keys = Object.keys(vals)
-  const colList = quoteCols(keys)
-  const valList = keys.map(k => printValue(sb, vals[k])).join(', ')
-
-  sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
-
-  if (state.conflictTarget) {
-    if (!state.conflictTarget.length)
-      throw new ValidationError('ON CONFLICT DO UPDATE needs the conflict target: name the columns in onConflict().', 'onConflict')
-
-    const target = quoteCols(state.conflictTarget)
-    const updateCols = state.conflictUpdateCols ?? keys.filter(k => !state.conflictTarget!.includes(k))
-    // With nothing else to copy the target is set to itself, so the conflicting row still comes back through RETURNING.
-    const setClauses = (updateCols.length > 0 ? updateCols : state.conflictTarget).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`).join(', ')
-
-    sb.push(`ON CONFLICT (${target}) DO UPDATE SET ${setClauses}`)
-  }
-
-  printReturning(sb, state)
-}
-
 // --- RAW ---
 
 function printRaw(sb: SqlBuilder, state: BuilderState): void {
@@ -727,10 +714,6 @@ function printStatement(sb: SqlBuilder, state: BuilderState): void {
       break
     case 'merge':
       printMerge(sb, state)
-
-      break
-    case 'upsert':
-      printUpsert(sb, state)
 
       break
     case 'raw':

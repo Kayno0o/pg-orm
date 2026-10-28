@@ -146,3 +146,9 @@ describe('composeQueryLogger', () => {
     expect(lines).toEqual(['[1.234ms] SELECT \'***\'', '[1.234ms] SELECT \'secret\''])
   })
 })
+
+describe('formatQuery: an Invalid Date param', () => {
+  it('prints in place of the date instead of throwing', () => {
+    expect(formatQuery(event('SELECT $1', [new Date('nope')]), { duration: false })).toBe('SELECT <Invalid Date>')
+  })
+})

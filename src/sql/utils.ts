@@ -42,18 +42,3 @@ export function quoteLiteral(val: string): string {
 export function escapeLiteralBody(val: string): string {
   return val.replace(SINGLE_QUOTE_RE, '\'\'')
 }
-
-/**
- * Build a comma-separated list of positional placeholders: `$1, $2, $3`.
- * Returns an empty string when `n` is 0.
- */
-export function buildPlaceholders(n: number, startIndex = 1): string {
-  if (n === 0)
-    return ''
-
-  const parts: string[] = []
-
-  for (let i = 0; i < n; i++) parts.push(`$${startIndex + i}`)
-
-  return parts.join(', ')
-}

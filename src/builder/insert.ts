@@ -25,7 +25,7 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
 
   values(vals: InferInsert<TColumns>): this {
     validateValues(vals as Record<string, unknown>, 'InsertBuilder.values()')
-    this._state.insertValues = vals as Record<string, unknown>
+    this._state.insertValues = { ...vals } as Record<string, unknown>
 
     return this
   }
@@ -35,7 +35,7 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
     for (const v of vals) {
       validateValues(v as Record<string, unknown>, 'InsertBuilder.many()')
     }
-    this._state.insertManyValues = vals as Record<string, unknown>[]
+    this._state.insertManyValues = vals.map(v => ({ ...v })) as Record<string, unknown>[]
 
     return this
   }

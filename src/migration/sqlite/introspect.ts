@@ -9,7 +9,7 @@ export interface SqliteLiveTable {
   columns: { name: string, type: string, generated?: boolean }[]
 }
 
-export interface SqliteLiveIndex {
+interface SqliteLiveIndex {
   name: string
   table: string
   sql: string

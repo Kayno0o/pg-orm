@@ -174,9 +174,28 @@ const LIKE_RE = /[%_\\]/g
 const CAST_DOUBLE_RE = /^CAST\((.*) AS double precision\)$/
 const RANKING_FNS = new Set(['ROW_NUMBER()', 'RANK()', 'DENSE_RANK()'])
 
+function describeCol(col: unknown): string {
+  return typeof col === 'string' ? `"${col}"` : 'an expression'
+}
+
+// An undefined operand would bind as NULL and match nothing, so it is refused as the object form refuses it.
+function operand<T>(op: string, col: unknown, val: T): T {
+  if (val === undefined)
+    throw new ValidationError(`${op}(): the value compared with ${describeCol(col)} is undefined. Use isNull() to match NULL.`, op, { field: typeof col === 'string' ? col : undefined })
+
+  return val
+}
+
+function pattern(op: string, col: unknown, val: unknown): string {
+  if (typeof val !== 'string')
+    throw new ValidationError(`${op}(): the pattern matched against ${describeCol(col)} must be a string, got ${val === null ? 'null' : typeof val}.`, op, { field: typeof col === 'string' ? col : undefined, value: val })
+
+  return val
+}
+
 // Escape LIKE/ILIKE special characters in user input
-function escapeLikePattern(input: string): string {
-  return input.replace(LIKE_RE, '\\$&')
+function escapeLikePattern(op: string, col: unknown, input: string): string {
+  return pattern(op, col, input).replace(LIKE_RE, '\\$&')
 }
 
 // Singleton expression builder — stateless, so one instance serves all callers
@@ -199,27 +218,27 @@ const _singletonExprBuilder: ExprBuilder<any> = {
     return [{ op: OP_NOT }, ...expr]
   },
 
-  eq: (col, val) => [{ op: OP_EQ, col, val }],
-  neq: (col, val) => [{ op: OP_NEQ, col, val }],
-  gt: (col, val) => [{ op: OP_GT, col, val }],
-  gte: (col, val) => [{ op: OP_GTE, col, val }],
-  lt: (col, val) => [{ op: OP_LT, col, val }],
-  lte: (col, val) => [{ op: OP_LTE, col, val }],
-  in: (col, vals) => [{ op: OP_IN, col, vals }],
-  notIn: (col, vals) => [{ op: OP_NOT_IN, col, vals }],
+  eq: (col, val) => [{ op: OP_EQ, col, val: operand('eq', col, val) }],
+  neq: (col, val) => [{ op: OP_NEQ, col, val: operand('neq', col, val) }],
+  gt: (col, val) => [{ op: OP_GT, col, val: operand('gt', col, val) }],
+  gte: (col, val) => [{ op: OP_GTE, col, val: operand('gte', col, val) }],
+  lt: (col, val) => [{ op: OP_LT, col, val: operand('lt', col, val) }],
+  lte: (col, val) => [{ op: OP_LTE, col, val: operand('lte', col, val) }],
+  in: (col, vals) => [{ op: OP_IN, col, vals: operand('in', col, vals) }],
+  notIn: (col, vals) => [{ op: OP_NOT_IN, col, vals: operand('notIn', col, vals) }],
 
   isNull: col => [{ op: OP_IS_NULL, col }],
   isNotNull: col => [{ op: OP_IS_NOT_NULL, col }],
 
-  isDistinctFrom: (col, val) => [{ op: OP_DISTINCT_FROM, col, val, negate: false }],
-  isNotDistinctFrom: (col, val) => [{ op: OP_DISTINCT_FROM, col, val, negate: true }],
+  isDistinctFrom: (col, val) => [{ op: OP_DISTINCT_FROM, col, val: operand('isDistinctFrom', col, val), negate: false }],
+  isNotDistinctFrom: (col, val) => [{ op: OP_DISTINCT_FROM, col, val: operand('isNotDistinctFrom', col, val), negate: true }],
 
-  like: (col, pattern) => [{ op: OP_LIKE, col, pattern }],
-  ilike: (col, pattern) => [{ op: OP_ILIKE, col, pattern }],
-  notLike: (col, pattern) => [{ op: OP_NOT }, { op: OP_LIKE, col, pattern }],
-  notIlike: (col, pattern) => [{ op: OP_NOT }, { op: OP_ILIKE, col, pattern }],
+  like: (col, value) => [{ op: OP_LIKE, col, pattern: pattern('like', col, value) }],
+  ilike: (col, value) => [{ op: OP_ILIKE, col, pattern: pattern('ilike', col, value) }],
+  notLike: (col, value) => [{ op: OP_NOT }, { op: OP_LIKE, col, pattern: pattern('notLike', col, value) }],
+  notIlike: (col, value) => [{ op: OP_NOT }, { op: OP_ILIKE, col, pattern: pattern('notIlike', col, value) }],
 
-  between: (col, lo, hi) => [{ op: OP_BETWEEN, col, lo, hi }],
+  between: (col, lo, hi) => [{ op: OP_BETWEEN, col, lo: operand('between', col, lo), hi: operand('between', col, hi) }],
 
   exists: subquery => [{ op: OP_EXISTS, subquery }],
   notExists: subquery => [{ op: OP_NOT_EXISTS, subquery }],
@@ -249,12 +268,12 @@ const _singletonExprBuilder: ExprBuilder<any> = {
 
   ref: path => columnRef(path),
 
-  startsWith: (col, prefix) => [{ op: OP_LIKE, col, pattern: `${escapeLikePattern(prefix)}%` }],
-  endsWith: (col, suffix) => [{ op: OP_LIKE, col, pattern: `%${escapeLikePattern(suffix)}` }],
-  contains: (col, substr) => [{ op: OP_LIKE, col, pattern: `%${escapeLikePattern(substr)}%` }],
-  iStartsWith: (col, prefix) => [{ op: OP_ILIKE, col, pattern: `${escapeLikePattern(prefix)}%` }],
-  iEndsWith: (col, suffix) => [{ op: OP_ILIKE, col, pattern: `%${escapeLikePattern(suffix)}` }],
-  iContains: (col, substr) => [{ op: OP_ILIKE, col, pattern: `%${escapeLikePattern(substr)}%` }],
+  startsWith: (col, prefix) => [{ op: OP_LIKE, col, pattern: `${escapeLikePattern('startsWith', col, prefix)}%` }],
+  endsWith: (col, suffix) => [{ op: OP_LIKE, col, pattern: `%${escapeLikePattern('endsWith', col, suffix)}` }],
+  contains: (col, substr) => [{ op: OP_LIKE, col, pattern: `%${escapeLikePattern('contains', col, substr)}%` }],
+  iStartsWith: (col, prefix) => [{ op: OP_ILIKE, col, pattern: `${escapeLikePattern('iStartsWith', col, prefix)}%` }],
+  iEndsWith: (col, suffix) => [{ op: OP_ILIKE, col, pattern: `%${escapeLikePattern('iEndsWith', col, suffix)}` }],
+  iContains: (col, substr) => [{ op: OP_ILIKE, col, pattern: `%${escapeLikePattern('iContains', col, substr)}%` }],
 
   arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string | ExprTape, val }],
   arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],

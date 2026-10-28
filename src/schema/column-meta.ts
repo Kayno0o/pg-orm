@@ -25,7 +25,7 @@ export interface ColumnDefMeta {
   comment?: string
 }
 
-export interface DefWithMeta {
+interface DefWithMeta {
   _enumName?: string
   _enumValues?: readonly string[]
   _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }

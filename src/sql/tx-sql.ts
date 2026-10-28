@@ -19,8 +19,8 @@ const ACCESS_MODE_SQL = {
   'read only': 'READ ONLY',
 } as const
 
-export type IsolationLevel = keyof typeof ISOLATION_SQL
-export type AccessMode = keyof typeof ACCESS_MODE_SQL
+type IsolationLevel = keyof typeof ISOLATION_SQL
+type AccessMode = keyof typeof ACCESS_MODE_SQL
 
 /** The `SET TRANSACTION …` the options ask for, undefined when they set neither isolation nor access mode. Throws `ValidationError` for unknown values. */
 export function isolationStatement(opts: { isolation?: string, accessMode?: string }): string | undefined {

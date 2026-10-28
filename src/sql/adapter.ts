@@ -6,7 +6,7 @@ import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
 import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 /** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */
-export type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string>, readable?: () => ReadableStream<Uint8Array> }
+type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string>, readable?: () => ReadableStream<Uint8Array> }
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose

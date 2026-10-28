@@ -4,6 +4,7 @@ import type { BuilderState } from './state'
 import { ValidationError } from '../errors/index'
 import { isPlainObject } from '../utils/collection'
 import { createExprBuilder, OP_AND } from './expr'
+import { scalarColumnsOf } from './state'
 
 /** A WHERE callback. */
 export type WhereFn<TColumns extends AnyColumns> = (e: ExprBuilder<TColumns>) => ExprTape
@@ -153,7 +154,7 @@ function expectArray(col: string, op: string, value: unknown): unknown[] {
   return value
 }
 
-function entryToTape(e: ExprBuilder<any>, col: string, value: unknown): ExprTape {
+function entryToTape(e: ExprBuilder<any>, col: string, value: unknown, scalarColumns: ReadonlySet<string> | undefined): ExprTape {
   if (value === undefined) {
     throw new ValidationError(
       `where: column "${col}" was given undefined. Pass null to match IS NULL, or omit the key.`,
@@ -168,7 +169,7 @@ function entryToTape(e: ExprBuilder<any>, col: string, value: unknown): ExprTape
   if (Array.isArray(value))
     return e.in(col, value)
 
-  // A plain object is an operator map only when every key is an operator; anything else is a json/jsonb value compared for equality.
+  // A plain object is an operator map when every key is an operator, a value compared for equality on a json or geometric column, and refused on any other column of a known table.
   if (isPlainObject(value)) {
     const keys = Object.keys(value)
     const opKeys = keys.filter(k => WHERE_OPS.has(k))
@@ -184,13 +185,28 @@ function entryToTape(e: ExprBuilder<any>, col: string, value: unknown): ExprTape
 
       return andTapes(opKeys.map(k => opToTape(e, col, k, value[k])))
     }
+
+    if (scalarColumns?.has(col)) {
+      throw new ValidationError(
+        `where: column "${col}" was given an object naming no operator (${keys.join(', ') || 'no keys'}). The operators are ${[...WHERE_OPS].join(', ')}.`,
+        'where',
+        { field: col, value },
+      )
+    }
   }
 
   return e.eq(col, value)
 }
 
-/** Compile either WHERE form to a tape. Exported so callers can compose a caller-supplied clause with their own conditions. */
-export function compileWhere<TColumns extends AnyColumns>(where: WhereInput<TColumns>): ExprTape {
+/**
+ * Compile either WHERE form to a tape. Exported so callers can compose a caller-supplied clause with their own conditions.
+ * Given the table's `columns`, an object naming no operator on a column that is not json or geometric throws instead of comparing as a literal.
+ */
+export function compileWhere<TColumns extends AnyColumns>(where: WhereInput<TColumns>, columns?: TColumns): ExprTape {
+  return compileWith(where, columns && scalarColumnsOf(columns))
+}
+
+function compileWith<TColumns extends AnyColumns>(where: WhereInput<TColumns>, scalarColumns: ReadonlySet<string> | undefined): ExprTape {
   const e = createExprBuilder<TColumns>()
 
   if (typeof where === 'function')
@@ -201,22 +217,21 @@ export function compileWhere<TColumns extends AnyColumns>(where: WhereInput<TCol
   if (entries.length === 0)
     throw new ValidationError('where: the object shorthand needs at least one column; an empty object would match every row.', 'where')
 
-  return andTapes(entries.map(([col, value]) => entryToTape(e as ExprBuilder<any>, col, value)))
+  return andTapes(entries.map(([col, value]) => entryToTape(e as ExprBuilder<any>, col, value, scalarColumns)))
 }
 
 /** Compile the truthy clauses in `conds` to tapes, dropping the falsy ones. */
-function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[]): ExprTape[] {
+function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[], scalarColumns: ReadonlySet<string> | undefined): ExprTape[] {
   const tapes: ExprTape[] = []
 
   for (const cond of conds) {
     if (cond)
-      tapes.push(compileWhere<TColumns>(cond))
+      tapes.push(compileWith<TColumns>(cond, scalarColumns))
   }
 
   return tapes
 }
 
-/** Replace `state.whereTape` with `where`'s tape. A falsy `where` leaves it untouched. */
 /**
  * `{ [column]: condition }` for a column named at runtime (a query string, a route config), typed for the table without a cast.
  * `condition` is what the object form takes for a column: a value, an array, null or an operator map. A name the table does not have throws `ValidationError`.
@@ -228,14 +243,15 @@ export function whereColumn<TColumns extends AnyColumns>(table: { readonly name:
   return { [column]: condition } as WhereObject<TColumns>
 }
 
+/** Replace `state.whereTape` with `where`'s tape. A falsy `where` leaves it untouched. */
 export function replaceWhere<TColumns extends AnyColumns>(state: BuilderState, where: OptionalWhere<TColumns>): void {
   if (where)
-    state.whereTape = compileWhere<TColumns>(where)
+    state.whereTape = compileWith<TColumns>(where, state.scalarColumns)
 }
 
 /** AND the truthy conditions onto `state.whereTape`, keeping any existing clause. */
 export function appendWhere<TColumns extends AnyColumns>(state: BuilderState, conds: OptionalWhere<TColumns>[]): void {
-  const tapes = compile(conds)
+  const tapes = compile(conds, state.scalarColumns)
 
   if (state.whereTape)
     tapes.unshift(state.whereTape)

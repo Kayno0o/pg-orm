@@ -1,5 +1,5 @@
 import type { ExprBuilder } from '../builder/expr'
-import type { InsertBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
+import type { SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
 import type { AnyColumns, AnyTableDef, InferUpdate } from '../types/index'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
@@ -25,9 +25,6 @@ interface RawSettable {
 export interface TableBehavior {
   /** Apply all pre-SELECT transforms: the soft-delete filter, which the assembler applies unless `withTrashed()` was called, before or after. */
   prepareSelect: (builder: SelectBuilder<any, any, any>) => void
-
-  /** Apply all pre-INSERT transforms. Currently a no-op seam for future traits. */
-  prepareInsert: (builder: InsertBuilder<any>) => void
 
   /**
    * Apply all post-SET transforms for an UPDATE.
@@ -86,11 +83,6 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
       state.softDeleteColumn = softDeleteColumn
   }
 
-  function prepareInsert(_b: InsertBuilder<any>): void {
-    // No insert-time transforms currently exist. This is an extensibility seam
-    // for future traits that need to inspect or mutate insert builders.
-  }
-
   function prepareUpdate(b: RawSettable, _set: Record<string, unknown>): void {
     if (hasOptimisticLock) {
       // Internal — runs AFTER `.set()` validation so user payloads can't
@@ -119,7 +111,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   ): UpdateBuilder<TColumns> {
     const builder = new UpdateBuilderCtor<TColumns>(table)
       .set(set)
-      .where((e: ExprBuilder<TColumns>) => where ? e.and(compileWhere<TColumns>(where), e.isNull(softDeleteColumn!)) : e.isNull(softDeleteColumn!))
+      .where((e: ExprBuilder<TColumns>) => where ? e.and(compileWhere<TColumns>(where, table.columns as TColumns), e.isNull(softDeleteColumn!)) : e.isNull(softDeleteColumn!))
 
     prepareUpdate(builder, set as Record<string, unknown>)
 
@@ -138,7 +130,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
 
     const builder = new UpdateBuilderCtor<TColumns>(table)
       .set(set)
-      .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where), e.isNotNull(softDeleteColumn)))
+      .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where, table.columns as TColumns), e.isNotNull(softDeleteColumn)))
 
     prepareUpdate(builder, set as Record<string, unknown>)
 
@@ -155,7 +147,6 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
 
   return Object.freeze({
     prepareSelect,
-    prepareInsert,
     prepareUpdate,
     excludeTrashed,
     softDeleteSet,

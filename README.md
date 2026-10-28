@@ -5,7 +5,7 @@ Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/a
 ## Features
 
 - **Type-safe schema** — `defineTable()` with full TypeScript inference for selects, inserts, and updates
-- **Query builder** — chainable, immutable-style API with parameterized queries (no SQL injection)
+- **Query builder** — chainable API with parameterized queries (no SQL injection)
 - **Expression builder** — type-safe WHERE clauses, JOINs, CTEs, window functions, JSONB, full-text search, pgvector
 - **Relation loading** — batched `include()` (no N+1), supports `belongsTo`, `hasMany`, `hasOne`, `hasManyThrough`
 - **Auto-migration** — `db.sync()` introspects your live DB and applies DDL diffs
@@ -217,6 +217,13 @@ const posts = await PostRepo.read.findMany(q =>
 
 ## Query Builder
 
+Builders are mutable: every chained call changes the builder it is called on and returns it. To build several queries from a shared base, fork it with `branch()`, which copies the state so neither side sees the other's clauses. `values()`, `many()` and `set()` copy the object they are given.
+
+```ts
+const active = db.repo(users).read.select().where({ status: 'active' })
+const admins = active.branch().andWhere({ role: 'admin' }) // `active` keeps its one condition
+```
+
 ### WHERE Expressions
 
 Every WHERE takes one of two forms: an **object shorthand** for the common case, or an
@@ -230,7 +237,7 @@ q.where({ status: 'active' })
 q.where({ status: 'active', role: 'admin' })
 q.where({ deletedAt: null })          // IS NULL
 q.where({ role: ['admin', 'mod'] })   // = ANY($1), one array bound on Postgres; IN (…) on SQLite. An empty array matches nothing
-q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equality
+q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equality; on any other column an object must name operators
 
 // ...with operators, several of which AND together
 q.where({ age: { gte: 18, lt: 65 } })
@@ -242,8 +249,7 @@ q.where({ tags: { eq: ['a', 'b'] } })        // an array column takes no bare ar
 
 Operators: `eq neq gt gte lt lte in notIn like ilike contains startsWith endsWith iContains iStartsWith iEndsWith between isNull`. `contains`, `startsWith` and `endsWith` match case; their `i` variants do not.
 
-`undefined` as a value and `{}` as a whole clause both throw `ValidationError` — a typo
-must not silently widen a `deleteMany` to every row.
+`undefined` as a value (in either form: `e.eq('a', undefined)` too), `{}` as a whole clause, an object naming no operator on a column that is not json or geometric (`{ id: { gtt: 1 } }`) and a non-string pattern for the `like` family all throw `ValidationError` — a typo must not silently widen a `deleteMany` to every row.
 
 ```ts
 // Callback form — the full expression builder
@@ -876,7 +882,7 @@ The file and its directory are created on first use, in WAL mode, with foreign k
 - Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique index by its columns too. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
 - A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
-- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, and a serial column that is not the single primary key. Raw SQL fragments and `jsonAgg()`, `arrayAgg()` or `jsonbAgg()` name Postgres functions, which SQLite does not have.
+- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, and a serial column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
 
 ## Raw SQL
 

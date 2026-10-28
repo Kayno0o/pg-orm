@@ -106,8 +106,9 @@ function renderParam(value: unknown, max: number): string {
       return quote(value, max)
   }
 
+  // An Invalid Date has no ISO form: toISOString() throws, and the log line would be lost with it.
   if (value instanceof Date)
-    return quote(value.toISOString(), max)
+    return Number.isNaN(value.getTime()) ? '<Invalid Date>' : quote(value.toISOString(), max)
 
   if (value instanceof Uint8Array)
     return quote(`\\x${value.toHex()}`, max)

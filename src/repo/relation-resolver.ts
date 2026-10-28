@@ -20,7 +20,6 @@ export interface RelationProcessor {
   processRows: (
     rows: Record<string, unknown>[],
     tableName: string,
-    source: 'select',
     // The include callback's builder, whose pick, omit and computed columns shape the mapper.
     opts?: { skipMapper?: boolean, builder?: SelectBuilder<any, any, any> },
   ) => Promise<Record<string, unknown>[]>
@@ -213,7 +212,7 @@ export class RelationResolver {
         delete row[PARTITION_RANK]
     }
 
-    const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, 'select', { builder: filtered }) : raw
+    const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, { builder: filtered }) : raw
 
     return { rows, chunks: positions.map(chunk => chunk.map(at => rows[at]!)), nestedIncludes, slice }
   }

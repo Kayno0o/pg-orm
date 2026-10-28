@@ -206,7 +206,7 @@ export class ReadPipeline<
     // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
     const hasOnlyComputed = selectedColumns(state)?.length === 0 && state.computedColumns.length > 0
 
-    const processed = await this.processRows(rows, this._runtime.table.name, 'select', {
+    const processed = await this.processRows(rows, this._runtime.table.name, {
       mapper: this._mapper(finalBuilder),
       includes: state.includes,
       skipMapper: hasOnlyComputed,
@@ -509,7 +509,7 @@ export class ReadPipeline<
       // Skip JIT mapper for aggregate/computed-only queries (no table columns selected)
       const hasOnlyComputed = selectedColumns(chunkState)?.length === 0 && chunkState.computedColumns.length > 0
 
-      const mapped = await this.processRows(rows, this._runtime.table.name, 'select', {
+      const mapped = await this.processRows(rows, this._runtime.table.name, {
         mapper: mapperFn,
         includes: chunkState.includes,
         skipMapper: hasOnlyComputed,
@@ -558,7 +558,6 @@ export class ReadPipeline<
   async processRows(
     rows: Record<string, unknown>[],
     tableName: string,
-    source: 'select',
     opts?: {
       skipMapper?: boolean
       mapper?: RowMapper<Record<string, unknown>>
@@ -580,7 +579,7 @@ export class ReadPipeline<
 
     mapped = runtime.applyVirtuals(mapped)
 
-    if (source === 'select' && opts?.includes && opts.includes.length > 0) {
+    if (opts?.includes && opts.includes.length > 0) {
       mapped = await this._relations.loadIncludes(mapped, opts.includes, this)
     }
 

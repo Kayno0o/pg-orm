@@ -335,7 +335,7 @@ export class WritePipeline<
       const matches = live(new SelectBuilderCtor<TColumns>(table).count().where(where))
 
       return {
-        where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_EQ, col: [{ op: OP_SCALAR, subquery: matches }], val: 1 }],
+        where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where, this._runtime.table.columns), { op: OP_EQ, col: [{ op: OP_SCALAR, subquery: matches }], val: 1 }],
         noMatch: async () => {
           const { sql, params } = matches.toSQL(dialectOf(this._executor))
 
@@ -356,7 +356,7 @@ export class WritePipeline<
       first.orderBy(col as keyof TColumns & string)
 
     // `where` is repeated on the statement itself: under READ COMMITTED, a row a concurrent transaction changed is checked again against the outer WHERE only, so the key alone would let two compare-and-set writes both through.
-    return { where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where), { op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
+    return { where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where, this._runtime.table.columns), { op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
@@ -372,7 +372,7 @@ export class WritePipeline<
 
     const rows = await this.updateMany(
       set,
-      e => e.and(compileWhere<TColumns>(requireWhere(where, 'updateWithLock')), e.eq(lockCol, currentVersion)),
+      e => e.and(compileWhere<TColumns>(requireWhere(where, 'updateWithLock'), this._runtime.table.columns), e.eq(lockCol, currentVersion)),
       opts,
     )
 

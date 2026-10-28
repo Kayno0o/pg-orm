@@ -1,12 +1,6 @@
 import type { Repository } from '../repo/index'
 import type { Trait } from '../traits'
 
-// Branded type for SQL identifiers
-declare const __brand: unique symbol
-type Brand<T, B extends string> = T & { readonly [__brand]: B }
-
-export type SQLIdentifier = Brand<string, 'SQLIdentifier'>
-
 /**
  * Phantom value: typed as `T` but always `undefined` at runtime. Used for
  * type-only fields on definition objects (e.g. `_type`, `_nullable`) that

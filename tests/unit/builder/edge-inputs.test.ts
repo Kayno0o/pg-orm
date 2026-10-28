@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createExprBuilder } from '../../../src/builder/expr'
-import { InsertBuilder, MergeBuilder, SelectBuilder, SetOperationBuilder, UpsertBuilder } from '../../../src/builder/query'
+import { InsertBuilder, MergeBuilder, SelectBuilder, SetOperationBuilder } from '../../../src/builder/query'
 import { ValidationError } from '../../../src/errors/index'
 
 const select = () => new SelectBuilder<any>('t')
@@ -34,8 +34,8 @@ describe('builders on edge inputs', () => {
     expect(() => SetOperationBuilder.union()).toThrow(ValidationError)
   })
 
-  it('an UpsertBuilder writing only its conflict keys sets the target to itself', () => {
-    expect(new UpsertBuilder<any>('t').values({ a: 1 }).onConflict('a').toSQL().sql).toEndWith('ON CONFLICT ("a") DO UPDATE SET "a" = EXCLUDED."a"')
+  it('an upsert writing only its conflict keys sets the target to itself', () => {
+    expect(new InsertBuilder<any>('t').values({ a: 1 }).onConflict(['a']).doUpdate().toSQL().sql).toEndWith('ON CONFLICT ("a") DO UPDATE SET "a" = EXCLUDED."a"')
   })
 
   it('MERGE without using() and on() throws a ValidationError', () => {

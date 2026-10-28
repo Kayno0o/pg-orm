@@ -19,7 +19,7 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void, TJoined
     const values = (typeof vals === 'function' ? vals(createExprBuilder<TColumns & TJoined>()) : vals) as Record<string, unknown>
 
     validateValues(values, 'UpdateBuilder.set()')
-    this._state.setValues = values
+    this._state.setValues = { ...values }
 
     return this
   }

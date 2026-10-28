@@ -4,7 +4,7 @@ import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
-import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
+import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder } from '../builder/query'
 import { WritePipeline } from './write-pipeline'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
@@ -154,5 +154,4 @@ export class WriteSuite<
   update(): UpdateBuilder<TColumns> { return new UpdateBuilder<TColumns>(this._rt.table) }
   delete(): DeleteBuilder<TColumns> { return new DeleteBuilder<TColumns>(this._rt.table) }
   merge(): MergeBuilder<TColumns> { return new MergeBuilder<TColumns>(this._rt.table) }
-  upsert(): UpsertBuilder<TColumns> { return new UpsertBuilder<TColumns>(this._rt.table) }
 }

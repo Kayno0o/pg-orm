@@ -11,11 +11,11 @@ import { planMigration } from './plan'
 import { generateDownSql, sqlComment } from './reverse'
 
 export { diffSchema } from './diff'
-export { djb2Hash, ensureMigrationTable, getMigrationHistory, type MigrationHistoryEntry, recordMigration } from './history'
+export { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 export { introspectLiveSchema } from './introspect'
 export { type IgnoreTables, planMigration } from './plan'
-export { type RollbackContext, rollbackMigrations } from './rollback'
-export { type SyncContext, type SyncOptions, syncSchema } from './sync'
+export { rollbackMigrations } from './rollback'
+export { syncSchema } from './sync'
 export type { MigrationFile, MigrationOp } from './types'
 
 export interface GenerateMigrationOptions {

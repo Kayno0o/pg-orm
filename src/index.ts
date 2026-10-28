@@ -33,7 +33,6 @@ export {
   SetOperationBuilder,
   type SetValues,
   UpdateBuilder,
-  UpsertBuilder,
   whereColumn,
   type WhereFn,
   type WhereInput,

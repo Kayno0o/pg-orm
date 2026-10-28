@@ -63,16 +63,6 @@ The state/assembler understand `type: 'lateral'` but `SelectBuilder` only expose
 
 ---
 
-### 2.5 UpsertBuilder has no `DO NOTHING` path
-
-**File:** `src/builder/upsert.ts`
-
-`InsertBuilder` gained `.doNothing()` (`src/builder/insert.ts:43`). `UpsertBuilder` still does not have it.
-
-**Direction:** Add `doNothing()` to `UpsertBuilder` — assembler already emits `ON CONFLICT (...) DO NOTHING`.
-
----
-
 ### 2.6 Relations have no cascade options
 
 **File:** `src/schema/relations.ts`
@@ -116,9 +106,6 @@ Enforce column constraints on insert/update before SQL is built. Throw `Validati
 
 #### Fix composite PK write returns
 Make `insertOne`/`insertMany` detect composite PKs and return `{ a, b }` objects. See §2.2.
-
-#### Add `doNothing()` to `UpsertBuilder`
-Assembler already supports it. See §2.5.
 
 #### Expose `lateralJoin()` / `leftLateralJoin()`
 Two public methods, assembler already handles emission. See §2.4.
@@ -177,8 +164,7 @@ Emit events for query count, duration, errors, pool stats. Wire to Prometheus / 
 1. **Fix benchmark seeding** — trivial.
 2. **Runtime validation** — closes the gap between schema metadata and user-facing errors.
 3. **Fix composite PK write returns** — completes an advertised but broken feature.
-4. **Add `doNothing()` to UpsertBuilder** — small API completeness win.
-5. **Expose lateral joins** — reuses existing internals, zero assembler work.
-6. **Composite FKs** — medium effort, needed for correct relational modeling.
-7. **Type-safe raw query mapper** — useful bridge for complex queries.
-8. **Scopes or seeding** — pick based on user pain points.
+4. **Expose lateral joins** — reuses existing internals, zero assembler work.
+5. **Composite FKs** — medium effort, needed for correct relational modeling.
+6. **Type-safe raw query mapper** — useful bridge for complex queries.
+7. **Scopes or seeding** — pick based on user pain points.

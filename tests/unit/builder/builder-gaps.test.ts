@@ -1,5 +1,6 @@
+import type { OnConflictBuilder } from '../../../src/builder/query'
 import { describe, expect, it } from 'bun:test'
-import { DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder, UpsertBuilder } from '../../../src/builder/query'
+import { DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
 import { DialectError, ValidationError } from '../../../src/errors/index'
 
 const select = () => new SelectBuilder<any>('t')
@@ -121,7 +122,7 @@ describe('writes reading other tables', () => {
     const q = new InsertBuilder<any>('archive').fromSelect(['id', 'name'], new SelectBuilder<any>('t').pick('id', 'name')).onConflict(['id']).doUpdate().toSQL()
 
     expect(q.sql).toBe('INSERT INTO "archive" ("id", "name") SELECT "id", "name" FROM "t" ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"')
-    expect(() => new UpsertBuilder<any>('t').values({ a: 1 }).onConflict().toSQL()).toThrow(ValidationError)
+    expect(() => (new InsertBuilder<any>('t').values({ a: 1 }).onConflict() as never as OnConflictBuilder<any, void>).doUpdate().toSQL()).toThrow(ValidationError)
   })
 
   it('UPDATE ... FROM qualifies its own columns and sets from the other table', () => {

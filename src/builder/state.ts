@@ -6,7 +6,7 @@ import { qualifyCol } from '../sql/utils'
 export { PLACEHOLDER_RE } from './_placeholders'
 
 // --- Operation tag ---
-export type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' | 'merge' | 'upsert' | 'count' | 'raw'
+export type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' | 'merge' | 'count' | 'raw'
 
 // --- ORDER BY ---
 export type OrderDir = 'asc' | 'desc'
@@ -14,7 +14,7 @@ export type OrderDir = 'asc' | 'desc'
 export interface OrderEntry { col: string, dir: OrderDir, nulls?: 'first' | 'last', expr?: ExprTape }
 
 // --- JOIN ---
-export interface JoinEntry {
+interface JoinEntry {
   type: 'inner' | 'left' | 'right' | 'full'
   table: string
   alias: string
@@ -25,7 +25,7 @@ export interface JoinEntry {
 }
 
 // --- CTE ---
-export interface CteEntry {
+interface CteEntry {
   name: string
   sql: string
   params: unknown[]
@@ -36,7 +36,7 @@ export interface CteEntry {
 }
 
 // --- WINDOW ---
-export interface WindowEntry {
+interface WindowEntry {
   name: string
   partitionBy: string[]
   orderBy: OrderEntry[]
@@ -70,6 +70,8 @@ export interface BuilderState {
   omitColumns: string[]
   // The table's column names, set by the repository, so omit() can list the rest instead of fetching *.
   tableColumns?: readonly string[]
+  // The columns no plain object is a value of, so the object WHERE form refuses an object on them that names no operator.
+  scalarColumns?: ReadonlySet<string>
   // An include's join column: limit and offset then apply per value of it, through ROW_NUMBER(), rather than to the whole batch.
   limitPer?: string
   computedColumns: ComputedColumn[]
@@ -137,7 +139,7 @@ export interface BuilderState {
   streamChunkSize?: number
 }
 
-export interface ComputedColumn {
+interface ComputedColumn {
   expr: string
   alias: string
   /** An expression tape printed in place of `expr`, its params bound: `computed()` given `coalesce()` or `caseWhen()`. */
@@ -146,7 +148,7 @@ export interface ComputedColumn {
   filter?: { tape: ExprTape, qualifier: string }
 }
 
-export interface RelationCount {
+interface RelationCount {
   relation: string
   alias: string
   where: ExprTape | null
@@ -214,8 +216,23 @@ export function selectedColumns(s: BuilderState): string[] | null {
 /** What a builder is built on: a table name, or a table definition, every column name then checked against its columns. */
 export type TableTarget = string | { readonly name: string, readonly columns: object, readonly _version?: number }
 
+// The column types a plain object is a value of.
+const OBJECT_TYPES = new Set(['json', 'jsonb', 'point', 'line', 'circle', 'polygon', 'box', 'path'])
+
+/** The columns of `columns` whose type no plain object is a value of. */
+export function scalarColumnsOf(columns: object): ReadonlySet<string> {
+  const names = new Set<string>()
+
+  for (const [name, col] of Object.entries(columns as Record<string, { pgType?: unknown }>)) {
+    if (typeof col.pgType === 'string' && !OBJECT_TYPES.has(col.pgType))
+      names.add(name)
+  }
+
+  return names
+}
+
 // Keyed on the version too: a trait adds its columns to the same object.
-const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[] }>()
+const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[], scalarColumns: ReadonlySet<string> }>()
 
 /** The state for a builder on `table`, knowing its columns when given its definition. */
 export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
@@ -225,11 +242,11 @@ export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
   let cached = columnLists.get(table.columns)
 
   if (!cached || cached.version !== table._version) {
-    cached = { version: table._version, columns: Object.keys(table.columns) }
+    cached = { version: table._version, columns: Object.keys(table.columns), scalarColumns: scalarColumnsOf(table.columns) }
     columnLists.set(table.columns, cached)
   }
 
-  return { ...createState(op, table.name), tableColumns: cached.columns }
+  return { ...createState(op, table.name), tableColumns: cached.columns, scalarColumns: cached.scalarColumns }
 }
 
 export function cloneState(s: BuilderState): BuilderState {
