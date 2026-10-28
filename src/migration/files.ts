@@ -17,14 +17,30 @@ import { MIGRATION_LOCK_KEY } from './types'
 interface MigrationExecutor { query: QueryFn, dialect: Dialect }
 
 const SQL_EXT_RE = /\.sql$/
-const MIGRATE_DOWN_RE = /\n-- migrate:down\n/
-const MIGRATE_UP_RE = /^-- migrate:up\n/
+const MIGRATE_DOWN_RE = /^-- migrate:down[ \t]*$/gm
+const MIGRATE_UP_RE = /^-- migrate:up[ \t]*(?:\n|$)/
+const BOM_RE = /^\uFEFF/
+const CRLF_RE = /\r\n/g
+const TRAILING_LF_RE = /\n$/
+const LEADING_LF_RE = /^\n/
 
-/** A migration file's two halves, split on its `-- migrate:down` line. */
-export function parseMigrationFile(content: string): { up: string, down: string } {
-  const [up = '', down = ''] = content.split(MIGRATE_DOWN_RE)
+/** A migration file's two halves, split on its `-- migrate:down` line; CRLF line endings read as LF, so a Windows checkout splits the same. */
+export function parseMigrationFile(content: string, filename = 'migration file'): { up: string, down: string } {
+  const text = content.replace(BOM_RE, '').replace(CRLF_RE, '\n')
 
-  return { up: up.replace(MIGRATE_UP_RE, ''), down }
+  if (!MIGRATE_UP_RE.test(text))
+    throw new MigrationError(`${filename} does not start with a \`-- migrate:up\` line`, 'validate', filename)
+
+  const downs = [...text.matchAll(MIGRATE_DOWN_RE)]
+
+  if (downs.length > 1)
+    throw new MigrationError(`${filename} has ${downs.length} \`-- migrate:down\` lines, where one splits it in two`, 'validate', filename)
+
+  const at = downs[0]?.index ?? text.length
+  const up = text.slice(0, at).replace(MIGRATE_UP_RE, '').replace(TRAILING_LF_RE, '')
+  const down = downs[0] ? text.slice(at + downs[0][0].length).replace(LEADING_LF_RE, '') : ''
+
+  return { up, down }
 }
 
 /** The `.sql` files of `dir` the history has not applied, or has rolled back as often as it applied them, in name order. */
@@ -93,7 +109,7 @@ export async function applyMigrationFiles(db: Executable, dir: string): Promise<
       if (next === undefined)
         return { filename: next, outside: [] }
 
-      const { up, down } = parseMigrationFile(readFileSync(join(dir, next), 'utf8'))
+      const { up, down } = parseMigrationFile(readFileSync(join(dir, next), 'utf8'), next)
 
       return { filename: next, outside: await applyAndRecord(executor, next.replace(SQL_EXT_RE, ''), up, down) }
     })
