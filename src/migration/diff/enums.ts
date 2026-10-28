@@ -1,6 +1,7 @@
 import type { AnyColumnDef, AnyTableDef } from '../../types/index'
 import type { EnumUsage } from '../ddl'
 import type { LiveEnum, LiveTable, MigrationOp } from '../types'
+import { ValidationError } from '../../errors/index'
 import { getColumnMeta } from '../../schema/column-meta'
 import { buildAlterEnumAddSql, buildCreateEnumSql, buildEnumReplacementSqls, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
@@ -23,8 +24,15 @@ export function collectEnumRequirements(desired: ReadonlyMap<string, AnyTableDef
     for (const [, colDef] of columnEntries(tableDef.columns)) {
       const enumInfo = extractEnumInfo(colDef)
 
-      if (enumInfo)
-        neededEnums.set(enumInfo.name, enumInfo.values)
+      if (!enumInfo)
+        continue
+
+      const seen = neededEnums.get(enumInfo.name)
+
+      if (seen && seen.join('\0') !== enumInfo.values.join('\0'))
+        throw new ValidationError(`Enum "${enumInfo.name}" is declared with different values: (${seen.join(', ')}) and (${enumInfo.values.join(', ')}) on "${tableDef.name}".`, 'enum', { field: enumInfo.name })
+
+      neededEnums.set(enumInfo.name, enumInfo.values)
     }
   }
 

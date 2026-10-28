@@ -1,4 +1,6 @@
 import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } from '../types/index'
+import { typeSql } from '../schema/column-default'
+import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody, quote } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
@@ -29,8 +31,13 @@ export function generateCreateTable(name: string, table: AnyTableDef): string {
 }
 
 /** A column's DDL. Given the table name, its CHECKs are named as `sync()` diffs them; without it they are left for PG to name. */
+/** A column's type as DDL, an enum's name quoted. */
+export function columnTypeSql(colDef: AnyColumnDef): string {
+  return typeSql(colDef.pgType, getColumnMeta(colDef).enumName)
+}
+
 export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?: string): string {
-  const parts: string[] = [quote(name), colDef.pgType]
+  const parts: string[] = [quote(name), columnTypeSql(colDef)]
 
   for (const c of colDef.constraints) {
     switch (c.type) {

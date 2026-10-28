@@ -7,6 +7,15 @@ function registry(...tables: any[]) {
 }
 
 describe('collectEnumRequirements', () => {
+  it('throws when two columns give one enum name different values', () => {
+    const a = defineTable('a', t => ({ id: t.serial().primaryKey(), s: t.enum('status', ['on', 'off']) }))
+    const b = defineTable('b', t => ({ id: t.serial().primaryKey(), s: t.enum('status', ['on']) }))
+    const same = defineTable('c', t => ({ id: t.serial().primaryKey(), s: t.enum('status', ['on', 'off']) }))
+
+    expect(() => collectEnumRequirements(registry(a, b))).toThrow('Enum "status" is declared with different values: (on, off) and (on) on "b".')
+    expect(collectEnumRequirements(registry(a, same)).get('status')).toEqual(['on', 'off'])
+  })
+
   it('collects enum names and values from desired tables, an enum array included', () => {
     const table = defineTable('users', t => ({
       id: t.serial().primaryKey(),

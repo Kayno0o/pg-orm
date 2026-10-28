@@ -804,6 +804,7 @@ Each sync is recorded in `_pgorm_migrations` under a name unique to the millisec
 - A column renamed with `renamedFrom()` keeps its foreign key and its UNIQUE constraint, under their old names.
 - A type change casts the values (`USING "col"::<type>`) unless Postgres converts them itself (text to varchar, int to bigint, date to timestamp), which refuses a value too long rather than cutting it. A json array becomes a Postgres array through its text. The column's default is dropped before and set again after.
 - An enum losing values is replaced by a new type, every live column of it (arrays included) converted, its default dropped and set again. A row holding a removed value makes the sync fail.
+- An enum gaining values gets `ALTER TYPE ... ADD VALUE IF NOT EXISTS`, committed under the lock before the rest, since Postgres refuses a new value in the transaction adding it; the destructive check and the `confirm` prompt see the whole plan first, so a refused sync changes nothing. `apply` commits a migration file's `ADD VALUE IF NOT EXISTS` lines the same way before the file. Two columns giving one enum name different values throw `ValidationError`.
 - Index and constraint names longer than Postgres' 63 bytes are cut, with a hash of the full name kept.
 
 ### CHECK constraints

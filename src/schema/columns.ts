@@ -13,7 +13,7 @@ import type {
   NotPrimaryKey,
 } from '../types/index'
 import { phantom } from '../types/index'
-import { toSQLDefault } from './column-default'
+import { toSQLDefault, typeSql } from './column-default'
 import { validateFiniteNumber, validateFkAction, validateIdentifier, validateIndexMethod, validateTypeArg } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
@@ -80,7 +80,7 @@ export class ColumnBuilder<
 
   /** Set a DEFAULT value using a native JS value. Auto-converts to SQL. */
   default(value: TType): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'default', value: toSQLDefault(value, this._pgType) })
+    this._constraints.push({ type: 'default', value: toSQLDefault(value, typeSql(this._pgType, this._enumName)) })
     this._defaultLiteral = { value }
 
     return this._narrow()

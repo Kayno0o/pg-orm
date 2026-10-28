@@ -1,6 +1,6 @@
 import type { AnyColumnDef } from '../types/index'
 import { ValidationError } from '../errors/index'
-import { escapeLiteralBody, quoteLiteral } from '../sql/utils'
+import { escapeLiteralBody, quote, quoteLiteral } from '../sql/utils'
 import { getColumnMeta } from './column-meta'
 
 // The current time as the ISO string a Date binds as on SQLite, so a default and a written value compare alike.
@@ -26,7 +26,12 @@ const SPACES_RE = /\s+/g
 // A literal SQLite takes as a column default without parentheses: a number, a string, NULL, TRUE or FALSE.
 const SQLITE_LITERAL_RE = /^(?:[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?|'(?:[^']|'')*'|null|true|false)$/i
 
-/** Convert a JS value to a SQL DEFAULT expression based on the column's pgType. */
+/** A column type as SQL: an enum's name quoted, as `CREATE TYPE` wrote it, so a mixed-case or reserved name stays that type. */
+export function typeSql(pgType: string, enumName?: string): string {
+  return enumName && pgType.startsWith(enumName) ? `${quote(enumName)}${pgType.slice(enumName.length)}` : pgType
+}
+
+/** Convert a JS value to a SQL DEFAULT expression based on the column's pgType, given as SQL (see `typeSql`). */
 export function toSQLDefault(value: unknown, pgType: string): string {
   if (value === null || value === undefined)
     return 'NULL'

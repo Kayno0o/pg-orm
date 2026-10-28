@@ -3,14 +3,14 @@ import type { Executable } from '../sql/executor'
 import type { AnyTableDef } from '../types/index'
 import type { MigrationHistoryEntry } from './history'
 import type { GenerateMigrationOptions } from './index'
-import type { MigrationFile, QueryFn } from './types'
+import type { MigrationFile, MigrationOp, QueryFn } from './types'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dialectOf } from '../dialect'
 import { MigrationError, sanitizePgErrorMessage } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 import { migrationFile } from './index'
-import { outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
+import { enumAdditions, outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
 import { planMigration } from './plan'
 import { MIGRATION_LOCK_KEY } from './types'
 
@@ -73,17 +73,20 @@ function lockedMigration<T>(db: Executable, fn: (executor: MigrationExecutor) =>
   return db.migrate ? db.migrate(run) : run(db.query)
 }
 
-// Gives back the statements a transaction refuses, for the caller to run once this one commits; the history records the whole of `up`.
-async function applyAndRecord(executor: MigrationExecutor, name: string, up: string, down: string): Promise<string[]> {
-  const { inside, outside } = splitOutsideTransaction(up)
-
+async function runMigrationSql(executor: MigrationExecutor, name: string, sql: string): Promise<void> {
   try {
-    await executor.query(inside, [])
+    await executor.query(sql, [])
   }
   catch (err) {
     throw new MigrationError(`Migration "${name}" failed: ${sanitizePgErrorMessage(err instanceof Error ? err.message : String(err))}`, 'apply', name, err)
   }
+}
 
+// Gives back the statements a transaction refuses, for the caller to run once this one commits; the history records the whole of `up`.
+async function applyAndRecord(executor: MigrationExecutor, name: string, up: string, down: string): Promise<string[]> {
+  const { inside, outside } = splitOutsideTransaction(up)
+
+  await runMigrationSql(executor, name, inside)
   await ensureMigrationTable(executor)
   await recordMigration(executor, { name, sqlHash: djb2Hash(up), upSql: up, downSql: down, direction: 'up' })
 
@@ -101,21 +104,35 @@ export async function pendingMigrations(db: Executable, dir: string): Promise<st
  */
 export async function applyMigrationFiles(db: Executable, dir: string): Promise<string[]> {
   const applied: string[] = []
+  // Files whose enum additions committed already, which the next pass applies whole.
+  const enumsAdded = new Set<string>()
 
   for (;;) {
-    const { filename, outside } = await lockedMigration(db, async (executor) => {
+    const { filename, outside, retry } = await lockedMigration(db, async (executor) => {
       const next = pendingMigrationFiles(dir, await getMigrationHistory(executor))[0]
 
       if (next === undefined)
         return { filename: next, outside: [] }
 
       const { up, down } = parseMigrationFile(readFileSync(join(dir, next), 'utf8'), next)
+      const additions = enumsAdded.has(next) ? [] : enumAdditions(up)
+
+      // A value an enum gains cannot be used in the transaction adding it: the additions commit on their own, the next pass applies the file.
+      if (additions.length > 0) {
+        await runMigrationSql(executor, next.replace(SQL_EXT_RE, ''), additions.join('\n'))
+        enumsAdded.add(next)
+
+        return { filename: next, outside: [], retry: true }
+      }
 
       return { filename: next, outside: await applyAndRecord(executor, next.replace(SQL_EXT_RE, ''), up, down) }
     })
 
     if (filename === undefined)
       return applied
+
+    if (retry)
+      continue
 
     if (outside.length > 0)
       await runOutsideTransaction(outsideRunner(db), outside)
@@ -130,8 +147,25 @@ export async function syncMigration(
   registry: ReadonlyMap<string, AnyTableDef>,
   opts: GenerateMigrationOptions & { dryRun?: boolean } = {},
 ): Promise<MigrationFile | null> {
+  const plan = (executor: MigrationExecutor): Promise<MigrationOp[]> => planMigration(executor, registry, executor.dialect, opts.schema, opts.ignoreTables)
+  // A value an enum gains cannot be used in the transaction adding it: the additions commit first, once the plan passed the destructive gate, and the file still lists them.
+  const added = opts.dryRun
+    ? []
+    : await lockedMigration(db, async (executor) => {
+      const ops = await plan(executor)
+      const additions = ops.filter(o => o.type === 'alter_enum_add')
+
+      migrationFile(ops, executor.dialect, opts.allowDestructive)
+
+      if (additions.length > 0)
+        await runMigrationSql(executor, 'sync', additions.map(o => `${o.sql};`).join('\n'))
+
+      return additions
+    })
+
   const { file, outside } = await lockedMigration(db, async (executor) => {
-    const file = migrationFile(await planMigration(executor, registry, executor.dialect, opts.schema, opts.ignoreTables), executor.dialect, opts.allowDestructive || opts.dryRun)
+    const ops = [...added, ...(await plan(executor)).filter(o => o.type !== 'alter_enum_add')]
+    const file = migrationFile(ops, executor.dialect, opts.allowDestructive || opts.dryRun)
 
     return { file, outside: file && !opts.dryRun ? await applyAndRecord(executor, file.name, file.up, file.down) : [] }
   })

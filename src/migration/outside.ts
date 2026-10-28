@@ -5,6 +5,14 @@ import { MigrationError, sanitizePgErrorMessage } from '../errors/index'
 // A statement a transaction refuses, on a line of its own as a migration writes it.
 const OUTSIDE_TRANSACTION_RE = /^(?:CREATE (?:UNIQUE )?INDEX|DROP INDEX) CONCURRENTLY\b.*;$/gm
 
+// An enum value a migration adds, as `sync` writes it: idempotent, so committing it ahead of the rest of the file is safe to repeat.
+const ENUM_ADDITION_RE = /^ALTER TYPE .+ ADD VALUE IF NOT EXISTS .+;$/gm
+
+/** The enum additions of migration SQL, which must commit before a statement can use the value they add. */
+export function enumAdditions(sql: string): string[] {
+  return sql.match(ENUM_ADDITION_RE) ?? []
+}
+
 /** Splits migration SQL into what runs in its transaction and the statements a transaction refuses (`CREATE INDEX CONCURRENTLY`), run after it commits. */
 export function splitOutsideTransaction(sql: string): { inside: string, outside: string[] } {
   const outside = sql.match(OUTSIDE_TRANSACTION_RE)?.map(stmt => stmt.slice(0, -1)) ?? []

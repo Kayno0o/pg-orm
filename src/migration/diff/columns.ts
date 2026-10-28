@@ -18,6 +18,7 @@ import {
   buildSetDefaultSql,
   buildSetExpressionSql,
   buildSetNotNullSql,
+  columnTypeSql,
   identitySql,
   normalizeExpression,
   normalizeType,
@@ -181,7 +182,7 @@ function addColumn(tableName: string, colName: string, colDef: AnyColumnDef): Mi
   const has = (type: ColumnConstraint['type']) => colDef.constraints.some((c: ColumnConstraint) => c.type === type)
   const needsFill = has('not_null') && !has('default') && !has('generated') && !has('identity') && !SERIAL_TYPE_RE.test(colDef.pgType)
   const { backfill } = getColumnMeta(colDef)
-  const fill = needsFill && backfill ? toSQLDefault(backfill.value, colDef.pgType) : undefined
+  const fill = needsFill && backfill ? toSQLDefault(backfill.value, columnTypeSql(colDef)) : undefined
   const ops: MigrationOp[] = [{
     type: 'add_column',
     table: tableName,
@@ -248,7 +249,7 @@ export function diffColumnType(
     type: 'alter_column',
     table: tableName,
     column: colName,
-    sql: buildAlterColumnTypeSql(tableName, colName, ctx.colDef.pgType, usingClause(colName, ctx.liveType, ctx.desiredType, ctx.colDef.pgType)),
+    sql: buildAlterColumnTypeSql(tableName, colName, columnTypeSql(ctx.colDef), usingClause(colName, ctx.liveType, ctx.desiredType, columnTypeSql(ctx.colDef))),
     destructive: true,
     description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
   }]
