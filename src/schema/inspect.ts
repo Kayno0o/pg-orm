@@ -10,6 +10,7 @@ export interface TableMeta {
   softDelete?: { column: string }
   optimisticLock?: { column: string }
   timestamps?: { createdAt: string, updatedAt: string }
+  embedding?: { column: string, hashColumn: string }
 }
 
 /** The built-in trait metadata on a table, typed — `table.meta` itself stays `Record<string, unknown>` so custom traits can put anything there. */

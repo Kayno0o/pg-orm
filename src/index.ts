@@ -12,6 +12,7 @@ export {
   type SubqueryRef,
   type TsQueryRef,
   type TypedExpr,
+  type VectorMetric,
   type VectorType,
   type VectorValue,
 } from './builder/expr'
@@ -106,6 +107,7 @@ export { Repository } from './repo/index'
 export {
   type CopyToOptions,
   type CursorOf,
+  type NearestOptions,
   type PaginateCursorOptions,
   type PaginateCursorResult,
   type PaginateOptions,
@@ -157,7 +159,7 @@ export {
 export { type TestDatabase, testDatabase, type TestDatabaseOptions } from './testing/test-database'
 
 // Traits
-export { optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
+export { embedding, type EmbeddingOptions, optimisticLock, softDelete, timestamps, type Trait } from './traits/index'
 
 // Types
 export type {

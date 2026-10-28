@@ -1,3 +1,5 @@
+import type { VectorMetric } from '../builder/_tape'
+import type { TypedExpr, VectorType, VectorValue } from '../builder/expr'
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereFn, WhereInput } from '../builder/query'
 import type { BuilderState, IncludeEntry, RelationAggregateFn } from '../builder/state'
 import type { Dialect } from '../dialect'
@@ -8,6 +10,7 @@ import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { OP_EXISTS, OP_SCALAR } from '../builder/_tape'
+import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { aggregateMethod, selectedColumns } from '../builder/state'
 import { vectorSearchSettings } from '../builder/vector-search'
@@ -15,7 +18,7 @@ import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
-import { columnBaseType } from '../schema/inspect'
+import { columnBaseType, tableMeta } from '../schema/inspect'
 import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { isPlainObject } from '../utils/collection'
@@ -78,6 +81,28 @@ function checkPageSize(op: string, name: string, size: number, limits?: PageLimi
 
   if (limits?.maxPageSize !== undefined && size > limits.maxPageSize)
     throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${size}`, op, { value: size })
+}
+
+/** What `nearest()` takes: how many rows, an optional filter and distance cap, the metric, and the vector column when the table has no `embedding()` trait naming it. */
+export interface NearestOptions<TColumns extends AnyColumns> extends ScopeOptions {
+  k: number
+  where?: OptionalWhere<TColumns>
+  /** Leave out rows farther than this, in the metric's own unit. */
+  maxDistance?: number
+  /** `cosine` by default, `hamming` on a `bit` column. */
+  metric?: VectorMetric
+  column?: keyof TColumns & string
+}
+
+const e = createExprBuilder<AnyColumns>()
+
+const NEAREST_DISTANCES: Record<VectorMetric, (column: string, vec: VectorValue, type: string) => TypedExpr<number>> = {
+  cosine: (column, vec, type) => e.vectorCosineDistance(column, vec, type as VectorType),
+  l2: (column, vec, type) => e.vectorL2Distance(column, vec, type as VectorType),
+  inner: (column, vec, type) => e.vectorInnerProduct(column, vec, type as VectorType),
+  l1: (column, vec, type) => e.vectorL1Distance(column, vec, type as VectorType),
+  hamming: (column, vec) => e.bitHammingDistance(column, vec as string),
+  jaccard: (column, vec) => e.bitJaccardDistance(column, vec as string),
 }
 
 export interface PaginateOptions<TColumns extends AnyColumns> extends ScopeOptions {
@@ -304,6 +329,35 @@ export class ReadPipeline<
     const rows = await this._executor.query(sql, params)
 
     return rows.length > 0
+  }
+
+  // The k rows closest to `vec` by the column's distance, each with its `distance`, through findMany so scopes and virtuals apply.
+  async nearest(vec: VectorValue, opts: NearestOptions<TColumns>, limits?: PageLimits): Promise<any[]> {
+    const { table } = this._runtime
+    const column = opts.column ?? tableMeta(table).embedding?.column
+
+    checkPageSize('nearest', 'k', opts.k, limits)
+
+    if (!column)
+      throw new ValidationError('nearest(): name the vector column in `column`, or give the table the embedding() trait.', 'nearest')
+
+    const col = (table.columns as AnyColumns)[column]
+
+    if (!col)
+      throw new ValidationError(`nearest(): "${table.name}" has no column "${column}".`, 'nearest', { field: column })
+
+    const { base } = columnBaseType(col)
+    const metric = opts.metric ?? (base === 'bit' ? 'hamming' : 'cosine')
+    const distance = NEAREST_DISTANCES[metric](column, vec, base)
+    const { maxDistance } = opts
+
+    return this.findMany(q => q
+      .where(opts.where)
+      .andWhere(maxDistance != null && (w => w.lte(distance, maxDistance)))
+      .withoutScope(...liftedScopes(opts))
+      .computed(() => distance, 'distance')
+      .orderBy(() => distance)
+      .limit(opts.k))
   }
 
   async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginatePage<TColumns, TVirtuals>>

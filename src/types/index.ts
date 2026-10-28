@@ -256,7 +256,7 @@ export interface TableDef<
   withScope: (name: string, scope: Scope<TColumns>) => this
 
   // Apply a trait (composable table behavior)
-  withTrait: <TNewCols extends AnyColumns = {}, TNewVirts extends AnyVirtuals = {}>(trait: Trait<TNewCols, TNewVirts>) => TableDef<TName, TColumns & TNewCols, TRelations, TVirtuals & TNewVirts>
+  withTrait: <TNewCols extends AnyColumns = {}, TNewVirts extends AnyVirtuals = {}>(trait: Trait<TNewCols, TNewVirts, TColumns>) => TableDef<TName, TColumns & TNewCols, TRelations, TVirtuals & TNewVirts>
 }
 
 /** What a scope reads when a statement is built: the request context `db.withContext` bound, empty outside one. */

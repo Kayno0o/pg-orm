@@ -1,8 +1,9 @@
+import type { VectorValue } from '../builder/expr'
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, PrimaryKeyColumn, ScopeOptions, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginatePage, PaginateResult } from './read-pipeline'
+import type { CursorOf, NearestOptions, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginatePage, PaginateResult } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -83,6 +84,11 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
   }
 
   /** Offset pagination. The optional callback shapes the page (`pick`, `orderBy`, `include`, …) and any filter it adds is reflected in `total`. */
+  /** The `k` rows closest to `vec`, nearest first, each with its `distance`: the column the `embedding()` trait names unless `column` says another, cosine unless `metric` says another. Scopes apply. */
+  async nearest(vec: VectorValue, opts: NearestOptions<TColumns>): Promise<(WithVirtuals<TColumns, TVirtuals> & { distance: number })[]> {
+    return this._pipeline.nearest(vec, opts, this._limits)
+  }
+
   async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }): Promise<PaginatePage<TColumns, TVirtuals>>
   async paginate<TResult>(opts: PaginateOptions<TColumns> & { withTotal: false }, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginatePage<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
   async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>>

@@ -184,6 +184,49 @@ const nearest = await repo.read.findMany(q => q
 
 Only an `ORDER BY <distance operator> LIMIT n` query uses the index, and the operator must match the index's operator class. On SQLite every vector column, distance, index method and `vectorSearch()` throws `DialectError`.
 
+The distance helpers return a `TypedExpr<number>`, so `q.computed(e => e.vectorCosineDistance('embedding', vec), 'distance')` reads back a typed `distance: number`.
+
+### Embeddings and RAG
+
+The `embedding()` trait fills a vector column from each row's text through an `embed` function the app supplies (no provider dependency), and `repo.read.nearest()` reads the closest rows back with their distance.
+
+```ts
+import OpenAI from 'openai'
+import { defineTable, embedding, softDelete } from '@kaynooo/pg-orm'
+
+const openai = new OpenAI()
+
+async function embed(texts: string[]): Promise<number[][]> {
+  const res = await openai.embeddings.create({ model: 'text-embedding-3-small', input: texts })
+  return res.data.map(item => item.embedding)
+}
+
+// 1. The table: a nullable vector column, indexed for the metric nearest() uses
+const chunks = defineTable('chunks', t => ({
+  id: t.serial().primaryKey(),
+  docId: t.int4(),
+  title: t.text(),
+  body: t.text(),
+  embedding: t.vector(1536).nullable().index({ method: 'hnsw', opclass: 'vector_cosine_ops' }),
+}))
+  // 2. The trait: what to embed and how
+  .withTrait(embedding({ column: 'embedding', source: row => `${row.title}\n${row.body}`, embed }))
+  .withTrait(softDelete())
+
+// 3. Ingestion: one embed() call for the whole insert
+await db.repo(chunks).write.insertMany(parts.map(part => ({ docId, title: part.title, body: part.text })))
+
+// 4. The query: the 5 closest live chunks of one document, closer than 0.6
+const [question] = await embed([userQuestion])
+const context = await db.repo(chunks).read.nearest(question!, { k: 5, where: { docId }, maxDistance: 0.6 })
+// context: (Chunk & { distance: number })[], closest first
+```
+
+- The trait adds a nullable text column, `embeddingHash` by default (`hashColumn` renames it), holding a sha256 of the text last embedded. After an insert, and after an update whose source text changed, the rows of that write go to `embed` in one call and their vectors are written back by key in one statement, through the write's executor (inside its transaction when there is one). An update that leaves the source unchanged, and an upsert landing on an unchanged row, never call `embed`.
+- The column must be a nullable `vector` or `halfvec`: it is NULL between the row's insert and the write-back, and a failing `embed` rejects the write, rolling it back inside a transaction and leaving the column NULL outside one. `embed` must return one vector per text, in order; a count mismatch throws `OrmError`.
+- `nearest(vec, { k, where?, maxDistance?, metric?, column?, withTrashed?, withoutScopes? })` orders by the distance, limits to `k` (capped by `maxPageSize`) and adds `distance: number` to each row. `metric` is `'cosine'` by default (`'hamming'` on a `bit` column), or `'l2'`, `'inner'`, `'l1'`, `'jaccard'`; `maxDistance` is in that metric's unit. Scopes and soft delete apply as on any read. `column` names the vector column on a table without the trait, which otherwise throws `ValidationError`.
+- Chunking, prompting and reranking stay in the app.
+
 ## Relations
 
 Pass the target table behind a thunk: the included rows are typed from it, `hasMany`/`hasOne` check the foreign key against its columns, and the thunk survives circular imports. Declare each table's columns first and wire relations in a second statement pointing at the other tables' column-only definitions, so two tables referencing each other do not make TypeScript infer a circular type.

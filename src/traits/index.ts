@@ -1,17 +1,18 @@
 import type { ColumnTypes } from '../schema/column-types'
-import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
-import { SOFT_DELETE_SCOPE } from '../constants'
+import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, HookContext, InferSelect, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
+import { DEFAULT_PRIMARY_KEY, SOFT_DELETE_SCOPE } from '../constants'
 import { OrmError } from '../errors/index'
 import { createColumnTypes } from '../schema/column-types'
 import { ColumnBuilder } from '../schema/columns'
+import { columnBaseType } from '../schema/inspect'
 import { validateIdentifier } from '../schema/validate'
 
 /**
  * A trait is a composable table behavior that adds columns, hooks, virtuals, scopes and metadata.
  * Apply with `table.withTrait(myTrait)`. Built-in traits: `softDelete()`, `timestamps()`, `optimisticLock()`.
- * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`.
+ * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`, and `THost` the columns of the table it applies to, which `withTrait` infers so a trait's callbacks are typed against the row.
  */
-export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}> {
+export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}, THost extends AnyColumns = any> {
   /**
    * Identifier used to detect duplicate applications. When set, `applyTrait`
    * tracks it in `table.meta._appliedTraits` and throws on re-apply.
@@ -19,6 +20,7 @@ export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals
   readonly name?: string
   readonly _cols?: TCols
   readonly _virts?: TVirts
+  readonly _host?: (row: InferSelect<THost>) => void
   columns?: (t: ColumnTypes) => Record<string, ColumnBuilder<any, any, any, any, any>>
   hooks?: (table: AnyTableDef) => void
   virtuals?: Record<string, (row: any) => any>
@@ -156,5 +158,71 @@ export function timestamps<C extends string = 'createdAt', U extends string = 'u
       })
     },
     meta: { timestamps: { createdAt, updatedAt } },
+  }
+}
+
+/** What `embedding()` takes: the vector column, the text each row is embedded from, and the app's own embedding call. */
+export interface EmbeddingOptions<TColumns extends AnyColumns, C extends string, H extends string> {
+  /** A nullable `vector` or `halfvec` column, filled after each insert and each update that changes the source. */
+  column: C
+  /** The text a row is embedded from, given the row as written. */
+  source: (row: InferSelect<TColumns>) => string
+  /** One vector per text, in order: the app's provider call, batched per write. */
+  embed: (texts: string[]) => Promise<ArrayLike<number>[]>
+  /** The column the trait adds to hold a hash of the text last embedded, `${column}Hash` by default. */
+  hashColumn?: H
+}
+
+const EMBEDDING_TYPES = new Set(['vector', 'halfvec'])
+
+function sourceHash(text: string): string {
+  return new Bun.CryptoHasher('sha256').update(text).digest('hex')
+}
+
+/**
+ * Embedding trait: fills a vector column from each row's source text through the app's `embed`, after an insert and after an update whose source changed, comparing a hash of the source the trait stores beside it.
+ * The rows of one write go to `embed` in one call and are written back by key in one statement, through the write's executor, so the column stays NULL only between the two.
+ */
+export function embedding<TColumns extends AnyColumns, C extends keyof TColumns & string, H extends string = `${C}Hash`>(opts: EmbeddingOptions<TColumns, C, H>): Trait<Record<H, ColumnDef<string, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>, {}, TColumns> {
+  const { column, source, embed } = opts
+  const hashColumn = opts.hashColumn ?? `${column}Hash`
+
+  validateIdentifier(hashColumn, 'embedding hash column')
+
+  return {
+    name: 'embedding',
+    columns: t => ({ [hashColumn]: t.text().nullable() }),
+    meta: { embedding: { column, hashColumn } },
+    hooks: (table) => {
+      const vector = (table.columns as AnyColumns)[column]
+
+      if (!vector || !EMBEDDING_TYPES.has(columnBaseType(vector).base) || vector.constraints.some(c => c.type === 'not_null'))
+        throw new OrmError(`embedding(): "${table.name}"."${column}" must be a nullable vector or halfvec column, filled after the row is written.`)
+
+      const fill = async (rows: Record<string, unknown>[] | undefined, ctx: HookContext): Promise<void> => {
+        const stale = (rows ?? []).map(row => ({ row, text: source(row as InferSelect<TColumns>) })).map(entry => ({ ...entry, hash: sourceHash(entry.text) })).filter(({ row, hash }) => row[hashColumn] !== hash)
+
+        if (stale.length === 0)
+          return
+
+        const vectors = await embed(stale.map(entry => entry.text))
+
+        if (vectors.length !== stale.length)
+          throw new OrmError(`embedding(): embed() returned ${vectors.length} vectors for ${stale.length} texts.`)
+
+        const pk = (table.primaryKey ?? DEFAULT_PRIMARY_KEY).split(',')
+        const updates = stale.map(({ row, hash }, i) => {
+          row[column] = Array.from(vectors[i]!)
+          row[hashColumn] = hash
+
+          return { ...Object.fromEntries(pk.map(key => [key, row[key]])), [column]: row[column], [hashColumn]: hash }
+        })
+
+        await ctx.repo(table).write.updateManyById(updates, { returning: false })
+      }
+
+      table.hook('afterInsert', fill)
+      table.hook('afterUpdate', fill)
+    },
   }
 }

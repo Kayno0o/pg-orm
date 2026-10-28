@@ -53,6 +53,7 @@ export {
   type SubqueryRef,
   type TsQueryRef,
   type TypedExpr,
+  type VectorMetric,
 } from './_tape'
 
 /** A vector to compare with: numbers for a `vector` or `halfvec`, pgvector's `{1:1,3:2}/5` text for a `sparsevec`. */
@@ -143,16 +144,16 @@ export interface ExprBuilder<TColumns extends AnyColumns, TRelations extends Any
   tsMatch: (col: string | ExprTape, query: TsQueryRef) => ExprTape
   tsQuery: (language: string, query: string) => TsQueryRef
 
-  // Vector distance (pgvector)
+  // Vector distance (pgvector), typed as a number for `computed()`
   // `type` is the column's: a `halfvec` column takes `'halfvec'`, a `sparsevec` one takes pgvector's `{1:1,3:2}/5` text (and `'sparsevec'` is then implied).
-  vectorCosineDistance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
-  vectorL2Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
-  vectorInnerProduct: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  vectorCosineDistance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => TypedExpr<number>
+  vectorL2Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => TypedExpr<number>
+  vectorInnerProduct: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => TypedExpr<number>
   /** L1 (taxicab) distance, `<+>`. */
-  vectorL1Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  vectorL1Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => TypedExpr<number>
   // Binary vectors are `bit(n)` columns, compared with a string of `0` and `1`.
-  bitHammingDistance: (col: string | ExprTape, bits: string) => ExprTape
-  bitJaccardDistance: (col: string | ExprTape, bits: string) => ExprTape
+  bitHammingDistance: (col: string | ExprTape, bits: string) => TypedExpr<number>
+  bitJaccardDistance: (col: string | ExprTape, bits: string) => TypedExpr<number>
 
   /** A column by name (`col`, or `alias.col` of a joined or outer table), comparable as a value: `e.eq('authorId', e.ref('u.id'))`. */
   ref: (path: string) => ColumnRef
@@ -222,16 +223,16 @@ function escapeLikePattern(op: string, col: unknown, input: string): string {
 
 const BITS_RE = /^[01]+$/
 
-function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): ExprTape {
-  return [{ op: OP_VEC_DISTANCE, col, vec, metric, cast: type ?? (typeof vec === 'string' ? 'sparsevec' : 'vector') }]
+function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): TypedExpr<number> {
+  return sqlValue([{ op: OP_VEC_DISTANCE, col, vec, metric, cast: type ?? (typeof vec === 'string' ? 'sparsevec' : 'vector') }])
 }
 
 // The cast carries the length: a bare `::bit` is `bit(1)`.
-function bitDistance(col: string | ExprTape, bits: string, metric: VectorMetric): ExprTape {
+function bitDistance(col: string | ExprTape, bits: string, metric: VectorMetric): TypedExpr<number> {
   if (typeof bits !== 'string' || !BITS_RE.test(bits))
     throw new ValidationError(`${metric === 'hamming' ? 'bitHammingDistance' : 'bitJaccardDistance'}(): the bits compared with ${describeCol(col)} must be a string of 0 and 1.`, 'bitDistance', { value: bits })
 
-  return [{ op: OP_VEC_DISTANCE, col, vec: bits, metric, cast: `bit(${bits.length})` }]
+  return sqlValue([{ op: OP_VEC_DISTANCE, col, vec: bits, metric, cast: `bit(${bits.length})` }])
 }
 
 // Singleton expression builder — stateless, so one instance serves all callers
