@@ -62,7 +62,7 @@ describe('select clauses on expressions', () => {
   it('orders by an expression, its parameters bound in place', () => {
     const q = select().where({ k: 1 }).orderBy(e => e.vectorCosineDistance('embedding', [1, 0]), 'asc', 'last').limit(5).toSQL()
 
-    expect(q).toEqual({ sql: 'SELECT * FROM "t" WHERE "k" = $1 ORDER BY "embedding" <=> $2::vector ASC NULLS LAST LIMIT $3', params: [1, [1, 0], 5] })
+    expect(q).toEqual({ sql: 'SELECT * FROM "t" WHERE "k" = $1 ORDER BY "embedding" <=> $2::vector ASC NULLS LAST LIMIT $3', params: [1, '[1,0]', 5] })
   })
 
   it('groups by an expression', () => {

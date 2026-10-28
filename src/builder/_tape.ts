@@ -372,7 +372,8 @@ class ExprAssembler {
       case OP_VEC_DISTANCE: {
         this.postgresOnly('Vector distances')
 
-        const p = this.nextParam(op.vec)
+        // pgvector reads `[1,2]`, where a bound array would arrive as the Postgres array literal `{1,2}`.
+        const p = this.nextParam(`[${Array.from(op.vec).join(',')}]`)
         const opSymbol = op.metric === 'cosine' ? '<=>' : op.metric === 'l2' ? '<->' : '<#>'
 
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }

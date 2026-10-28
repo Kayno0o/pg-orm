@@ -221,7 +221,7 @@ describe('Security: Query values are always parameterized', () => {
   it('vector values are parameterized', () => {
     const result = sql(e.vectorCosineDistance('embedding', [1, 2, 3]))
 
-    expect(result.params).toEqual([[1, 2, 3]])
+    expect(result.params).toEqual(['[1,2,3]'])
     expect(result.sql).toContain('<=>')
   })
 
