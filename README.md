@@ -760,6 +760,7 @@ pg-orm new add_index                # an empty file to write by hand
 
 - `--allow-destructive` lets `generate` and `sync` drop tables, columns and constraints; without it they refuse with `DestructiveOpError`.
 - `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included.
+- `generate` and `sync` refuse with `MigrationError` while migration files are not applied, naming them: the diff reads the live database, so it would write their changes again. Run `pg-orm apply` first.
 - Each file, and each `sync`, is applied and recorded in one transaction holding an advisory lock: two deploys applying at once run each migration once, and a failed one leaves neither a record nor, for `sync`, a file.
 - Each statement of a generated file sits under a comment naming its op, `-- Revert: ...` in the down half.
 

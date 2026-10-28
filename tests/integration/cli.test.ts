@@ -116,6 +116,31 @@ describe('pg-orm CLI', () => {
     expect(await columns()).toEqual(['id', 'title', 'body'])
   })
 
+  it('refuses to generate or sync while a file is not applied, naming it', async () => {
+    const dir = project()
+
+    await cli(dir, ['generate'])
+
+    const [pending] = files(dir)
+
+    for (const command of ['generate', 'sync']) {
+      const refused = await cli(dir, [command], '3')
+
+      expect(refused.code).toBe(1)
+      expect(refused.out).toContain(`MigrationError: 1 migration file(s) not applied yet: ${pending}. Run \`pg-orm apply\` before \`pg-orm ${command}\`.`)
+    }
+
+    expect(files(dir)).toEqual([pending!])
+
+    await cli(dir, ['apply'])
+    expect((await cli(dir, ['generate', '--allow-destructive'], '3')).code).toBe(0)
+
+    const added = readFileSync(join(dir, 'migrations', files(dir).find(f => f !== pending)!), 'utf8')
+
+    expect(added).toContain('ADD COLUMN "owner"')
+    expect(added).not.toContain('CREATE TABLE')
+  })
+
   it('applies each file once and atomically, however many processes apply at the same time', async () => {
     const dir = project()
 

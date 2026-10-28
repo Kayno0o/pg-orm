@@ -5,6 +5,7 @@ import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { MigrationError } from './errors/index'
 import { applyMigrationFiles, pendingMigrations, syncMigration } from './migration/files'
 import { migrationName } from './migration/history'
 import { generateMigration, getMigrationStatus } from './migration/index'
@@ -72,8 +73,19 @@ async function cmdStatus(cfg: PgOrmConfig & { migrationsDir: string }): Promise<
   }
 }
 
+// The diff reads the live database, so a file it has not applied would be diffed again into the new one, and a rebuild written from the stale table would drop what that file adds.
+async function refusePending(cfg: PgOrmConfig & { migrationsDir: string }, command: string): Promise<void> {
+  const pending = await pendingMigrations(cfg.db, cfg.migrationsDir)
+
+  if (pending.length > 0)
+    throw new MigrationError(`${pending.length} migration file(s) not applied yet: ${pending.join(', ')}. Run \`pg-orm apply\` before \`pg-orm ${command}\`.`, 'diff')
+}
+
 async function cmdGenerate(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
   const { db } = cfg
+
+  await refusePending(cfg, 'generate')
+
   const file = await generateMigration(db, db.getTablesRegistry(), { schema: db.schema, allowDestructive: flags.allowDestructive || flags.dryRun, ignoreTables: cfg.ignoreTables })
 
   if (!file) {
@@ -132,6 +144,9 @@ function cmdNew(dir: string, label: string): void {
 // The file is written once the migration is applied and recorded, so a failed apply leaves none behind.
 async function cmdSync(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
   const { db } = cfg
+
+  await refusePending(cfg, 'sync')
+
   const file = await syncMigration(db, db.getTablesRegistry(), { schema: db.schema, ignoreTables: cfg.ignoreTables, ...flags })
 
   if (!file) {
