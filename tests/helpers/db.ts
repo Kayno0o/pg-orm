@@ -2,7 +2,7 @@ import type { DbConfig } from '../../src/index'
 import { Database } from '../../src/index'
 import { allTables } from './fixtures'
 
-export const TEST_URL = process.env.database_url ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
+export const TEST_URL = process.env.DATABASE_URL ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
 
 // CI's system-installed PG occasionally drops idle sockets between tests.
 // Retry transient ConnectionError so the suite is robust without masking real issues.

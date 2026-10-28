@@ -32,7 +32,7 @@ jobs:
 
       - name: Build pages
         env:
-          database_url: postgres://test:test@localhost:5432/orm_test
+          DATABASE_URL: postgres://test:test@localhost:5432/orm_test
         run: |
           bun run doc
           bun run test:coverage

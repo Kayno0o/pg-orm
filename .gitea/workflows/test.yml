@@ -6,9 +6,17 @@ on:
       - main
     paths:
       - '**/*.ts'
+      - bun.lock
+      - package.json
+      - tsconfig*.json
+      - .gitea/workflows/test.yml
   pull_request:
     paths:
       - '**/*.ts'
+      - bun.lock
+      - package.json
+      - tsconfig*.json
+      - .gitea/workflows/test.yml
   workflow_dispatch:
 
 jobs:
@@ -33,7 +41,7 @@ jobs:
         run: bunx tsc --noEmit --strict --skipLibCheck --ignoreConfig examples/*.ts
 
       - name: Lint
-        run: bun run lint:fix --dry-run 2>/dev/null || bunx eslint . --cache
+        run: bunx eslint .
 
   test:
     runs-on: alpine
@@ -66,5 +74,5 @@ jobs:
 
       - name: Run tests
         env:
-          database_url: postgres://test:test@localhost:5432/orm_test
+          DATABASE_URL: postgres://test:test@localhost:5432/orm_test
         run: bun test

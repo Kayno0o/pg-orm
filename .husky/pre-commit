@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 BUN_PATH=bun
 
@@ -15,14 +16,6 @@ if [ -z "$STAGED_TS_FILES" ]; then
 fi
 
 $BUN_PATH eslint --cache $STAGED_TS_FILES
-
 $BUN_PATH run duplicates
 $BUN_PATH run build
 $BUN_PATH run check
-# $BUN_PATH test
-$BUN_PATH x changelogen@latest --dry-run
-
-echo "" >> lines.md
-echo `date +%F_%H-%M-%S` >> lines.md
-cloc ./src --md | tail -n +4 | head -n -2 >> lines.md
-git add lines.md
