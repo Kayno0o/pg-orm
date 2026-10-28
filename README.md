@@ -278,6 +278,19 @@ await UserRepo.read.findMany(q => q.whereHas('posts', undefined, { withTrashed: 
 
 The related table's scopes apply, a soft-deleted pivot row links nothing, and `opts` lifts them by name (`withTrashed`, `withoutScopes`). As with `include`, the related table, a pivot included, must be in the database's `tables`, and a relation joining on a composite primary key throws a `ValidationError`. The repository resolves the subquery, so a builder printed outside one (`select().toSQL()`) throws instead.
 
+### Linking hasManyThrough Rows
+
+`attach`, `detach` and `sync` write a parent's `hasManyThrough` links, its pivot rows, through the pivot table's own repository, so its hooks, traits and scopes apply and they run under `repo.using(tx)`:
+
+```ts
+await UserRepo.write.attach(userId, 'roles', [adminId, editorId])           // the targets newly linked; links already there are skipped
+await UserRepo.write.attach(userId, 'roles', [{ id: ownerId, pivot: { grantedBy: me } }], { pivot: { source: 'ui' } })
+await UserRepo.write.detach(userId, 'roles', [editorId])                    // the targets unlinked; no ids unlinks every target
+const { attached, detached } = await UserRepo.write.sync(userId, 'roles', [adminId, ownerId])
+```
+
+`sync` leaves exactly the given links, in one transaction: it detaches the others and attaches the missing ones, leaving existing links and their pivot columns untouched. Pivot columns come from `opts.pivot` for every link the call creates, and from a target given as `{ id, pivot }` for its own. On a soft-delete pivot, `detach` trashes the rows and `attach` restores a trashed link, writing the given pivot columns onto it, rather than inserting a second row. Two concurrent attaches of the same link can both insert it unless the pivot has a unique index on its two keys.
+
 ## Query Builder
 
 Builders are mutable: every chained call changes the builder it is called on and returns it. To build several queries from a shared base, fork it with `branch()`, which copies the state so neither side sees the other's clauses. `values()`, `many()` and `set()` copy the object they are given.

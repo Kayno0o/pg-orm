@@ -1,10 +1,13 @@
+import type { RelationTarget } from '../builder/expr'
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, RelationDef, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { LinkOptions, LinkTarget, SyncResult } from './relation-links'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder } from '../builder/query'
+import { RelationLinks } from './relation-links'
 import { WritePipeline } from './write-pipeline'
 
 type Where<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = WhereInput<TColumns, TRelations>
@@ -16,6 +19,12 @@ function unreturned<T>(opts: WriteReturnOptions | undefined, result: T): T | und
   return opts?.returning === false ? undefined : result
 }
 
+type ThroughRelations<TRelations extends AnyRelations> = {
+  [K in keyof TRelations]: TRelations[K] extends RelationDef<'hasManyThrough', any, any, any> ? K : never
+}[keyof TRelations] & string
+
+type TargetKey<R> = InferPrimaryKey<RelationTarget<R>['columns']>
+
 type UnguardedUpsert<TColumns extends AnyColumns> = (keyof TColumns & string)[] | Omit<ConflictUpdate<TColumns>, 'where'>
 
 /** Write coordinator — delegates to the deep `WritePipeline`. */
@@ -26,6 +35,7 @@ export class WriteSuite<
 > {
   private _pipeline: WritePipeline<TColumns, TVirtuals>
   private _rt: TableRuntime
+  private _links: RelationLinks
 
   constructor(
     _exec: Executable,
@@ -35,6 +45,7 @@ export class WriteSuite<
   ) {
     this._pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: _exec, runtime: _rt, hooks, tableRegistry })
     this._rt = _rt
+    this._links = new RelationLinks(_rt.table, _exec, hooks, tableRegistry)
   }
 
   /** `skipConflicts` answers `null` when the row clashed with an existing one and was skipped. */
@@ -177,4 +188,19 @@ export class WriteSuite<
   update(): UpdateBuilder<TColumns> { return new UpdateBuilder<TColumns>(this._rt.table) }
   delete(): DeleteBuilder<TColumns> { return new DeleteBuilder<TColumns>(this._rt.table) }
   merge(): MergeBuilder<TColumns> { return new MergeBuilder<TColumns>(this._rt.table) }
+
+  /** Link the parent to targets of a hasManyThrough relation, inserting the pivot rows missing and restoring those a soft-delete pivot trashed; resolves to the targets newly linked. A target given as `{ id, pivot }` sets pivot columns on its link, `opts.pivot` on every link. */
+  async attach<K extends ThroughRelations<TRelations>>(parentId: InferPrimaryKey<TColumns>, relation: K, targets: LinkTarget<TargetKey<TRelations[K]>>[], opts?: LinkOptions): Promise<TargetKey<TRelations[K]>[]> {
+    return this._links.attach(parentId, relation, targets, opts) as Promise<TargetKey<TRelations[K]>[]>
+  }
+
+  /** Unlink the parent from those targets, from every target without ids, deleting the pivot rows through the pivot's repository (a soft-delete pivot trashes them); resolves to the targets unlinked. */
+  async detach<K extends ThroughRelations<TRelations>>(parentId: InferPrimaryKey<TColumns>, relation: K, targetIds?: TargetKey<TRelations[K]>[]): Promise<TargetKey<TRelations[K]>[]> {
+    return this._links.detach(parentId, relation, targetIds) as Promise<TargetKey<TRelations[K]>[]>
+  }
+
+  /** Leave the parent linked to exactly those targets, in one transaction: links not listed are detached, missing ones attached as `attach` does, existing ones left as they are. */
+  async sync<K extends ThroughRelations<TRelations>>(parentId: InferPrimaryKey<TColumns>, relation: K, targets: LinkTarget<TargetKey<TRelations[K]>>[], opts?: LinkOptions): Promise<SyncResult<TargetKey<TRelations[K]>>> {
+    return this._links.sync(parentId, relation, targets, opts) as Promise<SyncResult<TargetKey<TRelations[K]>>>
+  }
 }

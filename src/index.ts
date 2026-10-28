@@ -114,6 +114,7 @@ export {
   type StreamCursorOptions,
 } from './repo/read-pipeline'
 
+export type { LinkOptions, LinkTarget, SyncResult } from './repo/relation-links'
 export { type UpsertUpdate } from './repo/write-pipeline'
 
 export { type ColumnTypes } from './schema/column-types'
