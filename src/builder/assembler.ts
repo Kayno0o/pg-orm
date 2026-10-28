@@ -166,7 +166,7 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   for (const [col, value] of Object.entries(set)) {
     const rendered = isConflictValue(value)
       ? sb.inlineExpr([{ op: OP_RAW, sql: value.sql, params: [...value.params] }])
-      : sb.pushParam(value)
+      : printValue(sb, value)
 
     clauses.push(`${quote(col)} = ${rendered}`)
   }
@@ -408,7 +408,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
   }
 
   const colList = quoteCols(keys)
-  const valList = keys.map(k => sb.pushParam(vals[k])).join(', ')
+  const valList = keys.map(k => printValue(sb, vals[k])).join(', ')
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
   printOnConflict(sb, state)
@@ -418,7 +418,7 @@ function printInsert(sb: SqlBuilder, state: BuilderState): void {
 // A column a row leaves out takes its default, which SQLite cannot ask for by `DEFAULT` inside VALUES: there the default's own expression is written out, from the table the repository knows.
 function insertValue(sb: SqlBuilder, state: BuilderState, row: Record<string, unknown>, key: string): string {
   if (key in row)
-    return sb.pushParam(row[key])
+    return printValue(sb, row[key])
 
   if (sb.dialect === 'postgres')
     return 'DEFAULT'
@@ -467,16 +467,16 @@ function printInsertMany(sb: SqlBuilder, state: BuilderState): void {
   printReturning(sb, state)
 }
 
+// A value written into a statement: a raw fragment (`setRaw`) as is, an expression as its SQL, anything else bound.
+function printValue(sb: SqlBuilder, v: unknown, qualifier?: string): string {
+  if (isRawSql(v))
+    return v.__raw
+
+  return isSqlValue(v) ? sb.inlineExpr(v, qualifier) : sb.pushParam(v)
+}
+
 function printSetClauses(sb: SqlBuilder, values: Record<string, unknown>, qualifier?: string): string {
-  return Object.entries(values).map(([k, v]) => {
-    if (isRawSql(v))
-      return `${quote(k)} = ${v.__raw}`
-
-    if (isSqlValue(v))
-      return `${quote(k)} = ${sb.inlineExpr(v, qualifier)}`
-
-    return `${quote(k)} = ${sb.pushParam(v)}`
-  }).join(', ')
+  return Object.entries(values).map(([k, v]) => `${quote(k)} = ${printValue(sb, v, qualifier)}`).join(', ')
 }
 
 function printUpdate(sb: SqlBuilder, state: BuilderState): void {
@@ -550,14 +550,7 @@ function printMergeWhen(sb: SqlBuilder, when: MergeWhen): void {
     if (when.action === 'insert' && when.values) {
       const keys = Object.keys(when.values)
       const cols = quoteCols(keys)
-      const vals = keys.map((k) => {
-        const v = when.values![k]
-
-        if (isRawSql(v))
-          return v.__raw
-
-        return sb.pushParam(v)
-      }).join(', ')
+      const vals = keys.map(k => printValue(sb, when.values![k])).join(', ')
 
       sb.push(`WHEN NOT MATCHED${condStr} THEN INSERT (${cols}) VALUES (${vals})`)
     }
@@ -606,7 +599,7 @@ function printUpsert(sb: SqlBuilder, state: BuilderState): void {
   const vals = state.insertValues!
   const keys = Object.keys(vals)
   const colList = quoteCols(keys)
-  const valList = keys.map(k => sb.pushParam(vals[k])).join(', ')
+  const valList = keys.map(k => printValue(sb, vals[k])).join(', ')
 
   sb.push(`INSERT INTO ${quote(state.table)} (${colList}) VALUES (${valList})`)
 

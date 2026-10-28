@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { createExprBuilder } from '../../../src/builder/expr'
 import { InsertBuilder, MergeBuilder, SelectBuilder, SetOperationBuilder, UpsertBuilder } from '../../../src/builder/query'
 import { ValidationError } from '../../../src/errors/index'
 
@@ -96,5 +97,14 @@ describe('builders on edge inputs', () => {
     expect(() => joined.toSQL()).toThrow(ValidationError)
     expect(() => locked.toSQL()).toThrow(ValidationError)
     expect(select().forNoKeyUpdate().toSQL().sql).toBe('SELECT * FROM "t" FOR NO KEY UPDATE')
+  })
+
+  it('an expression value prints as SQL in insert values, a multi-row insert, a conflict set and MERGE insert values', () => {
+    const e = createExprBuilder<any>()
+
+    expect(new InsertBuilder<any>('t').values({ a: e.ref('x'), b: 1 }).toSQL()).toEqual({ sql: 'INSERT INTO "t" ("a", "b") VALUES ("x", $1)', params: [1] })
+    expect(new InsertBuilder<any>('t').many([{ a: e.coalesce('x', 0) }, { a: 2 }]).toSQL()).toEqual({ sql: 'INSERT INTO "t" ("a") VALUES (COALESCE("x", $1)), ($2)', params: [0, 2] })
+    expect(new InsertBuilder<any>('t').values({ a: 1 }).onConflict(['a']).doUpdateWith({ set: () => ({ b: e.coalesce('c', 0) }) } as any).toSQL().sql).toBe('INSERT INTO "t" ("a") VALUES ($1) ON CONFLICT ("a") DO UPDATE SET "b" = COALESCE("c", $2)')
+    expect(new MergeBuilder<any>('t').using('s', 's').on(x => x.eq('id', x.ref('s.id'))).whenNotMatched('insert', { id: e.ref('s.id'), name: 'n' }).toSQL()).toEqual({ sql: 'MERGE INTO "t" USING "s" AS "s" ON "id" = "s"."id" WHEN NOT MATCHED THEN INSERT ("id", "name") VALUES ("s"."id", $1)', params: ['n'] })
   })
 })
