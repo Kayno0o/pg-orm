@@ -348,6 +348,10 @@ export class ReadPipeline<
 
     const { base } = columnBaseType(col)
     const metric = opts.metric ?? (base === 'bit' ? 'hamming' : 'cosine')
+
+    if (!Object.hasOwn(NEAREST_DISTANCES, metric))
+      throw new ValidationError(`nearest(): unknown metric "${String(metric)}": use ${Object.keys(NEAREST_DISTANCES).join(', ')}.`, 'nearest', { value: metric })
+
     const distance = NEAREST_DISTANCES[metric](column, vec, base)
     const { maxDistance } = opts
 

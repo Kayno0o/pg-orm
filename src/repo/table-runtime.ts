@@ -175,12 +175,12 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
 
 const KEY_TYPES = new Set(['string', 'number', 'bigint', 'boolean'])
 
-/** `value` when a key column can be compared to it; an object or array would be read as an operator map or an IN list, matching rows the caller never named. */
 /** Whether `value` is a single key value: a scalar, a Date or bytes, never null, an object or an array. */
 export function isKeyValue(value: unknown): boolean {
   return KEY_TYPES.has(typeof value) || value instanceof Date || value instanceof Uint8Array
 }
 
+/** `value` when a key column can be compared to it; an object or array would be read as an operator map or an IN list, matching rows the caller never named. */
 export function assertKeyValue(value: unknown, table: string, column: string, op: string): unknown {
   if (isKeyValue(value))
     return value

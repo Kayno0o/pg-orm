@@ -26,14 +26,34 @@ hooked.hook('afterUpdate', (written) => {
   fired.afterUpdate += written.length
 })
 
+const log = defineTable('bw_log', t => ({
+  id: t.serial().primaryKey(),
+  rows: t.int4(),
+}))
+
+// The same table again, its after-insert hook writing through ctx.repo and then failing when asked to.
+const logged = defineTable('bw_marks', t => ({
+  id: t.serial().primaryKey(),
+  code: t.text().unique(),
+  n: t.int4(),
+}))
+let failHook = false
+
+logged.hook('afterInsert', async (written, ctx) => {
+  await ctx.repo(log).write.insertOne({ rows: written.length }, { pk: true })
+
+  if (failHook)
+    throw new Error('hook failed')
+})
+
 const ROWS = 100_000
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-bulk-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 const dialects: [string, () => Database][] = [
-  ['postgres', () => createTestDb({ tables: [marks] })],
-  ['sqlite', () => new Database({ url: `sqlite://${join(dir, 'bulk.db')}`, tables: [marks] })],
+  ['postgres', () => createTestDb({ tables: [marks, log] })],
+  ['sqlite', () => new Database({ url: `sqlite://${join(dir, 'bulk.db')}`, tables: [marks, log] })],
 ]
 
 function rows(count: number, n = 0) {
@@ -50,6 +70,8 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
 
   beforeEach(async () => {
     await db.raw('DELETE FROM "bw_marks"')
+    await db.raw('DELETE FROM "bw_log"')
+    failHook = false
     fired.afterInsert = 0
     fired.afterUpdate = 0
   })
@@ -133,6 +155,17 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
     await db.repo(hooked).write.upsertMany(rows(3000, 1), ['code'], ['n'], { pk: true })
 
     expect(fired).toEqual({ afterInsert: 1500, afterUpdate: 1500 })
+  }, 60_000)
+
+  it('runs after-write hooks inside the chunks\' transaction, ctx.repo writing in it', async () => {
+    failHook = true
+    await expect(db.repo(logged).write.insertMany(rows(ROWS), { pk: true })).rejects.toThrow('hook failed')
+    expect(await db.repo(marks).read.count()).toBe(0)
+    expect(await db.repo(log).read.count()).toBe(0)
+
+    failHook = false
+    await db.repo(logged).write.insertMany(rows(ROWS), { pk: true })
+    expect((await db.repo(log).read.findMany()).reduce((sum, entry) => sum + entry.rows, 0)).toBe(ROWS)
   }, 60_000)
 
   it('stays all-or-nothing inside a transaction, as a savepoint', async () => {

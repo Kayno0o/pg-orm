@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { Database, defineTable, softDelete, ValidationError } from '../../src/index'
+import { Database, defineTable, NotFoundError, softDelete, ValidationError } from '../../src/index'
 import { createTestDb } from '../helpers/db'
 
 const rolesDef = defineTable('lk_roles', t => ({
@@ -20,7 +20,7 @@ const userRolesDef = defineTable('lk_user_roles', t => ({
 const tagsDef = defineTable('lk_tags', t => ({
   id: t.serial().primaryKey(),
   label: t.text(),
-}))
+})).withTrait(softDelete())
 
 const userTagsDef = defineTable('lk_user_tags', t => ({
   id: t.serial().primaryKey(),
@@ -42,9 +42,9 @@ const dir = mkdtempSync(join(tmpdir(), 'pg-orm-links-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const dialects: [string, (subset?: typeof tables) => Database][] = [
-  ['postgres', subset => createTestDb({ tables: subset ?? tables })],
-  ['sqlite', subset => new Database({ url: `sqlite://${join(dir, subset ? 'partial.db' : 'links.db')}`, tables: subset ?? tables })],
+const dialects: [string, (subset?: typeof tables, defaultLimit?: number) => Database][] = [
+  ['postgres', (subset, defaultLimit) => createTestDb({ tables: subset ?? tables, defaultLimit })],
+  ['sqlite', (subset, defaultLimit) => new Database({ url: `sqlite://${join(dir, subset ? 'partial.db' : 'links.db')}`, tables: subset ?? tables, defaultLimit })],
 ]
 
 async function rejection(work: () => unknown): Promise<unknown> {
@@ -157,6 +157,50 @@ describe.each(dialects)('hasManyThrough links on %s', (_name, open) => {
     }))
 
     expect(await roleIds()).toEqual([r1, r2])
+  })
+
+  it('refuses a parent or target key that is not a single value, before writing anything', async () => {
+    const write = db.repo(users).write
+
+    await write.attach(user, 'roles', [r1, r2])
+
+    expect(await rejection(() => write.detach(JSON.parse('{"gte":0}'), 'roles'))).toBeInstanceOf(ValidationError)
+    expect(await rejection(() => write.sync(JSON.parse('{"gte":0}'), 'roles', []))).toBeInstanceOf(ValidationError)
+    expect(await rejection(() => write.attach(user, 'roles', [JSON.parse('{"gte":0}')]))).toBeInstanceOf(ValidationError)
+    expect(await rejection(() => write.detach(user, 'roles', [JSON.parse('{"gte":0}')]))).toBeInstanceOf(ValidationError)
+    expect(await rejection(() => write.detach(user, 'roles', JSON.parse('{"gte":0}')))).toBeInstanceOf(ValidationError)
+    expect(await roleIds()).toEqual([r1, r2])
+  })
+
+  it('refuses a parent or a target the scopes hide or that does not exist', async () => {
+    const write = db.repo(users).write
+    const [t1, t2] = await db.repo(tagsDef).write.insertMany([{ label: 'x' }, { label: 'y' }], { pk: true }) as [number, number]
+
+    await db.repo(tagsDef).write.deleteById(t2)
+
+    expect(await rejection(() => write.attach(user + 1000, 'roles', [r1]))).toBeInstanceOf(NotFoundError)
+    expect(await rejection(() => write.detach(user + 1000, 'roles'))).toBeInstanceOf(NotFoundError)
+    expect(await rejection(() => write.attach(user, 'tags', [t1, t2]))).toBeInstanceOf(ValidationError)
+    expect(await rejection(() => write.sync(user, 'roles', [r1, r3 + 1000]))).toBeInstanceOf(ValidationError)
+    expect(await db.raw('SELECT * FROM "lk_user_tags"')).toHaveLength(0)
+    expect(await roleIds()).toEqual([])
+  })
+
+  it('reads every link whatever the database\'s defaultLimit', async () => {
+    const limited = open(undefined, 1)
+
+    try {
+      const write = limited.repo(users).write
+
+      await write.attach(user, 'roles', [r1, r2, r3])
+
+      expect(await write.attach(user, 'roles', [r1, r2, r3])).toEqual([])
+      expect(await write.sync(user, 'roles', [r1])).toEqual({ attached: [], detached: expect.arrayContaining([r2, r3]) })
+      expect(await roleIds()).toEqual([r1])
+    }
+    finally {
+      await limited.close()
+    }
   })
 
   it('refuses a relation that is not hasManyThrough and a pivot missing from config.tables', async () => {

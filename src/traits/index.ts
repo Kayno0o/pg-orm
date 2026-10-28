@@ -181,7 +181,7 @@ function sourceHash(text: string): string {
 
 /**
  * Embedding trait: fills a vector column from each row's source text through the app's `embed`, after an insert and after an update whose source changed, comparing a hash of the source the trait stores beside it.
- * The rows of one write go to `embed` in one call and are written back by key in one statement, through the write's executor, so the column stays NULL only between the two.
+ * The rows of one write go to `embed` in one call and are written back by key through the write's executor, skipping hooks, scopes and the version bump, so the row the caller got back stays current.
  */
 export function embedding<TColumns extends AnyColumns, C extends keyof TColumns & string, H extends string = `${C}Hash`>(opts: EmbeddingOptions<TColumns, C, H>): Trait<Record<H, ColumnDef<string, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>, {}, TColumns> {
   const { column, source, embed } = opts
@@ -218,7 +218,7 @@ export function embedding<TColumns extends AnyColumns, C extends keyof TColumns 
           return { ...Object.fromEntries(pk.map(key => [key, row[key]])), [column]: row[column], [hashColumn]: hash }
         })
 
-        await ctx.repo(table).write.updateManyById(updates, { returning: false })
+        await ctx.repo(table).write._patchById(updates)
       }
 
       table.hook('afterInsert', fill)

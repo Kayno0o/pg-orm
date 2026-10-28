@@ -101,6 +101,11 @@ export class WriteSuite<
     return this._pipeline.updateManyById(rows as Record<string, unknown>[], opts)
   }
 
+  /** @internal */
+  async _patchById(rows: Record<string, unknown>[]): Promise<void> {
+    return this._pipeline.patchById(rows)
+  }
+
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>>
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {

@@ -222,8 +222,13 @@ function escapeLikePattern(op: string, col: unknown, input: string): string {
 }
 
 const BITS_RE = /^[01]+$/
+const VECTOR_TYPES = new Set<unknown>(['vector', 'halfvec', 'sparsevec'])
 
+// The cast is printed into the SQL, so a type from an untyped caller is checked here.
 function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): TypedExpr<number> {
+  if (type !== undefined && !VECTOR_TYPES.has(type))
+    throw new ValidationError(`vector distance on ${describeCol(col)}: the type must be vector, halfvec or sparsevec, got ${String(type)}.`, 'vectorDistance', { value: type })
+
   return sqlValue([{ op: OP_VEC_DISTANCE, col, vec, metric, cast: type ?? (typeof vec === 'string' ? 'sparsevec' : 'vector') }])
 }
 

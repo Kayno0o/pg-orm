@@ -29,6 +29,8 @@ Requires [Bun](https://bun.sh) with `bun:sql` support.
 
 For coding agents, the package ships `llms.txt` (a map of this README) and `llms-full.txt` (the whole README) at its root.
 
+Upgrading from 7.x: [MIGRATION_v8.0.0.md](./MIGRATION_v8.0.0.md) lists every breaking change.
+
 ## Quick Start
 
 ```ts
@@ -226,8 +228,8 @@ const context = await db.repo(chunks).read.nearest(question!, { k: 5, where: { d
 // context: (Chunk & { distance: number })[], closest first
 ```
 
-- The trait adds a nullable text column, `embeddingHash` by default (`hashColumn` renames it), holding a sha256 of the text last embedded. After an insert, and after an update whose source text changed, the rows of that write go to `embed` in one call and their vectors are written back by key in one statement, through the write's executor (inside its transaction when there is one). An update that leaves the source unchanged, and an upsert landing on an unchanged row, never call `embed`.
-- The column must be a nullable `vector` or `halfvec`: it is NULL between the row's insert and the write-back, and a failing `embed` rejects the write, rolling it back inside a transaction and leaving the column NULL outside one. `embed` must return one vector per text, in order; a count mismatch throws `OrmError`.
+- The trait adds a nullable text column, `embeddingHash` by default (`hashColumn` renames it), holding a sha256 of the text last embedded. After an insert, and after an update whose source text changed, the rows of that write go to `embed` in one call and their vectors are written back by key through the write's executor, inside its transaction when there is one. The write-back runs no hook and no scope, and bumps no optimistic-lock version or `updatedAt`, so the rows the write returned (vectors included) match what is stored. An update that leaves the source unchanged, and an upsert landing on an unchanged row, never call `embed`.
+- The column must be a nullable `vector` or `halfvec`: it is NULL between the row's insert and the write-back, and a failing `embed` rejects the write, rolling it back inside a transaction and leaving the column NULL outside one. `embed` must return one vector per text, in order; a count mismatch throws `OrmError`. It gets every text of one write at once, so split the batch inside it when the provider caps a request's inputs.
 - `nearest(vec, { k, where?, maxDistance?, metric?, column?, withTrashed?, withoutScopes? })` orders by the distance, limits to `k` (capped by `maxPageSize`) and adds `distance: number` to each row. `metric` is `'cosine'` by default (`'hamming'` on a `bit` column), or `'l2'`, `'inner'`, `'l1'`, `'jaccard'`; `maxDistance` is in that metric's unit. Scopes and soft delete apply as on any read. `column` names the vector column on a table without the trait, which otherwise throws `ValidationError`.
 - Chunking, prompting and reranking stay in the app.
 
@@ -336,7 +338,9 @@ await UserRepo.write.detach(userId, 'roles', [editorId])                    // t
 const { attached, detached } = await UserRepo.write.sync(userId, 'roles', [adminId, ownerId])
 ```
 
-`sync` leaves exactly the given links, in one transaction: it detaches the others and attaches the missing ones, leaving existing links and their pivot columns untouched. Pivot columns come from `opts.pivot` for every link the call creates, and from a target given as `{ id, pivot }` for its own. On a soft-delete pivot, `detach` trashes the rows and `attach` restores a trashed link, writing the given pivot columns onto it, rather than inserting a second row. Two concurrent attaches of the same link can both insert it unless the pivot has a unique index on its two keys.
+Each call runs in one transaction. The parent must be a row its repository's scopes let it see, else `NotFoundError`, and each target to link a row the target table's scopes let it see, else a `ValidationError` naming the keys; a parent or target key that is not a single value (an object, an array, null) throws `ValidationError` before anything is written.
+
+`sync` leaves exactly the given links: it detaches the others and attaches the missing ones, leaving existing links and their pivot columns untouched. Pivot columns come from `opts.pivot` for every link the call creates, and from a target given as `{ id, pivot }` for its own. On a soft-delete pivot, `detach` trashes the rows and `attach` restores a trashed link, writing the given pivot columns onto it, rather than inserting a second row. Two concurrent attaches of the same link can both insert it unless the pivot has a unique index on its two keys.
 
 ## Query Builder
 
@@ -672,7 +676,7 @@ await db.repo(owners).read.findMany(q => q.withCount('projects', { withoutScopes
 - `withTrashed` is `withoutScope('softDelete')`. Reads, `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
 - A scope reading a context value that is not there fails the call: `e.eq('tenantId', undefined)` throws a `ValidationError`, so a query run outside `withContext` cannot read every tenant.
 - An upsert guards only its update: a conflicting row a scope leaves out is not updated and not returned. Inserts are not filtered, so set the tenant column on the rows you write (a `beforeInsert` hook reading the same context does it once).
-- The statement builders `repo.write.insert()`, `update()`, `delete()` and `merge()`, and `db.raw`, carry no scope.
+- The statement builders `repo.write.insert()`, `update()`, `delete()` and `merge()`, and `db.raw`, carry no scope. Neither does a table you reach through an explicit `join()` or a subquery you build: add its condition yourself. Relation reads and filters (`include`, `withCount` and the other aggregates, `whereHas`, `e.has`) apply the related table's scopes.
 
 ### Schema introspection
 
@@ -745,7 +749,7 @@ A hook on many rows runs on one row after another, as `insertOne` would. On an u
 
 The `after*` hooks receive every written row whole and mapped, the same shape `afterSelect` gets, so a table with an after-write hook returns all its columns from each write. A write that touched no row fires no after-write hook.
 
-Every hook gets a second argument, `ctx`: `ctx.repo(table)` is a repository on the executor the hooked operation runs on, so a hook under `repo.using(tx)` reads and writes inside that transaction and rolls back with it.
+Every hook gets a second argument, `ctx`: `ctx.repo(table)` is a repository on the executor the hooked operation runs on, so a hook under `repo.using(tx)` reads and writes inside that transaction and rolls back with it. A write split into chunks past the bind parameter limit runs in its own transaction, and its after-write hooks run in it too, once per chunk after the last chunk landed: a hook that throws rolls the whole write back.
 
 ```ts
 posts.hook('afterInsert', async (rows, ctx) => {

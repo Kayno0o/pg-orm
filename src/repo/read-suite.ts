@@ -45,6 +45,11 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.findMany(arg, { defaultLimit: this._defaultLimit })
   }
 
+  /** @internal */
+  async _findAll<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<(TResult & InferVirtuals<TVirtuals>)[]> {
+    return this._pipeline.findMany(cb)
+  }
+
   async findOne<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
   async findOne(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async findOne(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<any | null> {
@@ -83,12 +88,12 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.exists(where, opts)
   }
 
-  /** Offset pagination. The optional callback shapes the page (`pick`, `orderBy`, `include`, …) and any filter it adds is reflected in `total`. */
   /** The `k` rows closest to `vec`, nearest first, each with its `distance`: the column the `embedding()` trait names unless `column` says another, cosine unless `metric` says another. Scopes apply. */
   async nearest(vec: VectorValue, opts: NearestOptions<TColumns>): Promise<(WithVirtuals<TColumns, TVirtuals> & { distance: number })[]> {
     return this._pipeline.nearest(vec, opts, this._limits)
   }
 
+  /** Offset pagination. The optional callback shapes the page (`pick`, `orderBy`, `include`, …) and any filter it adds is reflected in `total`. */
   async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }): Promise<PaginatePage<TColumns, TVirtuals>>
   async paginate<TResult>(opts: PaginateOptions<TColumns> & { withTotal: false }, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginatePage<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
   async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>>

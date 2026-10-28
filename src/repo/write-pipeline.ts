@@ -5,6 +5,7 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
+import type { TransactionClient } from '../sql/transaction'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
@@ -74,9 +75,6 @@ interface ReturnableBuilder {
   toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
 }
 
-// The builders read a falsy WHERE as "no WHERE", and an empty AND as one every row passes, which on a write is every row: only `deleteAll` may ask for that, by name.
-// The trait conditions ANDed on later would hide an empty clause from the builder's own check, so it is compiled here, once, and handed on as its tape.
-
 function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<TColumns>, opts?: InsertOptions<TColumns>): InsertBuilderCtor<TColumns> {
   return opts?.skipConflicts ? builder.onConflict(opts.skipConflicts).doNothing() : builder
 }
@@ -106,7 +104,7 @@ export class WritePipeline<
   private _tableRegistry?: ReadonlyMap<string, AnyTableDef>
   private _mapperFactory: ReturnType<typeof createMapperFactory>
   private _sqliteDefaults?: Record<string, string>
-  // Set on the pipeline a chunked write runs its chunks on: after-write hooks wait for the last chunk, so none fires for rows a later chunk rolls back.
+  // Set on the pipeline a chunked write runs its chunks on: after-write hooks wait for the last chunk and run inside the chunks' transaction, so none fires for rows a later chunk rolls back.
   private _deferredAfter?: [event: 'afterInsert' | 'afterUpdate' | 'afterDelete', rows: Record<string, unknown>[]][]
 
   constructor(ctx: WritePipelineContext) {
@@ -120,7 +118,7 @@ export class WritePipeline<
   // The builders read a falsy WHERE as "no WHERE", and an empty AND as one every row passes, which on a write is every row: only `deleteAll` may ask for that, by name.
   // The trait conditions ANDed on later would hide an empty clause from the builder's own check, so it is compiled here, once, its relation filters resolved, and handed on as its tape.
   private _requireWhere(where: Where<TColumns>, op: string): Where<TColumns> {
-    const tape = where ? compileWhere<TColumns>(where) : undefined
+    const tape = where ? compileWhere<TColumns>(where, this._runtime.table.columns) : undefined
 
     if (!tape || holdsForEveryRow(tape))
       throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op)
@@ -278,9 +276,10 @@ export class WritePipeline<
     if (rows.length <= size)
       return write(this, rows)
 
-    const deferred: NonNullable<typeof this._deferredAfter> = []
     const run = async (exec: Executable): Promise<TResult[]> => {
-      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime, hooks: this._hooks, tableRegistry: this._tableRegistry })
+      const hooks: HookContext = exec === this._executor ? this._hooks : { repo: table => this._hooks.repo(table).using(exec as unknown as TransactionClient) }
+      const pipeline = new WritePipeline<TColumns, TVirtuals>({ executor: exec, runtime: this._runtime, hooks, tableRegistry: this._tableRegistry })
+      const deferred: NonNullable<typeof this._deferredAfter> = []
       const out: TResult[] = []
 
       pipeline._deferredAfter = deferred
@@ -288,14 +287,13 @@ export class WritePipeline<
       for (let i = 0; i < rows.length; i += size)
         out.push(...await write(pipeline, rows.slice(i, i + size)))
 
+      for (const [event, written] of deferred)
+        await this._runtime.runAfter(event, written, hooks)
+
       return out
     }
-    const out = this._executor.atomic ? await this._executor.atomic(run) : await run(this._executor)
 
-    for (const [event, written] of deferred)
-      await this._runtime.runAfter(event, written, this._hooks)
-
-    return out
+    return this._executor.atomic ? this._executor.atomic(run) : run(this._executor)
   }
 
   // --- Update ---
@@ -385,16 +383,13 @@ export class WritePipeline<
       )
     }
 
-    const rows = await this.updateMany(
-      set,
-      e => e.and(compileWhere<TColumns>(this._requireWhere(where, 'updateWithLock'), this._runtime.table.columns), e.eq(lockCol, currentVersion)),
-      opts,
-    )
+    const filter = this._requireWhere(where, 'updateWithLock')
+    const rows = await this.updateMany(set, e => e.and(compileWhere<TColumns>(filter), e.eq(lockCol, currentVersion)), opts)
 
     if (rows.length > 0)
       return rows[0]!
 
-    const matches = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(where)
+    const matches = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(filter)
 
     this._runtime.behavior.prepareSelect(matches)
     matches.withoutScope(...liftedScopes(opts))
@@ -412,35 +407,7 @@ export class WritePipeline<
       return []
 
     const { pkColumns, table } = this._runtime
-    const seen = new Set<string>()
-    const prepared: BulkUpdateRow[] = []
-
-    for (const row of rows) {
-      const key: Record<string, unknown> = {}
-      const patch: Record<string, unknown> = {}
-
-      for (const [col, value] of Object.entries(row)) {
-        columnOf(table, col, 'updateManyById')
-        ;(pkColumns.includes(col) ? key : patch)[col] = value
-      }
-
-      for (const col of pkColumns) {
-        if (key[col] === undefined || key[col] === null)
-          throw new ValidationError(`updateManyById(): a row on "${table.name}" is missing its primary key "${col}".`, 'updateManyById', { field: col })
-
-        assertKeyValue(key[col], table.name, col, 'updateManyById')
-      }
-
-      // Two patches for one row would leave which one wins up to the planner.
-      const identity = pkColumns.map(col => `${col}=${String(key[col])}`).join(', ')
-
-      if (seen.has(identity))
-        throw new ValidationError(`updateManyById(): two rows on "${table.name}" share one ${pkColumns.join(', ')}.`, 'updateManyById', { field: pkColumns.join(', ') })
-
-      seen.add(identity)
-      prepared.push({ key, set: this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch, this._hooks)) })
-    }
-
+    const prepared = await this._keyedRows(rows, 'updateManyById', async patch => this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch, this._hooks)))
     // Each row binds its key and every column some row sets.
     const columns = pkColumns.length + new Set(prepared.flatMap(row => Object.keys(row.set))).size
 
@@ -457,6 +424,54 @@ export class WritePipeline<
         opts,
       })
     }, columns)
+  }
+
+  /** Writes columns onto rows by key and nothing else: no hook, scope, version bump or timestamp, for a trait storing what it derived from a row it just wrote. */
+  async patchById(rows: Record<string, unknown>[]): Promise<void> {
+    const { pkColumns, table } = this._runtime
+    const prepared = await this._keyedRows(rows, 'patchById', async patch => this._normalizeValues(patch))
+
+    await this._chunked(prepared, async (pipeline, chunk) => {
+      const { sql, params } = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], chunk).returning(...pkColumns).toSQL(dialectOf(pipeline._executor))
+
+      await pipeline._executor.query(sql, params)
+
+      return []
+    }, pkColumns.length + new Set(prepared.flatMap(row => Object.keys(row.set))).size)
+  }
+
+  private async _keyedRows(rows: Record<string, unknown>[], op: string, prepareSet: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>): Promise<BulkUpdateRow[]> {
+    const { pkColumns, table } = this._runtime
+    const seen = new Set<string>()
+    const prepared: BulkUpdateRow[] = []
+
+    for (const row of rows) {
+      const key: Record<string, unknown> = {}
+      const patch: Record<string, unknown> = {}
+
+      for (const [col, value] of Object.entries(row)) {
+        columnOf(table, col, op)
+        ;(pkColumns.includes(col) ? key : patch)[col] = value
+      }
+
+      for (const col of pkColumns) {
+        if (key[col] === undefined || key[col] === null)
+          throw new ValidationError(`${op}(): a row on "${table.name}" is missing its primary key "${col}".`, op, { field: col })
+
+        assertKeyValue(key[col], table.name, col, op)
+      }
+
+      // Two patches for one row would leave which one wins up to the planner.
+      const identity = pkColumns.map(col => `${col}=${String(key[col])}`).join(', ')
+
+      if (seen.has(identity))
+        throw new ValidationError(`${op}(): two rows on "${table.name}" share one ${pkColumns.join(', ')}.`, op, { field: pkColumns.join(', ') })
+
+      seen.add(identity)
+      prepared.push({ key, set: await prepareSet(patch) })
+    }
+
+    return prepared
   }
 
   // --- Delete ---
@@ -738,7 +753,7 @@ export class WritePipeline<
     }
 
     const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks)
-    const builder = this._runtime.behavior.buildRestoreUpdate(s, where && this._resolved(compileWhere<TColumns>(where)), liftedScopes(opts))
+    const builder = this._runtime.behavior.buildRestoreUpdate(s, where && this._resolved(compileWhere<TColumns>(where, this._runtime.table.columns)), liftedScopes(opts))
 
     return this._execute({
       builder,
