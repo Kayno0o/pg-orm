@@ -6,7 +6,7 @@ import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
 import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
+import { isRawSql, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols, selectedColumns } from './state'
 
 /**
  * Single bottleneck for placeholder counting and parameter accumulation.
@@ -238,7 +238,7 @@ function printFrom(sb: SqlBuilder, state: BuilderState): void {
 
 function printJoins(sb: SqlBuilder, state: BuilderState): void {
   for (const j of state.joins) {
-    const joinType = j.type.toUpperCase()
+    const joinType = joinKeyword(j.type)
     const onClause = j.on ? ` ON ${sb.inlineExpr(j.on, joinQualifier(state))}` : ''
 
     sb.push(`${joinType} JOIN ${quote(j.table)} AS ${quote(j.alias)}${onClause}`)
@@ -247,7 +247,7 @@ function printJoins(sb: SqlBuilder, state: BuilderState): void {
 
 // An ORDER BY list, an entry naming a column or holding an expression whose params bind in place.
 function printOrder(sb: SqlBuilder, entries: OrderEntry[], qualifier?: string): string {
-  return entries.map(o => `${o.expr ? sb.inlineExpr(o.expr, qualifier) : sb.orderColumn(o.col, qualifier)} ${o.dir.toUpperCase()}${o.nulls ? ` NULLS ${o.nulls.toUpperCase()}` : ''}`).join(', ')
+  return entries.map(o => `${o.expr ? sb.inlineExpr(o.expr, qualifier) : sb.orderColumn(o.col, qualifier)} ${orderSuffix(o)}`).join(', ')
 }
 
 function printGroupHaving(sb: SqlBuilder, state: BuilderState): void {
@@ -299,7 +299,7 @@ function printLock(sb: SqlBuilder, state: BuilderState): void {
   if (!state.lockMode || sb.dialect === 'sqlite')
     return
 
-  sb.push(`FOR ${state.lockMode.toUpperCase().replaceAll('_', ' ')}`)
+  sb.push(`FOR ${lockKeyword(state.lockMode)}`)
 
   if (state.lockOf?.length)
     sb.push(`OF ${state.lockOf.map(quote).join(', ')}`)

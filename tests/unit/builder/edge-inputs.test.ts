@@ -74,4 +74,27 @@ describe('builders on edge inputs', () => {
     expect(select().where(e => e.isNull(e.jsonbSubscript('j', 'a', 0))).toSQL().sql).toContain('(("j" -> $1::text) -> $2::int)')
     expect(select().where(e => e.isNull(e.jsonbSubscript('j', 'a', 0))).toSQL('sqlite').sql).toContain('(("j" -> $1) -> $2)')
   })
+
+  it('orderBy refuses a direction or nulls position outside its keywords, and prints the keyword, never the input', () => {
+    expect(() => select().orderBy('id', 'asc, (select 1/0)' as any).toSQL()).toThrow(ValidationError)
+    expect(() => select().orderBy('id', 'asc', 'last; drop table t' as any).toSQL()).toThrow(ValidationError)
+    expect(() => select().orderBy('id', 'constructor' as any).toSQL()).toThrow(ValidationError)
+    expect(select().orderBy('id', 'Desc' as any, 'LAST' as any).toSQL().sql).toBe('SELECT * FROM "t" ORDER BY "id" DESC NULLS LAST')
+  })
+
+  it('a set operation and a window refuse a bad direction the same way', () => {
+    expect(() => SetOperationBuilder.union(select(), select()).orderBy('id', 'desc limit 1' as any).toSQL()).toThrow(ValidationError)
+    expect(() => select().window('w', { orderBy: [{ col: 'id', dir: 'asc --' as any }] }).toSQL()).toThrow(ValidationError)
+  })
+
+  it('a join type or lock mode outside its keywords throws', () => {
+    const joined = select().join('u', 'u', e => e.eq('id', 1))
+    const locked = select().forUpdate()
+
+    ;(joined as any)._state.joins[0].type = 'cross join x on true --'
+    ;(locked as any)._state.lockMode = 'update nowait; --'
+    expect(() => joined.toSQL()).toThrow(ValidationError)
+    expect(() => locked.toSQL()).toThrow(ValidationError)
+    expect(select().forNoKeyUpdate().toSQL().sql).toBe('SELECT * FROM "t" FOR NO KEY UPDATE')
+  })
 })
