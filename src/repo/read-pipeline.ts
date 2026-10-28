@@ -17,8 +17,9 @@ import { mapChunk } from '../mapper/index'
 import { columnBaseType, tableMeta } from '../schema/inspect'
 import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
+import { isPlainObject } from '../utils/collection'
 import { createMapperFactory } from './_mapper'
-import { buildTableRuntime } from './table-runtime'
+import { buildTableRuntime, isKeyValue } from './table-runtime'
 
 // The column a page carries its total in.
 const PAGE_TOTAL = '__pgorm_total'
@@ -299,6 +300,8 @@ export class ReadPipeline<
     if (withTrashed)
       rows.withTrashed()
 
+    this._orderByKeyIfUnordered(rows)
+
     // Branch before paging so `total` counts the same rows the page is drawn from, including any filter the callback added.
     const countQuery = rows.branch().count() as SelectBuilder<TColumns, any, any>
     const countState = countQuery.getState()
@@ -387,12 +390,17 @@ export class ReadPipeline<
     return byKey ? pk : { value: row[keys[0]!], key: pk }
   }
 
+  // A cursor is opaque but comes back from a client: one that is not the shape this table's pages return would bind `undefined` or match nothing.
   private _cursorValues(cursor: unknown, keys: string[], byKey: boolean): unknown[] {
-    const { pkColumns } = this._runtime
-    const parts = (byKey ? cursor : (cursor as { key: unknown }).key) as Record<string, unknown>
-    const pk = (col: string) => pkColumns.length === 1 ? parts : parts[col]
+    const { pkColumns, table } = this._runtime
+    const parts = byKey ? cursor : isPlainObject(cursor) ? cursor.key : undefined
+    const pk = (col: string): unknown => pkColumns.length === 1 ? parts : isPlainObject(parts) ? parts[col] : undefined
+    const values = keys.map(k => pkColumns.includes(k) ? pk(k) : isPlainObject(cursor) ? cursor.value : undefined)
 
-    return keys.map(k => pkColumns.includes(k) ? pk(k) : (cursor as { value: unknown }).value)
+    if (!values.every(isKeyValue))
+      throw new ValidationError(`paginateCursor(): the cursor is not one a page of "${table.name}" ordered by ${keys.join(', ')} returns.`, 'paginateCursor')
+
+    return values
   }
 
   private _afterCursor(keys: string[], values: unknown[], isForward: boolean): WhereFn<TColumns> {
@@ -413,6 +421,15 @@ export class ReadPipeline<
     }
 
     return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
+  }
+
+  // OFFSET pages are only disjoint over a total order, so an unordered read walks the primary key.
+  private _orderByKeyIfUnordered(builder: SelectBuilder<TColumns, TRelations, any>): void {
+    if (builder.getState().orderBy.length > 0)
+      return
+
+    for (const col of this._runtime.pkColumns)
+      builder.orderBy(col as keyof TColumns & string)
   }
 
   copyTo(opts: CopyToOptions<TColumns> = {}): ReadableStream<Uint8Array> {
@@ -462,25 +479,25 @@ export class ReadPipeline<
 
     const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
 
-    // OFFSET pages are only disjoint over a total order, so an unordered stream walks the primary key.
-    if (finalBuilder.getState().orderBy.length === 0) {
-      for (const col of this._runtime.pkColumns)
-        finalBuilder.orderBy(col as keyof TColumns & string)
-    }
+    this._orderByKeyIfUnordered(finalBuilder)
 
     this._resolveCounts(finalBuilder)
     this._runtime.behavior.prepareSelect(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
     const mapperFn = this._mapper(finalBuilder)
+    // A limit or offset the callback set bounds the whole stream, read in chunks within it.
+    const { limit, offset: start } = finalBuilder.getState()
+    const end = limit == null ? Infinity : (start ?? 0) + limit
 
-    let offset = 0
+    let offset = start ?? 0
 
-    while (true) {
+    while (offset < end) {
       const chunkBuilder = finalBuilder.branch()
       const chunkState = chunkBuilder.getState()
+      const take = Math.min(chunkSize, end - offset)
 
-      chunkState.limit = chunkSize
+      chunkState.limit = take
       chunkState.offset = offset
 
       const { sql, params } = chunkBuilder.toSQL(this._dialect)
@@ -501,10 +518,10 @@ export class ReadPipeline<
       for (const row of mapped)
         yield row as WithVirtuals<TColumns, TVirtuals>
 
-      if (rows.length < chunkSize)
+      if (rows.length < take)
         break
 
-      offset += chunkSize
+      offset += take
     }
   }
 

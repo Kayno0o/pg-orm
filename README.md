@@ -204,7 +204,7 @@ const chain = await EmployeeRepo.read.findMany(q => q.include('manager', employe
 const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.withTrashed()))
 ```
 
-A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk.
+A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key.
 
 `withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows unless given `withDeleted: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
 
@@ -635,7 +635,7 @@ const page2 = await repo.read.paginateCursor({ take: 20, cursor: page1.nextCurso
 const byDate = await repo.read.paginateCursor({ take: 20, column: 'createdAt', direction: 'backward', withTrashed: true }, q => q.pick('id', 'createdAt', 'name'))
 ```
 
-`paginateCursor` and `stream.cursor` resume with a row-value comparison on (column, primary key), so tied values are neither skipped nor repeated and backward pages never overlap. The cursor is the primary key (an object of its parts on a composite key) when ordering by it, else `{ value, key }`. A nullable column is refused with a `ValidationError`, as is a callback setting `orderBy`, `limit` or `offset` or picking away a cursor column. `stream.offset()` orders by the primary key when the callback gives no order.
+`paginateCursor` and `stream.cursor` resume with a row-value comparison on (column, primary key), so tied values are neither skipped nor repeated and backward pages never overlap. The cursor is the primary key (an object of its parts on a composite key) when ordering by it, else `{ value, key }`. A nullable column is refused with a `ValidationError`, as is a callback setting `orderBy`, `limit` or `offset` or picking away a cursor column, and a cursor that is not the shape the pages return. `paginate()` and `stream.offset()` order by the primary key when the callback gives no order, so OFFSET pages never overlap. `stream.offset()` reads within a `limit` and `offset` the callback sets, in chunks.
 
 ## Recipes
 

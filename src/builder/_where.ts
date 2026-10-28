@@ -2,6 +2,7 @@ import type { AnyColumnDef, AnyColumns, IsNullable } from '../types/index'
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import type { BuilderState } from './state'
 import { ValidationError } from '../errors/index'
+import { isPlainObject } from '../utils/collection'
 import { createExprBuilder, OP_AND } from './expr'
 
 /** A WHERE callback. */
@@ -83,15 +84,6 @@ const WHERE_OPS = new Set([
   'between',
   'isNull',
 ])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
-    return false
-
-  const proto = Object.getPrototypeOf(value) as unknown
-
-  return proto === Object.prototype || proto === null
-}
 
 /** AND several tapes into one, returning the single tape unwrapped. */
 // A tape whose root is an AND lends its operands rather than nesting, so chained andWhere() calls print one flat AND.

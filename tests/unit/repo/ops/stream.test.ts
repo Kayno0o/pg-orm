@@ -25,6 +25,21 @@ describe('stream pipeline', () => {
     expect(collected[0]).toEqual({ id: 1, name: 'A' })
   })
 
+  it('reads within the limit and offset its callback set, in chunks', async () => {
+    const { exec, pipeline } = setup(users)
+
+    exec.preset([{ id: 2, name: 'B' }, { id: 3, name: 'C' }])
+    exec.preset([{ id: 4, name: 'D' }])
+
+    const collected: unknown[] = []
+
+    for await (const row of pipeline.stream(q => q.limit(3).offset(1), { chunkSize: 2, unsafe: true }))
+      collected.push(row)
+
+    expect(collected).toHaveLength(3)
+    expect(exec.queries.map(q => q.params)).toEqual([[2, 1], [1, 3]])
+  })
+
   it('stops early when a chunk returns fewer rows than chunkSize', async () => {
     const { exec, pipeline } = setup(users)
 

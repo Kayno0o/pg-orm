@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { defineTable } from '../../../../src/index'
+import { defineTable, ValidationError } from '../../../../src/index'
 import { setupReadPipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
@@ -21,9 +21,28 @@ describe('paginate pipeline', () => {
     expect(result.totalPages).toBe(Math.ceil(7 / 2))
     expect(result.data).toHaveLength(2)
   })
+
+  it('orders an unordered page by the primary key, so pages are disjoint', async () => {
+    const { exec, pipeline } = setup(users)
+
+    exec.preset([])
+    await pipeline.paginate({ page: 1, perPage: 2 })
+
+    expect(exec.queries[0]!.sql).toContain('ORDER BY "id" ASC LIMIT')
+  })
 })
 
 describe('paginateCursor pipeline', () => {
+  it('refuses a cursor that is not the shape its pages return', async () => {
+    const { pipeline } = setup(users)
+
+    for (const cursor of [{}, [1], { id: 1 }, { value: 1 }])
+      await expect(pipeline.paginateCursor({ take: 2, cursor: cursor as never })).rejects.toBeInstanceOf(ValidationError)
+
+    for (const cursor of [{ value: null, key: 1 }, { value: 'a' }, 7])
+      await expect(pipeline.paginateCursor({ take: 2, cursor: cursor as never, column: 'name' })).rejects.toBeInstanceOf(ValidationError)
+  })
+
   it('drops the take+1 sentinel row and exposes nextCursor', async () => {
     const { exec, pipeline } = setup(users)
 

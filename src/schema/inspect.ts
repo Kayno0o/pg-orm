@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint } from '../types/index'
 
-const ARRAY_SUFFIX_RE = /\[\]$/
+const ARRAY_SUFFIX_RE = /(?:\[\])+$/
 const TYPE_MODIFIER_RE = /\(.*\)$/
 const EMPTY_COLUMNS: ReadonlySet<string> = new Set()
 

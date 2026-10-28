@@ -18,7 +18,7 @@ describe('paginate', () => {
     const result = await pipeline.paginate({ page: 2, perPage: 5, where: { published: true } })
 
     expect(exec.queries).toHaveLength(1)
-    expect(exec.queries[0]!.sql).toBe('SELECT *, (SELECT count(*) FROM "articles" WHERE ("published" = $1 AND "deletedAt" IS NULL)) AS "__pgorm_total" FROM "articles" WHERE ("published" = $2 AND "deletedAt" IS NULL) LIMIT $3 OFFSET $4')
+    expect(exec.queries[0]!.sql).toBe('SELECT *, (SELECT count(*) FROM "articles" WHERE ("published" = $1 AND "deletedAt" IS NULL)) AS "__pgorm_total" FROM "articles" WHERE ("published" = $2 AND "deletedAt" IS NULL) ORDER BY "id" ASC LIMIT $3 OFFSET $4')
     expect(exec.queries[0]!.params).toEqual([true, true, 5, 5])
     expect(Object.keys(result.data[0]!)).not.toContain('__pgorm_total')
     expect(result.total).toBe(12)

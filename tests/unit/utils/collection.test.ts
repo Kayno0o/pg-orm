@@ -74,7 +74,7 @@ describe('indexBy', () => {
     expect(m.get(relationKey(1))).toEqual({ id: 1, name: 'a' })
   })
 
-  test('duplicate keys → last wins', () => {
+  test('duplicate keys → first wins', () => {
     const rows = [
       { id: 1, v: 'first' },
       { id: 2, v: 'b' },
@@ -83,7 +83,7 @@ describe('indexBy', () => {
     const m = indexBy(rows, 'id')
 
     expect(m.size).toBe(2)
-    expect(m.get(relationKey(1))).toEqual({ id: 1, v: 'second' })
+    expect(m.get(relationKey(1))).toEqual({ id: 1, v: 'first' })
     expect(m.get(relationKey(2))).toEqual({ id: 2, v: 'b' })
   })
 

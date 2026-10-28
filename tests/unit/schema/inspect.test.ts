@@ -75,4 +75,8 @@ describe('columnBaseType', () => {
     expect(columnBaseType(posts.columns.tags!)).toEqual({ base: 'text', isArray: true })
     expect(columnBaseType(posts.columns.id!)).toEqual({ base: 'serial', isArray: false })
   })
+
+  it('strips every array suffix of a multi-dimensional array', () => {
+    expect(columnBaseType({ ...posts.columns.tags!, pgType: 'int4[][]' })).toEqual({ base: 'int4', isArray: true })
+  })
 })

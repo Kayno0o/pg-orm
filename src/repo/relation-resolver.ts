@@ -272,7 +272,24 @@ export class RelationResolver {
       return
     }
 
-    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetFk, parentIds, inc, true, processor)
+    // A parent matching several rows gets the first in the include's order, else the one with the lowest primary key.
+    const target = this._resolveTable(rel.targetTable)
+    const ordered: IncludeEntry = isMany
+      ? inc
+      : {
+        ...inc,
+        callback: (q) => {
+          const b = inc.callback ? inc.callback(q) : q
+
+          if (b.getState().orderBy.length === 0) {
+            for (const col of (target?.primaryKey ?? DEFAULT_PRIMARY_KEY).split(','))
+              b.orderBy(col.trim())
+          }
+
+          return b
+        },
+      }
+    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetFk, parentIds, ordered, true, processor)
 
     if (isMany) {
       const grouped = groupBy(rows, targetFk)
