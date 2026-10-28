@@ -16,7 +16,13 @@ const cells = defineTable('cp_cells', t => ({
   y: t.int4().primaryKey(),
 }))
 
-const tables = [items, cells]
+const events = defineTable('cp_events', t => ({
+  id: t.int4().primaryKey(),
+  at: t.timestamptz(),
+  local: t.timestamp(),
+}))
+
+const tables = [items, cells, events]
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-cursor-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -41,6 +47,7 @@ describe.each(dialects)('cursor pagination on %s', (_name, open) => {
   beforeEach(async () => {
     await db.raw('DELETE FROM "cp_items"')
     await db.raw('DELETE FROM "cp_cells"')
+    await db.raw('DELETE FROM "cp_events"')
     ids = await db.repo(items).write.insertMany(GROUPS.map(grp => ({ grp, label: null })), { pk: true })
   })
 
@@ -133,5 +140,42 @@ describe.each(dialects)('cursor pagination on %s', (_name, open) => {
     expect(picked.data.map(r => Object.keys(r).sort())).toEqual([['grp', 'id', 'isDeleted'], ['grp', 'id', 'isDeleted'], ['grp', 'id', 'isDeleted']])
     await expect(db.repo(items).read.paginateCursor({ take: 2, column: 'grp' }, q => q.pick('id'))).rejects.toThrow(ValidationError)
     await expect(db.repo(items).read.paginateCursor({ take: 2 }, q => q.orderBy('grp'))).rejects.toThrow(ValidationError)
+  })
+
+  // Rows 1 and 2 share a millisecond, which is all a Date keeps, and rows 1 and 4 share the exact microsecond.
+  it.skipIf(_name === 'sqlite')('pages a timestamp column with sub-millisecond values, each row once, both ways', async () => {
+    const stamps = ['00:00:00.123456', '00:00:00.123789', '00:00:01', '00:00:00.123456']
+
+    for (const [i, time] of stamps.entries())
+      await db.raw(`INSERT INTO "cp_events" ("id", "at", "local") VALUES (${i + 1}, '2026-01-01 ${time}+00', '2026-01-01 ${time}')`)
+
+    const order = [1, 4, 2, 3]
+
+    for (const column of ['at', 'local'] as const) {
+      for (const direction of ['forward', 'backward'] as const) {
+        const seen: number[] = []
+        let cursor: unknown = null
+
+        do {
+          const page: { data: { id: number }[], nextCursor: unknown } = await db.repo(events).read.paginateCursor({ take: 1, column, cursor: cursor as never, direction })
+
+          seen.push(...page.data.map(r => r.id))
+          cursor = page.nextCursor
+        } while (cursor !== null && seen.length < 10)
+
+        const streamed: number[] = []
+
+        for await (const row of db.repo(events).stream.cursor({ column, chunkSize: 1, direction })) {
+          streamed.push(row.id)
+
+          if (streamed.length >= 10)
+            break
+        }
+
+        const expected = direction === 'forward' ? order : [...order].reverse()
+
+        expect({ column, direction, seen, streamed }).toEqual({ column, direction, seen: expected, streamed: expected })
+      }
+    }
   })
 })

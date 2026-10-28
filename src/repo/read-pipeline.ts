@@ -14,7 +14,7 @@ import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
-import { tableMeta } from '../schema/inspect'
+import { columnBaseType, tableMeta } from '../schema/inspect'
 import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
@@ -106,6 +106,9 @@ export interface PaginateCursorResult<TRow, TCursor> {
 }
 
 let _streamWarned = false
+
+const TIMESTAMP_TYPES = new Set(['timestamp', 'timestamptz'])
+const CURSOR_ROW = '__cursor_row'
 
 /**
  * Deep module owning the full read-result lifecycle for a single table:
@@ -379,6 +382,17 @@ export class ReadPipeline<
 
     if (keys.length === 1)
       return e => isForward ? e.gt(keys[0]! as keyof TColumns & string, values[0] as never) : e.lt(keys[0]! as keyof TColumns & string, values[0] as never)
+
+    const { pkColumns, table } = this._runtime
+    const [column, ...rest] = keys
+
+    // A Date holds milliseconds where Postgres keeps microseconds, so the boundary row's own value is read back by its key; the carried one stands in when that row is gone.
+    if (TIMESTAMP_TYPES.has(columnBaseType(table.columns[column!]!).base) && !pkColumns.includes(column!)) {
+      const byPk = pkColumns.map(c => `${quote(CURSOR_ROW)}.${quote(c)} = ?`).join(' AND ')
+      const boundary = `COALESCE((SELECT ${quote(CURSOR_ROW)}.${quote(column!)} FROM ${quote(table.name)} AS ${quote(CURSOR_ROW)} WHERE ${byPk}), ?)`
+
+      return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${boundary}, ${rest.map(() => '?').join(', ')})`, ...values.slice(1), ...values)
+    }
 
     return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
   }
