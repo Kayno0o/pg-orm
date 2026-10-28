@@ -125,7 +125,7 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
 
   function pkWhere(id: unknown): WhereObject<AnyColumns> {
     if (pkColumns.length === 1)
-      return { [pkColumns[0]!]: id }
+      return { [pkColumns[0]!]: assertKeyValue(id, table.name, pkColumns[0]!, 'primaryKey') }
 
     if (typeof id !== 'object' || id === null) {
       throw new ValidationError(
@@ -148,7 +148,7 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
         )
       }
 
-      where[col] = part
+      where[col] = assertKeyValue(part, table.name, col, 'primaryKey')
     }
 
     return where
@@ -165,6 +165,16 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
     runAfter,
     applyVirtuals,
   })
+}
+
+const KEY_TYPES = new Set(['string', 'number', 'bigint', 'boolean'])
+
+/** `value` when a key column can be compared to it; an object or array would be read as an operator map or an IN list, matching rows the caller never named. */
+export function assertKeyValue(value: unknown, table: string, column: string, op: string): unknown {
+  if (KEY_TYPES.has(typeof value) || value instanceof Date || value instanceof Uint8Array)
+    return value
+
+  throw new ValidationError(`"${table}"."${column}" takes a single key value, not ${value === null ? 'null' : Array.isArray(value) ? 'an array' : typeof value === 'object' ? 'an object' : typeof value}.`, op, { field: column })
 }
 
 function formatPkValue(value: unknown): string {

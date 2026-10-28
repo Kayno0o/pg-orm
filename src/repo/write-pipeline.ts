@@ -20,6 +20,7 @@ import { copyField } from '../sql/copy'
 import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
+import { assertKeyValue } from './table-runtime'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
@@ -400,6 +401,8 @@ export class WritePipeline<
       for (const col of pkColumns) {
         if (key[col] === undefined || key[col] === null)
           throw new ValidationError(`updateManyById(): a row on "${table.name}" is missing its primary key "${col}".`, 'updateManyById', { field: col, value: row })
+
+        assertKeyValue(key[col], table.name, col, 'updateManyById')
       }
 
       // Two patches for one row would leave which one wins up to the planner.
@@ -594,7 +597,7 @@ export class WritePipeline<
       if (v[col] === undefined || v[col] === null)
         throw new ValidationError(`findOrCreate(): the values on "${table.name}" have no "${col}", the conflict target it looks the row up by.`, 'findOrCreate', { field: col })
 
-      return [col, v[col]]
+      return [col, assertKeyValue(v[col], table.name, col, 'findOrCreate')]
     })) as Where<TColumns>
 
     for (let attempt = 0; attempt < FIND_OR_CREATE_ATTEMPTS; attempt++) {

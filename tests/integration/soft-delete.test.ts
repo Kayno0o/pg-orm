@@ -1,6 +1,6 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { defineTable, softDelete } from '../../src/index'
+import { defineTable, softDelete, ValidationError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { allTables, postsTable, usersTable } from '../helpers/fixtures'
 
@@ -89,6 +89,14 @@ describe('Soft Delete', () => {
 
     expect(await repo.read.existsById(userId)).toBe(false)
     expect(await repo.read.existsById(userId, { withTrashed: true })).toBe(true)
+  })
+
+  it('deleteById refuses an operator object instead of trashing every row', async () => {
+    const repo = db.repo(usersTable)
+
+    await repo.write.insertMany([{ name: 'Alice', email: 'a@test.com' }, { name: 'Bob', email: 'b@test.com' }])
+    await expect(repo.write.deleteById({ gte: 0 })).rejects.toThrow(ValidationError)
+    expect(await repo.read.count()).toBe(2)
   })
 
   it('forceDelete removes row permanently', async () => {
