@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SQL } from 'bun'
-import { afterAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { testDatabase } from '../../src/index'
 import { TEST_URL } from '../helpers/db'
 
@@ -55,6 +55,18 @@ async function names(url: string): Promise<string[]> {
 
 const MEMBER = 'CREATE TABLE member (id serial PRIMARY KEY, name text NOT NULL);'
 const seedAda = async (db: Database) => void await db.raw('INSERT INTO member (name) VALUES ($1)', ['Ada'])
+
+// Every DROP DATABASE waits for a checkpoint, the first one flushing all the buffers earlier files left dirty: taken here, under a timeout of its own, it leaves each test's drops only its own writes to flush.
+beforeAll(async () => {
+  const admin = new SQL(serverUrl('postgres'))
+
+  try {
+    await admin`CHECKPOINT`
+  }
+  finally {
+    await admin.close()
+  }
+}, 60_000)
 
 afterAll(async () => {
   const admin = new SQL(serverUrl('postgres'))
