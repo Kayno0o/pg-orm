@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  SPACE_RE,
   TYPE_PARTS_RE,
   WHERE_RE,
 } from '../../../src/migration/regex'
@@ -8,21 +7,6 @@ import {
 // Snapshot matrix for migration regexes. Each fixture pins one PG catalog edge
 // case so accidental regex tweaks fail loudly instead of silently breaking
 // introspection or DDL generation.
-
-describe('SPACE_RE — FK action rule normalization', () => {
-  // Used in introspect.ts on FK update/delete rule strings from pg_catalog.
-  it('replaces every space (global) so "NO ACTION" → "no action"', () => {
-    expect('NO ACTION'.toLowerCase().replace(SPACE_RE, ' ')).toBe('no action')
-  })
-
-  it('collapses adjacent words separated by single spaces in "SET DEFAULT"', () => {
-    expect('SET DEFAULT'.toLowerCase().replace(SPACE_RE, ' ')).toBe('set default')
-  })
-
-  it('is global — every occurrence is replaced, not just the first', () => {
-    expect('a b c'.replace(SPACE_RE, '_')).toBe('a_b_c')
-  })
-})
 
 describe('WHERE_RE — partial-index WHERE detection', () => {
   // Used in diff/indexes.ts to find the WHERE predicate boundary in an

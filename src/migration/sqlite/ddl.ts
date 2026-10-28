@@ -15,7 +15,7 @@ const UNSUPPORTED_TYPE_RE = /^(?:vector|tsvector|tsquery)\b/
 /** The prefix a table being rebuilt is created under, before it takes the name of the one it replaces. */
 export const REBUILD_PREFIX = '_pgorm_new_'
 
-function hasConstraint(colDef: AnyColumnDef, type: ColumnConstraint['type']): boolean {
+export function hasConstraint(colDef: AnyColumnDef, type: ColumnConstraint['type']): boolean {
   return colDef.constraints.some(c => c.type === type)
 }
 

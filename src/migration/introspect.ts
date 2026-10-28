@@ -1,6 +1,8 @@
 import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
-import { SPACE_RE } from './regex'
 import { MIGRATION_TABLE } from './types'
+
+// pg_constraint's confupdtype and confdeltype codes, as the definitions spell the action.
+const FK_RULES: Record<string, string> = { a: 'no action', r: 'restrict', c: 'cascade', n: 'set null', d: 'set default' }
 
 function queryEnumRows(executor: { query: QueryFn }, schema: string): Promise<Record<string, unknown>[]> {
   return executor.query(`
@@ -67,25 +69,26 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
 
   const enumRows = await queryEnumRows(executor, schema)
 
+  // One row per column pair, conkey and confkey unnested side by side: information_schema joins on constraint names, which cross-join same-named and composite keys and hide another role's.
   const fkRows = await executor.query(`
     SELECT
-      tc.constraint_name,
-      tc.table_name,
-      kcu.column_name,
-      ccu.table_name AS referenced_table,
-      ccu.column_name AS referenced_column,
-      rc.update_rule,
-      rc.delete_rule,
-      tc.is_deferrable,
-      tc.initially_deferred
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage ccu
-      ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-    JOIN information_schema.referential_constraints rc
-      ON tc.constraint_name = rc.constraint_name AND tc.table_schema = rc.constraint_schema
-    WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
+      c.conname AS constraint_name,
+      t.relname AS table_name,
+      a.attname AS column_name,
+      rt.relname AS referenced_table,
+      ra.attname AS referenced_column,
+      c.confupdtype AS update_rule,
+      c.confdeltype AS delete_rule,
+      c.condeferrable AS is_deferrable,
+      c.condeferred AS initially_deferred
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_class rt ON rt.oid = c.confrelid
+    CROSS JOIN LATERAL unnest(c.conkey, c.confkey) AS k(attnum, refnum)
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+    JOIN pg_attribute ra ON ra.attrelid = c.confrelid AND ra.attnum = k.refnum
+    WHERE c.contype = 'f' AND n.nspname = $1
   `, [schema])
 
   const indexRows = await executor.query(`
@@ -146,9 +149,9 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       columnName: r.column_name as string,
       referencedTable: r.referenced_table as string,
       referencedColumn: r.referenced_column as string,
-      onUpdate: (r.update_rule as string).toLowerCase().replace(SPACE_RE, ' '),
-      onDelete: (r.delete_rule as string).toLowerCase().replace(SPACE_RE, ' '),
-      deferrable: r.is_deferrable === 'YES' ? r.initially_deferred === 'YES' ? 'deferred' : 'immediate' : undefined,
+      onUpdate: FK_RULES[r.update_rule as string] ?? 'no action',
+      onDelete: FK_RULES[r.delete_rule as string] ?? 'no action',
+      deferrable: r.is_deferrable ? r.initially_deferred ? 'deferred' : 'immediate' : undefined,
     })),
     indexes: indexRows.map(r => ({
       name: r.index_name as string,

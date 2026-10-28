@@ -12,6 +12,13 @@ function registry(...tables: AnyTableDef[]) {
 }
 
 describe('diffSchema', () => {
+  it('throws when two indexes get one name, as generated names can', () => {
+    const a = defineTable('a', t => ({ id: t.serial().primaryKey(), b_c: t.int4().index() }))
+    const ab = defineTable('a_b', t => ({ id: t.serial().primaryKey(), c: t.int4().index() }))
+
+    expect(() => diffSchema(liveTables([]), registry(a, ab))).toThrow('Index name "a_b_c_idx" on "a_b" is already another index\'s: give one of them a name.')
+  })
+
   it('detects new table', () => {
     const table = defineTable('users', t => ({
       id: t.serial().primaryKey(),

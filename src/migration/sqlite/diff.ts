@@ -3,9 +3,9 @@ import type { MigrationOp } from '../types'
 import type { SqliteLiveSchema, SqliteLiveTable } from './introspect'
 import { getColumnMeta } from '../../schema/column-meta'
 import { quote } from '../../sql/utils'
-import { buildDropIndexSql, buildDropTableSql, buildRenameColumnSql, buildRenameTableSql } from '../ddl'
+import { buildDropIndexSql, buildDropTableSql, buildRenameColumnSql, buildRenameTableSql, claimIndexName } from '../ddl'
 import { columnEntries } from '../types'
-import { sqliteAddColumn, sqliteCreateIndex, sqliteCreateTable, sqliteIndexName, sqliteRebuildTable, sqliteType } from './ddl'
+import { hasConstraint, sqliteAddColumn, sqliteCreateIndex, sqliteCreateTable, sqliteIndexName, sqliteRebuildTable, sqliteType } from './ddl'
 
 const SPACES_RE = /\s+/g
 const PUNCTUATION_SPACE_RE = / ?([(),]) ?/g
@@ -35,6 +35,7 @@ function diffTable(tableName: string, table: AnyTableDef, live: SqliteLiveTable)
     return []
 
   const liveTypes = new Map(live.columns.map(c => [c.name, c.type]))
+  const liveGenerated = new Set(live.columns.filter(c => c.generated).map(c => c.name))
   const sources = new Map<string, string>()
   const renames: [string, string][] = []
 
@@ -83,18 +84,21 @@ function diffTable(tableName: string, table: AnyTableDef, live: SqliteLiveTable)
   }
 
   const retyped = [...sources].filter(([name, source]) => liveTypes.get(source) !== sqliteType(tableName, name, table.columns[name]!.pgType))
+  // A plain column made generated loses its values, which the copy leaves out for the expression to recompute.
+  const generated = [...sources].filter(([name, source]) => !liveGenerated.has(source) && hasConstraint(table.columns[name]!, 'generated'))
   const changes = [
     ...renames.map(([from, to]) => `rename "${from}" to "${to}"`),
     ...added.map(name => `add "${name}"`),
     ...dropped.map(name => `drop "${name}"`),
     ...retyped.map(([name]) => `retype "${name}"`),
+    ...generated.map(([name]) => `make "${name}" generated`),
   ]
 
   return [{
     type: 'rebuild_table',
     table: tableName,
     sql: sqliteRebuildTable(tableName, table, sources).join(';\n'),
-    destructive: dropped.length > 0 || retyped.length > 0,
+    destructive: dropped.length > 0 || retyped.length > 0 || generated.length > 0,
     description: `Rebuild table "${tableName}"${changes.length > 0 ? ` (${changes.join(', ')})` : ' (constraints changed)'}`,
   }]
 }
@@ -170,7 +174,7 @@ export function diffSqliteSchema(live: SqliteLiveSchema, desired: ReadonlyMap<st
       const sql = sqliteCreateIndex(tableName, idx)
       const liveIdx = fresh.has(tableName) ? undefined : liveIndexes.get(name)
 
-      wanted.add(name)
+      claimIndexName(wanted, name, tableName)
 
       if (liveIdx && normalize(liveIdx.sql) === normalize(sql))
         continue

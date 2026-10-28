@@ -1,10 +1,11 @@
 import type { AnyTableDef, IndexDef } from '../../types/index'
 import type { LiveIndex, MigrationOp } from '../types'
-import { buildCreateIndexSql, buildDropIndexSql, buildIndexName, normalizeExpression } from '../ddl'
+import { buildCreateIndexSql, buildDropIndexSql, buildIndexName, claimIndexName, normalizeExpression } from '../ddl'
 import { WHERE_RE } from '../regex'
 
 function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<string, { tableName: string, idx: IndexDef }> {
   const result = new Map<string, { tableName: string, idx: IndexDef }>()
+  const taken = new Set<string>()
 
   for (const [tableName, tableDef] of desired) {
     const indexes = tableDef.indexes ?? []
@@ -12,6 +13,7 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
     for (const idx of indexes) {
       const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
 
+      claimIndexName(taken, name, tableName)
       result.set(name, { tableName, idx })
     }
   }

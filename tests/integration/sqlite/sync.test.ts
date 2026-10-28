@@ -186,6 +186,25 @@ describe('sync() on SQLite', () => {
     expect(await db.raw('SELECT "id" FROM "books" ORDER BY "id"')).toEqual([{ id: 1 }, { id: 2 }])
   })
 
+  it('refuses to make a plain column generated without allowDestructive, its values then recomputed', async () => {
+    const open = file()
+    const plain = defineTable('nums', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4() }))
+    const computed = defineTable('nums', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4().generated('"a" * 2') }))
+
+    await open([plain]).sync()
+    await opened.at(-1)!.raw('INSERT INTO "nums" ("a", "b") VALUES (1, 7)')
+
+    const db = open([computed])
+
+    await expect(db.sync()).rejects.toThrow(DestructiveOpError)
+
+    const { ops } = await db.sync({ allowDestructive: true })
+
+    expect(ops[0]!.description).toBe('Rebuild table "nums" (make "b" generated)')
+    expect(await db.raw('SELECT "a", "b" FROM "nums"')).toEqual([{ a: 1, b: 2 }])
+    expect((await open([computed]).sync()).ops).toEqual([])
+  })
+
   it('drops and recreates an index that changed, and drops one no longer declared', async () => {
     const open = file()
 

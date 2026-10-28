@@ -70,7 +70,7 @@ export interface MigrationOp {
     | 'create_enum' | 'alter_enum_add' | 'alter_enum_remove' | 'add_constraint' | 'drop_constraint'
     | 'add_fk' | 'drop_fk'
     | 'create_index' | 'drop_index'
-    | 'rename_column' | 'rename_table' | 'rename_index' | 'comment'
+    | 'rename_column' | 'rename_table' | 'rename_index' | 'rename_constraint' | 'comment'
     // SQLite: a change its ALTER TABLE cannot make, made by copying the table into a new one built to the definition.
     | 'rebuild_table'
   table?: string

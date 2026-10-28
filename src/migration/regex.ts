@@ -1,7 +1,6 @@
 // Migration-specific regex constants. Module-scoped to avoid recompilation
 // on every call (e18e/prefer-static-regex).
 
-export const SPACE_RE = / /g
 export const WHERE_RE = /\bWHERE\b/i
 
 // A type split into its name, its modifier and its array brackets: `varchar(10)[]`. A schema qualifier and identifier quotes are dropped before.
@@ -29,3 +28,5 @@ export const TIME_ZONE_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/
 // Pieces Postgres adds or drops when it prints an index predicate or a generated expression back (`WHERE ((kind = 'x'::text))` for `"kind" = 'x'`): casts, a quoted type name like `::"char"` included, identifier quotes, parentheses and spacing.
 export const PREDICATE_CAST_RE = /::(?:"[^"]+"|\w+)(?: varying| precision| with(?:out)? time zone)?(?:\[\])*/g
 export const PREDICATE_NOISE_RE = /["()\s]/g
+// Splits an expression around its string literals, which `split` keeps at the odd indexes.
+export const STRING_LITERAL_SPLIT_RE = /('(?:[^']|'')*')/

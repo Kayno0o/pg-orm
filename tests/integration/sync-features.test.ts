@@ -112,6 +112,39 @@ describe('sync() and the schema features', () => {
     expect((await sync([after, childAfter])).ops).toEqual([])
   })
 
+  it('rebuilds a partial index and a generated column whose string literal changed, and only then', async () => {
+    const tasks = (state: string) => defineTable('tasks', t => ({
+      id: t.serial().primaryKey(),
+      state: t.text().index({ where: `"state" = '${state}'` }),
+      label: t.text().generated(`'${state}: ' || "state"`),
+    }))
+
+    await sync([tasks('Active')])
+    expect((await sync([tasks('Active')])).ops).toEqual([])
+
+    const { ops } = await sync([tasks('active')], true)
+
+    expect(ops.map(op => op.type).sort()).toEqual(['alter_column', 'create_index', 'drop_index'])
+    expect((await sync([tasks('active')])).ops).toEqual([])
+  })
+
+  it('renames a table with its composite UNIQUE, keeping one, and a rollback names it back', async () => {
+    const before = defineTable('old_pairs', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4() })).withUnique(['a', 'b'])
+    const after = defineTable('pairs', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4() })).withUnique(['a', 'b']).renamedFrom('old_pairs')
+    const uniques = () => admin.raw(`SELECT conname AS name FROM pg_constraint WHERE contype = 'u' AND connamespace = '${SCHEMA}'::regnamespace ORDER BY conname`)
+
+    await sync([before])
+
+    const { ops } = await sync([after])
+
+    expect(ops.map(op => op.type)).toEqual(['rename_table', 'rename_constraint'])
+    expect(await uniques()).toEqual([{ name: 'pairs_a_b_key' }])
+    expect((await sync([after])).ops).toEqual([])
+
+    await at([after], db => db.rollback())
+    expect(await uniques()).toEqual([{ name: 'old_pairs_a_b_key' }])
+  })
+
   it('sets table and column comments, and a rollback puts the previous ones back', async () => {
     const v1 = defineTable('notes', t => ({ id: t.serial().primaryKey(), body: t.text().comment('The text') })).withComment('Notes')
 

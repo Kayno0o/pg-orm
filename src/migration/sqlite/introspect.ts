@@ -5,7 +5,8 @@ export interface SqliteLiveTable {
   name: string
   /** The `CREATE TABLE` SQLite keeps, as written and then edited by each `ALTER TABLE`. */
   sql: string
-  columns: { name: string, type: string }[]
+  /** A generated column's `hidden` is 2 (virtual) or 3 (stored) in `pragma_table_xinfo`. */
+  columns: { name: string, type: string, generated?: boolean }[]
 }
 
 export interface SqliteLiveIndex {
@@ -27,17 +28,17 @@ export async function introspectSqliteSchema(executor: { query: QueryFn }): Prom
     ORDER BY "name"
   `, [MIGRATION_TABLE])
   const columnRows = await executor.query(`
-    SELECT s."name" AS "table", c."name" AS "column", c."type"
+    SELECT s."name" AS "table", c."name" AS "column", c."type", c."hidden" IN (2, 3) AS "generated"
     FROM sqlite_schema s, pragma_table_xinfo(s."name") c
     WHERE s."type" = 'table' AND s."name" NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND s."name" <> $1
     ORDER BY s."name", c."cid"
   `, [MIGRATION_TABLE])
-  const columns = new Map<string, { name: string, type: string }[]>()
+  const columns = new Map<string, SqliteLiveTable['columns']>()
 
   for (const row of columnRows) {
     const list = columns.get(row.table as string) ?? []
 
-    list.push({ name: row.column as string, type: row.type as string })
+    list.push({ name: row.column as string, type: row.type as string, generated: Boolean(row.generated) })
     columns.set(row.table as string, list)
   }
 

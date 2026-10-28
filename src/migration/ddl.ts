@@ -1,10 +1,11 @@
 import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } from '../types/index'
+import { ValidationError } from '../errors/index'
 import { typeSql } from '../schema/column-default'
 import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody, quote } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
-import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
+import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, STRING_LITERAL_SPLIT_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
 
 // Postgres truncates a longer identifier, which then never reads back as the name it was created under.
 const MAX_IDENTIFIER_BYTES = 63
@@ -156,9 +157,9 @@ function closingParen(expr: string): number {
   return -1
 }
 
-// Compares expressions as Postgres prints them back (an index predicate, a generated column), so one spelled differently is not rewritten on every sync. Dropping every parenthesis is a heuristic: it cannot tell `(a OR b) AND c` from `a OR (b AND c)`.
+// Compares expressions as Postgres prints them back (an index predicate, a generated column), so one spelled differently is not rewritten on every sync; a string literal is compared as written. Dropping every parenthesis is a heuristic: it cannot tell `(a OR b) AND c` from `a OR (b AND c)`.
 export function normalizeExpression(expr: string | null | undefined): string {
-  return (expr ?? '').toLowerCase().replace(PREDICATE_CAST_RE, '').replace(PREDICATE_NOISE_RE, '')
+  return (expr ?? '').split(STRING_LITERAL_SPLIT_RE).map((part, i) => i % 2 === 1 ? part : part.toLowerCase().replace(PREDICATE_CAST_RE, '').replace(PREDICATE_NOISE_RE, '')).join('')
 }
 
 const EMPTY_ARRAY_DEFAULTS = new Set(['array[]', '\'{}\''])
@@ -415,6 +416,14 @@ export function buildDropFkSql(tableName: string, constraintName: string): strin
 
 export function buildIndexName(tableName: string, columns: string[], unique: boolean): string {
   return fitIdentifier(`${tableName}_${columns.join('_')}`, unique ? '_unique' : '_idx')
+}
+
+/** Refuses an index name another index of the definitions already has: generated names collide (`a` + `b_c` and `a_b` + `c` are both `a_b_c_idx`), and Postgres keeps one index per name. */
+export function claimIndexName(taken: Set<string>, name: string, tableName: string): void {
+  if (taken.has(name))
+    throw new ValidationError(`Index name "${name}" on "${tableName}" is already another index's: give one of them a name.`, 'index', { field: name })
+
+  taken.add(name)
 }
 
 // `concurrently` builds it alongside writes, outside any transaction, skipping a name a racing migration already built.
