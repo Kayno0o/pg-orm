@@ -100,8 +100,16 @@ export class SqliteDriver implements SqliteHandle {
     if (this._inTransaction())
       return this._run(sql, params)
 
-    if (this._queued === 0)
-      return this._waitBusy(() => this._run(sql, params))
+    // Only a statement that runs at once skips the queue: one waiting out SQLITE_BUSY there would wake inside a transaction begun meanwhile and commit or roll back with it.
+    if (this._queued === 0) {
+      try {
+        return this._run(sql, params)
+      }
+      catch (err) {
+        if (!isBusy(err))
+          throw err
+      }
+    }
 
     return this._exclusive(async () => this._waitBusy(() => this._run(sql, params)))
   }

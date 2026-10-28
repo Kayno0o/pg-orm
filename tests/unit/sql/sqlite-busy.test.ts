@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
 import { SqliteDriver } from '../../../src/sql/sqlite-driver'
 
@@ -39,5 +43,42 @@ describe('SqliteDriver busy wait', () => {
 
     await expect(run).rejects.toThrow('database is locked')
     expect(calls).toBe(1)
+  })
+})
+
+describe('SqliteDriver statement waiting on another process\'s lock', () => {
+  it('runs after a transaction begun meanwhile, so that transaction\'s rollback keeps its row', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pg-orm-busy-'))
+    const file = join(dir, 'busy.db')
+    const driver = new SqliteDriver(file)
+
+    try {
+      await driver.unsafe('CREATE TABLE t (n INTEGER)', [])
+      const other = new Database(file)
+
+      other.run('BEGIN IMMEDIATE')
+
+      // The insert's backoff has grown to its longest by the time the transaction starts retrying, so the transaction takes the lock first.
+      const insert = driver.unsafe('INSERT INTO t (n) VALUES (1)', [])
+
+      await Bun.sleep(200)
+      const failed = driver.begin(async () => {
+        await Bun.sleep(300)
+
+        throw new Error('rollback')
+      })
+
+      await Bun.sleep(5)
+      other.run('COMMIT')
+      other.close()
+
+      await insert
+      await expect(failed).rejects.toThrow('rollback')
+      expect(await driver.unsafe('SELECT n FROM t', [])).toEqual([{ n: 1 }])
+    }
+    finally {
+      await driver.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
