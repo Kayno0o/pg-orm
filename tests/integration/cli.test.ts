@@ -116,6 +116,21 @@ describe('pg-orm CLI', () => {
     expect(await columns()).toEqual(['id', 'title', 'body'])
   })
 
+  it('redacts the value a failing migration\'s error quotes, unless --raw', async () => {
+    const dir = project()
+
+    await cli(dir, ['sync'])
+    writeFileSync(join(dir, 'migrations', '99999999999999_bad.sql'), '-- migrate:up\nSELECT \'cli-secret\'::int;\n\n-- migrate:down\n')
+
+    const redacted = await cli(dir, ['apply'])
+    const raw = await cli(dir, ['apply', '--raw'])
+
+    expect(redacted.code).toBe(1)
+    expect(redacted.out).not.toContain('cli-secret')
+    expect(raw.code).toBe(1)
+    expect(raw.out).toContain('cli-secret')
+  })
+
   it('refuses to generate or sync while a file is not applied, naming it', async () => {
     const dir = project()
 

@@ -77,7 +77,7 @@ function requireWhere<TColumns extends AnyColumns>(where: Where<TColumns>, op: s
   const tape = where ? compileWhere<TColumns>(where) : undefined
 
   if (!tape || holdsForEveryRow(tape))
-    throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op, { value: where })
+    throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op)
 
   return () => tape
 }
@@ -408,7 +408,7 @@ export class WritePipeline<
 
       for (const col of pkColumns) {
         if (key[col] === undefined || key[col] === null)
-          throw new ValidationError(`updateManyById(): a row on "${table.name}" is missing its primary key "${col}".`, 'updateManyById', { field: col, value: row })
+          throw new ValidationError(`updateManyById(): a row on "${table.name}" is missing its primary key "${col}".`, 'updateManyById', { field: col })
 
         assertKeyValue(key[col], table.name, col, 'updateManyById')
       }
@@ -417,7 +417,7 @@ export class WritePipeline<
       const identity = pkColumns.map(col => `${col}=${String(key[col])}`).join(', ')
 
       if (seen.has(identity))
-        throw new ValidationError(`updateManyById(): the row ${identity} on "${table.name}" appears twice.`, 'updateManyById', { value: key })
+        throw new ValidationError(`updateManyById(): two rows on "${table.name}" share one ${pkColumns.join(', ')}.`, 'updateManyById', { field: pkColumns.join(', ') })
 
       seen.add(identity)
       prepared.push({ key, set: this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch)) })

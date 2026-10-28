@@ -5,16 +5,16 @@ import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { MigrationError } from './errors/index'
+import { MigrationError, sanitizePgErrorMessage } from './errors/index'
 import { applyMigrationFiles, pendingMigrations, syncMigration } from './migration/files'
 import { migrationName } from './migration/history'
 import { generateMigration, getMigrationStatus } from './migration/index'
 
-interface Flags { allowDestructive: boolean, dryRun: boolean }
+interface Flags { allowDestructive: boolean, dryRun: boolean, raw: boolean }
 
-const FLAGS: Record<string, keyof Flags> = { '--allow-destructive': 'allowDestructive', '--dry-run': 'dryRun' }
+const FLAGS: Record<string, keyof Flags> = { '--allow-destructive': 'allowDestructive', '--dry-run': 'dryRun', '--raw': 'raw' }
 
-// A flag a command ignores is refused, so `rollback --dry-run` never rolls back for real.
+// A flag a command ignores is refused, so `rollback --dry-run` never rolls back for real; `--raw` applies to every command.
 const COMMAND_FLAGS: Record<string, (keyof Flags)[]> = { generate: ['allowDestructive', 'dryRun'], sync: ['allowDestructive', 'dryRun'], apply: ['dryRun'] }
 
 async function loadConfig(): Promise<Required<Pick<PgOrmConfig, 'migrationsDir'>> & PgOrmConfig> {
@@ -176,10 +176,11 @@ Commands:
 
 Flags:
   --allow-destructive   Let generate and sync drop tables, columns and constraints
-  --dry-run             Print what generate, sync or apply would do, changing nothing`
+  --dry-run             Print what generate, sync or apply would do, changing nothing
+  --raw                 Print errors with the row values they quote, which are redacted by default`
 
 function parseArgs(argv: string[]): { positional: string[], flags: Flags } {
-  const flags: Flags = { allowDestructive: false, dryRun: false }
+  const flags: Flags = { allowDestructive: false, dryRun: false, raw: false }
   const positional: string[] = []
 
   for (const arg of argv) {
@@ -203,9 +204,11 @@ function parseArgs(argv: string[]): { positional: string[], flags: Flags } {
 }
 
 async function main(): Promise<void> {
-  process.env.REDACT_QUERY_LOGS ??= '0'
-
   const { positional: [cmd, arg], flags } = parseArgs(process.argv.slice(2))
+
+  // A CI log outlives the run, so a value an error quotes stays redacted unless asked for.
+  if (flags.raw)
+    process.env.REDACT_QUERY_LOGS = '0'
 
   if (!cmd || cmd === 'help') {
     console.log(HELP)
@@ -213,7 +216,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const refused = Object.entries(FLAGS).find(([, flag]) => flags[flag] && !COMMAND_FLAGS[cmd]?.includes(flag))
+  const refused = Object.entries(FLAGS).find(([, flag]) => flag !== 'raw' && flags[flag] && !COMMAND_FLAGS[cmd]?.includes(flag))
 
   if (refused) {
     console.error(`${refused[0]} does nothing for ${cmd}
@@ -266,7 +269,7 @@ void (async () => {
       console.error(`${err.name}: ${err.message}`)
 
       if (err.cause instanceof Error)
-        console.error(`  caused by: ${err.cause.message}`)
+        console.error(`  caused by: ${sanitizePgErrorMessage(err.cause.message)}`)
     }
     else {
       console.error(String(err))

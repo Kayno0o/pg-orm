@@ -7,7 +7,7 @@ import type { MigrationFile, QueryFn } from './types'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dialectOf } from '../dialect'
-import { MigrationError } from '../errors/index'
+import { MigrationError, sanitizePgErrorMessage } from '../errors/index'
 import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 import { migrationFile } from './index'
 import { outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
@@ -81,7 +81,7 @@ async function applyAndRecord(executor: MigrationExecutor, name: string, up: str
     await executor.query(inside, [])
   }
   catch (err) {
-    throw new MigrationError(`Migration "${name}" failed: ${err instanceof Error ? err.message : String(err)}`, 'apply', name, err)
+    throw new MigrationError(`Migration "${name}" failed: ${sanitizePgErrorMessage(err instanceof Error ? err.message : String(err))}`, 'apply', name, err)
   }
 
   await ensureMigrationTable(executor)

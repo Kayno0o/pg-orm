@@ -78,7 +78,7 @@ export interface DbConfig {
   /**
    * Scrub sensitive values from `QueryError.params`. Receives the positional
    * param array and returns the redacted copy. Called for every QueryError-
-   * derived error.
+   * derived error and for the params of every `onQuery` / `onSlowQuery` / `onError` event.
    *
    * **Default behavior:** when no redactor is set, every param is replaced
    * with the string `'[REDACTED]'`. This is safe-by-default — accidental

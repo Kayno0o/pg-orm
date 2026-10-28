@@ -1,6 +1,6 @@
 import type { Executable } from '../sql/executor'
 import type { QueryFn } from './types'
-import { MigrationError } from '../errors/index'
+import { MigrationError, sanitizePgErrorMessage } from '../errors/index'
 
 // A statement a transaction refuses, on a line of its own as a migration writes it.
 const OUTSIDE_TRANSACTION_RE = /^(?:CREATE (?:UNIQUE )?INDEX|DROP INDEX) CONCURRENTLY\b.*;$/gm
@@ -25,7 +25,7 @@ export async function runOutsideTransaction(outside: <T>(fn: (query: QueryFn) =>
         await query(`${sql};`, [])
       }
       catch (err) {
-        throw new MigrationError(`"${sql}" failed after the rest of the migration committed: a concurrent index build that fails leaves an invalid index, which the next sync drops and builds again; a migration file is already recorded as applied, so \`apply\` will not retry it. ${err instanceof Error ? err.message : String(err)}`, 'apply', undefined, err)
+        throw new MigrationError(`"${sql}" failed after the rest of the migration committed: a concurrent index build that fails leaves an invalid index, which the next sync drops and builds again; a migration file is already recorded as applied, so \`apply\` will not retry it. ${sanitizePgErrorMessage(err instanceof Error ? err.message : String(err))}`, 'apply', undefined, err)
       }
     }
   })

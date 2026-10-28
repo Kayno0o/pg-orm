@@ -2,6 +2,7 @@ import type { QueryEvent } from './base-executor'
 import type { DbConfig } from './config'
 import { logParams, queryLogsRedacted } from '../errors/index'
 import { SINGLE_QUOTE_RE, SQL_PLACEHOLDER_RE } from '../utils/regex'
+import { RAW_EVENT_PARAMS } from './base-executor'
 
 export interface FormatQueryOptions {
   /** Wrap the duration and the inlined params in ANSI colors (default: false). */
@@ -81,8 +82,9 @@ export function composeQueryLogger(
   return (event) => {
     onQuery?.(event)
 
+    // The debug line, an explicit opt-in ignored in production, shows the values a hook gets scrubbed.
     if (!queryLogsRedacted())
-      sink(formatQuery(event, { colors }))
+      sink(formatQuery({ ...event, params: (event as { [RAW_EVENT_PARAMS]?: unknown[] })[RAW_EVENT_PARAMS] ?? event.params }, { colors }))
   }
 }
 

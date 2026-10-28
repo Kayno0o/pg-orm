@@ -1,7 +1,7 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { logParams, queryLogsRedacted } from '../errors/index'
+import { redactedParams } from '../errors/index'
 import { copyIn, copyOut, unsafeQuery } from './adapter'
 
 /**
@@ -86,10 +86,8 @@ export interface Executable {
   copyOut?: (sql: string) => ReadableStream<Uint8Array>
 }
 
-// Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
-function eventParams(params: unknown[]): unknown[] {
-  return queryLogsRedacted() ? [] : logParams(params)
-}
+/** @internal */
+export const RAW_EVENT_PARAMS = Symbol('pg-orm raw event params')
 
 // --- Base Executor (shared query logic) ---
 
@@ -184,7 +182,9 @@ export abstract class BaseExecutor implements Executable {
       return
 
     const ctx = this._currentContext()
-    const event: QueryEvent = { sql, params: eventParams(params), durationMs, ...ctx ? { context: ctx } : {} }
+    const event: QueryEvent = { sql, params: redactedParams(params), durationMs, ...ctx ? { context: ctx } : {} }
+
+    Object.defineProperty(event, RAW_EVENT_PARAMS, { value: params })
     const slow = durationMs >= this._slowQueryThreshold
 
     if (failure.length)

@@ -761,6 +761,7 @@ pg-orm new add_index                # an empty file to write by hand
 
 - `--allow-destructive` lets `generate` and `sync` drop tables, columns and constraints; without it they refuse with `DestructiveOpError`.
 - `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included.
+- An error the CLI prints has the values Postgres quotes back redacted, as CI logs outlive the run; `--raw`, on any command, prints them.
 - `generate` and `sync` refuse with `MigrationError` while migration files are not applied, naming them: the diff reads the live database, so it would write their changes again. Run `pg-orm apply` first.
 - Each file, and each `sync`, is applied and recorded in one transaction holding an advisory lock: two deploys applying at once run each migration once, and a failed one leaves neither a record nor, for `sync`, a file.
 - Each statement of a generated file sits under a comment naming its op, `-- Revert: ...` in the down half.
@@ -905,7 +906,9 @@ A `redactParams` redactor **must not throw** — a throwing redactor propagates 
 `QueryError` constructor by design, so the bug surfaces loudly instead of silently
 producing empty params.
 
-The `onQuery` / `onSlowQuery` / `onError` events follow the same rules for `params`, except that with no `redactParams` they carry the raw values outside hard-redact mode, so a local debug hook can still render them.
+The `onQuery` / `onSlowQuery` / `onError` events follow the same rules for `params`: with no `redactParams` each value is scrubbed, `NODE_ENV` set or not, since a hook usually feeds a log shipper. `REDACT_QUERY_LOGS=0` or `redactParams: p => p` hands them the raw values. The `debug` line, an explicit opt-in ignored in hard-redact mode, still shows the values.
+
+`OrmError.cause` is not enumerable, as `Error.cause` is not, so `JSON.stringify(err)` or a logger spreading the error leaves the driver error out.
 
 ## Configuration
 

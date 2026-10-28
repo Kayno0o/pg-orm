@@ -3,11 +3,12 @@
  * Wraps the original driver error in `cause` for inspection.
  */
 export class OrmError extends Error {
-  override readonly cause: unknown
+  declare readonly cause: unknown
   constructor(message: string, cause?: unknown) {
     super(message)
     this.name = 'OrmError'
-    this.cause = cause
+    // Not enumerable, as `Error.cause` is: `JSON.stringify(err)` or a logger spreading the error would otherwise serialize the driver error and the row values its detail quotes.
+    Object.defineProperty(this, 'cause', { value: cause, writable: false, enumerable: false, configurable: true })
   }
 }
 
@@ -47,6 +48,17 @@ export function queryLogsRedacted(): boolean {
   return shouldRedact()
 }
 
+/** Params as `QueryError.params` and the query hooks' events carry them: none where query logs are redacted, raw on `REDACT_QUERY_LOGS=0`, else through `redactParams` or, without one, each value scrubbed. */
+export function redactedParams(params: unknown[]): unknown[] {
+  if (shouldRedact())
+    return []
+
+  if (rawRequested())
+    return params
+
+  return paramRedactor ? paramRedactor(params) : DEFAULT_PARAM_REDACTOR(params)
+}
+
 /** Params as a query log shows them outside hard-redact mode: through the configured `redactParams`, unless `REDACT_QUERY_LOGS=0` asks for them raw. */
 export function logParams(params: unknown[]): unknown[] {
   return paramRedactor && !rawRequested() ? paramRedactor(params) : params
@@ -70,25 +82,9 @@ export class QueryError extends OrmError {
     this.name = 'QueryError'
     this.table = table ?? statementTable(query)
 
-    const hardRedact = shouldRedact()
-
-    this.query = hardRedact ? '[REDACTED]' : query
-
-    if (hardRedact) {
-      this.params = []
-    }
-    else if (rawRequested()) {
-      this.params = params
-    }
-    else if (paramRedactor) {
-      // Intentionally NOT wrapped in try/catch: a throwing redactor is a
-      // programming bug in the caller's code, and silently dropping params
-      // masks it. See the ParamRedactor type doc above.
-      this.params = paramRedactor(params)
-    }
-    else {
-      this.params = DEFAULT_PARAM_REDACTOR(params)
-    }
+    this.query = shouldRedact() ? '[REDACTED]' : query
+    // A throwing redactor is not caught: it is a bug in the caller's code, which dropping the params would mask. See the ParamRedactor type doc above.
+    this.params = redactedParams(params)
   }
 }
 

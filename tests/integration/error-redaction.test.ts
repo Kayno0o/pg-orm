@@ -183,9 +183,53 @@ describe('Query hook events', () => {
     }
   })
 
-  it('keep params outside redaction so a dev debug hook still sees them', async () => {
-    const { query } = await capture()
+  it('scrub each param by default, even with NODE_ENV unset', async () => {
+    const { query, error } = await capture()
 
-    expect(query.params).toEqual(['hook-secret'])
+    expect(query.params).toEqual(['[REDACTED]'])
+    expect(error.params).toEqual(['[REDACTED]'])
+  })
+
+  it('carry raw params on REDACT_QUERY_LOGS=0', async () => {
+    process.env.REDACT_QUERY_LOGS = '0'
+
+    try {
+      expect((await capture()).query.params).toEqual(['hook-secret'])
+    }
+    finally {
+      delete process.env.REDACT_QUERY_LOGS
+    }
+  })
+})
+
+describe('debug logging', () => {
+  it('prints the values a hook gets scrubbed', async () => {
+    const lines: string[] = []
+    const db = createTestDb({ debug: line => lines.push(line) })
+
+    await db.raw('SELECT $1::text AS v', ['debug-value'])
+    await db.close({ timeout: 5000 })
+
+    expect(lines.some(line => line.includes('\'debug-value\''))).toBe(true)
+  })
+})
+
+describe('OrmError cause', () => {
+  it('is not enumerable, so serializing the error leaves the driver error out', async () => {
+    const db = createTestDb()
+
+    try {
+      await db.raw('SELECT $1::int AS v', ['cause-secret'])
+    }
+    catch (err) {
+      expect(Object.keys(err as object)).not.toContain('cause')
+      expect(JSON.stringify(err)).not.toContain('cause-secret')
+      expect((err as Error).cause).toBeInstanceOf(Error)
+    }
+    finally {
+      await db.close({ timeout: 5000 })
+    }
+
+    expect.assertions(3)
   })
 })
