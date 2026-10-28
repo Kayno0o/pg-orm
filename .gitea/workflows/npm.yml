@@ -13,7 +13,7 @@ jobs:
     runs-on: alpine
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
@@ -35,8 +35,14 @@ jobs:
         env:
           PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
+      # The registry token leaves the runner before any other tool runs.
+      - name: Remove npm authentication
+        if: always()
+        run: rm -f ~/.npmrc
+
+      # The changelog tool is the locked dev dependency, not whatever the registry serves as latest.
       - name: Generate changelog
-        run: bun x @kaynooo/changelogitea@latest
+        run: ./node_modules/.bin/changelogitea
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
           DISCORD_WEBHOOK: ${{secrets.DISCORD_WEBHOOK}}

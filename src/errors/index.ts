@@ -422,10 +422,12 @@ const PG_DETAIL_LINE_RE = /\bDetail:.*$/gm
 const PG_TRAILING_INPUT_RE = /: ".*$/gm
 const PG_OUT_OF_RANGE_RE = /\bvalue ".*" is out of range/g
 const PG_BYTE_SEQUENCE_RE = /(invalid byte sequence for encoding "[^"]*"): .*$/gm
+// A parameter value Postgres names inline: `time zone "x" not recognized`, `syntax error at or near "x"`.
+const PG_QUOTED_INPUT_RE = /\b(time zone|at or near) "(?:[^"]|"")*"/g
 
 /**
  * Strip data values from a raw PG error message before it becomes a `QueryError.message`, in every environment, development included.
- * The value of `Key (col)=(value)`, the input a data exception quotes back (`invalid input syntax for type uuid: "x"`) and the whole `Detail:` line are replaced; structured fields on `ConstraintError` (constraint, table, column) still tell what failed.
+ * The value of `Key (col)=(value)`, the input a data exception quotes back (`invalid input syntax for type uuid: "x"`, `time zone "x" not recognized`) and the whole `Detail:` line are replaced; structured fields on `ConstraintError` (constraint, table, column) still tell what failed.
  *
  * Set `REDACT_QUERY_LOGS=0` to opt out (e.g. during local repro).
  */
@@ -439,6 +441,7 @@ export function sanitizePgErrorMessage(message: string): string {
     .replace(PG_TRAILING_INPUT_RE, ': "[REDACTED]"')
     .replace(PG_OUT_OF_RANGE_RE, 'value "[REDACTED]" is out of range')
     .replace(PG_BYTE_SEQUENCE_RE, (_match, prefix: string) => `${prefix}: [REDACTED]`)
+    .replace(PG_QUOTED_INPUT_RE, (_match, prefix: string) => `${prefix} "[REDACTED]"`)
 }
 
 // Driver error fields that name what failed without holding a value: `detail`, `hint`, `where` and `internalQuery` can quote the row.

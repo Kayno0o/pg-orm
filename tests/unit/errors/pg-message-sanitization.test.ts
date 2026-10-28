@@ -46,6 +46,8 @@ describe('sanitizePgErrorMessage', () => {
     expect(sanitizePgErrorMessage('invalid input value for enum mood: "se"cret"')).toBe('invalid input value for enum mood: "[REDACTED]"')
     expect(sanitizePgErrorMessage('value "99999999999" is out of range for type integer')).toBe('value "[REDACTED]" is out of range for type integer')
     expect(sanitizePgErrorMessage('invalid byte sequence for encoding "UTF8": 0x00')).toBe('invalid byte sequence for encoding "UTF8": [REDACTED]')
+    expect(sanitizePgErrorMessage('time zone "Secret/Zone" not recognized')).toBe('time zone "[REDACTED]" not recognized')
+    expect(sanitizePgErrorMessage('syntax error at or near "hunter2"')).toBe('syntax error at or near "[REDACTED]"')
   })
 
   it('REDACT_QUERY_LOGS=0 opts out of sanitization', () => {

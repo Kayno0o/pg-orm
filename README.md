@@ -961,7 +961,7 @@ values never leak into shared logs. The mode is resolved per error:
 - `REDACT_QUERY_LOGS=0` — opt out entirely, in production too: raw SQL, params and driver messages are preserved verbatim, a `redactParams` included (use for local debugging only).
 - Otherwise — apply the `redactParams` of the `Database` that ran the statement if set, else the safe default that scrubs every param. Each `Database` keeps its own: two in one process never share one.
 
-In hard-redact mode no row value is reachable from an error: the message loses the values Postgres quotes back (`Key (email)=(...)`, `invalid input syntax for type uuid: "..."`), the raw driver error on `cause` is replaced by a copy holding only that message and its value-free fields (`code`, `errno`, `table`, `column`, `constraint`...), and `ValidationError.value` is `'[REDACTED]'`.
+In hard-redact mode the values Postgres is known to quote back leave the message (`Key (email)=(...)`, `invalid input syntax for type uuid: "..."`, `value "..." is out of range`, `time zone "..." not recognized`, `syntax error at or near "..."`), the raw driver error on `cause` is replaced by a copy holding only that message and its value-free fields (`code`, `errno`, `table`, `column`, `constraint`...), and `ValidationError.value` is `'[REDACTED]'`. Two things can still carry input: a driver message none of those patterns covers passes as Postgres wrote it, and a `ValidationError` message can quote the argument it refuses (a page number, a limit, a `stringAgg` delimiter), though never a row value the repository was asked to write.
 
 A `redactParams` redactor **must not throw** — a throwing redactor propagates out of the
 `QueryError` constructor by design, so the bug surfaces loudly instead of silently
@@ -1129,9 +1129,12 @@ input. They are explicitly marked `@trusted` in JSDoc:
 | `t.text().check(expr)` | `CHECK (expr)` in DDL |
 | `t.int().generated(expr)` | `GENERATED ALWAYS AS (expr) STORED` in DDL |
 | `t.text().defaultRaw(sql)` | `DEFAULT sql` in DDL |
-| `t.text().index({ where })` | `WHERE` clause of a partial index. Validated at `defineTable()` to reject `;` / `--` / `/*` outside string literals. |
+| `t.text().index({ where })`, `withIndexes` `where` and `expressions` | `WHERE` clause of a partial index, expressions an index is built on (`lower(email)`). Validated at `defineTable()` to reject `;` / `--` / `/*` outside string literals. |
 | `q.computedRaw(expr, alias)`, `rawExpr(sql)` | SELECT-list expression |
 | `e.raw(sql, ...params)` | WHERE/ON fragment (positional `?` params are bound, `??` is a literal `?` for the jsonb `?`, `?|`, `?&` operators, a `?` inside quotes is left alone; the surrounding SQL is verbatim) |
+| `q.with(name, sql, params)`, `q.withRecursive(name, sql, params)` | a CTE body given as a string (`params` bound); given a builder, it is parameterized like any query |
+| `update().setRaw(col, sql)` | the value a column is set to |
+| `u.raw(sql, ...params)` in an upsert `set` callback | the value the conflict update writes (`?` params bound) |
 | `db.raw(sql, params)` / tagged template | full query body |
 
 Validation errors (invalid identifiers, non-finite numbers, unsafe delimiters,
