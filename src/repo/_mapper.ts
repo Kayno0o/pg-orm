@@ -16,7 +16,7 @@ export function createMapperFactory(table: AnyTableDef, dialect: Dialect = 'post
       table.columns,
       selectedColumns(s) ?? undefined,
       s.omitColumns.length ? s.omitColumns : undefined,
-      s.computedColumns.length ? s.computedColumns.map(c => c.alias) : undefined,
+      s.computedColumns.length ? s.computedColumns.map(c => c.pgType ? [c.alias, c.pgType] as const : c.alias) : undefined,
       dialect,
     )
   }

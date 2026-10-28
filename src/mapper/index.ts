@@ -255,6 +255,9 @@ function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
 
 type Field = readonly [key: string, coercion: Coercion | undefined]
 
+/** A computed alias, or an alias and the `pgType` its value reads back as. */
+export type ComputedField = string | readonly [alias: string, pgType: string]
+
 let _codegenAllowed: boolean | undefined
 
 function codegenAllowed(): boolean {
@@ -307,7 +310,7 @@ export function compileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
   omit?: string[],
-  computed?: string[],
+  computed?: readonly ComputedField[],
   dialect: Dialect = 'postgres',
 ): RowMapper<Record<string, unknown>> {
   const colNames = pick ?? Object.keys(columns)
@@ -322,16 +325,20 @@ export function compileMapper<TColumns extends AnyColumns>(
       coerced.set(c, coercion)
   }
 
-  // Fast path: full identity only when no coercion is needed. Computed aliases ride
+  // A computed alias names an expression, not a column, so it is carried through as the driver returned it unless it says the type it reads back as.
+  const computedFields = (computed ?? [])
+    .map((field): Field => typeof field === 'string' ? [field, undefined] : [field[0], coercionFor(field[1], dialect)])
+    .filter(([alias]) => !filteredCols.includes(alias))
+
+  // Fast path: full identity only when no coercion is needed. Untyped computed aliases ride
   // along untouched, since identity hands the whole row back.
-  if (!pick && !omit && filteredCols.length === allKeys.length && coerced.size === 0) {
+  if (!pick && !omit && filteredCols.length === allKeys.length && coerced.size === 0 && computedFields.every(([, coercion]) => !coercion)) {
     return identityMapper
   }
 
   const fields: Field[] = filteredCols
     .map((c): Field => [c, coerced.get(c)])
-    // A computed alias names an expression, not a column, so nothing is known about its type and it is carried through as the driver returned it.
-    .concat((computed ?? []).filter(alias => !filteredCols.includes(alias)).map((alias): Field => [alias, undefined]))
+    .concat(computedFields)
 
   return codegenAllowed() ? compiledMapper(fields) : closureMapper(fields)
 }
@@ -364,10 +371,10 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   columns: TColumns,
   pick?: string[],
   omit?: string[],
-  computed?: string[],
+  computed?: readonly ComputedField[],
   dialect: Dialect = 'postgres',
 ): RowMapper<Record<string, unknown>> {
-  const key = `${dialect}:${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? [...computed].sort().join(',') : ''}`
+  const key = `${dialect}:${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? computed.map(field => typeof field === 'string' ? field : field.join(':')).sort().join(',') : ''}`
   const cached = _mapperCache.get(key)
 
   if (cached !== undefined) {

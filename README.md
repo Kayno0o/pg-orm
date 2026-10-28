@@ -244,6 +244,18 @@ const posts = await PostRepo.read.findMany(q =>
 // posts[0].commentsCount: number, posts[0].approvedCount: number
 ```
 
+`withSum`, `withAvg`, `withMin` and `withMax` aggregate a column of the related rows the same way, with the same options, and `withExists` flags whether a related row exists, on any relation type:
+
+```ts
+const customers = await CustomerRepo.read.findMany(q => q
+  .withSum('orders', 'total')                              // ordersTotalSum: number | null
+  .withMax('orders', 'placedAt', { as: 'lastOrderAt' })    // lastOrderAt: Date | null
+  .withExists('orders', { where: { status: 'unpaid' }, as: 'owes' }), // owes: boolean
+)
+```
+
+The default alias is the relation, the capitalized column and the function (`ordersTotalSum`). A sum, min, max or average over no related row is `null`. Min and max are typed as the column. A sum keeps the column's precision: a number for integer and float columns, a `bigint` for `int8`, a string for `numeric`. An average is a number for integer and float columns and a string for `int8` and `numeric`. A sum or average of a non-numeric column throws a `ValidationError`.
+
 ### Filtering on Relations
 
 `whereHas(relation, where?, opts?)` keeps the rows with at least one related row matching `where`, `whereDoesntHave` those with none. Each becomes a correlated `EXISTS` subquery built from the relation's keys, on every relation type, and the callback is a WHERE typed against the target's columns and relations, so it nests. The same filter is `e.has()` and `e.doesntHave()` inside any WHERE callback, which composes with `e.and`, `e.or` and `e.not` and works in `count`, `exists`, `paginate`, streams, include callbacks, updates and deletes:

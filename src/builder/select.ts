@@ -1,15 +1,17 @@
-import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef, ScopeOptions } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef, ScopeOptions } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
-import type { AggResult, ExprBuilder, ExprTape, RelationWhere, SubqueryRef, TypedExpr } from './expr'
-import type { IncludeCallback, OrderDir, OrderEntry, TableTarget } from './state'
+import type { AggResult, ExprBuilder, ExprTape, RelationTarget, RelationWhere, SubqueryRef, TypedExpr } from './expr'
+import type { IncludeCallback, OrderDir, OrderEntry, RelationAggregateFn, TableTarget } from './state'
 import type { VectorSearchOptions } from './vector-search'
 import { SOFT_DELETE_SCOPE } from '../constants'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
+import { capitalize } from '../utils/string'
 import { placeholderNumbers } from './_placeholders'
 import { appendWhere, compileWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
+import { aggregateMethod } from './state'
 import { vectorSearchSettings } from './vector-search'
 
 type CountableRelations<TRelations extends AnyRelations> = {
@@ -17,6 +19,25 @@ type CountableRelations<TRelations extends AnyRelations> = {
 }[keyof TRelations] & string
 
 type RelationColumns<R> = R extends RelationDef<any, any, any, infer T> ? T['columns'] : AnyColumns
+
+type ColumnType<C> = C extends AnyColumnDef ? C['_type'] : unknown
+
+// The columns a sum or an average reads: number, bigint and numeric ones, numeric typed as a string like text, so text passes here and is refused at runtime.
+type NumericColumns<TC extends AnyColumns> = { [K in keyof TC & string]: ColumnType<TC[K]> extends number | bigint | string ? K : never }[keyof TC & string]
+
+// A sum keeps the column's precision; an average of integers is fractional, so only a float column's stays a number.
+type SumOf<T> = T extends bigint ? bigint : T extends number ? number : string
+type AvgOf<T> = T extends number ? number : string
+
+type TargetColumn<R, C extends string> = ColumnType<RelationColumns<R>[C]>
+
+/** What every relation aggregate takes: an alias, a filter on the related rows typed against their table, and the scopes to lift (`withDeleted` lifts softDelete). */
+export interface RelationAggregateOptions<TAlias extends string, R> {
+  as?: TAlias
+  where?: OptionalWhere<RelationTarget<R>['columns'], RelationTarget<R>['relations']>
+  withDeleted?: boolean
+  withoutScopes?: string[]
+}
 
 // A joined table's columns, keyed `alias.col`; an outer join makes them nullable.
 export type Joined<TJoin extends AnyColumns, TAlias extends string, TNullable extends boolean> = {
@@ -443,14 +464,40 @@ export class SelectBuilder<
    * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
    * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withDeleted`; the target's and pivot's other scopes apply unless named in `withoutScopes`.
    */
-  withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
-    relation: K,
-    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean, withoutScopes?: string[] },
-  ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup, TJoined> {
-    const alias = opts?.as ?? `${relation}Count`
+  withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(relation: K, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup, TJoined> {
+    return this._aggregate('count', relation, undefined, opts, `${relation}Count`)
+  }
 
-    validateIdentifier(alias, 'withCount alias')
-    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: [...opts?.withoutScopes ?? [], ...opts?.withDeleted ? [SOFT_DELETE_SCOPE] : []] })
+  /** Add whether the row has a related row as a boolean column, on any relation type: `.withExists('profile')` gives `profileExists: boolean`. Options as `withCount`. */
+  withExists<K extends keyof TRelations & string, TAlias extends string = `${K}Exists`>(relation: K, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, boolean>, TGroup, TJoined> {
+    return this._aggregate('exists', relation, undefined, opts, `${relation}Exists`)
+  }
+
+  /** Add the sum of a numeric column over the related rows, `null` when there are none: `.withSum('orders', 'total')` gives `ordersTotalSum`. An int8 sum reads back as a bigint and a numeric one as a string, so neither loses precision. Options as `withCount`. */
+  withSum<K extends CountableRelations<TRelations>, C extends NumericColumns<RelationColumns<TRelations[K]>>, TAlias extends string = `${K}${Capitalize<C>}Sum`>(relation: K, column: C, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, SumOf<TargetColumn<TRelations[K], C>> | null>, TGroup, TJoined> {
+    return this._aggregate('sum', relation, column, opts, `${relation}${capitalize(column)}Sum`)
+  }
+
+  /** Add the average of a numeric column over the related rows, `null` when there are none: a number for a float or integer column, a string for an int8 or numeric one. Options as `withCount`. */
+  withAvg<K extends CountableRelations<TRelations>, C extends NumericColumns<RelationColumns<TRelations[K]>>, TAlias extends string = `${K}${Capitalize<C>}Avg`>(relation: K, column: C, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, AvgOf<TargetColumn<TRelations[K], C>> | null>, TGroup, TJoined> {
+    return this._aggregate('avg', relation, column, opts, `${relation}${capitalize(column)}Avg`)
+  }
+
+  /** Add the smallest value of a column over the related rows, typed as the column, `null` when there are none. Options as `withCount`. */
+  withMin<K extends CountableRelations<TRelations>, C extends keyof RelationColumns<TRelations[K]> & string, TAlias extends string = `${K}${Capitalize<C>}Min`>(relation: K, column: C, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TargetColumn<TRelations[K], C> | null>, TGroup, TJoined> {
+    return this._aggregate('min', relation, column, opts, `${relation}${capitalize(column)}Min`)
+  }
+
+  /** Add the largest value of a column over the related rows, typed as the column, `null` when there are none. Options as `withCount`. */
+  withMax<K extends CountableRelations<TRelations>, C extends keyof RelationColumns<TRelations[K]> & string, TAlias extends string = `${K}${Capitalize<C>}Max`>(relation: K, column: C, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, TargetColumn<TRelations[K], C> | null>, TGroup, TJoined> {
+    return this._aggregate('max', relation, column, opts, `${relation}${capitalize(column)}Max`)
+  }
+
+  private _aggregate(fn: RelationAggregateFn, relation: string, column: string | undefined, opts: RelationAggregateOptions<string, unknown> | undefined, fallback: string): never {
+    const alias = opts?.as ?? fallback
+
+    validateIdentifier(alias, `${aggregateMethod(fn)} alias`)
+    this._state.relationAggregates.push({ fn, relation, column, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: [...opts?.withoutScopes ?? [], ...opts?.withDeleted ? [SOFT_DELETE_SCOPE] : []] })
 
     return this as never
   }

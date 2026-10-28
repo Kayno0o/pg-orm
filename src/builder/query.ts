@@ -6,7 +6,7 @@ export type { ConflictExprBuilder, ConflictSet, ConflictValue } from './conflict
 export { DeleteBuilder } from './delete'
 export { type ConflictUpdate, InsertBuilder, OnConflictBuilder } from './insert'
 export { MergeBuilder } from './merge'
-export { type RawExpr, rawExpr, SelectBuilder } from './select'
+export { type RawExpr, rawExpr, type RelationAggregateOptions, SelectBuilder } from './select'
 export { SetOperationBuilder } from './set-op'
 export type { IncludeCallback, IncludeEntry } from './state'
 export { rawSql } from './state'

@@ -67,7 +67,8 @@ type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
 // A value, or an expression from the builder (`ref()`, `coalesce()`, `caseWhen()`) to compare against.
 type ColVal<TColumns extends AnyColumns, K extends keyof TColumns & string> = TColumns[K]['_type'] | TypedExpr<unknown>
 
-type RelationTarget<R> = R extends RelationDef<any, any, any, infer T> ? T : AnyTableDef
+/** The table a relation reaches, `AnyTableDef` when it was declared by name. */
+export type RelationTarget<R> = R extends RelationDef<any, any, any, infer T> ? T : AnyTableDef
 
 /** A WHERE on a relation's rows, typed against its table: the callback `has()` and `whereHas()` take. */
 export type RelationWhere<R> = (e: ExprBuilder<RelationTarget<R>['columns'], RelationTarget<R>['relations']>) => ExprTape

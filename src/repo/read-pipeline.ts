@@ -1,5 +1,5 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereFn, WhereInput } from '../builder/query'
-import type { BuilderState, IncludeEntry } from '../builder/state'
+import type { BuilderState, IncludeEntry, RelationAggregateFn } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
@@ -7,11 +7,11 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstrai
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
-import { OP_SCALAR } from '../builder/_tape'
+import { OP_EXISTS, OP_SCALAR } from '../builder/_tape'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
-import { selectedColumns } from '../builder/state'
+import { aggregateMethod, selectedColumns } from '../builder/state'
 import { vectorSearchSettings } from '../builder/vector-search'
-import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
+import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
@@ -20,9 +20,12 @@ import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { isPlainObject } from '../utils/collection'
 import { createMapperFactory } from './_mapper'
-import { resolveRelationFilters } from './relation-filter'
-import { liftedScopes, resolveScopes } from './table-behavior'
+import { relationSubquery, resolveRelationFilters } from './relation-filter'
+import { liftedScopes } from './table-behavior'
 import { buildTableRuntime, isKeyValue } from './table-runtime'
+
+// The column types whose sum and average read back as a float8 number.
+const FLOAT_RESULT_TYPES = new Set(['int2', 'int4', 'serial', 'float4', 'float8'])
 
 // The column a page carries its total in.
 const PAGE_TOTAL = '__pgorm_total'
@@ -181,7 +184,7 @@ export class ReadPipeline<
   // `countQuery` rides along as a scalar subquery, which the database runs once, its result read off the first row and dropped before mapping: a page and its total in one round trip, the page still stopping at its LIMIT. The total is unknown when the page is empty.
   private async _select(finalBuilder: SelectBuilder<TColumns, TRelations, any>, opts?: SelectOptions, countQuery?: SelectBuilder<TColumns, any, any>): Promise<{ rows: any[], total?: number }> {
     this._prepare(finalBuilder)
-    this._resolveCounts(finalBuilder)
+    this._resolveAggregates(finalBuilder)
 
     const state = finalBuilder.getState()
 
@@ -506,7 +509,7 @@ export class ReadPipeline<
 
     this._orderByKeyIfUnordered(finalBuilder)
 
-    this._resolveCounts(finalBuilder)
+    this._resolveAggregates(finalBuilder)
     this._prepare(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
@@ -654,42 +657,61 @@ export class ReadPipeline<
     state.whereTape &&= resolveRelationFilters(state.whereTape, this._runtime.table, state.alias ?? this._runtime.table.name, this._tableRegistry)
   }
 
-  // A counted table outside the registry has no known soft-delete column, so its trashed rows would be counted.
-  private _registered(name: string, relation: string): AnyTableDef {
-    const table = this._tableRegistry?.get(name)
-
-    if (!table)
-      throw new ValidationError(`withCount("${relation}"): "${name}" is not in the database's tables: list it in config.tables.`, 'withCount', { field: relation })
-
-    return table
-  }
-
-  // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.
-  private _resolveCounts(builder: SelectBuilder<any, any, any>): void {
+  // Each relation aggregate becomes a correlated subquery column; it needs the registry for the related table and its scopes, which the builder does not have.
+  private _resolveAggregates(builder: SelectBuilder<any, any, any>): void {
     const state = builder.getState()
-    const { table, pkColumns } = this._runtime
+    const { table } = this._runtime
 
-    for (const { relation, alias, where, withoutScopes } of state.relationCounts.splice(0)) {
+    for (const { fn, relation, column, alias, where, withoutScopes } of state.relationAggregates.splice(0)) {
+      const caller = aggregateMethod(fn)
       const rel = (table.relations as AnyRelations)[relation]
 
-      if (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough'))
-        throw new ValidationError(`withCount(): "${relation}" is not a hasMany or hasManyThrough relation of "${table.name}".`, 'withCount', { field: relation })
+      if (fn !== 'exists' && (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough')))
+        throw new ValidationError(`${caller}(): "${relation}" is not a hasMany or hasManyThrough relation of "${table.name}".`, caller, { field: relation })
 
-      if (pkColumns.length !== 1)
-        throw new ValidationError(`withCount(): "${table.name}" has a composite primary key, which a relation count cannot join on.`, 'withCount', { field: relation })
+      const { query, target, alias: child } = relationSubquery({ table, relation, outer: state.alias ?? table.name, registry: this._tableRegistry, caller, where, lifted: withoutScopes, depth: 0 })
 
-      const parentKey = `${quote(state.alias ?? table.name)}.${quote(pkColumns[0]!)}`
-      const target = this._registered(rel.targetTable, relation)
-      const pivot = rel.type === 'hasManyThrough' ? this._registered(rel.throughTable!, relation) : undefined
-      const child = '"__count"'
-      const from = pivot
-        ? `FROM ${quote(pivot.name)} AS "__pivot" JOIN ${quote(target.name)} AS ${child} ON ${child}.${quote(target.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
-        : `FROM ${quote(target.name)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
-      const expr = `SELECT count(*)${this._dialect === 'postgres' ? '::int' : ''} ${from}`
-      const scopes = [...resolveScopes(target, '__count'), ...pivot ? resolveScopes(pivot, '__pivot') : []].filter(scope => !withoutScopes.includes(scope.name))
-      const filters = [...where ? [{ tape: where, qualifier: '__count' }] : [], ...scopes.map(scope => ({ tape: scope.tape, qualifier: scope.qualifier! }))]
+      if (fn === 'exists') {
+        state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_EXISTS, subquery: query.asExists() }], pgType: 'bool' })
 
-      state.computedColumns.push(filters.length > 0 ? { expr, alias, filters } : { expr: `(${expr})`, alias })
+        continue
+      }
+
+      const { expr, pgType } = this._aggregateExpr(fn, relation, column, target, child)
+      const sub = query.getState()
+
+      sub.columns = []
+      sub.computedColumns = [{ expr, alias: 'value' }]
+      state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_SCALAR, subquery: query }], pgType })
     }
+  }
+
+  // An aggregate's SELECT list and the type its value reads back as. Postgres sums an int4 to an int8 and averages integers to a numeric, both returned as strings, so a float or integer column's sum and average are cast to float8.
+  private _aggregateExpr(fn: Exclude<RelationAggregateFn, 'exists'>, relation: string, column: string | undefined, target: AnyTableDef, child: string): { expr: string, pgType?: string } {
+    const postgres = this._dialect === 'postgres'
+
+    if (fn === 'count')
+      return { expr: `count(*)${postgres ? '::int' : ''}` }
+
+    const caller = aggregateMethod(fn)
+    const col = column === undefined ? undefined : (target.columns as AnyColumns)[column]
+
+    if (!col)
+      throw new ValidationError(`${caller}("${relation}", "${column}"): "${target.name}" has no column "${column}".`, caller, { field: column })
+
+    const ref = `${quote(child)}.${quote(column!)}`
+
+    if (fn === 'min' || fn === 'max')
+      return { expr: `${fn}(${ref})`, pgType: col.pgType }
+
+    const { base } = columnBaseType(col)
+
+    if (FLOAT_RESULT_TYPES.has(base))
+      return { expr: `${fn}(${ref})${postgres ? '::float8' : ''}`, pgType: 'float8' }
+
+    if (base === 'numeric' || base === 'int8' || base === 'bigserial')
+      return { expr: `${fn}(${ref})`, pgType: fn === 'sum' && base !== 'numeric' ? 'int8' : 'numeric' }
+
+    throw new ValidationError(`${caller}("${relation}", "${column}"): "${column}" is a ${col.pgType} column, which ${caller} cannot read.`, caller, { field: column })
   }
 }

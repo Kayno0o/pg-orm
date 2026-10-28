@@ -210,7 +210,7 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
     if (pgAggregate)
       sb.postgresOnly(`${pgAggregate[1]}()`)
 
-    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filters ? `(${cc.expr}${cc.filters.map(f => ` AND ${sb.inlineExpr(f.tape, f.qualifier, null)}`).join('')})` : cc.expr
+    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.expr
 
     cols.push(`${expr} AS ${quote(cc.alias)}`)
   }

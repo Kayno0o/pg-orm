@@ -3,6 +3,7 @@ import type { SelectBuilder } from './select'
 import type { VectorSearchOptions } from './vector-search'
 import { ValidationError } from '../errors/index'
 import { qualifyCol } from '../sql/utils'
+import { capitalize } from '../utils/string'
 
 export { PLACEHOLDER_RE } from './_placeholders'
 
@@ -77,7 +78,7 @@ export interface BuilderState {
   limitPer?: string
   computedColumns: ComputedColumn[]
   // `withCount` requests, turned into computed columns by the repository, which knows the related tables.
-  relationCounts: RelationCount[]
+  relationAggregates: RelationAggregate[]
   distinct: boolean
   distinctOn: string[]
   // WHERE
@@ -147,8 +148,8 @@ interface ComputedColumn {
   alias: string
   /** An expression tape printed in place of `expr`, its params bound: `computed()` given `coalesce()` or `caseWhen()`. */
   tape?: ExprTape
-  /** WHEREs ANDed onto `expr` and the whole wrapped in parentheses, each with its bare columns qualified: how a filtered or scoped relation count carries its params. */
-  filters?: { tape: ExprTape, qualifier: string }[]
+  /** The type its value reads back as, for the coercion a column of that type gets: a relation aggregate's. */
+  pgType?: string
 }
 
 /** A scope's WHERE, evaluated for one statement; `qualifier` prefixes its bare columns when it filters a joined table. */
@@ -158,8 +159,17 @@ export interface ScopeFilter {
   qualifier?: string
 }
 
-interface RelationCount {
+export type RelationAggregateFn = 'count' | 'exists' | 'sum' | 'avg' | 'min' | 'max'
+
+/** The builder method adding an aggregate, for error messages: `withCount`, `withSum`... */
+export function aggregateMethod(fn: RelationAggregateFn): string {
+  return `with${capitalize(fn)}`
+}
+
+interface RelationAggregate {
+  fn: RelationAggregateFn
   relation: string
+  column?: string
   alias: string
   where: ExprTape | null
   withoutScopes: string[]
@@ -172,7 +182,7 @@ export function createState(op: QueryOp, table: string): BuilderState {
     columns: null,
     omitColumns: [],
     computedColumns: [],
-    relationCounts: [],
+    relationAggregates: [],
     distinct: false,
     distinctOn: [],
     whereTape: null,
@@ -264,7 +274,7 @@ export function cloneState(s: BuilderState): BuilderState {
     ...s,
     omitColumns: [...s.omitColumns],
     computedColumns: s.computedColumns.map(c => ({ ...c })),
-    relationCounts: s.relationCounts.map(c => ({ ...c })),
+    relationAggregates: s.relationAggregates.map(c => ({ ...c })),
     distinctOn: [...s.distinctOn],
     whereTape: s.whereTape ? [...s.whereTape] : null,
     joins: s.joins.map(j => ({ ...j })),
