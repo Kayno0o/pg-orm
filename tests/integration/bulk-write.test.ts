@@ -95,6 +95,24 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
     expect(await repo.insertMany([{ code: 'two', n: 2 }, { code: 'three', n: 2 }], { skipConflicts: ['code'], pk: true })).toEqual([expect.any(Number)])
   })
 
+  it('updateManyById updates every row, firing after-update hooks once every chunk landed', async () => {
+    const keys = await db.repo(marks).write.insertMany(rows(ROWS), { pk: true })
+    const written = await db.repo(hooked).write.updateManyById(keys.map(id => ({ id, n: 1 })), { pk: true })
+
+    expect(written).toHaveLength(ROWS)
+    expect(fired.afterUpdate).toBe(ROWS)
+    expect(await db.repo(marks).read.count({ n: 1 })).toBe(ROWS)
+  }, 60_000)
+
+  it('updateManyById changes nothing and fires no hook when a later chunk fails', async () => {
+    const keys = await db.repo(marks).write.insertMany(rows(ROWS), { pk: true })
+    const patches = keys.map((id, i) => ({ id, n: 1, code: i === ROWS - 1 ? 'c0' : `c${i}` }))
+
+    await expect(db.repo(hooked).write.updateManyById(patches, { pk: true })).rejects.toThrow(UniqueError)
+    expect(fired.afterUpdate).toBe(0)
+    expect(await db.repo(marks).read.count({ n: 0 })).toBe(ROWS)
+  }, 60_000)
+
   it('writes nothing when a later chunk fails', async () => {
     const batch = [...rows(ROWS - 1), { code: 'c0', n: 0 }]
 

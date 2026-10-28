@@ -242,11 +242,11 @@ export class WritePipeline<
    * Run a multi-row write in statements kept under the bind-parameter limit, all-or-nothing through the executor's `atomic` when it takes several.
    * Results are concatenated in input order.
    */
-  private async _chunked<TRow extends Record<string, unknown>, TResult>(
+  private async _chunked<TRow extends object, TResult>(
     rows: TRow[],
     write: (pipeline: WritePipeline<TColumns, TVirtuals>, chunk: TRow[]) => Promise<TResult[]>,
+    columns = new Set(rows.flatMap(row => Object.keys(row))).size,
   ): Promise<TResult[]> {
-    const columns = new Set(rows.flatMap(row => Object.keys(row))).size
     const budget = MAX_BIND_PARAMS[dialectOf(this._executor)] - STATEMENT_PARAM_RESERVE
     const size = Math.max(1, Math.floor(budget / Math.max(1, columns)))
 
@@ -416,17 +416,22 @@ export class WritePipeline<
       prepared.push({ key, set: this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', patch)) })
     }
 
-    const builder = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], prepared)
+    // Each row binds its key and every column some row sets.
+    const columns = pkColumns.length + new Set(prepared.flatMap(row => Object.keys(row.set))).size
 
-    this._runtime.behavior.prepareUpdate(builder, {})
-    this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
+    return this._chunked(prepared, (pipeline, chunk) => {
+      const builder = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], chunk)
 
-    return this._execute({
-      builder,
-      afterEvent: 'afterUpdate',
-      project: result => this._projectMany(result, opts),
-      opts,
-    })
+      this._runtime.behavior.prepareUpdate(builder, {})
+      this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
+
+      return pipeline._execute({
+        builder,
+        afterEvent: 'afterUpdate',
+        project: result => pipeline._projectMany(result, opts),
+        opts,
+      })
+    }, columns)
   }
 
   // --- Delete ---
