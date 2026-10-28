@@ -11,7 +11,7 @@ import { planMigration } from './plan'
 import { generateDownSql, sqlComment } from './reverse'
 
 export { diffSchema } from './diff'
-export { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
+export { ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
 export { introspectLiveSchema } from './introspect'
 export { type IgnoreTables, planMigration } from './plan'
 export { rollbackMigrations } from './rollback'

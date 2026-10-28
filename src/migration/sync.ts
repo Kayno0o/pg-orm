@@ -3,7 +3,7 @@ import type { AnyTableDef } from '../types/index'
 import type { IgnoreTables } from './plan'
 import type { MigrationOp, QueryFn } from './types'
 import { DestructiveOpError, MigrationError } from '../errors/index'
-import { djb2Hash, ensureMigrationTable, migrationName, recordMigration } from './history'
+import { ensureMigrationTable, migrationName, recordMigration, sqlHash } from './history'
 import { promptSync } from './interactive'
 import { runOutsideTransaction } from './outside'
 import { planEnumAdditions, planMigration } from './plan'
@@ -41,6 +41,12 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
   if (planned.length === 0)
     return { sql: '', ops: [] }
 
+  const plannedSql = toSql(planned)
+
+  // A dry run lists destructive ops rather than refusing them, as the CLI and `syncMigration` dry runs do.
+  if (opts?.dryRun)
+    return { sql: plannedSql, ops: planned }
+
   const destructiveOps = planned.filter(o => o.destructive)
 
   if (destructiveOps.length && !opts?.allowDestructive && !opts?.confirm) {
@@ -51,13 +57,8 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
     )
   }
 
-  const plannedSql = toSql(planned)
-
   if (opts?.confirm && !await promptSync(planned, destructiveOps))
     return { sql: plannedSql, ops: [] }
-
-  if (opts?.dryRun)
-    return { sql: plannedSql, ops: planned }
 
   // Phase 1: a value an enum gains cannot be used in the transaction that adds it, so the additions commit first, in a transaction of their own.
   // If the main transaction then fails, the values persist harmlessly, skipped on retry via IF NOT EXISTS.
@@ -103,7 +104,7 @@ export async function syncSchema(ctx: SyncContext, opts?: SyncOptions): Promise<
     await ensureMigrationTable(txExecutor, dialect)
     await recordMigration(txExecutor, {
       name: migrationName('sync'),
-      sqlHash: djb2Hash(sqlStr),
+      sqlHash: sqlHash(sqlStr),
       upSql: sqlStr,
       downSql: generateDownSql(ops, { validate: true, dialect }),
     })

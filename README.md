@@ -787,7 +787,8 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 `pg-orm` reads `pg-orm.config.ts` from the current directory: `export default defineConfig({ db, migrationsDir?, ignoreTables? })`.
 
 ```sh
-pg-orm status                       # drift and pending files
+pg-orm status                       # drift, pending files, and applied files changed since
+pg-orm status --check               # the same, exiting 1 when anything is left to do: a CI gate
 pg-orm generate                     # write a migration file from the drift
 pg-orm apply                        # apply the pending files
 pg-orm sync                         # generate, apply and record a migration, then write its file
@@ -796,7 +797,9 @@ pg-orm new add_index                # an empty file to write by hand
 ```
 
 - `--allow-destructive` lets `generate` and `sync` drop tables, columns and constraints; without it they refuse with `DestructiveOpError`.
-- `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included.
+- `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included, as `db.sync({ dryRun: true })` lists them.
+- `apply` refuses with `MigrationError` when an applied file changed since it ran (its `up` is compared with the sha256 the history recorded) or when a pending file sorts before a file already applied, which a branch merged late brings: restore the first, rename the second to sort last.
+- `--help` prints the usage; `rollback` takes a positive whole count.
 - An error the CLI prints has the values Postgres quotes back redacted, as CI logs outlive the run; `--raw`, on any command, prints them.
 - `generate` and `sync` refuse with `MigrationError` while migration files are not applied, naming them: the diff reads the live database, so it would write their changes again. Run `pg-orm apply` first.
 - Each file, and each `sync`, is applied and recorded in one transaction holding an advisory lock: two deploys applying at once run each migration once, and a failed one leaves neither a record nor, for `sync`, a file.

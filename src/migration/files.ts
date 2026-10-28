@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dialectOf } from '../dialect'
 import { MigrationError, sanitizePgErrorMessage } from '../errors/index'
-import { djb2Hash, ensureMigrationTable, getMigrationHistory, recordMigration } from './history'
+import { appliedSqlMatches, ensureMigrationTable, getMigrationHistory, recordMigration, sqlHash } from './history'
 import { migrationFile } from './index'
 import { enumAdditions, outsideRunner, runOutsideTransaction, splitOutsideTransaction } from './outside'
 import { planMigration } from './plan'
@@ -43,21 +43,65 @@ export function parseMigrationFile(content: string, filename = 'migration file')
   return { up, down }
 }
 
-/** The `.sql` files of `dir` the history has not applied, or has rolled back as often as it applied them, in name order. */
-export function pendingMigrationFiles(dir: string, history: MigrationHistoryEntry[]): string[] {
+/** The `.sql` files of `dir` against the history, each list in name order. */
+export interface MigrationFilesState {
+  /** Not applied, or rolled back as often as applied. */
+  pending: string[]
+  /** Applied, their `up` changed since. */
+  edited: string[]
+  /** Pending, sorting before the last applied file: applying them would run them after migrations they predate. */
+  outOfOrder: string[]
+}
+
+export function migrationFilesState(dir: string, history: MigrationHistoryEntry[]): MigrationFilesState {
+  const state: MigrationFilesState = { pending: [], edited: [], outOfOrder: [] }
+
   if (!existsSync(dir))
-    return []
+    return state
 
-  return readdirSync(dir)
-    .filter(f => f.endsWith('.sql'))
-    .sort()
-    .filter((f) => {
-      const name = f.replace(SQL_EXT_RE, '')
-      const ups = history.filter(h => h.name === name && h.direction === 'up').length
-      const downs = history.filter(h => h.name === name && h.direction === 'down').length
+  // Per name, the up applied last while it stands: a down cancels the up before it.
+  const applied = new Map<string, MigrationHistoryEntry[]>()
 
-      return ups <= downs
-    })
+  for (const entry of history) {
+    const ups = applied.get(entry.name) ?? []
+
+    if (entry.direction === 'up')
+      ups.push(entry)
+    else
+      ups.pop()
+
+    applied.set(entry.name, ups)
+  }
+
+  const files = readdirSync(dir).filter(f => f.endsWith('.sql')).sort()
+  // The last applied file: a `db.sync()` records a migration with no file, which a file named by hand need not sort after.
+  const last = files.findLast(file => applied.get(file.replace(SQL_EXT_RE, ''))?.length)?.replace(SQL_EXT_RE, '') ?? ''
+
+  for (const file of files) {
+    const name = file.replace(SQL_EXT_RE, '')
+    const up = applied.get(name)?.at(-1)
+
+    if (!up) {
+      state.pending.push(file)
+
+      if (name < last)
+        state.outOfOrder.push(file)
+    }
+    else if (!appliedSqlMatches(up, parseMigrationFile(readFileSync(join(dir, file), 'utf8'), file).up)) {
+      state.edited.push(file)
+    }
+  }
+
+  return state
+}
+
+// Applying past an edited or out-of-order file would leave the database matching no history, so apply refuses both.
+export function refuseInconsistent(state: MigrationFilesState): void {
+  if (state.edited.length > 0)
+    throw new MigrationError(`Applied migration file(s) changed since they ran: ${state.edited.join(', ')}. Restore them, and put the change in a new migration.`, 'validate', state.edited[0])
+
+  if (state.outOfOrder.length > 0)
+    throw new MigrationError(`Pending migration file(s) sort before a file already applied: ${state.outOfOrder.join(', ')}. Rename them to sort after the last applied file.`, 'validate', state.outOfOrder[0])
 }
 
 // Runs `fn` in one migration transaction, which resolves names in the configured schema, holding the lock every migration takes so two processes never interleave; an executor without `migrate` runs it as is.
@@ -88,19 +132,20 @@ async function applyAndRecord(executor: MigrationExecutor, name: string, up: str
 
   await runMigrationSql(executor, name, inside)
   await ensureMigrationTable(executor)
-  await recordMigration(executor, { name, sqlHash: djb2Hash(up), upSql: up, downSql: down, direction: 'up' })
+  await recordMigration(executor, { name, sqlHash: sqlHash(up), upSql: up, downSql: down, direction: 'up' })
 
   return outside
 }
 
-/** The files of `dir` not applied yet, the history read in the configured schema. */
-export async function pendingMigrations(db: Executable, dir: string): Promise<string[]> {
-  return lockedMigration(db, async executor => pendingMigrationFiles(dir, await getMigrationHistory(executor)))
+/** The files of `dir` against the history read in the configured schema: pending, edited since applied, and out of order. */
+export async function migrationFiles(db: Executable, dir: string): Promise<MigrationFilesState> {
+  return lockedMigration(db, async executor => migrationFilesState(dir, await getMigrationHistory(executor)))
 }
 
 /**
  * Applies the pending files of `dir` in name order; gives their file names.
  * Each file is applied and recorded in one transaction under the migration lock, the history read again under it, so a file another process applied meanwhile is skipped and a failed one leaves no trace.
+ * An applied file edited since, or a pending one sorting before an applied migration, throws `MigrationError` before anything runs.
  */
 export async function applyMigrationFiles(db: Executable, dir: string): Promise<string[]> {
   const applied: string[] = []
@@ -109,7 +154,11 @@ export async function applyMigrationFiles(db: Executable, dir: string): Promise<
 
   for (;;) {
     const { filename, outside, retry } = await lockedMigration(db, async (executor) => {
-      const next = pendingMigrationFiles(dir, await getMigrationHistory(executor))[0]
+      const state = migrationFilesState(dir, await getMigrationHistory(executor))
+
+      refuseInconsistent(state)
+
+      const next = state.pending[0]
 
       if (next === undefined)
         return { filename: next, outside: [] }

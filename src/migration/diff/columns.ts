@@ -200,6 +200,7 @@ function addColumn(tableName: string, colName: string, colDef: AnyColumnDef): Mi
       table: tableName,
       column: colName,
       sql: buildDropDefaultSql(tableName, colName),
+      down: buildSetDefaultSql(tableName, colName, fill),
       destructive: false,
       description: `Drop the backfill default of "${colName}" in "${tableName}"`,
     })

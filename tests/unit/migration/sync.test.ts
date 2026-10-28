@@ -102,6 +102,14 @@ describe('syncSchema', () => {
     expect(transactions).toHaveLength(0)
   })
 
+  it('dryRun lists a destructive op instead of throwing, running nothing', async () => {
+    const { ctx, transactions } = makeCtx(new Map(), orphan)
+    const result = await syncSchema(ctx, { dryRun: true })
+
+    expect(result.ops.some(o => o.type === 'drop_table' && o.destructive)).toBe(true)
+    expect(transactions).toHaveLength(0)
+  })
+
   it('allowDestructive suppresses the DestructiveOpError', async () => {
     const { ctx } = makeCtx(new Map(), orphan)
     const result = await syncSchema(ctx, { allowDestructive: true })

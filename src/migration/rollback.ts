@@ -2,7 +2,7 @@ import type { Dialect } from '../dialect'
 import type { MigrationHistoryEntry } from './history'
 import type { QueryFn } from './types'
 import { MigrationError, ValidationError } from '../errors/index'
-import { djb2Hash, getMigrationHistory, recordMigration } from './history'
+import { getMigrationHistory, recordMigration, sqlHash } from './history'
 import { IRREVERSIBLE_MARKER } from './reverse'
 import { MIGRATION_LOCK_KEY } from './types'
 
@@ -44,7 +44,7 @@ export async function rollbackMigrations(
 
       await recordMigration(txExecutor, {
         name: migration.name,
-        sqlHash: djb2Hash(migration.downSql),
+        sqlHash: sqlHash(migration.downSql),
         upSql: migration.upSql,
         downSql: migration.downSql,
         direction: 'down',

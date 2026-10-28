@@ -173,4 +173,51 @@ describe('pg-orm CLI', () => {
     expect(await admin.raw(`SELECT to_regclass('"${SCHEMA}"."half"')::text AS found`)).toEqual([{ found: null }])
     expect(readFileSync(join(migrations, generated!), 'utf8')).toContain('-- Create table "notes"\nCREATE TABLE "notes"')
   })
+
+  it('status --check exits 1 on drift, and status and apply catch an applied file edited since or a pending one out of order', async () => {
+    const dir = project()
+    const migrations = join(dir, 'migrations')
+
+    expect((await cli(dir, ['status', '--check'])).code).toBe(1)
+    expect((await cli(dir, ['sync'])).code).toBe(0)
+    expect((await cli(dir, ['status', '--check'])).code).toBe(0)
+
+    const [synced] = files(dir)
+    const path = join(migrations, synced!)
+    const original = readFileSync(path, 'utf8')
+
+    writeFileSync(path, original.replace('CREATE TABLE "notes"', 'CREATE TABLE IF NOT EXISTS "notes"'))
+
+    const edited = await cli(dir, ['status', '--check'])
+
+    expect(edited.code).toBe(1)
+    expect(edited.out).toContain(`Applied files changed since they ran (1):\n  ${synced}`)
+    expect((await cli(dir, ['apply'])).out).toContain(`Applied migration file(s) changed since they ran: ${synced}`)
+
+    writeFileSync(path, original)
+    writeFileSync(join(migrations, '0000_early.sql'), '-- migrate:up\nSELECT 1;\n')
+
+    expect((await cli(dir, ['status'])).out).toContain('Pending files sorting before an applied file (1):\n  0000_early.sql')
+
+    const refused = await cli(dir, ['apply', '--dry-run'])
+
+    expect(refused.code).toBe(1)
+    expect(refused.out).toContain('Pending migration file(s) sort before a file already applied: 0000_early.sql')
+  })
+
+  it('prints usage for --help and refuses a count that is not a whole number', async () => {
+    const dir = project()
+    const help = await cli(dir, ['status', '--help'])
+
+    expect(help.code).toBe(0)
+    expect(help.out).toStartWith('Usage: pg-orm')
+    expect((await cli(dir, ['-h'])).out).toStartWith('Usage: pg-orm')
+
+    for (const count of ['2x', '0', '-1', '1.5']) {
+      const refused = await cli(dir, ['rollback', count])
+
+      expect(refused.code).toBe(1)
+      expect(refused.out).toContain('rollback takes a positive whole count')
+    }
+  })
 })

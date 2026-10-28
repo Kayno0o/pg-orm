@@ -97,6 +97,9 @@ describe('sync() applies every change in one go', () => {
     expect(await admin.raw(`SELECT "label" FROM "${SCHEMA}"."notes"`)).toEqual([{ label: 'none' }])
     expect(await admin.raw(`SELECT column_default AS "default", is_nullable AS "nullable" FROM information_schema.columns WHERE table_schema = '${SCHEMA}' AND table_name = 'notes' AND column_name = 'label'`)).toEqual([{ default: null, nullable: 'NO' }])
     expect((await sync([filled])).ops).toEqual([])
+
+    await at([filled], db => db.rollback())
+    expect(await admin.raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = '${SCHEMA}' AND table_name = 'notes' AND column_name = 'label'`)).toEqual([])
   })
 
   it('keeps one foreign key and the unique constraint through a column rename', async () => {

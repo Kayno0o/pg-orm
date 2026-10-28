@@ -83,12 +83,14 @@ export async function getMigrationHistory(executor: { query: QueryFn, dialect?: 
   }))
 }
 
-export function djb2Hash(input: string): string {
-  let hash = 5381
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/
 
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash << 5) + hash + input.charCodeAt(i) | 0
-  }
+/** The hash the history records for a migration's SQL: sha256, trailing whitespace ignored so the file written from it hashes the same. */
+export function sqlHash(sql: string): string {
+  return new Bun.CryptoHasher('sha256').update(sql.trimEnd()).digest('hex')
+}
 
-  return (hash >>> 0).toString(36)
+/** Whether `sql` is what `entry` applied; a row recorded before sha256 hashes is compared by its SQL. */
+export function appliedSqlMatches(entry: MigrationHistoryEntry, sql: string): boolean {
+  return SHA256_HEX_RE.test(entry.sqlHash) ? entry.sqlHash === sqlHash(sql) : entry.upSql.trimEnd() === sql.trimEnd()
 }
