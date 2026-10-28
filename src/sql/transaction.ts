@@ -92,6 +92,12 @@ export class TransactionClient extends BaseExecutor {
     return super.copyIn(sqlStr, chunks)
   }
 
+  override copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+    this._assertOpen()
+
+    return super.copyOut(sqlStr)
+  }
+
   private _assertOpen(): void {
     if (this._settled)
       throw new ValidationError('A query on a transaction that already committed or rolled back: work started in its body outlived it', 'transaction')

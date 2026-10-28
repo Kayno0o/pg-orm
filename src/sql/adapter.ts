@@ -6,7 +6,7 @@ import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
 import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 /** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */
-export type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string> }
+export type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string>, readable?: () => ReadableStream<Uint8Array> }
 
 /**
  * Typed surface for the bits of bun:sql we use. bun:sql's own types don't expose
@@ -208,6 +208,61 @@ export async function copyIn(sql: InstanceType<typeof SQL>, sqlStr: string, chun
     throw interrupted.error
 
   throw result.error instanceof OrmError ? result.error : wrapPgError(result.error, sqlStr, [])
+}
+
+/**
+ * Run a `COPY ... TO STDOUT` statement as a stream of its output. Postgres only.
+ * The signal bound by `Database.withSignal` cancels it; a failing statement errors the stream with the mapped error, and `onEnd` runs once when the stream ends, fails or is cancelled.
+ */
+export function copyOut(sql: InstanceType<typeof SQL>, sqlStr: string, onEnd: (...failure: [error: unknown] | []) => void): ReadableStream<Uint8Array> {
+  const signal = querySignalStorage.getStore()
+
+  throwIfAborted(signal, sqlStr)
+
+  const query = asDriver(sql).unsafe(sqlStr, [])
+
+  if (typeof query.readable !== 'function')
+    throw new OrmError(`copyTo needs Bun 1.4.4 or later, whose bun:sql streams COPY TO STDOUT (running ${Bun.version})`)
+
+  const reader = query.readable().getReader()
+  const cancel = (): void => {
+    query.cancel?.()
+  }
+  let ended = false
+  const end = (...failure: [error: unknown] | []): void => {
+    if (ended)
+      return
+
+    ended = true
+    signal?.removeEventListener('abort', cancel)
+    onEnd(...failure)
+  }
+
+  signal?.addEventListener('abort', cancel, { once: true })
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read()
+
+        if (!done)
+          return controller.enqueue(value)
+
+        end()
+        controller.close()
+      }
+      catch (err) {
+        const error = signal?.aborted && isCancellation(err) ? new AbortError(sqlStr, [], signal.reason) : err instanceof OrmError ? err : wrapPgError(err, sqlStr, [])
+
+        end(error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      end()
+      await reader.cancel(reason)
+    },
+  })
 }
 
 async function settle<T>(work: Promise<T>): Promise<{ ok: true, value: T } | { ok: false, error: unknown }> {

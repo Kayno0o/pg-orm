@@ -100,6 +100,7 @@ export {
 export { Repository } from './repo/index'
 // Repository
 export {
+  type CopyToOptions,
   type CursorOf,
   type PaginateCursorOptions,
   type PaginateCursorResult,

@@ -336,7 +336,7 @@ Repository operations are grouped into three suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
 - `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s)
-- `repo.stream` — `offset` (LIMIT/OFFSET) and `cursor` (keyset)
+- `repo.stream` — `offset` (LIMIT/OFFSET), `cursor` (keyset) and `copyTo` (CSV export through COPY)
 
 `db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
 
@@ -459,6 +459,19 @@ const loaded = await repo.write.copyFrom(readCsvRows('users.csv')) // an async g
 - It skips hooks and returns no rows, like `repo.write.insert()`. Column DEFAULTs (and the traits relying on them) still apply.
 - Every row sets exactly the columns the first row sets; the others take their DEFAULT. A later row setting other columns throws `ValidationError` and nothing is loaded. Generated columns are refused.
 - The load is one statement: a constraint violation or an error thrown by the source loads nothing. It is never retried, runs in a transaction under `repo.using(tx)`, and stops with `AbortError` under `db.withSignal`.
+
+### Export with COPY
+
+`repo.stream.copyTo(opts)` exports rows as CSV through `COPY (SELECT ...) TO STDOUT`, a `ReadableStream` of bytes that can go straight into a `Response`. The statement runs once the stream is read.
+
+```ts
+const csv = repo.stream.copyTo({ where: { status: 'active' }, pick: ['id', 'email'] })
+return new Response(csv, { headers: { 'content-type': 'text/csv' } })
+```
+
+- `where` takes both WHERE forms, `pick` the columns and their order (every column by default), `header: false` drops the column names line, and `withTrashed` includes the rows a `softDelete` table hides.
+- COPY takes no bind parameters, so the WHERE values are written into the statement as escaped `E'...'` literals.
+- Postgres only: SQLite throws `DialectError`, and it needs Bun 1.4.4 or later. It skips virtuals and hooks. A failing statement errors the stream with its typed error, and `db.withSignal` cancels it with `AbortError`.
 
 ## Traits
 

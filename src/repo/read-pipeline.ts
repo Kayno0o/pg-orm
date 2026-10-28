@@ -11,10 +11,11 @@ import { OP_SCALAR } from '../builder/_tape'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
-import { dialectOf } from '../dialect'
-import { NotFoundError, ValidationError } from '../errors/index'
+import { dialectOf, requirePostgres } from '../dialect'
+import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { tableMeta } from '../schema/inspect'
+import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { buildTableRuntime } from './table-runtime'
@@ -41,6 +42,14 @@ function asSelectCb<TC extends AnyColumns, TR extends AnyRelations>(arg: FindArg
 /** Opt in to rows the softDelete trait has hidden. */
 export interface TrashedOptions {
   withTrashed?: boolean
+}
+
+export interface CopyToOptions<TColumns extends AnyColumns> extends TrashedOptions {
+  where?: OptionalWhere<TColumns>
+  /** The columns to export, in this order; every column by default. */
+  pick?: (keyof TColumns & string)[]
+  /** Write the column names as the first line, true by default. */
+  header?: boolean
 }
 
 export interface ReadPipelineContext {
@@ -372,6 +381,27 @@ export class ReadPipeline<
       return e => isForward ? e.gt(keys[0]! as keyof TColumns & string, values[0] as never) : e.lt(keys[0]! as keyof TColumns & string, values[0] as never)
 
     return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
+  }
+
+  copyTo(opts: CopyToOptions<TColumns> = {}): ReadableStream<Uint8Array> {
+    requirePostgres(this._dialect, 'copyTo')
+
+    if (!this._executor.copyOut)
+      throw new OrmError('copyTo needs an executor that runs COPY')
+
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(opts.where)
+
+    if (opts.pick)
+      builder.pick(...opts.pick)
+
+    if (opts.withTrashed)
+      builder.withTrashed()
+
+    this._runtime.behavior.prepareSelect(builder)
+
+    const { sql, params } = builder.toSQL(this._dialect)
+
+    return this._executor.copyOut(`COPY (${inlineParams(sql, params)}) TO STDOUT WITH (FORMAT csv, HEADER ${opts.header !== false})`)
   }
 
   stream(

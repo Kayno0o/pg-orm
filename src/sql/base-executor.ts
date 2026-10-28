@@ -2,7 +2,7 @@ import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { logParams, queryLogsRedacted } from '../errors/index'
-import { copyIn, unsafeQuery } from './adapter'
+import { copyIn, copyOut, unsafeQuery } from './adapter'
 
 /**
  * Async-local storage for query context. `Database.withContext(ctx, fn)` runs
@@ -82,6 +82,8 @@ export interface Executable {
   atomic?: <T>(fn: (exec: Executable) => Promise<T>) => Promise<T>
   /** Runs a `COPY ... FROM STDIN` statement fed with `chunks`, resolving to the rows loaded. Postgres only. */
   copyIn?: (sql: string, chunks: AsyncIterable<string>) => Promise<number>
+  /** Runs a `COPY ... TO STDOUT` statement, streaming its output. Postgres only. */
+  copyOut?: (sql: string) => ReadableStream<Uint8Array>
 }
 
 // Params as the query hooks see them: none where query logs are redacted (production, REDACT_QUERY_LOGS=1), else through the configured `redactParams`. The safe-default scrub that QueryError falls back to is not applied, so a dev debug hook still sees values.
@@ -145,6 +147,13 @@ export abstract class BaseExecutor implements Executable {
 
   copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
     return this._observed(sqlStr, [], () => copyIn(this.sql, sqlStr, chunks))
+  }
+
+  // Reported to the query hooks once the stream ends, its duration covering the whole read.
+  copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+    const start = performance.now()
+
+    return copyOut(this.sql, sqlStr, (...failure) => this._report(sqlStr, [], performance.now() - start, ...failure))
   }
 
   // Runs `run` as one query for the hooks: a retried statement reports once, its outcome after the last attempt.

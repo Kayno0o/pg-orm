@@ -2,7 +2,7 @@ import type { OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { StreamCursorOptions } from './read-pipeline'
+import type { CopyToOptions, StreamCursorOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -51,5 +51,13 @@ export class StreamSuite<
   cursor<TResult>(opts: StreamCursorOptions<TColumns>, cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult, any, any>): AsyncGenerator<TResult & InferVirtuals<TVirtuals>, void, undefined>
   cursor(opts: StreamCursorOptions<TColumns> = {}, cb?: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, any, any, any>): AsyncGenerator<any, void, undefined> {
     return this._pipeline.streamCursor(opts, cb)
+  }
+
+  /**
+   * The table's rows as CSV through Postgres `COPY ... TO STDOUT`, a stream that can go straight into a `Response`; the statement runs once the stream is read.
+   * Skips virtuals and hooks; trashed rows stay out unless `withTrashed`. Postgres only.
+   */
+  copyTo(opts?: CopyToOptions<TColumns>): ReadableStream<Uint8Array> {
+    return this._pipeline.copyTo(opts)
   }
 }
