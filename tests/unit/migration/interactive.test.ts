@@ -1,5 +1,7 @@
 import type { MigrationOp } from '../../../src/migration/types'
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { MigrationError } from '../../../src/errors/index'
 import { promptSync } from '../../../src/migration/interactive'
 
 function op(overrides: Partial<MigrationOp> = {}): MigrationOp {
@@ -133,4 +135,31 @@ describe('promptSync', () => {
     expect(receivedPrompt).toContain('[Y/n]')
     expect(receivedPrompt).not.toContain('destructive')
   })
+
+  it('answers no when stdin ends unanswered, even where an empty answer is yes', async () => {
+    expect(await promptSync([op()], [], async () => null)).toBe(false)
+  })
+
+  it('refuses before printing anything when stdin is not a terminal and no reader is given', async () => {
+    const tty = process.stdin.isTTY
+
+    process.stdin.isTTY = false
+
+    try {
+      await expect(promptSync([op()], [])).rejects.toBeInstanceOf(MigrationError)
+      expect(logged).toEqual([])
+    }
+    finally {
+      process.stdin.isTTY = tty
+    }
+  })
+
+  it('the default reader answers no on a closed stdin instead of waiting forever', async () => {
+    const module = JSON.stringify(resolve(import.meta.dir, '../../../src/migration/interactive.ts'))
+    const proc = Bun.spawn(['bun', '-e', `process.stdin.isTTY = true; const { promptSync } = await import(${module}); console.error(await promptSync([{ type: 'create_table', sql: 'SELECT 1', description: 'x', destructive: false }], []))`], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
+    const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+
+    expect(code).toBe(0)
+    expect(err.trim()).toBe('false')
+  }, 10_000)
 })

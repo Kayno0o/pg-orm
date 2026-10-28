@@ -734,6 +734,7 @@ app.get('/export', req => db.withSignal(req.signal, () => exportRows()))
 const { sql, ops } = await db.sync({ dryRun: true })  // preview changes
 await db.sync()                                         // apply changes
 await db.sync({ allowDestructive: true })               // allow DROP TABLE/COLUMN
+await db.sync({ confirm: true })                        // show the plan and ask on the terminal (MigrationError when stdin is not one; EOF answers no)
 await db.rollback(2)                                    // run the down SQL of the last 2 migrations
 
 // Check drift
