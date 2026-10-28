@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { Database, defineTable, softDelete, ValidationError } from '../../src/index'
+import { Database, defineTable, optimisticLock, softDelete, StaleRecordError, ValidationError } from '../../src/index'
 import { createTestDb } from '../helpers/db'
 
 const itemsDef = defineTable('wh_items', t => ({
@@ -60,7 +60,14 @@ const pairs = defineTable('wh_pairs', t => ({
   orders: r.hasMany(() => ordersDef, 'customerId'),
 }))
 
-const tables = [customers, orders, itemsDef, tagsDef, taggingsDef, profilesDef, pairs]
+const carts = defineTable('wh_carts', t => ({
+  id: t.serial().primaryKey(),
+  label: t.text(),
+})).withTrait(optimisticLock()).withRelations(r => ({
+  items: r.hasMany(() => itemsDef, 'orderId'),
+}))
+
+const tables = [customers, orders, itemsDef, tagsDef, taggingsDef, profilesDef, pairs, carts]
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-where-has-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -99,7 +106,7 @@ describe.each(dialects)('a relation filter on %s', (_name, open) => {
 
   // ann: a paid order with item "a", a profile, the tag "vip". bob, referred by ann: a trashed paid order, a pending one, the tag "new" through a trashed pivot row. cid: nothing.
   beforeEach(async () => {
-    for (const table of ['wh_items', 'wh_taggings', 'wh_tags', 'wh_profiles', 'wh_orders', 'wh_customers'])
+    for (const table of ['wh_items', 'wh_taggings', 'wh_tags', 'wh_profiles', 'wh_orders', 'wh_customers', 'wh_carts'])
       await db.raw(`DELETE FROM "${table}"`)
 
     const [ann] = await db.repo(customers).write.insertMany([{ name: 'ann' }], { pk: true })
@@ -190,6 +197,14 @@ describe.each(dialects)('a relation filter on %s', (_name, open) => {
     finally {
       await partial.close()
     }
+  })
+
+  it('tells a stale version from no match on updateWithLock', async () => {
+    const cart = await db.repo(carts).write.insertOne({ label: 'c' })
+
+    await db.repo(itemsDef).write.insertOne({ orderId: cart.id, sku: 'x' }, { pk: true })
+
+    expect(await rejection(() => db.repo(carts).write.updateWithLock({ label: 'd' }, e => e.and(e.eq('id', cart.id), e.has('items')), cart.version + 1))).toBeInstanceOf(StaleRecordError)
   })
 
   it('cannot be printed by a builder outside a repository', () => {
