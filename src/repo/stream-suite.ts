@@ -38,7 +38,10 @@ export class StreamSuite<
     })
   }
 
-  /** Rows in LIMIT/OFFSET chunks, filtered by a WHERE object or shaped by a select callback. Rows may be skipped or repeated if the table changes meanwhile. */
+  /**
+   * Rows in LIMIT/OFFSET chunks, filtered by a WHERE object or shaped by a select callback. Rows may be skipped or repeated if the table changes meanwhile.
+   * Each chunk rescans the rows before it, so the whole stream costs quadratic time: use `cursor()` on a large table.
+   */
   offset<TResult>(cb: (q: SelectBuilder<TColumns, TRelations>) => SelectBuilder<TColumns, TRelations, TResult, any, any>, opts?: StreamOffsetOptions): AsyncGenerator<TResult & InferVirtuals<TVirtuals>, void, undefined>
   offset(where?: OptionalWhereObject<TColumns>, opts?: StreamOffsetOptions): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined>
   offset(

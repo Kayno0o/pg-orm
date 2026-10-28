@@ -472,6 +472,19 @@ export class WritePipeline<
     return this._delete(requireWhere(where, 'forceDelete'), true, opts)
   }
 
+  async purgeTrashed(olderThan: Date, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    const softDeleteColumn = this._runtime.behavior.getSoftDeleteColumn()
+    const { name } = this._runtime.table
+
+    if (softDeleteColumn === null)
+      throw new ValidationError(`purgeTrashed() needs the softDelete trait on "${name}"`, 'purgeTrashed')
+
+    if (!(olderThan instanceof Date) || Number.isNaN(olderThan.getTime()))
+      throw new ValidationError(`purgeTrashed() on "${name}" takes a valid Date as its cutoff`, 'purgeTrashed', { value: olderThan })
+
+    return this._delete(e => e.and(e.isNotNull(softDeleteColumn as never), e.lt(softDeleteColumn as never, olderThan as never)), true, opts)
+  }
+
   // A `null` where is every row, which only `deleteAll` passes.
   private async _delete(where: Where<TColumns> | null, force: boolean, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runtime.runBefore('beforeDelete', undefined, this._hooks)
@@ -712,11 +725,13 @@ export class WritePipeline<
     opts?: WriteReturnOptions
   }): Promise<TResult> {
     const { pkColumns, table } = this._runtime
-    // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys.
-    const whole = !args.opts?.pk || hasHooks(table, args.afterEvent) || args.inserted !== undefined
+    // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys or nothing.
+    const hooked = hasHooks(table, args.afterEvent) || args.inserted !== undefined
+    const whole = !args.opts?.pk || hooked
     const shape = new SelectBuilderCtor<AnyColumns>(table)
 
-    args.builder.returning(...whole ? [] : pkColumns)
+    if (args.opts?.returning !== false || hooked)
+      args.builder.returning(...whole ? [] : pkColumns)
 
     const { sql, params } = args.builder.toSQL(dialectOf(this._executor))
     const raw = await this._executor.query(sql, params)

@@ -280,6 +280,8 @@ export type InferPrimaryKey<TColumns extends AnyColumns>
 export interface WriteReturnOptions {
   /** Return only the primary key instead of the written row (with virtuals applied). */
   pk?: boolean
+  /** `false` sends the statement without RETURNING and resolves to nothing; an after-write hook still gets its rows, read for it alone. Taken by the many-row writes. */
+  returning?: false
 }
 
 export interface InsertOptions<TColumns extends AnyColumns = AnyColumns> extends WriteReturnOptions {

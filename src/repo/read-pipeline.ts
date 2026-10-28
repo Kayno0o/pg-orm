@@ -83,13 +83,20 @@ export interface PaginateOptions<TColumns extends AnyColumns> extends TrashedOpt
   page: number
   perPage: number
   where?: OptionalWhere<TColumns>
+  /** `false` skips counting the matching rows: the page then says whether another follows, through `hasNext`, but has no `total` or `totalPages`. */
+  withTotal?: boolean
 }
 
-export interface PaginateResult<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals> {
+/** A page read with `withTotal: false`. */
+export interface PaginatePage<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals> {
   data: WithVirtuals<TColumns, TVirtuals>[]
-  total: number
   page: number
   perPage: number
+  hasNext: boolean
+}
+
+export interface PaginateResult<TColumns extends AnyColumns, TVirtuals extends AnyVirtuals> extends PaginatePage<TColumns, TVirtuals> {
+  total: number
   totalPages: number
 }
 
@@ -282,8 +289,10 @@ export class ReadPipeline<
     return rows.length > 0
   }
 
-  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals>> {
-    const { page, perPage, where, withTrashed } = opts
+  async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginatePage<TColumns, TVirtuals>>
+  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals>>
+  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals> | PaginatePage<TColumns, TVirtuals>> {
+    const { page, perPage, where, withTrashed, withTotal = true } = opts
 
     if (!Number.isInteger(page) || page < 1)
       throw new ValidationError(`paginate() requires page >= 1, got ${page}`, 'paginate', { value: page })
@@ -302,6 +311,15 @@ export class ReadPipeline<
 
     this._orderByKeyIfUnordered(rows)
 
+    // Without a count, one row past the page tells whether another follows.
+    if (!withTotal) {
+      rows.limit(perPage + 1).offset((page - 1) * perPage)
+
+      const { rows: read } = await this._select(rows as SelectBuilder<TColumns, TRelations, any>)
+
+      return { data: read.slice(0, perPage), page, perPage, hasNext: read.length > perPage }
+    }
+
     // Branch before paging so `total` counts the same rows the page is drawn from, including any filter the callback added.
     const countQuery = rows.branch().count() as SelectBuilder<TColumns, any, any>
     const countState = countQuery.getState()
@@ -317,7 +335,7 @@ export class ReadPipeline<
     // An empty page past the first may still follow rows, which only a count can tell.
     const total = pageTotal ?? (page === 1 ? 0 : await this._runCount(countQuery))
 
-    return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) }
+    return { data, total, page, perPage, totalPages: Math.ceil(total / perPage), hasNext: page * perPage < total }
   }
 
   // Keyset paging on (column, primary key): a row-value comparison resumes after the cursor, so tied values are neither skipped nor repeated. A backward page is read descending, its cursor taken from the last row read, then reversed.
@@ -466,8 +484,8 @@ export class ReadPipeline<
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     if (!opts.unsafe && !_streamWarned) {
       _streamWarned = true
-      const msg = '[pg-orm] stream.offset() uses LIMIT/OFFSET chunking, rows may be skipped or duplicated if data changes during iteration. '
-        + 'Use stream.cursor() or a REPEATABLE READ transaction for correctness. '
+      const msg = '[pg-orm] stream.offset() uses LIMIT/OFFSET chunking: rows may be skipped or duplicated if data changes during iteration, and each chunk rescans the rows before it, so a large table costs quadratic time. '
+        + 'Use stream.cursor() for large or changing tables, or a REPEATABLE READ transaction for correctness. '
         + 'Pass { unsafe: true } to suppress this warning.'
       const exec = this._executor as { _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
 

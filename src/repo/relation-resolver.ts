@@ -8,6 +8,7 @@ import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { dialectOf } from '../dialect'
 import { OrmError, ValidationError } from '../errors/index'
 import { tableMeta } from '../schema/inspect'
+import { quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
 
 /**
@@ -25,7 +26,7 @@ export interface RelationProcessor {
   ) => Promise<Record<string, unknown>[]>
 }
 
-// A hasManyThrough target is matched by the pivot rows of a chunk of parents, so all of a parent's targets come from one ordered query.
+// A hasManyThrough target is joined to the pivot rows of a chunk of parents, so all of a parent's targets come from one ordered query.
 interface Through {
   table: string
   from: string
@@ -39,7 +40,12 @@ interface ChildRows {
   nestedIncludes: IncludeEntry[]
   // A callback's offset and limit, left to apply per parent in memory when the query cannot partition by parent.
   slice?: { offset: number, limit: number | null }
+  // With `through`, the parent key each row of `chunks` was linked to.
+  parents: unknown[][]
 }
+
+const THROUGH_ALIAS = '__pgorm_through'
+const THROUGH_PARENT = '__pgorm_parent'
 
 /**
  * Batched relation loading — single query per relation, all relations in parallel.
@@ -187,25 +193,48 @@ export class RelationResolver {
       state.offset = null
     }
 
-    const matched = await this._runChunked(ids, chunk => filtered.branch()
-      .andWhere(e => through
-        ? e.inSubquery(column, new SelectBuilder<any>(through.table).pick(through.to).where(p => p.in(through.from, chunk)))
-        : e.in(column, chunk))
-      .toSQL(dialectOf(this.executor)))
+    const matched = await this._runChunked(ids, (chunk) => {
+      const query = filtered.branch()
+
+      if (!through)
+        return query.andWhere(e => e.in(column, chunk)).toSQL(dialectOf(this.executor))
+
+      // Joined, the pivot gives a target row once per parent it links, carrying that parent's key.
+      query
+        .join(through.table, THROUGH_ALIAS, e => e.eq(column, e.ref(`${THROUGH_ALIAS}.${through.to}`)))
+        .andWhere(e => e.in(`${THROUGH_ALIAS}.${through.from}`, chunk))
+        .getState()
+        .computedColumns
+        .push({ expr: `${quote(THROUGH_ALIAS)}.${quote(through.from)}`, alias: THROUGH_PARENT })
+
+      return query.toSQL(dialectOf(this.executor))
+    })
     const raw: Record<string, unknown>[] = []
     const seen = new Map<unknown, number>()
-    const positions = matched.map(chunk => chunk.map((row) => {
-      const key = through ? relationKey(row[column]) : row
-      const at = seen.get(key)
+    const parents: unknown[][] = []
+    const positions = matched.map((chunk) => {
+      const linked: unknown[] = []
 
-      if (at !== undefined)
-        return at
+      parents.push(linked)
 
-      seen.set(key, raw.length)
-      raw.push(row)
+      return chunk.map((row) => {
+        if (through) {
+          linked.push(relationKey(row[THROUGH_PARENT]))
+          delete row[THROUGH_PARENT]
+        }
 
-      return raw.length - 1
-    }))
+        const key = through ? relationKey(row[column]) : row
+        const at = seen.get(key)
+
+        if (at !== undefined)
+          return at
+
+        seen.set(key, raw.length)
+        raw.push(row)
+
+        return raw.length - 1
+      })
+    })
 
     if (state.limitPer) {
       for (const row of raw)
@@ -214,7 +243,7 @@ export class RelationResolver {
 
     const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, { builder: filtered }) : raw
 
-    return { rows, chunks: positions.map(chunk => chunk.map(at => rows[at]!)), nestedIncludes, slice }
+    return { rows, chunks: positions.map(chunk => chunk.map(at => rows[at]!)), nestedIncludes, slice, parents }
   }
 
   private async _loadBelongsTo(
@@ -308,7 +337,7 @@ export class RelationResolver {
     await this._loadNested(this._resolveTable(rel.targetTable), rows, nestedIncludes, depth, processor)
   }
 
-  // The pivot rows are read first, then the targets through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
+  // The targets joined to their pivot rows in one query through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
@@ -326,40 +355,20 @@ export class RelationResolver {
     this._requireParentKey(parentRows, sourcePk, relationName)
 
     const parentIds = collectParentIds(parentRows, sourcePk)
-    const pivots = await this._runChunked(parentIds, chunk => new SelectBuilder<any>(rel.throughTable!).pick(from, to).where(e => e.in(from, chunk)).toSQL(dialectOf(this.executor)))
-    // Keyed by target, then by the index of the parent chunk that links it, so a chunk's rows reach only its own parents.
-    const parentsByTarget = new Map<unknown, Map<number, unknown[]>>()
-
-    for (const [chunk, chunkPivots] of pivots.entries()) {
-      for (const pivot of chunkPivots) {
-        const key = relationKey(pivot[to])
-        const byChunk = parentsByTarget.get(key) ?? new Map<number, unknown[]>()
-        const linked = byChunk.get(chunk)
-
-        if (linked)
-          linked.push(relationKey(pivot[from]))
-        else
-          byChunk.set(chunk, [relationKey(pivot[from])])
-
-        parentsByTarget.set(key, byChunk)
-      }
-    }
-
-    const { rows, chunks, nestedIncludes, slice } = parentsByTarget.size > 0
+    const { rows, chunks, parents, nestedIncludes, slice } = parentIds.length > 0
       ? await this._childQuery(rel.targetTable, targetPk, parentIds, inc, false, processor, { table: rel.throughTable!, from, to })
-      : { rows: [], chunks: [], nestedIncludes: [], slice: undefined }
+      : { rows: [], chunks: [], parents: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
     for (const [chunk, chunkRows] of chunks.entries()) {
-      for (const row of chunkRows) {
-        for (const parent of parentsByTarget.get(relationKey(row[targetPk]))?.get(chunk) ?? []) {
-          const group = grouped.get(parent)
+      for (const [i, row] of chunkRows.entries()) {
+        const parent = parents[chunk]![i]
+        const group = grouped.get(parent)
 
-          if (group)
-            group.push(row)
-          else
-            grouped.set(parent, [row])
-        }
+        if (group)
+          group.push(row)
+        else
+          grouped.set(parent, [row])
       }
     }
 

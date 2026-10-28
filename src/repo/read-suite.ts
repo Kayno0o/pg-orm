@@ -2,7 +2,7 @@ import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../build
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
+import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginatePage, PaginateResult, TrashedOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -83,6 +83,8 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
   }
 
   /** Offset pagination. The optional callback shapes the page (`pick`, `orderBy`, `include`, …) and any filter it adds is reflected in `total`. */
+  async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }): Promise<PaginatePage<TColumns, TVirtuals>>
+  async paginate<TResult>(opts: PaginateOptions<TColumns> & { withTotal: false }, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginatePage<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
   async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>>
   async paginate<TResult>(opts: PaginateOptions<TColumns>, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginateResult<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
   async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): Promise<any> {

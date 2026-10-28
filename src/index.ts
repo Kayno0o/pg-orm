@@ -103,6 +103,7 @@ export {
   type PaginateCursorOptions,
   type PaginateCursorResult,
   type PaginateOptions,
+  type PaginatePage,
   type PaginateResult,
   type StreamCursorOptions,
   type TrashedOptions,

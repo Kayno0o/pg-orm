@@ -1,3 +1,4 @@
+import type { DbConfig } from '../../src/index'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,9 +41,11 @@ const dir = mkdtempSync(join(tmpdir(), 'pg-orm-include-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const dialects: [string, (batchChunkSize?: number) => Database][] = [
-  ['postgres', batchChunkSize => createTestDb({ tables, batchChunkSize })],
-  ['sqlite', batchChunkSize => new Database({ url: `sqlite://${join(dir, 'include.db')}`, tables, batchChunkSize })],
+type Extra = Pick<DbConfig, 'batchChunkSize' | 'onQuery'>
+
+const dialects: [string, (extra?: Extra) => Database][] = [
+  ['postgres', extra => createTestDb({ tables, ...extra })],
+  ['sqlite', extra => new Database({ url: `sqlite://${join(dir, 'include.db')}`, tables, ...extra })],
 ]
 
 describe.each(dialects)('include() on %s', (_name, open) => {
@@ -97,6 +100,21 @@ describe.each(dialects)('include() on %s', (_name, open) => {
     expect(rows.map(r => r.groups.map(g => g.name))).toEqual([['blue', 'red'], ['blue']])
   })
 
+  it('reads hasManyThrough targets and their links in one query', async () => {
+    const statements: string[] = []
+    const counted = open({ onQuery: e => void statements.push(e.sql) })
+
+    try {
+      const rows = await counted.repo(people).read.findMany(q => q.include('groups').where({ id: [ann, bob] }).orderBy('name'))
+
+      expect(rows.map(r => r.groups.length)).toEqual([3, 1])
+      expect(statements).toHaveLength(2)
+    }
+    finally {
+      await counted.close()
+    }
+  })
+
   it('applies a callback limit per parent, on hasMany and hasManyThrough', async () => {
     const rows = await db.repo(people).read.findMany(q => q
       .include('reports', people, r => r.orderBy('name', 'desc').limit(1))
@@ -111,7 +129,7 @@ describe.each(dialects)('include() on %s', (_name, open) => {
   })
 
   it('keeps a hasManyThrough callback order and limit when the targets span several chunks', async () => {
-    const chunked = open(1)
+    const chunked = open({ batchChunkSize: 1 })
 
     try {
       const ordered = await chunked.repo(people).read.findMany(q => q.include('groups', groupsDef, g => g.orderBy('name')).where({ id: [ann, bob] }).orderBy('name'))

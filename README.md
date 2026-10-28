@@ -341,7 +341,7 @@ q.pick().computed(e => e.countCol(), 'n').groupByExpr(e => e.caseWhen([[e.gt('pr
 Repository operations are grouped into three suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, plus `insert/update/delete/merge/upsert` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s)
+- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, `purgeTrashed`, plus `insert/update/delete/merge` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s), or `{ returning: false }` to a many-row write (`insertMany`, `updateMany`, `deleteMany`, `upsertMany`, `deleteAll`, `forceDelete`, `restore`, `purgeTrashed`) to send it without RETURNING and get nothing back. An after-write hook still gets its rows, read for it alone
 - `repo.stream` — `offset` (LIMIT/OFFSET), `cursor` (keyset) and `copyTo` (CSV export through COPY)
 
 `db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
@@ -447,7 +447,7 @@ What each op gives when no row matches:
 
 | Op | No match |
 |----|----------|
-| `findMany`, `*Many`, `deleteAll`, `restore`, `forceDelete` | `[]` |
+| `findMany`, `*Many`, `deleteAll`, `restore`, `forceDelete`, `purgeTrashed` | `[]` |
 | `findOne`, `findById`, `updateOne`, `updateById`, `deleteOne`, `deleteById` | `null` |
 | `upsertOne` with a `where` guard that skipped the update | `null` |
 | `findOneOrThrow`, `findByIdOrThrow` | throws `NotFoundError` |
@@ -493,10 +493,27 @@ const users = defineTable('users', t => ({ ... }))
 // Soft-delete: deleteMany/deleteOne sets deletedAt instead of DELETE
 // Use .withTrashed() to include soft-deleted rows, on a find, an include() callback or repo.read.select()
 // Updates skip soft-deleted rows; pass { withTrashed: true } to reach them
-// Use .forceDelete() for real DELETE
+// Use .forceDelete() for real DELETE, .purgeTrashed(cutoff) to expire trashed rows
 
 // Optimistic lock: updateWithLock() checks version, throws StaleRecordError on conflict, NotFoundError when no row matches
 await repo.write.updateWithLock({ name: 'Updated' }, { id: 1 }, currentVersion)
+```
+
+### Erasing data
+
+A soft delete keeps the whole row: `deleteMany`, `deleteOne`, `deleteById` and `deleteAll` on a `softDelete` table only set `deletedAt`, so the row's personal data is still stored and still reachable with `withTrashed`. To erase it (a right-to-erasure request, a retention limit):
+
+- `forceDelete(where)` runs a real `DELETE` on the rows `where` matches, trashed or live.
+- `purgeTrashed(olderThan)` hard-deletes only trashed rows whose `deletedAt` is before `olderThan`, leaving live rows alone: run it on a schedule to give trashed rows a retention period.
+- Neither reaches related rows on its own: a hard delete removes a row's children only through a foreign key declared with `onDelete: 'cascade'` (`t.int4().references(() => users, 'id', { onDelete: 'cascade' })`), which a soft delete never triggers. Rows in other tables holding the same data need their own delete.
+- An upsert or a `findOrCreate` landing on a trashed row restores it (see [Mutations](#mutations)), so erase data with a hard delete, not a soft one, when the same key may be written again.
+
+```ts
+// Expire what was trashed more than 30 days ago
+await users.write.purgeTrashed(new Date(Date.now() - 30 * 86_400_000), { returning: false })
+
+// Erase one user now, its cascading children with it
+await users.write.forceDelete({ id: userId })
 ```
 
 ### Schema introspection
@@ -623,8 +640,11 @@ A query issued through `db` rather than `tx` from inside the body runs outside t
 ```ts
 // Offset-based
 const page = await repo.read.paginate({ page: 1, perPage: 20 })
-// { data, total, page, perPage, totalPages }, read in one query: the count rides along as a scalar subquery
+// { data, total, page, perPage, totalPages, hasNext }, read in one query: the count rides along as a scalar subquery
 // (an empty page past the first runs it on its own)
+
+// withTotal: false skips the count, which scans every matching row: { data, page, perPage, hasNext }
+const next = await repo.read.paginate({ page: 3, perPage: 20, withTotal: false })
 
 // The optional callback shapes the page. A filter it adds is reflected in `total`,
 // so `data` and `total` always describe the same row set.
@@ -742,7 +762,7 @@ for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
 }
 ```
 
-> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated. For correctness on mutable data during long-running streams, use `stream.cursor()` instead, or run inside a `REPEATABLE READ` transaction.
+> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated, and each chunk makes the database skip every row before it, so streaming a large table costs quadratic time. Use `stream.cursor()` for a large or changing table; a `REPEATABLE READ` transaction fixes only the consistency.
 
 ## Cancellation
 
