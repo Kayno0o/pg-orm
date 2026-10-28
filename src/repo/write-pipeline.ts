@@ -20,7 +20,7 @@ import { copyField } from '../sql/copy'
 import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
-import { assertKeyValue } from './table-runtime'
+import { assertKeyValue, columnOf } from './table-runtime'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
@@ -122,16 +122,16 @@ export class WritePipeline<
    * value untouched all the way to the driver, which encodes it to JSON itself - stringifying
    * here instead would arrive as a string and be encoded a second time, storing a JSON string
    * scalar that reads back correctly and answers `string` to jsonb_typeof.
+   * A key that is not a column of the table is refused, so a request body passed as is never writes a quoted identifier the table lacks.
    */
   private _normalizeJsonValues(values: Record<string, unknown>): Record<string, unknown> {
-    const cols = this._runtime.table.columns
     const out: Record<string, unknown> = {}
 
     for (const [key, val] of Object.entries(values)) {
-      const col = cols[key]
+      const col = columnOf(this._runtime.table, key, 'write')
 
       // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
-      if (col && (col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined) {
+      if ((col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined) {
         out[key] = jsonParam(val)
       }
       else {
@@ -207,10 +207,7 @@ export class WritePipeline<
       throw new ValidationError(`copyFrom on "${table.name}" got a row setting no column`, 'copyFrom')
 
     for (const name of columns) {
-      const col = table.columns[name]
-
-      if (!col)
-        throw new ValidationError(`"${table.name}" has no column "${name}"`, 'copyFrom', { field: name })
+      const col = columnOf(table, name, 'copyFrom')
 
       if (col.constraints.some((c: ColumnConstraint) => c.type === 'generated'))
         throw new ValidationError(`"${table.name}"."${name}" is a generated column, which COPY cannot write`, 'copyFrom', { field: name })
@@ -397,8 +394,10 @@ export class WritePipeline<
       const key: Record<string, unknown> = {}
       const patch: Record<string, unknown> = {}
 
-      for (const [col, value] of Object.entries(row))
-        (pkColumns.includes(col) ? key : patch)[col] = value
+      for (const [col, value] of Object.entries(row)) {
+        columnOf(table, col, 'updateManyById')
+        ;(pkColumns.includes(col) ? key : patch)[col] = value
+      }
 
       for (const col of pkColumns) {
         if (key[col] === undefined || key[col] === null)
@@ -566,6 +565,9 @@ export class WritePipeline<
     const lock = this._runtime.behavior.getOptimisticLockColumn()
     const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
+    for (const col of spec.columns ?? [])
+      columnOf(this._runtime.table, col, 'upsert')
+
     if (!spec.set && Object.keys(hooked).length === 0 && !lock && !trashCol)
       return spec
 
@@ -579,7 +581,9 @@ export class WritePipeline<
 
         // Plain values are bound like any write's, so a json value is marked; an expression is left to render itself.
         for (const [col, value] of Object.entries(set)) {
-          if (!isConflictValue(value))
+          if (isConflictValue(value))
+            columnOf(this._runtime.table, col, 'upsert')
+          else
             Object.assign(set, this._normalizeJsonValues({ [col]: value }))
         }
 

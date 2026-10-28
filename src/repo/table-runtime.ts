@@ -177,6 +177,14 @@ export function assertKeyValue(value: unknown, table: string, column: string, op
   throw new ValidationError(`"${table}"."${column}" takes a single key value, not ${value === null ? 'null' : Array.isArray(value) ? 'an array' : typeof value === 'object' ? 'an object' : typeof value}.`, op, { field: column })
 }
 
+/** The column `name` of `table`, refusing a key that is not one: an own key only, so `constructor` or `__proto__` never resolves on the prototype. */
+export function columnOf(table: AnyTableDef, name: string, op: string): AnyTableDef['columns'][string] {
+  if (!Object.hasOwn(table.columns, name))
+    throw new ValidationError(`"${table.name}" has no column "${name}"`, op, { field: name })
+
+  return table.columns[name]!
+}
+
 function formatPkValue(value: unknown): string {
   if (value === null)
     return 'null'

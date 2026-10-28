@@ -1066,6 +1066,8 @@ input. They are explicitly marked `@trusted` in JSDoc:
 Validation errors (invalid identifiers, non-finite numbers, unsafe delimiters,
 injection-shaped raw fragments) throw `ValidationError extends OrmError`.
 
+Writes refuse a key that is not a column of the table with a `ValidationError`, but the repository is not a mass-assignment guard: `insertOne(req.body)` or `updateById(id, req.body)` still lets a client set any column, `id`, `deletedAt` or `createdAt` included. Pick the keys a client may write before the call, for example with `writableColumns` (see [Schema introspection](#schema-introspection)).
+
 ## License
 
 MIT
