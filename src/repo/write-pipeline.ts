@@ -6,7 +6,7 @@ import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
+import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
@@ -28,6 +28,7 @@ const INSERTED_FLAG = '__pgorm_inserted'
 // The size a COPY's rows are batched to before each write to the stream.
 const COPY_CHUNK_CHARS = 64 * 1024
 const FIND_OR_CREATE_ATTEMPTS = 3
+const VECTOR_TYPE_RE = /^vector\(\d+\)$/
 // SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
 const SQLITE_OR_TERMS = 500
 
@@ -121,14 +122,20 @@ export class WritePipeline<
    * PostgreSQL array literal (e.g. {"a","b"}), which is not JSON. Marking them leaves the
    * value untouched all the way to the driver, which encodes it to JSON itself - stringifying
    * here instead would arrive as a string and be encoded a second time, storing a JSON string
-   * scalar that reads back correctly and answers `string` to jsonb_typeof.
+   * scalar that reads back correctly and answers `string` to jsonb_typeof. A vector goes in as pgvector's `[1,2]` text for the same reason.
    * A key that is not a column of the table is refused, so a request body passed as is never writes a quoted identifier the table lacks.
    */
-  private _normalizeJsonValues(values: Record<string, unknown>): Record<string, unknown> {
+  private _normalizeValues(values: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {}
 
     for (const [key, val] of Object.entries(values)) {
       const col = columnOf(this._runtime.table, key, 'write')
+
+      if (VECTOR_TYPE_RE.test(col.pgType) && (Array.isArray(val) || val instanceof Float32Array)) {
+        out[key] = vectorText(val)
+
+        continue
+      }
 
       // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
       if ((col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined) {
@@ -155,7 +162,7 @@ export class WritePipeline<
   // --- Insert ---
 
   async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
+    const v = this._normalizeValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
 
     return this._execute({
       builder: skipConflicts(new InsertBuilderCtor<TColumns>(this._runtime.table).values(v), opts),
@@ -170,7 +177,7 @@ export class WritePipeline<
       return []
 
     const v = (await this._runtime.runBeforeMany('beforeInsert', values))
-      .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
+      .map(row => this._normalizeValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
 
     return this._chunked(v, (pipeline, rows) => pipeline._execute({
       builder: skipConflicts(pipeline._insertMany(rows), opts),
@@ -277,7 +284,7 @@ export class WritePipeline<
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const filter = requireWhere(where, 'updateMany')
-    const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
+    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
       .where(filter)
@@ -413,7 +420,7 @@ export class WritePipeline<
         throw new ValidationError(`updateManyById(): the row ${identity} on "${table.name}" appears twice.`, 'updateManyById', { value: key })
 
       seen.add(identity)
-      prepared.push({ key, set: this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', patch)) })
+      prepared.push({ key, set: this._normalizeValues(await this._runtime.runBefore('beforeUpdate', patch)) })
     }
 
     // Each row binds its key and every column some row sets.
@@ -493,7 +500,7 @@ export class WritePipeline<
       return []
 
     const v = (await this._runtime.runBeforeMany('beforeUpsert', values))
-      .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
+      .map(row => this._normalizeValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
     const conflict = await this._conflictUpdate(update)
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
@@ -589,7 +596,7 @@ export class WritePipeline<
           if (isConflictValue(value))
             columnOf(this._runtime.table, col, 'upsert')
           else
-            Object.assign(set, this._normalizeJsonValues({ [col]: value }))
+            Object.assign(set, this._normalizeValues({ [col]: value }))
         }
 
         return set as ConflictSet<TColumns>
@@ -602,7 +609,7 @@ export class WritePipeline<
    * A row deleted between those statements sends it round again, a few times at most.
    */
   async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
-    const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>)
+    const v = this._normalizeValues(await this._runtime.runBefore('beforeUpsert', values) as Record<string, unknown>)
     const { table } = this._runtime
     const key = Object.fromEntries(conflictTarget.map((col) => {
       if (v[col] === undefined || v[col] === null)

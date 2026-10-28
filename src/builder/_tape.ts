@@ -67,6 +67,11 @@ export const OP_JSONB_CONTAINS = 30 as const // a @> b::text::jsonb
 export const OP_COALESCE = 31 as const
 export const OP_CASE = 32 as const
 
+/** A vector in pgvector's `[1,2]` text, where a bound array would arrive as the Postgres array literal `{1,2}`. */
+export function vectorText(vec: ArrayLike<number>): string {
+  return `[${Array.from(vec).join(',')}]`
+}
+
 export type ExprOp
   = | { op: typeof OP_AND, count: number }
     | { op: typeof OP_OR, count: number }
@@ -372,8 +377,7 @@ class ExprAssembler {
       case OP_VEC_DISTANCE: {
         this.postgresOnly('Vector distances')
 
-        // pgvector reads `[1,2]`, where a bound array would arrive as the Postgres array literal `{1,2}`.
-        const p = this.nextParam(`[${Array.from(op.vec).join(',')}]`)
+        const p = this.nextParam(vectorText(op.vec))
         const opSymbol = op.metric === 'cosine' ? '<=>' : op.metric === 'l2' ? '<->' : '<#>'
 
         return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
