@@ -64,8 +64,34 @@ export class ConnectionLifecycle extends BaseExecutor {
     return this.track(() => this._observed(sqlStr, [], () => copyIn(this.sql, sqlStr, chunks)))
   }
 
+  // An export is in flight for the drain from the call until its stream ends, fails or is cancelled.
+  override copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+    this._admit()
+
+    try {
+      return super.copyOut(sqlStr, () => this._drain.exit())
+    }
+    catch (err) {
+      this._drain.exit()
+
+      throw err
+    }
+  }
+
   /** Run a unit of work the drain waits for: rejected once closing has begun unless issued from inside work already running, counted as in flight until it settles. Transactions and migrations go through here as well as single queries. */
   async track<T>(fn: () => Promise<T>): Promise<T> {
+    this._admit()
+
+    try {
+      return await this._work.run(true, fn)
+    }
+    finally {
+      this._drain.exit()
+    }
+  }
+
+  // Counts new work in flight, refused once closing has begun unless issued from inside work already running.
+  private _admit(): void {
     const nested = this._work.getStore() === true
 
     if (this._closed && !nested)
@@ -75,13 +101,6 @@ export class ConnectionLifecycle extends BaseExecutor {
       throw new ConnectionError('Database is draining: no new queries accepted')
 
     this._drain.enter()
-
-    try {
-      return await this._work.run(true, fn)
-    }
-    finally {
-      this._drain.exit()
-    }
   }
 
   /** The tracked-work scope the caller runs in, as a function re-entering it: a transaction body, which bun:sql runs outside it, gets it back. */

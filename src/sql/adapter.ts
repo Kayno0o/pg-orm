@@ -224,7 +224,9 @@ export function copyOut(sql: InstanceType<typeof SQL>, sqlStr: string, onEnd: (.
   if (typeof query.readable !== 'function')
     throw new OrmError(`copyTo needs Bun 1.4.4 or later, whose bun:sql streams COPY TO STDOUT (running ${Bun.version})`)
 
-  const reader = query.readable().getReader()
+  const open = query.readable.bind(query)
+  // Opened by the first read, so a stream never read sends nothing.
+  let reader: { read: () => Promise<{ done: boolean, value?: Uint8Array }>, cancel: (reason?: unknown) => Promise<void> } | undefined
   const cancel = (): void => {
     query.cancel?.()
   }
@@ -243,6 +245,9 @@ export function copyOut(sql: InstanceType<typeof SQL>, sqlStr: string, onEnd: (.
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
+        throwIfAborted(signal, sqlStr)
+        reader ??= open().getReader()
+
         const { done, value } = await reader.read()
 
         if (!done)
@@ -260,7 +265,7 @@ export function copyOut(sql: InstanceType<typeof SQL>, sqlStr: string, onEnd: (.
     },
     async cancel(reason) {
       end()
-      await reader.cancel(reason)
+      await reader?.cancel(reason)
     },
   })
 }

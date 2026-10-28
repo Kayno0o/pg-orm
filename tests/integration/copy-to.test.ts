@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { AbortError, Database, defineTable, DialectError, softDelete } from '../../src/index'
+import { AbortError, ConnectionError, Database, defineTable, DialectError, softDelete } from '../../src/index'
 import { createTestDb } from '../helpers/db'
 
 const exported = defineTable('copy_exported', t => ({
@@ -13,6 +13,8 @@ const exported = defineTable('copy_exported', t => ({
 })).withTrait(softDelete())
 
 const LABELS = ['plain', 'it\'s', 'back\\slash', 'x\'); DROP TABLE "copy_exported"; --', 'comma, "quoted"']
+
+const ACTIVE_COPY = `SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE 'COPY%' AND pid <> pg_backend_pid()`
 
 let db: Database
 
@@ -85,7 +87,35 @@ describe('repo.stream.copyTo', () => {
     setTimeout(() => controller.abort(), 100)
 
     await expect(new Response(await stream).text()).rejects.toBeInstanceOf(AbortError)
-    expect(await db.raw(`SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE 'COPY%' AND pid <> pg_backend_pid()`)).toEqual([])
+
+    // The server takes the cancel request apart from the statement, so it is given a moment to end it.
+    for (let i = 0; i < 20 && (await db.raw(ACTIVE_COPY)).length > 0; i++)
+      await Bun.sleep(50)
+
+    expect(await db.raw(ACTIVE_COPY)).toEqual([])
+  })
+
+  it('reads inside the transaction it runs in, seeing its uncommitted rows', async () => {
+    let csv = ''
+
+    await expect(db.transaction(async (tx) => {
+      await db.repo(exported).using(tx).write.deleteMany({ n: 0 })
+      csv = await new Response(db.repo(exported).using(tx).stream.copyTo({ pick: ['n'], header: false })).text()
+
+      throw new Error('rolled back')
+    })).rejects.toThrow('rolled back')
+    expect(csv).toBe('1\n2\n3\n')
+    expect(await db.repo(exported).read.count()).toBe(4)
+  })
+
+  it('is waited for by a draining close, and refused once the database is closed', async () => {
+    const other = createTestDb({ tables: [exported] })
+    const stream = other.repo(exported).stream.copyTo({ pick: ['n'], header: false })
+    const closing = other.close({ drain: true, timeout: 5000 })
+
+    expect(await new Response(stream).text()).toBe('0\n1\n2\n3\n')
+    await closing
+    expect(() => other.repo(exported).stream.copyTo()).toThrow(ConnectionError)
   })
 
   it('is refused on SQLite', async () => {

@@ -1,3 +1,4 @@
+import { PLACEHOLDER_RE, replaceOutsideQuotes } from '../builder/_placeholders'
 import { ValidationError } from '../errors/index'
 import { BACKSLASH_RE, SINGLE_QUOTE_RE } from '../utils/regex'
 import { serializePgArray } from './adapter'
@@ -5,7 +6,6 @@ import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 // COPY's text format ends a field at a tab and a row at a newline, and reads a backslash as an escape.
 const COPY_SPECIAL_RE = /[\\\n\r\t]/g
-const PLACEHOLDER_RE = /\$(\d+)/g
 const COPY_ESCAPES: Record<string, string> = { '\\': '\\\\', '\n': '\\n', '\r': '\\r', '\t': '\\t' }
 
 function escapeCopy(text: string): string {
@@ -57,7 +57,7 @@ function sqlLiteral(value: unknown): string {
   return `E'${text.replace(BACKSLASH_RE, '\\\\').replace(SINGLE_QUOTE_RE, '\'\'')}'`
 }
 
-/** `sql` with each `$n` placeholder replaced by its parameter as a literal: the assembler writes `$n` nowhere else, identifiers being validated and values bound. */
+/** `sql` with each `$n` placeholder replaced by its parameter as a literal, a `$n` inside a quoted literal or identifier (a raw fragment's) left as text. */
 export function inlineParams(sql: string, params: unknown[]): string {
-  return sql.replace(PLACEHOLDER_RE, (_match, n: string) => sqlLiteral(params[Number(n) - 1]))
+  return replaceOutsideQuotes(sql, PLACEHOLDER_RE, (_match, n) => sqlLiteral(params[Number(n) - 1]))
 }

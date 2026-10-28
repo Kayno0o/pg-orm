@@ -150,10 +150,13 @@ export abstract class BaseExecutor implements Executable {
   }
 
   // Reported to the query hooks once the stream ends, its duration covering the whole read.
-  copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+  copyOut(sqlStr: string, onEnd?: () => void): ReadableStream<Uint8Array> {
     const start = performance.now()
 
-    return copyOut(this.sql, sqlStr, (...failure) => this._report(sqlStr, [], performance.now() - start, ...failure))
+    return copyOut(this.sql, sqlStr, (...failure) => {
+      onEnd?.()
+      this._report(sqlStr, [], performance.now() - start, ...failure)
+    })
   }
 
   // Runs `run` as one query for the hooks: a retried statement reports once, its outcome after the last attempt.

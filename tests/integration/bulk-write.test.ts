@@ -92,6 +92,7 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
     expect(await repo.insertOne({ code: 'one', n: 1 }, { skipConflicts: ['code'], pk: true })).toBeNull()
     expect(await repo.insertOne({ code: 'one', n: 1 }, { skipConflicts: ['code'] })).toBeNull()
     expect(await repo.insertOne({ code: 'two', n: 1 }, { skipConflicts: ['code'] })).toMatchObject({ code: 'two', n: 1 })
+    expect(await repo.insertMany([{ code: 'two', n: 2 }, { code: 'three', n: 2 }], { skipConflicts: ['code'], pk: true })).toEqual([expect.any(Number)])
   })
 
   it('writes nothing when a later chunk fails', async () => {

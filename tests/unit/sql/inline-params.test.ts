@@ -20,6 +20,10 @@ describe('inlineParams', () => {
     expect(sql).toBe('NULL NULL E\'t\' E\'12\' E\'2026-01-02T03:04:05.000Z\' E\'\\\\x01ff\' E\'{"a","b\\\\"c"}\' E\'{"k":"1"}\' E\'"x"\'')
   })
 
+  it('leaves a $n inside a quoted literal or identifier as text', () => {
+    expect(inlineParams('"label" <> \'costs $1\' AND "a$1" = $1', ['x'])).toBe('"label" <> \'costs $1\' AND "a$1" = E\'x\'')
+  })
+
   it('refuses a NUL character, which Postgres rejects in any text', () => {
     expect(() => inlineParams('$1', ['a\0b'])).toThrow(ValidationError)
   })
