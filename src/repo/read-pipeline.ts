@@ -64,6 +64,19 @@ export interface SelectOptions {
   defaultLimit?: number
 }
 
+/** The page size a public paginate call may ask; a stream paging internally passes none. */
+export interface PageLimits {
+  maxPageSize?: number
+}
+
+function checkPageSize(op: string, name: string, size: number, limits?: PageLimits): void {
+  if (!Number.isInteger(size) || size < 1)
+    throw new ValidationError(`${op}() requires ${name} >= 1, got ${size}`, op, { value: size })
+
+  if (limits?.maxPageSize !== undefined && size > limits.maxPageSize)
+    throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${size}`, op, { value: size })
+}
+
 export interface PaginateOptions<TColumns extends AnyColumns> extends TrashedOptions {
   page: number
   perPage: number
@@ -265,14 +278,17 @@ export class ReadPipeline<
     return rows.length > 0
   }
 
-  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateResult<TColumns, TVirtuals>> {
+  async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals>> {
     const { page, perPage, where, withTrashed } = opts
 
     if (!Number.isInteger(page) || page < 1)
       throw new ValidationError(`paginate() requires page >= 1, got ${page}`, 'paginate', { value: page })
 
-    if (!Number.isInteger(perPage) || perPage < 1)
-      throw new ValidationError(`paginate() requires perPage >= 1, got ${perPage}`, 'paginate', { value: perPage })
+    checkPageSize('paginate', 'perPage', perPage, limits)
+
+    // Past this the offset is no longer an exact integer, which Postgres refuses.
+    if (page * perPage > Number.MAX_SAFE_INTEGER)
+      throw new ValidationError(`paginate(): page ${page} of ${perPage} rows reaches past the largest offset`, 'paginate', { value: page })
 
     const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
     const rows = (cb ? cb(base) : base).andWhere(where)
@@ -299,13 +315,12 @@ export class ReadPipeline<
   }
 
   // Keyset paging on (column, primary key): a row-value comparison resumes after the cursor, so tied values are neither skipped nor repeated. A backward page is read descending, its cursor taken from the last row read, then reversed.
-  async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateCursorResult<any, unknown>> {
+  async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateCursorResult<any, unknown>> {
     const { take, cursor, direction = 'forward', where, withTrashed } = opts
     const { keys, byKey } = this._cursorKeys(opts.column)
     const isForward = direction === 'forward'
 
-    if (!Number.isInteger(take) || take < 1)
-      throw new ValidationError(`paginateCursor() requires take >= 1, got ${take}`, 'paginateCursor', { value: take })
+    checkPageSize('paginateCursor', 'take', take, limits)
 
     const data = await this.findMany((q) => {
       const b = cb ? cb(q) : q

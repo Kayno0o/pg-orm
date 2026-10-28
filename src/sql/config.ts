@@ -102,6 +102,11 @@ export interface DbConfig {
    */
   defaultLimit?: number | undefined
   /**
+   * Largest `perPage` (paginate) and `take` (paginateCursor) accepted; a larger one throws `ValidationError`, so a page size read off a request cannot load the whole table.
+   * Defaults to 1000. `Infinity` lifts the cap. Streams are not capped, their chunk size being the caller's own.
+   */
+  maxPageSize?: number | undefined
+  /**
    * Retry a statement outside a transaction with exponential backoff: any statement after a deadlock or serialization failure, and a SELECT after a dropped connection (PG codes 08xxx, 57P01).
    * A SELECT is judged by its leading keyword and assumed side-effect free, so one calling a side-effecting function retries too. A retried statement reaches the query hooks once, with its final outcome.
    * Disabled by default. Set `maxRetries` to enable.
@@ -174,6 +179,7 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     maxIncludeDepth: _maxIncludeDepth,
     batchChunkSize: _batchChunkSize,
     defaultLimit: _defaultLimit,
+    maxPageSize: _maxPageSize,
     redactParams: _redactParams,
     ...connOpts
   } = cfg

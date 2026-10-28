@@ -944,6 +944,12 @@ const db = new Database({
   // idle_in_transaction_session_timeout (ms), set on every connection: kills connections that hold a transaction open without activity. The prod safety net for forgotten awaits.
   idleInTransactionTimeout: 60000,
 
+  // LIMIT for a repo.read.findMany() with no limit of its own; no other call takes it (findOne, paginate, streams and raw builders set their own). Off by default.
+  defaultLimit: 1000,
+
+  // Largest perPage (paginate) and take (paginateCursor): a larger one throws ValidationError. Default 1000, `Infinity` lifts it; stream chunk sizes are not capped.
+  maxPageSize: 1000,
+
   // Reported as application_name on the PG connection — shows up in pg_stat_activity
   // and PG logs for filtering and incident attribution.
   application_name: 'my-service',
@@ -1006,8 +1012,8 @@ const db = new Database({
   // and PG logs. Include version/instance for easy filtering.
   application_name: `my-service@${process.env.GIT_SHA ?? 'dev'}`,
 
-  // Cap unbounded SELECTs that omit `.limit()`. Catches "forgot to paginate" bugs
-  // before they hit production.
+  // Cap a repo.read.findMany() that omits `.limit()`, catching "forgot to paginate" bugs before they hit production.
+  // It covers findMany only: paginate and paginateCursor are capped by maxPageSize (1000 by default) instead.
   defaultLimit: 1000,
 
   // Auto-retry deadlocks and serialization failures, and SELECTs after a dropped connection (judged by the leading keyword, so a raw SELECT calling a side-effecting function retries too).

@@ -3,7 +3,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } fro
 import type { MapperFactory } from './_mapper'
 import type { RelationResolver as RelationResolverType } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
-import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
+import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH, DEFAULT_MAX_PAGE_SIZE } from '../constants'
 import { dialectOf } from '../dialect'
 import { createMapperFactory } from './_mapper'
 import { ReadSuite } from './read-suite'
@@ -23,6 +23,7 @@ export interface RepositoryConfig {
   tableRegistry?: ReadonlyMap<string, AnyTableDef>
   maxIncludeDepth?: number
   defaultLimit?: number
+  maxPageSize?: number
   batchChunkSize?: number
   /** @internal */
   shared?: { runtime: TableRuntime, mappers: MapperFactory }
@@ -64,6 +65,7 @@ export class Repository<
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
+  private _maxPageSize: number
   // One rebound repository per transaction client, so `repo.using(tx)` in a loop does not rebuild the runtime, resolver and mapper each time.
   private _boundCache = new WeakMap<object, Repository<TColumns, TRelations, TVirtuals>>()
 
@@ -81,12 +83,13 @@ export class Repository<
     this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
     this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = config.defaultLimit
+    this._maxPageSize = config.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE
 
     this._rt = config.shared?.runtime ?? buildTableRuntime(this._table)
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
     this._map = config.shared?.mappers ?? createMapperFactory(this._table, dialectOf(this._exec))
 
-    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry)
+    this.read = new ReadSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._defaultLimit, this._tableRegistry, this._maxPageSize)
     this.write = new WriteSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt)
     this.stream = new StreamSuite<TColumns, TRelations, TVirtuals>(this._exec, this._rt, this._rel, this._map, this._tableRegistry)
   }
@@ -120,6 +123,7 @@ export class Repository<
       tableRegistry: this._tableRegistry,
       maxIncludeDepth: this._maxIncludeDepth,
       defaultLimit: this._defaultLimit,
+      maxPageSize: this._maxPageSize,
       batchChunkSize: this._batchChunkSize,
       // The mappers coerce per dialect, so another database's repository builds its own.
       shared: dialectOf(tx as Executable) === dialectOf(this._exec) ? { runtime: this._rt, mappers: this._map } : undefined,

@@ -54,6 +54,7 @@ export class Database extends BaseExecutor {
   private _maxIncludeDepth: number
   private _batchChunkSize: number
   private _defaultLimit?: number
+  private _maxPageSize?: number
   private _migrations?: MigrationRunner
   private _repoCache = new WeakMap<AnyTableDef, { version: number, repo: unknown }>()
 
@@ -101,6 +102,7 @@ export class Database extends BaseExecutor {
     this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
     this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
     this._defaultLimit = config.defaultLimit
+    this._maxPageSize = config.maxPageSize
 
     this._tables = new Map()
 
@@ -158,6 +160,7 @@ export class Database extends BaseExecutor {
       tableRegistry: this._tables,
       maxIncludeDepth: this._maxIncludeDepth,
       defaultLimit: this._defaultLimit,
+      maxPageSize: this._maxPageSize,
       batchChunkSize: this._batchChunkSize,
     })
 

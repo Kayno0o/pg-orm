@@ -2,7 +2,7 @@ import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../build
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { CursorOf, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
+import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginateResult, TrashedOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -13,6 +13,7 @@ type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (
 export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelations = {}, TVirtuals extends AnyVirtuals = {}> {
   private _pipeline: ReadPipeline<TColumns, TRelations, TVirtuals>
   private _defaultLimit?: number
+  private _limits: PageLimits
 
   constructor(
     exec: Executable,
@@ -21,6 +22,7 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     map: MapperFactory,
     defaultLimit?: number,
     tableRegistry?: ReadonlyMap<string, AnyTableDef>,
+    maxPageSize?: number,
   ) {
     this._pipeline = new ReadPipeline<TColumns, TRelations, TVirtuals>({
       executor: exec,
@@ -30,6 +32,7 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
       tableRegistry,
     })
     this._defaultLimit = defaultLimit
+    this._limits = { maxPageSize }
   }
 
   /** Rows matching a WHERE object, or shaped by a select callback (`pick`, `include`, `orderBy`, a callback WHERE). */
@@ -81,7 +84,7 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
   async paginate(opts: PaginateOptions<TColumns>): Promise<PaginateResult<TColumns, TVirtuals>>
   async paginate<TResult>(opts: PaginateOptions<TColumns>, cb: SelectCb<TColumns, TRelations, TResult>): Promise<Omit<PaginateResult<TColumns, TVirtuals>, 'data'> & { data: (TResult & InferVirtuals<TVirtuals>)[] }>
   async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
-    return this._pipeline.paginate(opts, cb)
+    return this._pipeline.paginate(opts, cb, this._limits)
   }
 
   /** Keyset pagination ordered by `column` then the primary key. Pass `nextCursor` back as `cursor` for the next page; the optional callback shapes rows (`pick`, `include`, a WHERE) but leaves order and limit to the cursor. */
@@ -93,7 +96,7 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     cb: SelectCb<TColumns, TRelations, TResult>,
   ): Promise<PaginateCursorResult<TResult & InferVirtuals<TVirtuals>, CursorOf<TColumns, K>>>
   async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>): Promise<PaginateCursorResult<any, any>> {
-    return this._pipeline.paginateCursor(opts, cb)
+    return this._pipeline.paginateCursor(opts, cb, this._limits)
   }
 
   /** Builder accessor for advanced SELECT. Auto-applies the soft-delete filter. */

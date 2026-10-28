@@ -6,6 +6,9 @@ export const DEFAULT_MAX_INCLUDE_DEPTH = 5
 /** Rows per IN (...) chunk in batched relation loading. Sized below PG's 65535 param limit. Configurable: DbConfig.batchChunkSize. */
 export const DEFAULT_BATCH_CHUNK_SIZE = 5000
 
+/** Largest `perPage` / `take` paginate() and paginateCursor() accept. Configurable: DbConfig.maxPageSize. */
+export const DEFAULT_MAX_PAGE_SIZE = 1000
+
 /** Default chunkSize for stream.offset() / stream.cursor() when not passed in opts. */
 export const DEFAULT_STREAM_CHUNK_SIZE = 500
 
