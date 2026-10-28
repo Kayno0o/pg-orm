@@ -2,7 +2,7 @@ import type { Dialect } from '../dialect'
 import type { AnyColumnDef } from '../types/index'
 import { DialectError } from '../errors/index'
 import { getColumnMeta } from '../schema/column-meta'
-import { escapeLiteralBody } from '../sql/utils'
+import { escapeLiteralBody, quote } from '../sql/utils'
 
 // PG truncates longer identifiers, which would make a name never match the one it was created with.
 const MAX_IDENTIFIER_BYTES = 63
@@ -32,28 +32,28 @@ export function columnChecks(tableName: string, colName: string, colDef: AnyColu
 
     // An enum array is JSON text there, which a list of values cannot check.
     if (meta.enumValues && !colDef.pgType.endsWith('[]'))
-      exprs.push(`"${colName}" IN (${meta.enumValues.map(v => `'${escapeLiteralBody(v)}'`).join(', ')})`)
+      exprs.push(`${quote(colName)} IN (${meta.enumValues.map(v => `'${escapeLiteralBody(v)}'`).join(', ')})`)
   }
 
   if (meta.min != null)
-    parts.push(`"${colName}" >= ${meta.min}`)
+    parts.push(`${quote(colName)} >= ${meta.min}`)
 
   if (meta.max != null)
-    parts.push(`"${colName}" <= ${meta.max}`)
+    parts.push(`${quote(colName)} <= ${meta.max}`)
 
   if (meta.minLength != null)
-    parts.push(`length("${colName}") >= ${meta.minLength}`)
+    parts.push(`length(${quote(colName)}) >= ${meta.minLength}`)
 
   if (meta.maxLength != null)
-    parts.push(`length("${colName}") <= ${meta.maxLength}`)
+    parts.push(`length(${quote(colName)}) <= ${meta.maxLength}`)
 
   if (meta.pattern != null)
-    parts.push(`"${colName}" ~ '${escapeLiteralBody(meta.pattern)}'`)
+    parts.push(`${quote(colName)} ~ '${escapeLiteralBody(meta.pattern)}'`)
 
   if (meta.oneOf != null) {
     const vals = meta.oneOf.map(v => typeof v === 'string' ? `'${escapeLiteralBody(v)}'` : String(v)).join(', ')
 
-    parts.push(`"${colName}" IN (${vals})`)
+    parts.push(`${quote(colName)} IN (${vals})`)
   }
 
   if (parts.length > 0)

@@ -14,7 +14,7 @@ import type {
 } from '../types/index'
 import { phantom } from '../types/index'
 import { toSQLDefault } from './column-default'
-import { validateFkAction, validateIdentifier, validateIndexMethod } from './validate'
+import { validateFiniteNumber, validateFkAction, validateIdentifier, validateIndexMethod, validateTypeArg } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
 export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean } | undefined {
@@ -146,6 +146,7 @@ export class ColumnBuilder<
 
   /** Add a minimum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
   min(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateFiniteNumber(value, 'min()')
     this._min = value
 
     return this._narrow()
@@ -153,6 +154,7 @@ export class ColumnBuilder<
 
   /** Add a maximum value CHECK constraint. The CHECK is generated using the column name at DDL time. */
   max(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateFiniteNumber(value, 'max()')
     this._max = value
 
     return this._narrow()
@@ -160,6 +162,7 @@ export class ColumnBuilder<
 
   /** Add a minimum length CHECK constraint (for text/varchar). */
   minLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateTypeArg(value, 'minLength()', 0)
     this._minLength = value
 
     return this._narrow()
@@ -167,6 +170,7 @@ export class ColumnBuilder<
 
   /** Add a maximum length CHECK constraint (for text/varchar). */
   maxLength(value: number): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    validateTypeArg(value, 'maxLength()', 0)
     this._maxLength = value
 
     return this._narrow()
@@ -181,6 +185,11 @@ export class ColumnBuilder<
 
   /** Add a CHECK constraint restricting values to a set of allowed values. */
   oneOf<V extends TType>(values: readonly V[]): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+    for (const v of values) {
+      if (typeof v !== 'string' && typeof v !== 'boolean')
+        validateFiniteNumber(v as number, 'oneOf()')
+    }
+
     this._oneOf = values as readonly (string | number)[]
 
     return this._narrow()

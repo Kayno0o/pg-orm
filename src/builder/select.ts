@@ -208,7 +208,7 @@ export class SelectBuilder<
 
     validateIdentifier(table, `${type} join table`)
     validateIdentifier(alias, `${type} join alias`)
-    this._state.joins.push({ type, table, alias, on: on(createExprBuilder()) })
+    this._state.joins.push({ type, table, alias, on: on(createExprBuilder()), columns: typeof target === 'string' ? undefined : Object.keys(target.columns) })
 
     return this
   }
@@ -371,8 +371,9 @@ export class SelectBuilder<
   }
 
   /** Alias the SELECT for use as a subquery (`(SELECT ...) AS alias`). */
-  as(_alias: string): this {
-    this._state.alias = _alias
+  as(alias: string): this {
+    validateIdentifier(alias, 'subquery alias')
+    this._state.alias = alias
 
     return this
   }
@@ -444,6 +445,7 @@ export class SelectBuilder<
     this._state.columns = []
 
     for (const [alias, expr] of Object.entries(aggs)) {
+      validateIdentifier(alias, 'aggregate alias')
       this._state.computedColumns.push({ expr, alias })
     }
 

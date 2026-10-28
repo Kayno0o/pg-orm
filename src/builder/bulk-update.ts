@@ -36,20 +36,20 @@ export class BulkUpdateBuilder {
    * @trusted The SQL expression is inlined verbatim.
    */
   setRaw(column: string, sqlExpression: string): this {
-    this._raw.set(column, sqlExpression)
+    this._raw.set(this._column(column, 'setRaw()'), sqlExpression)
 
     return this
   }
 
   /** Only update rows where this column is null. */
   whereNull(column: string): this {
-    this._nullColumns.push(column)
+    this._nullColumns.push(this._column(column, 'whereNull()'))
 
     return this
   }
 
   returning(...cols: string[]): this {
-    this._returning = cols
+    this._returning = cols.map(col => this._column(col, 'returning()'))
 
     return this
   }
@@ -123,10 +123,7 @@ export class BulkUpdateBuilder {
         if (this._raw.has(col) || seen.has(col))
           continue
 
-        if (!this.columns[col])
-          throw new ValidationError(`updateManyById(): "${col}" is not a column of "${this.table}".`, 'updateManyById', { field: col })
-
-        seen.add(col)
+        seen.add(this._column(col, 'updateManyById()'))
       }
     }
 
@@ -134,6 +131,13 @@ export class BulkUpdateBuilder {
       throw new ValidationError(`updateManyById(): no row sets any column on "${this.table}".`, 'updateManyById')
 
     return [...seen]
+  }
+
+  private _column(column: string, op: string): string {
+    if (!Object.hasOwn(this.columns, column))
+      throw new ValidationError(`${op}: "${column}" is not a column of "${this.table}".`, op, { field: column })
+
+    return column
   }
 
   private _castType(column: string): string {

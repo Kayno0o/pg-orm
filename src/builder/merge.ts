@@ -1,6 +1,7 @@
 import type { AnyColumns } from '../types/index'
 import type { ExprBuilder, ExprTape } from './expr'
 import type { TableTarget } from './state'
+import { validateIdentifier } from '../schema/validate'
 import { MutationBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { validateValues } from './state'
@@ -11,6 +12,8 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   using(sourceTable: string, alias: string): this {
+    validateIdentifier(sourceTable, 'merge source table')
+    validateIdentifier(alias, 'merge source alias')
     this._state.joins.push({ type: 'inner', table: sourceTable, alias, on: null })
 
     return this

@@ -20,6 +20,8 @@ export interface JoinEntry {
   alias: string
   on: ExprTape | null
   relation?: string
+  // The joined table's columns, when it was given as a table def: `alias.col` is then checked against them.
+  columns?: readonly string[]
 }
 
 // --- CTE ---
@@ -102,7 +104,7 @@ export interface BuilderState {
   // UPDATE set
   setValues: Record<string, unknown> | null
   // UPDATE ... FROM and DELETE ... USING: the other tables the statement reads.
-  fromTables?: { table: string, alias: string }[]
+  fromTables?: { table: string, alias: string, columns?: readonly string[] }[]
   // RETURNING
   returning: string[] | null // null = no RETURNING, [] = RETURNING *
   // An internal expression RETURNING adds after the columns, trusted SQL: the flag telling an upsert's inserted rows from its updated ones on Postgres.

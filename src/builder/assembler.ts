@@ -628,29 +628,81 @@ function printRaw(sb: SqlBuilder, state: BuilderState): void {
 
 const columnSets = new WeakMap<readonly string[], ReadonlySet<string>>()
 
-// One set per table's column list, which the repository shares between its queries.
-function columnSet(columns: readonly string[]): ReadonlySet<string> {
+// One set per table's column list, which the repository shares between its queries: its bare names and `table.col`.
+function columnSet(table: string, columns: readonly string[]): ReadonlySet<string> {
   let set = columnSets.get(columns)
 
   if (!set) {
-    set = new Set(columns)
+    set = new Set([...columns, ...columns.map(c => `${table}.${c}`)])
     columnSets.set(columns, set)
   }
 
   return set
 }
 
+// The qualified names of the statements being printed, innermost last: a correlated subquery may name their aliases, as SQL lets it.
+const enclosing: ReadonlySet<string>[] = []
+
+// What the statement's subqueries may name: `alias.col` for each alias it declares and every enclosing statement's, `alias.*` where the table's columns are unknown.
+function statementScope(state: BuilderState, columns: readonly string[] | undefined): ReadonlySet<string> {
+  const sources = [...state.joins, ...state.fromTables ?? []]
+  const outer = enclosing.at(-1)
+
+  if (columns && !state.alias && sources.length === 0 && state.ctes.length === 0 && !outer)
+    return columnSet(state.table, columns)
+
+  const set = new Set<string>()
+  const qualify = (alias: string, cols: readonly string[] | undefined): void => {
+    if (!cols) {
+      set.add(`${alias}.*`)
+
+      return
+    }
+
+    for (const col of cols) set.add(`${alias}.${col}`)
+  }
+
+  for (const name of outer ?? []) {
+    if (name.includes('.'))
+      set.add(name)
+  }
+
+  qualify(state.table, columns)
+
+  if (state.alias)
+    qualify(state.alias, columns)
+
+  for (const source of sources) qualify(source.alias, source.columns)
+  for (const cte of state.ctes) qualify(cte.name, undefined)
+
+  return set
+}
+
 export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres', paramOffset = 0): { sql: string, params: unknown[] } {
   const sb = new SqlBuilder(dialect, paramOffset)
-
-  printCtes(sb, state.ctes)
-
   // MERGE names its source's columns bare too, so only the other statements check theirs.
-  if (state.tableColumns?.length && state.op !== 'merge' && state.op !== 'raw') {
-    sb.columns = columnSet(state.tableColumns)
+  const checked = state.tableColumns?.length && state.op !== 'merge' && state.op !== 'raw' ? state.tableColumns : undefined
+  const scope = statementScope(state, checked)
+
+  if (checked) {
+    sb.columns = scope === columnSets.get(checked) ? scope : new Set([...checked, ...scope])
     sb.outputs = new Set(state.computedColumns.map(c => c.alias))
   }
 
+  enclosing.push(scope)
+
+  try {
+    printCtes(sb, state.ctes)
+    printStatement(sb, state)
+  }
+  finally {
+    enclosing.pop()
+  }
+
+  return sb.toResult()
+}
+
+function printStatement(sb: SqlBuilder, state: BuilderState): void {
   switch (state.op) {
     case 'select':
     case 'count':
@@ -686,6 +738,4 @@ export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres'
 
       break
   }
-
-  return sb.toResult()
 }

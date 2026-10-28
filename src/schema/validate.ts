@@ -52,6 +52,12 @@ export function validateFkAction(action: string | undefined, context: string): v
     throw new ValidationError(`Invalid foreign key action "${action}" on ${context}: expected one of ${[...FK_ACTIONS].join(', ')}.`, context, { value: action })
 }
 
+/** A bound printed into a CHECK (`min()`, `max()`): a finite number, whatever the caller's types let through. */
+export function validateFiniteNumber(value: number, context: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    throw new ValidationError(`Invalid ${context}: ${String(value)} is not a finite number.`, context, { value })
+}
+
 /** A length, precision or dimension count written into a type (`varchar(n)`, `vector(n)`): a positive integer, or zero where Postgres takes it (a numeric scale). */
 export function validateTypeArg(value: number, context: string, min = 1): void {
   if (!Number.isInteger(value) || value < min)

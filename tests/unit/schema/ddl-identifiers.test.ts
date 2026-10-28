@@ -56,6 +56,18 @@ describe('every name and value reaching DDL is validated at definition time', ()
     expect(() => table.renamedFrom(EVIL)).toThrow(ValidationError)
   })
 
+  it('rejects a CHECK bound that is not a finite number, a length that is not an integer, and an array default or oneOf item that is not a scalar', () => {
+    const smuggled = '0; DROP TABLE y' as unknown as number
+
+    expect(() => defineTable('t', t => ({ n: t.int4().min(smuggled) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ n: t.int4().max(Number.POSITIVE_INFINITY) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ s: t.text().minLength(1.5) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ s: t.text().maxLength(smuggled) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ n: t.int4().oneOf([1, { toString: () => '1); DROP TABLE y; --' } as unknown as number]) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ n: t.int4().default(Number.NaN) }))).toThrow(ValidationError)
+    expect(() => defineTable('t', t => ({ a: t.array(t.int4()).default([1, { toString: () => '1]; DROP TABLE y; --' }] as unknown as number[]) }))).toThrow(ValidationError)
+  })
+
   it('still accepts valid definitions', () => {
     const target = defineTable('target', t => ({ id: t.serial().primaryKey() }))
     const table = defineTable('t', t => ({
@@ -64,6 +76,9 @@ describe('every name and value reaching DDL is validated at definition time', ()
       a: t.text().renamedFrom('old_a').index({ method: 'gin' }),
       n: t.numeric(10, 0),
       v: t.vector(3),
+      c: t.int4().min(-1.5).max(10).oneOf([1, 2]).default(1),
+      l: t.text().minLength(0).maxLength(20),
+      tags: t.array(t.text()).default(['a', 'b']),
     }))
 
     expect(() => table.withIndexes([{ name: 't_a_s_idx', columns: ['a', 's'], method: 'btree' }])).not.toThrow()

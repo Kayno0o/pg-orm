@@ -71,7 +71,7 @@ export abstract class MutationBuilder extends BaseBuilder {
 
     validateIdentifier(table, `${context} table`)
     validateIdentifier(alias, `${context} alias`)
-    this._state.fromTables = [...this._state.fromTables ?? [], { table, alias }]
+    this._state.fromTables = [...this._state.fromTables ?? [], { table, alias, columns: typeof target === 'string' ? undefined : Object.keys(target.columns) }]
   }
 }
 

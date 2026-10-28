@@ -2,6 +2,7 @@ import type { Dialect } from '../dialect'
 import type { MigrationOp } from './types'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
+import { quote } from '../sql/utils'
 import { ADD_CONSTRAINT_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 import { fkConstraintName } from './ddl'
 
@@ -60,7 +61,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
     case 'create_table': {
       const table = requireIdent(op.table, 'down.create_table.table', opts)
 
-      return `DROP TABLE IF EXISTS "${table}";`
+      return `DROP TABLE IF EXISTS ${quote(table)};`
     }
 
     case 'add_column': {
@@ -68,7 +69,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       const column = requireIdent(op.column, 'down.add_column.column', opts)
 
       // SQLite has no IF EXISTS on DROP COLUMN.
-      return opts?.dialect === 'sqlite' ? `ALTER TABLE "${table}" DROP COLUMN "${column}";` : `ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}";`
+      return opts?.dialect === 'sqlite' ? `ALTER TABLE ${quote(table)} DROP COLUMN ${quote(column)};` : `ALTER TABLE ${quote(table)} DROP COLUMN IF EXISTS ${quote(column)};`
     }
 
     case 'create_enum': {
@@ -97,7 +98,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
 
       validateOptional(constraint, 'down.add_fk.constraint', opts)
 
-      return `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${constraint}";`
+      return `ALTER TABLE ${quote(table)} DROP CONSTRAINT IF EXISTS ${quote(constraint)};`
     }
 
     case 'add_constraint': {
@@ -109,7 +110,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
 
       validateOptional(name, 'down.add_constraint.name', opts)
 
-      return `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${name}";`
+      return `ALTER TABLE ${quote(table)} DROP CONSTRAINT IF EXISTS ${quote(name)};`
     }
 
     case 'rename_column': {
@@ -123,7 +124,7 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       validateOptional(match[1]!, 'down.rename_column.from', opts)
       validateOptional(match[2]!, 'down.rename_column.to', opts)
 
-      return `ALTER TABLE "${table}" RENAME COLUMN "${match[2]}" TO "${match[1]}";`
+      return `ALTER TABLE ${quote(table)} RENAME COLUMN ${quote(match[2]!)} TO ${quote(match[1]!)};`
     }
 
     default:

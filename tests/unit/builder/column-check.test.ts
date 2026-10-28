@@ -58,6 +58,24 @@ describe('a builder on a table definition refuses a column the table does not ha
     expect(q.sql).toBe('SELECT "cc_users"."team", CAST(COUNT(*) AS double precision) AS "n" FROM "cc_users" INNER JOIN "cc_users" AS "o" ON "cc_users"."id" = "o"."id" GROUP BY "cc_users"."team" ORDER BY "n" DESC')
   })
 
+  it('takes alias.col only for a declared alias and, when its table is known, one of its columns', () => {
+    const joined = () => select().join(users, 'o', e => e.eq('id', e.ref('o.id')))
+
+    expect(() => select().where({ [runtime('secrets.password')]: 'x' }).toSQL()).toThrow('Unknown column "secrets.password"')
+    expect(() => joined().orderBy(runtime('o.nme')).toSQL()).toThrow('Unknown column "o.nme"')
+    expect(() => joined().where({ [runtime('p.name')]: 'x' }).toSQL()).toThrow(ValidationError)
+    expect(joined().where({ [runtime('o.name')]: 'x', [runtime('cc_users.team')]: 'y' }).toSQL().sql).toBe('SELECT "cc_users".* FROM "cc_users" INNER JOIN "cc_users" AS "o" ON "cc_users"."id" = "o"."id" WHERE ("o"."name" = $1 AND "cc_users"."team" = $2)')
+    expect(select().join('cc_teams', 't', e => e.eq('team', e.ref('t.name'))).orderBy(runtime('t.anything')).toSQL().sql).toContain('ORDER BY "t"."anything" ASC')
+  })
+
+  it('takes an enclosing statement\'s alias in a correlated subquery, and only while printing inside it', () => {
+    const inner = () => new SelectBuilder<Cols>(users).pick('id').where(e => e.eq('team', e.ref(runtime('m.team'))))
+    const q = select().join(users, 'm', e => e.eq('id', e.ref('m.id'))).where(e => e.exists(inner())).toSQL()
+
+    expect(q.sql).toContain('WHERE EXISTS (SELECT "id" FROM "cc_users" WHERE "team" = "m"."team")')
+    expect(() => inner().toSQL()).toThrow('Unknown column "m.team"')
+  })
+
   it('checks nothing on a builder given only a table name', () => {
     expect(new SelectBuilder<any>('cc_users').where({ nme: 'x' }).toSQL().sql).toBe('SELECT * FROM "cc_users" WHERE "nme" = $1')
   })

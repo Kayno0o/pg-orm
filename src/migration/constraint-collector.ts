@@ -1,4 +1,5 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
+import { quote } from '../sql/utils'
 import { columnEntries } from './types'
 
 export interface CollectedConstraints {
@@ -32,7 +33,7 @@ export function collectConstraints(
 
     for (const c of colDef.constraints as ColumnConstraint[]) {
       if (c.type === 'primary_key')
-        pkCols.push(`"${name}"`)
+        pkCols.push(quote(name))
       else if (c.type === 'unique')
         uniqueCols.push(name)
     }

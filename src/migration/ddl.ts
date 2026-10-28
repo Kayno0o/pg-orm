@@ -1,5 +1,5 @@
 import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } from '../types/index'
-import { escapeLiteralBody } from '../sql/utils'
+import { escapeLiteralBody, quote } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
 import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
@@ -15,22 +15,22 @@ export function generateCreateTable(name: string, table: AnyTableDef): string {
     constraints.push(`  PRIMARY KEY (${pkCols.join(', ')})`)
 
   for (const col of uniqueCols)
-    constraints.push(`  UNIQUE ("${col}")`)
+    constraints.push(`  UNIQUE (${quote(col)})`)
 
   for (const unique of table.uniques ?? [])
-    constraints.push(`  CONSTRAINT "${uniqueName(name, unique)}" UNIQUE (${unique.columns.map(c => `"${c}"`).join(', ')})`)
+    constraints.push(`  CONSTRAINT ${quote(uniqueName(name, unique))} UNIQUE (${unique.columns.map(quote).join(', ')})`)
 
   // FK constraints are emitted as separate `add_fk` ops after all CREATE TABLEs,
   // so cross-table FK ordering is not constrained by declaration order.
 
   const all = [...colDefs, ...constraints].join(',\n')
 
-  return `CREATE TABLE "${name}" (\n${all}\n)`
+  return `CREATE TABLE ${quote(name)} (\n${all}\n)`
 }
 
 /** A column's DDL. Given the table name, its CHECKs are named as `sync()` diffs them; without it they are left for PG to name. */
 export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?: string): string {
-  const parts: string[] = [`"${name}"`, colDef.pgType]
+  const parts: string[] = [quote(name), colDef.pgType]
 
   for (const c of colDef.constraints) {
     switch (c.type) {
@@ -51,7 +51,7 @@ export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?
   }
 
   for (const check of columnChecks(tableName ?? '', name, colDef))
-    parts.push(tableName ? `CONSTRAINT "${check.name}" CHECK (${check.expr})` : `CHECK (${check.expr})`)
+    parts.push(tableName ? `CONSTRAINT ${quote(check.name)} CHECK (${check.expr})` : `CHECK (${check.expr})`)
 
   return parts.join(' ')
 }
@@ -256,30 +256,30 @@ export function usingClause(colName: string, liveType: string, desiredType: stri
     return ''
 
   if ((live === 'json' || live === 'jsonb') && desired.endsWith('[]'))
-    return ` USING translate("${colName}"::text, '[]', '{}')::${pgType}`
+    return ` USING translate(${quote(colName)}::text, '[]', '{}')::${pgType}`
 
-  return ` USING "${colName}"::${pgType}`
+  return ` USING ${quote(colName)}::${pgType}`
 }
 
 // --- Table lifecycle ---
 
 export function buildDropTableSql(name: string): string {
-  return `DROP TABLE "${name}"`
+  return `DROP TABLE ${quote(name)}`
 }
 
 // --- Column lifecycle ---
 
 /** `fill` is a default the column is added with, filling the rows already there, which the caller drops right after. */
 export function buildAddColumnSql(tableName: string, colName: string, colDef: AnyColumnDef, fill?: string): string {
-  return `ALTER TABLE "${tableName}" ADD COLUMN ${generateColumnDDL(colName, colDef, tableName)}${fill === undefined ? '' : ` DEFAULT ${fill}`}`
+  return `ALTER TABLE ${quote(tableName)} ADD COLUMN ${generateColumnDDL(colName, colDef, tableName)}${fill === undefined ? '' : ` DEFAULT ${fill}`}`
 }
 
 export function buildDropColumnSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" DROP COLUMN "${colName}"`
+  return `ALTER TABLE ${quote(tableName)} DROP COLUMN ${quote(colName)}`
 }
 
 export function buildRenameColumnSql(tableName: string, oldName: string, newName: string): string {
-  return `ALTER TABLE "${tableName}" RENAME COLUMN "${oldName}" TO "${newName}"`
+  return `ALTER TABLE ${quote(tableName)} RENAME COLUMN ${quote(oldName)} TO ${quote(newName)}`
 }
 
 export function buildAlterColumnTypeSql(
@@ -288,31 +288,31 @@ export function buildAlterColumnTypeSql(
   pgType: string,
   usingClause?: string,
 ): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" TYPE ${pgType}${usingClause ?? ''}`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} TYPE ${pgType}${usingClause ?? ''}`
 }
 
 export function buildSetExpressionSql(tableName: string, colName: string, expr: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET EXPRESSION AS (${expr})`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} SET EXPRESSION AS (${expr})`
 }
 
 export function buildDropExpressionSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP EXPRESSION`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} DROP EXPRESSION`
 }
 
 export function buildSetNotNullSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET NOT NULL`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} SET NOT NULL`
 }
 
 export function buildDropNotNullSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP NOT NULL`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} DROP NOT NULL`
 }
 
 export function buildSetDefaultSql(tableName: string, colName: string, value: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" SET DEFAULT ${value}`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} SET DEFAULT ${value}`
 }
 
 export function buildDropDefaultSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ALTER COLUMN "${colName}" DROP DEFAULT`
+  return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} DROP DEFAULT`
 }
 
 // --- Constraint lifecycle ---
@@ -348,7 +348,7 @@ export function uniqueName(tableName: string, unique: UniqueDef): string {
 }
 
 export function buildAddUniqueSql(tableName: string, unique: UniqueDef): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${uniqueName(tableName, unique)}" UNIQUE (${unique.columns.map(c => `"${c}"`).join(', ')})`
+  return `ALTER TABLE ${quote(tableName)} ADD CONSTRAINT ${quote(uniqueName(tableName, unique))} UNIQUE (${unique.columns.map(quote).join(', ')})`
 }
 
 export function identitySql(kind: string | undefined): string {
@@ -357,36 +357,36 @@ export function identitySql(kind: string | undefined): string {
 
 /** `COMMENT ON` a table, or one of its columns, to `text`, or none when null. */
 export function buildCommentSql(tableName: string, colName: string | undefined, text: string | null): string {
-  const target = colName === undefined ? `TABLE "${tableName}"` : `COLUMN "${tableName}"."${colName}"`
+  const target = colName === undefined ? `TABLE ${quote(tableName)}` : `COLUMN ${quote(tableName)}.${quote(colName)}`
 
   return `COMMENT ON ${target} IS ${text === null ? 'NULL' : `'${escapeLiteralBody(text)}'`}`
 }
 
 export function buildRenameTableSql(oldName: string, newName: string): string {
-  return `ALTER TABLE "${oldName}" RENAME TO "${newName}"`
+  return `ALTER TABLE ${quote(oldName)} RENAME TO ${quote(newName)}`
 }
 
 export function buildAddUniqueConstraintSql(tableName: string, colName: string): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${uniqueConstraintName(tableName, colName)}" UNIQUE ("${colName}")`
+  return `ALTER TABLE ${quote(tableName)} ADD CONSTRAINT ${quote(uniqueConstraintName(tableName, colName))} UNIQUE (${quote(colName)})`
 }
 
 export function buildAddPrimaryKeySql(tableName: string, columns: string[]): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${primaryKeyName(tableName)}" PRIMARY KEY (${columns.map(c => `"${c}"`).join(', ')})`
+  return `ALTER TABLE ${quote(tableName)} ADD CONSTRAINT ${quote(primaryKeyName(tableName))} PRIMARY KEY (${columns.map(quote).join(', ')})`
 }
 
 export function buildAddCheckSql(tableName: string, name: string, expr: string): string {
-  return `ALTER TABLE "${tableName}" ADD CONSTRAINT "${name}" CHECK (${expr})`
+  return `ALTER TABLE ${quote(tableName)} ADD CONSTRAINT ${quote(name)} CHECK (${expr})`
 }
 
 export function buildDropConstraintSql(tableName: string, constraintName: string): string {
-  return `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${constraintName}"`
+  return `ALTER TABLE ${quote(tableName)} DROP CONSTRAINT IF EXISTS ${quote(constraintName)}`
 }
 
 // --- Foreign-key lifecycle ---
 
 export function buildAddFkSql(tableName: string, colName: string, ref: ForeignKeyRef): string {
   const targetTable = ref.table()
-  let sql = `ALTER TABLE "${tableName}" ADD CONSTRAINT "${fkConstraintName(tableName, colName)}" FOREIGN KEY ("${colName}") REFERENCES "${targetTable.name}" ("${ref.column}")`
+  let sql = `ALTER TABLE ${quote(tableName)} ADD CONSTRAINT ${quote(fkConstraintName(tableName, colName))} FOREIGN KEY (${quote(colName)}) REFERENCES ${quote(targetTable.name)} (${quote(ref.column)})`
 
   if (ref.onDelete)
     sql += ` ON DELETE ${ref.onDelete.toUpperCase()}`
@@ -401,7 +401,7 @@ export function buildAddFkSql(tableName: string, colName: string, ref: ForeignKe
 }
 
 export function buildDropFkSql(tableName: string, constraintName: string): string {
-  return `ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`
+  return `ALTER TABLE ${quote(tableName)} DROP CONSTRAINT ${quote(constraintName)}`
 }
 
 // --- Index lifecycle ---
@@ -416,13 +416,13 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef, concurrent
   const method = idx.method ?? 'btree'
   const unique = idx.unique ? 'UNIQUE ' : ''
   const keys = [
-    ...idx.columns.map(c => `"${c}"${idx.opclass?.[c] ? ` ${idx.opclass[c]}` : ''}${idx.desc?.includes(c) ? ' DESC' : ''}`),
+    ...idx.columns.map(c => `${quote(c)}${idx.opclass?.[c] ? ` ${idx.opclass[c]}` : ''}${idx.desc?.includes(c) ? ' DESC' : ''}`),
     ...(idx.expressions ?? []).map(e => `(${e})`),
   ].join(', ')
-  let sql = `CREATE ${unique}INDEX ${concurrently ? 'CONCURRENTLY IF NOT EXISTS ' : ''}"${name}" ON "${tableName}" USING ${method} (${keys})`
+  let sql = `CREATE ${unique}INDEX ${concurrently ? 'CONCURRENTLY IF NOT EXISTS ' : ''}${quote(name)} ON ${quote(tableName)} USING ${method} (${keys})`
 
   if (idx.include?.length)
-    sql += ` INCLUDE (${idx.include.map(c => `"${c}"`).join(', ')})`
+    sql += ` INCLUDE (${idx.include.map(quote).join(', ')})`
 
   if (idx.where)
     sql += ` WHERE ${idx.where}`
@@ -431,7 +431,7 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef, concurrent
 }
 
 export function buildDropIndexSql(name: string, concurrently = false): string {
-  return `DROP INDEX ${concurrently ? 'CONCURRENTLY ' : ''}IF EXISTS "${name}"`
+  return `DROP INDEX ${concurrently ? 'CONCURRENTLY ' : ''}IF EXISTS ${quote(name)}`
 }
 
 // --- Enum lifecycle ---
@@ -439,11 +439,11 @@ export function buildDropIndexSql(name: string, concurrently = false): string {
 export function buildCreateEnumSql(name: string, values: string[]): string {
   const escaped = values.map(v => `'${escapeEnumValue(v)}'`).join(', ')
 
-  return `CREATE TYPE "${name}" AS ENUM (${escaped})`
+  return `CREATE TYPE ${quote(name)} AS ENUM (${escaped})`
 }
 
 export function buildAlterEnumAddSql(name: string, value: string): string {
-  return `ALTER TYPE "${name}" ADD VALUE IF NOT EXISTS '${escapeEnumValue(value)}'`
+  return `ALTER TYPE ${quote(name)} ADD VALUE IF NOT EXISTS '${escapeEnumValue(value)}'`
 }
 
 /** A live column typed with an enum, or an array of it. */
@@ -461,7 +461,7 @@ export function buildEnumReplacementSqls(enumName: string, values: string[], usa
   const escapedValues = values.map(v => `'${escapeEnumValue(v)}'`).join(', ')
   const tmpName = fitIdentifier(enumName, '_new')
   const sqls: string[] = [
-    `CREATE TYPE "${tmpName}" AS ENUM (${escapedValues})`,
+    `CREATE TYPE ${quote(tmpName)} AS ENUM (${escapedValues})`,
   ]
 
   for (const usage of usages) {
@@ -470,11 +470,11 @@ export function buildEnumReplacementSqls(enumName: string, values: string[], usa
     if (usage.hasDefault)
       sqls.push(buildDropDefaultSql(usage.table, usage.column))
 
-    sqls.push(`ALTER TABLE "${usage.table}" ALTER COLUMN "${usage.column}" TYPE "${tmpName}"${brackets} USING "${usage.column}"::text${brackets}::"${tmpName}"${brackets}`)
+    sqls.push(`ALTER TABLE ${quote(usage.table)} ALTER COLUMN ${quote(usage.column)} TYPE ${quote(tmpName)}${brackets} USING ${quote(usage.column)}::text${brackets}::${quote(tmpName)}${brackets}`)
   }
 
-  sqls.push(`DROP TYPE "${enumName}"`)
-  sqls.push(`ALTER TYPE "${tmpName}" RENAME TO "${enumName}"`)
+  sqls.push(`DROP TYPE ${quote(enumName)}`)
+  sqls.push(`ALTER TYPE ${quote(tmpName)} RENAME TO ${quote(enumName)}`)
 
   for (const usage of usages) {
     if (usage.restoreDefault !== undefined)

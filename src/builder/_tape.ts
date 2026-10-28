@@ -439,10 +439,16 @@ export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string
 }
 
 /**
- * Refuse a bare column name the table does not have, when its columns are known; an `alias.col` names another table and is left alone.
+ * Refuse a column the statement does not have, when its columns are known: a bare name outside the table, an `alias.col` whose alias is not declared or whose table lacks the column.
+ * The set holds `alias.col` for each table whose columns are known and `alias.*` for one only named, which takes any column.
  * SQLite reads a double-quoted unknown name as a string literal, so `WHERE "nme" = 'nme'` would match every row instead of failing.
  */
 export function assertColumn(name: string, columns: ReadonlySet<string> | undefined): void {
-  if (columns && !columns.has(name) && !name.includes('.'))
+  if (!columns || columns.has(name))
+    return
+
+  const dot = name.indexOf('.')
+
+  if (dot < 0 || !columns.has(`${name.slice(0, dot)}.*`))
     throw new ValidationError(`Unknown column "${name}"`, 'column', { field: name })
 }

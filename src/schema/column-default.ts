@@ -1,4 +1,5 @@
 import type { AnyColumnDef } from '../types/index'
+import { ValidationError } from '../errors/index'
 import { escapeLiteralBody, quoteLiteral } from '../sql/utils'
 import { getColumnMeta } from './column-meta'
 
@@ -30,7 +31,10 @@ export function toSQLDefault(value: unknown, pgType: string): string {
   if (value === null || value === undefined)
     return 'NULL'
 
-  if (typeof value === 'number' || typeof value === 'bigint')
+  if (typeof value === 'number')
+    return finiteNumber(value)
+
+  if (typeof value === 'bigint')
     return String(value)
 
   if (typeof value === 'boolean')
@@ -43,11 +47,7 @@ export function toSQLDefault(value: unknown, pgType: string): string {
     if (value.length === 0)
       return `ARRAY[]::${pgType}`
 
-    const items = value.map(v =>
-      typeof v === 'string' ? quoteLiteral(v) : String(v),
-    ).join(',')
-
-    return `ARRAY[${items}]::${pgType}`
+    return `ARRAY[${value.map(arrayItem).join(',')}]::${pgType}`
   }
 
   if (typeof value === 'object')
@@ -59,12 +59,40 @@ export function toSQLDefault(value: unknown, pgType: string): string {
   return String(value)
 }
 
+// A number printed into DDL: NaN and the infinities have no literal there, and a value typed past `number` must not reach the SQL.
+function finiteNumber(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    throw new ValidationError(`Invalid default: ${String(value)} is not a finite number.`, 'default', { value })
+
+  return String(value)
+}
+
+// One item of an array default: a string, a finite number, a bigint, a boolean or null.
+function arrayItem(item: unknown): string {
+  if (item === null)
+    return 'NULL'
+
+  if (typeof item === 'string')
+    return quoteLiteral(item)
+
+  if (typeof item === 'bigint')
+    return String(item)
+
+  if (typeof item === 'boolean')
+    return item ? 'true' : 'false'
+
+  return finiteNumber(item)
+}
+
 // A JS default value as SQLite SQL: a boolean is TRUE or FALSE, a Date its ISO string and an array or an object its JSON text, the way each binds.
 function sqliteLiteral(value: unknown): string {
   if (value === null || value === undefined)
     return 'NULL'
 
-  if (typeof value === 'number' || typeof value === 'bigint')
+  if (typeof value === 'number')
+    return finiteNumber(value)
+
+  if (typeof value === 'bigint')
     return String(value)
 
   if (typeof value === 'boolean')

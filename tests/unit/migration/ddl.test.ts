@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef } from '../../../src/types/index'
 import { describe, expect, test } from 'bun:test'
 import { defineTable } from '../../../src/index'
-import { generateColumnDDL, generateCreateTable, normalizeDefault, normalizeType, sameDefault } from '../../../src/migration/ddl'
+import { buildDropConstraintSql, buildDropIndexSql, buildDropTableSql, generateColumnDDL, generateCreateTable, normalizeDefault, normalizeType, sameDefault } from '../../../src/migration/ddl'
 
 function colOf(table: AnyTableDef, name: string) {
   return generateColumnDDL(name, table.columns[name] as AnyColumnDef)
@@ -330,5 +330,15 @@ describe('sameDefault', () => {
 
   test('a char default matches its bpchar cast', () => {
     expect(sameDefault('\'ab\'', '\'ab\'::bpchar', 'char(3)')).toBe(true)
+  })
+})
+
+describe('names read back from the live database', () => {
+  test('a double quote in a dropped name is doubled, not closing the identifier', () => {
+    const evil = 'a"; DROP TABLE users; --'
+
+    expect(buildDropTableSql(evil)).toBe('DROP TABLE "a""; DROP TABLE users; --"')
+    expect(buildDropIndexSql(evil)).toBe('DROP INDEX IF EXISTS "a""; DROP TABLE users; --"')
+    expect(buildDropConstraintSql('t', evil)).toBe('ALTER TABLE "t" DROP CONSTRAINT IF EXISTS "a""; DROP TABLE users; --"')
   })
 })

@@ -6,6 +6,7 @@ import type { QueryError } from '../../src/errors/index'
  * error message leakage, and common OWASP-style attack vectors.
  */
 import { describe, expect, it } from 'bun:test'
+import { BulkUpdateBuilder } from '../../src/builder/bulk-update'
 import { assembleExpr, createExprBuilder } from '../../src/builder/expr'
 import { assembleQuery, DeleteBuilder, InsertBuilder, MergeBuilder, SelectBuilder, UpdateBuilder } from '../../src/builder/query'
 import { UniqueError, wrapPgError } from '../../src/errors/index'
@@ -914,6 +915,26 @@ describe('Security H1: window/with/withRecursive identifier validation', () => {
 
   it('withRecursive() rejects injection in CTE name', () => {
     expect(() => b().withRecursive('cte"; DROP TABLE users', 'SELECT 1', [])).toThrow(/Invalid/)
+  })
+})
+
+describe('Security: alias and column arguments are validated', () => {
+  const evil = 'a"; DROP TABLE users; --'
+  const items = defineTable('sec_items', t => ({ id: t.serial().primaryKey(), n: t.int4() }))
+  const bulk = () => new BulkUpdateBuilder('sec_items', items.columns, ['id'], [{ key: { id: 1 }, set: { n: 2 } }])
+
+  it('as(), aggregate() and MERGE using() refuse a name that is not an identifier', () => {
+    expect(() => new SelectBuilder<any>('users').as(evil)).toThrow(/Invalid/)
+    expect(() => new SelectBuilder<any>('users').aggregate(e => ({ [evil]: e.countCol() }))).toThrow(/Invalid/)
+    expect(() => new MergeBuilder<any>('users').using(evil, 's')).toThrow(/Invalid/)
+    expect(() => new MergeBuilder<any>('users').using('staging', evil)).toThrow(/Invalid/)
+  })
+
+  it('a bulk update refuses a setRaw, whereNull or returning column the table lacks', () => {
+    expect(() => bulk().setRaw(evil, '1')).toThrow('is not a column of "sec_items"')
+    expect(() => bulk().whereNull(evil)).toThrow('is not a column of "sec_items"')
+    expect(() => bulk().returning('id', evil)).toThrow('is not a column of "sec_items"')
+    expect(bulk().setRaw('n', '"n" + 1').returning('id').toSQL().sql).toContain('RETURNING "sec_items"."id"')
   })
 })
 
