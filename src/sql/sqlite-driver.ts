@@ -11,6 +11,7 @@ import { toSqliteText } from './sqlite-text'
 // How long a write waits for another connection holding the file's lock before SQLITE_BUSY.
 const BUSY_TIMEOUT_MS = 5000
 const BUSY_MAX_DELAY_MS = 50
+const SQLITE_BUSY = 5
 const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER)
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
 const STATEMENT_CACHE_MAX = 500
@@ -58,8 +59,11 @@ async function settledWithin(work: Promise<unknown>, ms: number): Promise<void> 
   }
 }
 
+// Primary result code 5: bun:sqlite reports extended codes such as SQLITE_BUSY_RECOVERY (261), each waited out like SQLITE_BUSY. SQLITE_BUSY_SNAPSHOT is too, as `_waitBusy` only ever retries a statement outside a transaction.
 function isBusy(err: unknown): boolean {
-  return err instanceof Error && (err as { code?: string }).code === 'SQLITE_BUSY'
+  const errno = err instanceof Error ? (err as { errno?: unknown }).errno : undefined
+
+  return typeof errno === 'number' && (errno & 0xFF) === SQLITE_BUSY
 }
 
 // Integers are read as bigints, so an int8 past 2^53 keeps its precision; one a number holds is handed back as a number, as Postgres hands back an int4.
