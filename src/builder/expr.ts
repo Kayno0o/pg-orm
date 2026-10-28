@@ -1,5 +1,5 @@
 import type { AnyColumnDef, AnyColumns } from '../types/index'
-import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef, TypedExpr } from './_tape'
+import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef, TypedExpr, VectorMetric } from './_tape'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateTsLanguage } from '../schema/validate'
 import { qualifyCol, quote } from '../sql/utils'
@@ -53,6 +53,10 @@ export {
   type TsQueryRef,
   type TypedExpr,
 } from './_tape'
+
+/** A vector to compare with: numbers for a `vector` or `halfvec`, pgvector's `{1:1,3:2}/5` text for a `sparsevec`. */
+export type VectorValue = number[] | Float32Array | string
+export type VectorType = 'vector' | 'halfvec' | 'sparsevec'
 
 type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
   = TColumns[K] extends AnyColumnDef ? TColumns[K]['_type'] : unknown
@@ -128,9 +132,15 @@ export interface ExprBuilder<TColumns extends AnyColumns> {
   tsQuery: (language: string, query: string) => TsQueryRef
 
   // Vector distance (pgvector)
-  vectorCosineDistance: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
-  vectorL2Distance: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
-  vectorInnerProduct: (col: string | ExprTape, vec: number[] | Float32Array) => ExprTape
+  // `type` is the column's: a `halfvec` column takes `'halfvec'`, a `sparsevec` one takes pgvector's `{1:1,3:2}/5` text (and `'sparsevec'` is then implied).
+  vectorCosineDistance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  vectorL2Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  vectorInnerProduct: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  /** L1 (taxicab) distance, `<+>`. */
+  vectorL1Distance: (col: string | ExprTape, vec: VectorValue, type?: VectorType) => ExprTape
+  // Binary vectors are `bit(n)` columns, compared with a string of `0` and `1`.
+  bitHammingDistance: (col: string | ExprTape, bits: string) => ExprTape
+  bitJaccardDistance: (col: string | ExprTape, bits: string) => ExprTape
 
   /** A column by name (`col`, or `alias.col` of a joined or outer table), comparable as a value: `e.eq('authorId', e.ref('u.id'))`. */
   ref: (path: string) => ColumnRef
@@ -198,6 +208,20 @@ function escapeLikePattern(op: string, col: unknown, input: string): string {
   return pattern(op, col, input).replace(LIKE_RE, '\\$&')
 }
 
+const BITS_RE = /^[01]+$/
+
+function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): ExprTape {
+  return [{ op: OP_VEC_DISTANCE, col, vec, metric, cast: type ?? (typeof vec === 'string' ? 'sparsevec' : 'vector') }]
+}
+
+// The cast carries the length: a bare `::bit` is `bit(1)`.
+function bitDistance(col: string | ExprTape, bits: string, metric: VectorMetric): ExprTape {
+  if (typeof bits !== 'string' || !BITS_RE.test(bits))
+    throw new ValidationError(`${metric === 'hamming' ? 'bitHammingDistance' : 'bitJaccardDistance'}(): the bits compared with ${describeCol(col)} must be a string of 0 and 1.`, 'bitDistance', { value: bits })
+
+  return [{ op: OP_VEC_DISTANCE, col, vec: bits, metric, cast: `bit(${bits.length})` }]
+}
+
 // Singleton expression builder — stateless, so one instance serves all callers
 const _singletonExprBuilder: ExprBuilder<any> = {
   and(...exprs) {
@@ -262,9 +286,12 @@ const _singletonExprBuilder: ExprBuilder<any> = {
     return { language, query }
   },
 
-  vectorCosineDistance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'cosine' }],
-  vectorL2Distance: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'l2' }],
-  vectorInnerProduct: (col, vec) => [{ op: OP_VEC_DISTANCE, col, vec, metric: 'inner' }],
+  vectorCosineDistance: (col, vec, type) => vectorDistance(col, vec, 'cosine', type),
+  vectorL2Distance: (col, vec, type) => vectorDistance(col, vec, 'l2', type),
+  vectorInnerProduct: (col, vec, type) => vectorDistance(col, vec, 'inner', type),
+  vectorL1Distance: (col, vec, type) => vectorDistance(col, vec, 'l1', type),
+  bitHammingDistance: (col, bits) => bitDistance(col, bits, 'hamming'),
+  bitJaccardDistance: (col, bits) => bitDistance(col, bits, 'jaccard'),
 
   ref: path => columnRef(path),
 

@@ -7,7 +7,7 @@ import { applyTrait } from '../traits/index'
 import { createColumnTypes } from './column-types'
 import { ColumnBuilder, getColumnIndex } from './columns'
 import { createRelationTypes } from './relations'
-import { validateIdentifier, validateIndexMethod, validateRawSqlFragment } from './validate'
+import { validateIdentifier, validateIndexMethod, validateIndexParams, validateRawSqlFragment } from './validate'
 
 // Registered globally so a table defined by another copy of the lib (a bundled dependency) still passes `isTableDef`.
 const TABLE_DEF: unique symbol = Symbol.for('pg-orm.TableDef') as never
@@ -58,7 +58,18 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
         if (idx.where !== undefined)
           validateRawSqlFragment(idx.where, `index on "${key}"`)
 
-        indexes.push({ columns: [key], unique: false, method: idx.method, where: idx.where, ...idx.concurrently ? { concurrently: true } : {} })
+        if (idx.opclass !== undefined)
+          validateIdentifier(idx.opclass, 'index operator class')
+
+        indexes.push({
+          columns: [key],
+          unique: false,
+          method: idx.method,
+          where: idx.where,
+          ...idx.concurrently ? { concurrently: true } : {},
+          ...idx.opclass ? { opclass: { [key]: idx.opclass } } : {},
+          ...idx.with ? { with: idx.with } : {},
+        })
       }
     }
   }
@@ -198,6 +209,7 @@ export function defineTable(
           throw new ValidationError(`An index on expressions needs a name: ${idx.expressions.join(', ')}`, 'index', { value: idx.expressions })
 
         validateIndexMethod(idx.method, `index "${idx.name ?? idx.columns.join('_')}"`)
+        validateIndexParams(idx.method, idx.with, `index "${idx.name ?? idx.columns.join('_')}"`)
 
         for (const fragment of [...idx.expressions ?? [], ...idx.where === undefined ? [] : [idx.where]])
           validateRawSqlFragment(fragment, `index "${idx.name ?? idx.columns.join('_')}"`)

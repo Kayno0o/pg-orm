@@ -2,6 +2,8 @@
 // on every call (e18e/prefer-static-regex).
 
 export const WHERE_RE = /\bWHERE\b/i
+// A storage parameter of an index as Postgres prints it back: `m='16'`, spaced around the equals sign in the DDL.
+export const QUOTED_PARAM_RE = /\b(\w+) ?= ?'(\d+)'/g
 
 // A type split into its name, its modifier and its array brackets: `varchar(10)[]`. A schema qualifier and identifier quotes are dropped before.
 export const TYPE_PARTS_RE = /^([^()[\]]*)(?:\(([^)]*)\))?((?:\[\d*\])*)$/

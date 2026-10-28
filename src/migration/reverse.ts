@@ -72,6 +72,10 @@ export function generateReverseOp(op: MigrationOp, opts?: DownSqlOptions): strin
       return opts?.dialect === 'sqlite' ? `ALTER TABLE ${quote(table)} DROP COLUMN ${quote(column)};` : `ALTER TABLE ${quote(table)} DROP COLUMN IF EXISTS ${quote(column)};`
     }
 
+    // An extension may serve other schemas' tables, so reverting a migration leaves it installed.
+    case 'create_extension':
+      return ''
+
     case 'create_enum': {
       const name = op.sql.match(QUOTED_IDENT_RE)?.[0] ?? 'unknown'
 

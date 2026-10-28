@@ -29,7 +29,7 @@ const INSERTED_FLAG = '__pgorm_inserted'
 // The size a COPY's rows are batched to before each write to the stream.
 const COPY_CHUNK_CHARS = 64 * 1024
 const FIND_OR_CREATE_ATTEMPTS = 3
-const VECTOR_TYPE_RE = /^vector\(\d+\)$/
+const VECTOR_TYPE_RE = /^(?:vector|halfvec)\(\d+\)$/
 // SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
 const SQLITE_OR_TERMS = 500
 

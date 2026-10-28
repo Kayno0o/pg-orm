@@ -106,7 +106,7 @@ const items = defineTable('items', t => ({
 
 ### Column Types
 
-`serial`, `bigserial`, `int2`, `int4`, `int8`, `smallint`, `integer`, `bigint`, `float4`, `float8`, `real`, `doublePrecision`, `numeric`, `text`, `varchar`, `char`, `citext`, `boolean`, `bool`, `date`, `timestamp`, `timestamptz`, `time`, `timetz`, `interval`, `uuid`, `json`, `jsonb`, `bytea`, `inet`, `cidr`, `macaddr`, `point`, `line`, `circle`, `box`, `path`, `polygon`, `tsvector`, `tsquery`, `xml`, `money`, `bit`, `varbit`, `vector`, `enum`, `array`
+`serial`, `bigserial`, `int2`, `int4`, `int8`, `smallint`, `integer`, `bigint`, `float4`, `float8`, `real`, `doublePrecision`, `numeric`, `text`, `varchar`, `char`, `citext`, `boolean`, `bool`, `date`, `timestamp`, `timestamptz`, `time`, `timetz`, `interval`, `uuid`, `json`, `jsonb`, `bytea`, `inet`, `cidr`, `macaddr`, `point`, `line`, `circle`, `box`, `path`, `polygon`, `tsvector`, `tsquery`, `xml`, `money`, `bit`, `varbit`, `vector`, `halfvec`, `sparsevec`, `enum`, `array`
 
 `smallint`/`integer`/`bigint`/`real`/`doublePrecision`/`boolean` are SQL-standard aliases for `int2`/`int4`/`int8`/`float4`/`float8`/`bool` — pick one spelling per project. Arrays are `t.array(t.text())`; `numeric` and `money` infer `string` to keep full precision, `int8`/`bigserial` infer `bigint`.
 
@@ -154,6 +154,35 @@ defineTable('members', t => ({ ... }))
 > becomes a quoted `"authorId"` column, not `author_id`. If you want snake_case
 > columns, name the keys in snake_case yourself. (Keys are validated against
 > `/^[a-zA-Z_][a-zA-Z0-9_]*$/`, never rewritten.)
+
+### pgvector
+
+`t.vector(n)` and `t.halfvec(n)` read and write a `number[]` (a `Float32Array` is accepted on writes), `t.sparsevec(n)` pgvector's text (`'{1:0.5,3:2}/5'`: 1-based index:value pairs, then the dimensions), and `t.bit(n)` is a binary vector. `sync()` and generated migrations run `CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA public` when a table has one of the vector columns and the database lacks the extension (reverting the migration leaves it installed).
+
+```ts
+const docs = defineTable('docs', t => ({
+  id: t.serial().primaryKey(),
+  embedding: t.vector(1536).index({ method: 'hnsw', opclass: 'vector_cosine_ops', with: { m: 16, efConstruction: 64 } }),
+  summary: t.halfvec(1536),
+})).withIndexes([
+  { name: 'docs_summary_ivf', columns: ['summary'], method: 'ivfflat', opclass: { summary: 'halfvec_l2_ops' }, with: { lists: 100 }, concurrently: true },
+])
+```
+
+- Index methods: `hnsw` (`with: { m, efConstruction }`) and `ivfflat` (`with: { lists }`). Every parameter is a positive integer, emitted as `WITH (...)`; a parameter its method does not take throws `ValidationError`. The operator class is required by Postgres: `vector_cosine_ops`, `vector_l2_ops`, `vector_ip_ops`, `vector_l1_ops`, the `halfvec_*_ops` and `sparsevec_*_ops` families, `bit_hamming_ops`, `bit_jaccard_ops`.
+- `sync()` compares the method, operator class and parameters with the live index and recreates it when one differs; an unchanged index is left alone. `concurrently: true` works as on any index.
+- Distances, for `orderBy` and `where`: `e.vectorCosineDistance`, `e.vectorL2Distance`, `e.vectorInnerProduct` and `e.vectorL1Distance` (`<+>`) take `(column, vector, type?)`; `type` is `'halfvec'` for a halfvec column, and a string vector is taken as `'sparsevec'`. `e.bitHammingDistance(column, '1010')` (`<~>`) and `e.bitJaccardDistance(column, '1010')` (`<%>`) compare a `bit(n)` column with a string of `0` and `1`.
+- `.vectorSearch({ efSearch, probes, iterativeScan, maxScanTuples, maxProbes })` on a select sets `hnsw.ef_search`, `ivfflat.probes`, pgvector 0.8's iterative scans (`'off' | 'strict_order' | 'relaxed_order'`, with `hnsw.max_scan_tuples` and `ivfflat.max_probes` as their limits) for that query only. They are applied with `SET LOCAL` in the statement's transaction: one is opened for it, or the running one is used (the settings then hold until it ends). Postgres only, and it applies to the repository reads (`findMany`, `findOne`, `paginate`, `stream`), not to a statement you assemble with `toSQL()` and run yourself.
+
+```ts
+const nearest = await repo.read.findMany(q => q
+  .where({ tenantId })
+  .orderBy(e => e.vectorCosineDistance('embedding', queryVector))
+  .limit(10)
+  .vectorSearch({ efSearch: 100, iterativeScan: 'relaxed_order' }))
+```
+
+Only an `ORDER BY <distance operator> LIMIT n` query uses the index, and the operator must match the index's operator class. On SQLite every vector column, distance, index method and `vectorSearch()` throws `DialectError`.
 
 ## Relations
 
@@ -941,7 +970,7 @@ The file and its directory are created on first use, in WAL mode, with foreign k
 - Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique index by its columns too. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
 - A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
-- Not supported, each throwing `DialectError`: `vector`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, and a serial column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
+- Not supported, each throwing `DialectError`: `vector`, `halfvec`, `sparsevec` and their distances, `hnsw` and `ivfflat` indexes, `vectorSearch()`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, and a serial column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
 
 ## Raw SQL
 

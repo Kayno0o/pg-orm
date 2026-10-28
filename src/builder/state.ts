@@ -1,5 +1,6 @@
 import type { ExprTape, SubqueryRef } from './_tape'
 import type { SelectBuilder } from './select'
+import type { VectorSearchOptions } from './vector-search'
 import { ValidationError } from '../errors/index'
 import { qualifyCol } from '../sql/utils'
 
@@ -96,6 +97,8 @@ export interface BuilderState {
   skipLocked: boolean
   noWait?: boolean
   lockOf?: string[]
+  // pgvector search settings, set on the statement's transaction by the repository.
+  vectorSearch?: VectorSearchOptions
   // INSERT values
   insertValues: Record<string, unknown> | null
   insertManyValues: Record<string, unknown>[] | null

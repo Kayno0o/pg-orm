@@ -202,7 +202,7 @@ const coercions = {
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
   byteaArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBytes),
-  // pgvector writes a vector as `[1,2]`, which is JSON.
+  // pgvector writes a vector or halfvec as `[1,2]`, which is JSON.
   vector: (v: unknown): unknown => typeof v === 'string' ? JSON.parse(v) : v,
 }
 
@@ -247,7 +247,7 @@ function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
   if (pgType.endsWith('[]') && needsBigintCoercion(pgType.replace(ARRAY_SUFFIX_RE, '')))
     return 'bigintArray'
 
-  if (pgType.startsWith('vector('))
+  if (pgType.startsWith('vector(') || pgType.startsWith('halfvec('))
     return 'vector'
 
   return dialect === 'sqlite' ? sqliteCoercion(pgType) : undefined

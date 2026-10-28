@@ -1,8 +1,9 @@
 import type { AnyTableDef } from '../types/index'
-import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, MigrationOp } from './types'
+import type { LiveForeignKey, LiveSchema, MigrationOp } from './types'
 import { buildDropFkSql } from './ddl'
 import { diffChecks } from './diff/checks'
 import { collectEnumRequirements, diffEnums } from './diff/enums'
+import { diffExtensions } from './diff/extensions'
 import { diffForeignKeys } from './diff/foreign-keys'
 import { diffIndexes } from './diff/indexes'
 import { renameTables } from './diff/renames'
@@ -16,7 +17,7 @@ import { diffTables } from './diff/tables'
  * Ops come in an order Postgres accepts: types first, renamed tables, then the foreign keys and indexes going away while their tables and columns still exist, an enum losing values while only live columns use it, the tables and columns, and last what points at them.
  */
 export function diffSchema(
-  liveBefore: { tables: LiveTable[], enums: LiveEnum[], foreignKeys?: LiveForeignKey[], indexes?: LiveIndex[], checks?: LiveCheck[] },
+  liveBefore: LiveSchema,
   desired: ReadonlyMap<string, AnyTableDef>,
 ): MigrationOp[] {
   const { ops: renameOps, live } = renameTables(liveBefore, desired)
@@ -27,6 +28,7 @@ export function diffSchema(
   const isEnumRemoval = (op: MigrationOp) => op.type === 'alter_enum_remove'
 
   return [
+    ...diffExtensions(desired, live.extensions ?? []),
     ...enumOps.filter(op => !isEnumRemoval(op)),
     ...renameOps,
     ...fkOps.filter(op => op.type === 'drop_fk'),

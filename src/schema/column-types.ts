@@ -58,6 +58,10 @@ export interface ColumnTypes {
 
   // Vector (pgvector)
   vector: (dimensions: number) => ColumnBuilder<number[]>
+  /** Half-precision vector (pgvector 0.7): reads and writes a `number[]` like `vector`. */
+  halfvec: (dimensions: number) => ColumnBuilder<number[]>
+  /** Sparse vector (pgvector 0.7), read and written as pgvector's text, `{1:0.5,3:2}/5` (1-based index:value pairs, then the dimensions). */
+  sparsevec: (dimensions: number) => ColumnBuilder<string>
 
   // Network
   inet: () => ColumnBuilder<string>
@@ -172,6 +176,8 @@ export function createColumnTypes(): ColumnTypes {
     },
 
     vector: n => new ColumnBuilder(`vector(${typeArg(n, 'vector dimensions')})`),
+    halfvec: n => new ColumnBuilder(`halfvec(${typeArg(n, 'halfvec dimensions')})`),
+    sparsevec: n => new ColumnBuilder(`sparsevec(${typeArg(n, 'sparsevec dimensions')})`),
 
     inet: () => new ColumnBuilder('inet'),
     cidr: () => new ColumnBuilder('cidr'),

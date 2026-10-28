@@ -141,10 +141,29 @@ export interface RelationTypes {
 
 // --- Index Definitions ---
 
+type IndexMethod = 'btree' | 'hash' | 'gin' | 'gist' | 'brin' | 'hnsw' | 'ivfflat'
+
+/** pgvector index storage parameters: `m` and `efConstruction` for `hnsw`, `lists` for `ivfflat`. */
+export interface IndexParams {
+  readonly m?: number
+  readonly efConstruction?: number
+  readonly lists?: number
+}
+
+/** What a column's `.index()` takes. */
+export interface ColumnIndexOpts {
+  method?: IndexMethod
+  where?: string
+  concurrently?: boolean
+  /** The operator class of the column (`vector_cosine_ops`). */
+  opclass?: string
+  with?: IndexParams
+}
+
 export interface IndexDef {
   readonly columns: string[]
   readonly unique?: boolean
-  readonly method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin'
+  readonly method?: IndexMethod
   readonly where?: string
   readonly name?: string
   /** Columns of `columns` sorted descending. */
@@ -157,6 +176,8 @@ export interface IndexDef {
   readonly include?: string[]
   /** Built with `CREATE INDEX CONCURRENTLY` on a table that already exists, so writes go on while it builds: a migration runs it after its transaction commits. Postgres only. */
   readonly concurrently?: boolean
+  /** Storage parameters, emitted as `WITH (...)`: `{ m: 16, efConstruction: 64 }` on an `hnsw` index, `{ lists: 100 }` on an `ivfflat` one. */
+  readonly with?: IndexParams
 }
 
 /** A UNIQUE constraint over several columns, declared with `withUnique()`. */

@@ -10,7 +10,7 @@ const INTEGER_TYPES = new Set(['int2', 'int4', 'int8', 'serial', 'bigserial', 's
 const SERIAL_TYPES = new Set(['serial', 'bigserial', 'smallserial'])
 const REAL_TYPES = new Set(['float4', 'float8'])
 // Types SQLite has nothing to store or compare them with.
-const UNSUPPORTED_TYPE_RE = /^(?:vector|tsvector|tsquery)\b/
+const UNSUPPORTED_TYPE_RE = /^(?:vector|halfvec|sparsevec|tsvector|tsquery)\b/
 
 /** The prefix a table being rebuilt is created under, before it takes the name of the one it replaces. */
 export const REBUILD_PREFIX = '_pgorm_new_'
@@ -174,8 +174,8 @@ export function sqliteIndexName(tableName: string, idx: IndexDef): string {
 
 /** `CREATE INDEX`, the definition's method left out: SQLite has B-trees only, and neither operator classes nor included columns. */
 export function sqliteCreateIndex(tableName: string, idx: IndexDef): string {
-  if (idx.include?.length || Object.keys(idx.opclass ?? {}).length)
-    throw new DialectError(`The operator classes or included columns of index "${sqliteIndexName(tableName, idx)}"`, 'sqlite')
+  if (idx.include?.length || idx.with || idx.method === 'hnsw' || idx.method === 'ivfflat' || Object.keys(idx.opclass ?? {}).length)
+    throw new DialectError(`The method, storage parameters, operator classes or included columns of index "${sqliteIndexName(tableName, idx)}"`, 'sqlite')
 
   const where = idx.where ? ` WHERE ${idx.where}` : ''
   const keys = [...idx.columns.map(c => `${quote(c)}${idx.desc?.includes(c) ? ' DESC' : ''}`), ...(idx.expressions ?? []).map(e => `(${e})`)]

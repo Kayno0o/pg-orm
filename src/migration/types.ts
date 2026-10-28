@@ -65,11 +65,21 @@ export interface LiveIndex {
   isValid?: boolean
 }
 
+export interface LiveSchema {
+  tables: LiveTable[]
+  enums: LiveEnum[]
+  foreignKeys?: LiveForeignKey[]
+  indexes?: LiveIndex[]
+  checks?: LiveCheck[]
+  /** The extensions installed in the database. */
+  extensions?: string[]
+}
+
 export interface MigrationOp {
   type: 'create_table' | 'drop_table' | 'add_column' | 'drop_column' | 'alter_column'
     | 'create_enum' | 'alter_enum_add' | 'alter_enum_remove' | 'add_constraint' | 'drop_constraint'
     | 'add_fk' | 'drop_fk'
-    | 'create_index' | 'drop_index'
+    | 'create_index' | 'drop_index' | 'create_extension'
     | 'rename_column' | 'rename_table' | 'rename_index' | 'rename_constraint' | 'comment'
     // SQLite: a change its ALTER TABLE cannot make, made by copying the table into a new one built to the definition.
     | 'rebuild_table'

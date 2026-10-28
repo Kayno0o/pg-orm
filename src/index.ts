@@ -10,8 +10,9 @@ export {
   type SubqueryRef,
   type TsQueryRef,
   type TypedExpr,
+  type VectorType,
+  type VectorValue,
 } from './builder/expr'
-
 // Query builders
 export {
   compileWhere,
@@ -39,6 +40,8 @@ export {
   type WhereObject,
   type WhereOps,
 } from './builder/query'
+
+export type { VectorSearchOptions } from './builder/vector-search'
 // Config
 export { defineConfig, type PgOrmConfig } from './define-config'
 export { type Dialect } from './dialect'
@@ -171,6 +174,7 @@ export type {
   HookHandler,
   HookRegistry,
   IndexDef,
+  IndexParams,
   InferEntity,
   InferInsert,
   InferInsertFromTable,

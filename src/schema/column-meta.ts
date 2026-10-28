@@ -1,4 +1,4 @@
-import type { AnyColumnDef } from '../types/index'
+import type { AnyColumnDef, ColumnIndexOpts } from '../types/index'
 
 /**
  * Underscore-prefixed metadata attached to a frozen `ColumnDef`. These fields
@@ -10,7 +10,7 @@ import type { AnyColumnDef } from '../types/index'
 export interface ColumnDefMeta {
   enumName?: string
   enumValues?: readonly string[]
-  index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
+  index?: ColumnIndexOpts
   renamedFrom?: string
   min?: number
   max?: number
@@ -28,7 +28,7 @@ export interface ColumnDefMeta {
 interface DefWithMeta {
   _enumName?: string
   _enumValues?: readonly string[]
-  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
+  _index?: ColumnIndexOpts
   _renamedFrom?: string
   _min?: number
   _max?: number

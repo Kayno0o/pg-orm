@@ -1,15 +1,7 @@
 import type { AnyTableDef } from '../../types/index'
-import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, MigrationOp } from '../types'
+import type { LiveSchema, MigrationOp } from '../types'
 import { quote } from '../../sql/utils'
 import { buildIndexName, buildRenameTableSql, uniqueName } from '../ddl'
-
-export interface LiveSchema {
-  tables: LiveTable[]
-  enums: LiveEnum[]
-  foreignKeys?: LiveForeignKey[]
-  indexes?: LiveIndex[]
-  checks?: LiveCheck[]
-}
 
 /**
  * Renames the tables whose definition says `renamedFrom()`: live under the old name, which no definition takes, and not yet under the new one.

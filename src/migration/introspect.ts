@@ -1,4 +1,4 @@
-import type { LiveCheck, LiveEnum, LiveForeignKey, LiveIndex, LiveTable, QueryFn } from './types'
+import type { LiveEnum, LiveSchema, LiveTable, QueryFn } from './types'
 import { MIGRATION_TABLE } from './types'
 
 // pg_constraint's confupdtype and confdeltype codes, as the definitions spell the action.
@@ -124,17 +124,13 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     WHERE c.contype = 'c' AND n.nspname = $1
   `, [schema])
 
-  return { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows }
+  const extensionRows = await executor.query('SELECT extname FROM pg_extension', [])
+
+  return { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows, extensionRows }
 }
 
-export async function introspectLiveSchema(executor: { query: QueryFn }, schema = 'public'): Promise<{
-  tables: LiveTable[]
-  enums: LiveEnum[]
-  foreignKeys: LiveForeignKey[]
-  indexes: LiveIndex[]
-  checks: LiveCheck[]
-}> {
-  const { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows } = await runIntrospectionQueries(executor, schema)
+export async function introspectLiveSchema(executor: { query: QueryFn }, schema = 'public'): Promise<Required<LiveSchema>> {
+  const { colRows, pkRows, uqRows, compositeUqRows, enumRows, fkRows, indexRows, checkRows, extensionRows } = await runIntrospectionQueries(executor, schema)
 
   const pkSet = new Set(pkRows.map(r => `${r.table_name}.${r.column_name}`))
   const pkNames = new Map(pkRows.map(r => [r.table_name as string, r.constraint_name as string]))
@@ -163,6 +159,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       isValid: r.is_valid as boolean,
     })),
     checks: checkRows.map(r => ({ name: r.name as string, tableName: r.table_name as string })),
+    extensions: extensionRows.map(r => r.extname as string),
   }
 }
 

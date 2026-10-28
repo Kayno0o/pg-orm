@@ -1,7 +1,7 @@
 import type { AnyTableDef, IndexDef } from '../../types/index'
 import type { LiveIndex, MigrationOp } from '../types'
 import { buildCreateIndexSql, buildDropIndexSql, buildIndexName, claimIndexName, normalizeExpression } from '../ddl'
-import { WHERE_RE } from '../regex'
+import { QUOTED_PARAM_RE, WHERE_RE } from '../regex'
 
 function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<string, { tableName: string, idx: IndexDef }> {
   const result = new Map<string, { tableName: string, idx: IndexDef }>()
@@ -21,13 +21,18 @@ function collectDesiredIndexes(desired: ReadonlyMap<string, AnyTableDef>): Map<s
   return result
 }
 
+// Postgres prints a storage parameter's value quoted (`m='16'`), the DDL writes it bare.
+function comparableDefinition(definition: string): string {
+  return normalizeExpression(definition.slice(definition.indexOf(' USING ')).replace(QUOTED_PARAM_RE, '$1=$2'))
+}
+
 function indexChanged(liveIdx: LiveIndex, idx: IndexDef, tableName: string): boolean {
   // An index on expressions, sorted, with operator classes or included columns compares as the definition Postgres prints back, from its method on.
-  if (idx.expressions?.length || idx.desc?.length || idx.include?.length || Object.keys(idx.opclass ?? {}).length) {
+  if (idx.expressions?.length || idx.desc?.length || idx.include?.length || idx.with || Object.keys(idx.opclass ?? {}).length) {
     const desired = buildCreateIndexSql(tableName, idx)
 
     return (idx.unique ?? false) !== liveIdx.isUnique
-      || normalizeExpression(desired.slice(desired.indexOf(' USING '))) !== normalizeExpression(liveIdx.definition.slice(liveIdx.definition.indexOf(' USING ')))
+      || comparableDefinition(desired) !== comparableDefinition(liveIdx.definition)
   }
 
   const desiredMethod = idx.method ?? 'btree'

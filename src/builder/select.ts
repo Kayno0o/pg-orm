@@ -3,12 +3,14 @@ import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape, SubqueryRef, TypedExpr } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry, TableTarget } from './state'
 import { SOFT_DELETE_SCOPE } from '../constants'
+import type { VectorSearchOptions } from './vector-search'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { placeholderNumbers } from './_placeholders'
 import { appendWhere, compileWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
+import { vectorSearchSettings } from './vector-search'
 
 type CountableRelations<TRelations extends AnyRelations> = {
   [K in keyof TRelations]: TRelations[K] extends RelationDef<'hasMany' | 'hasManyThrough', any, any, any> ? K : never
@@ -262,6 +264,21 @@ export class SelectBuilder<
   /** Filter aggregated groups (`HAVING`). Replaces any existing HAVING clause. */
   having(cond: WhereInput<TColumns & TJoined>): this {
     this._state.havingTape = compileWhere<TColumns & TJoined>(cond)
+
+    return this
+  }
+
+  /**
+   * Postgres only. Sets pgvector's search settings for this query: they are applied with `SET LOCAL` inside the transaction the statement runs in, one opened for it unless it already runs in one (where they then hold until that transaction ends).
+   *
+   * @example
+   * ```ts
+   * repo.read.findMany(q => q.orderBy(e => e.vectorCosineDistance('embedding', vec)).limit(10).vectorSearch({ efSearch: 100 }))
+   * ```
+   */
+  vectorSearch(opts: VectorSearchOptions): this {
+    vectorSearchSettings(opts)
+    this._state.vectorSearch = { ...opts }
 
     return this
   }

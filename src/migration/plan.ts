@@ -48,5 +48,6 @@ export async function planMigration(
     foreignKeys: live.foreignKeys.filter(fk => kept(fk.tableName)),
     indexes: live.indexes.filter(i => kept(i.tableName)),
     checks: live.checks.filter(c => kept(c.tableName)),
+    extensions: live.extensions,
   }, desired)
 }

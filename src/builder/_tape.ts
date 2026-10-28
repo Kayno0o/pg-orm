@@ -67,6 +67,10 @@ export const OP_JSONB_CONTAINS = 30 as const // a @> b::text::jsonb
 export const OP_COALESCE = 31 as const
 export const OP_CASE = 32 as const
 
+export type VectorMetric = 'cosine' | 'l2' | 'inner' | 'l1' | 'hamming' | 'jaccard'
+
+const VECTOR_OPERATORS: Record<VectorMetric, string> = { cosine: '<=>', l2: '<->', inner: '<#>', l1: '<+>', hamming: '<~>', jaccard: '<%>' }
+
 /** A vector in pgvector's `[1,2]` text, where a bound array would arrive as the Postgres array literal `{1,2}`. */
 export function vectorText(vec: ArrayLike<number>): string {
   return `[${Array.from(vec).join(',')}]`
@@ -94,7 +98,7 @@ export type ExprOp
     | { op: typeof OP_RAW, sql: string, params: unknown[] }
     | { op: typeof OP_JSONB_PATH, col: string | ExprTape, path: string }
     | { op: typeof OP_TS_MATCH, col: string | ExprTape, query: TsQueryRef }
-    | { op: typeof OP_VEC_DISTANCE, col: string | ExprTape, vec: number[] | Float32Array, metric: 'cosine' | 'l2' | 'inner' }
+    | { op: typeof OP_VEC_DISTANCE, col: string | ExprTape, vec: number[] | Float32Array | string, metric: VectorMetric, cast: string }
     | { op: typeof OP_REF, path: string }
     | { op: typeof OP_SCALAR, subquery: SubqueryRef }
     | { op: typeof OP_ARRAY_CONTAINS, col: string | ExprTape, val: unknown }
@@ -377,10 +381,9 @@ class ExprAssembler {
       case OP_VEC_DISTANCE: {
         this.postgresOnly('Vector distances')
 
-        const p = this.nextParam(vectorText(op.vec))
-        const opSymbol = op.metric === 'cosine' ? '<=>' : op.metric === 'l2' ? '<->' : '<#>'
+        const p = this.nextParam(typeof op.vec === 'string' ? op.vec : vectorText(op.vec))
 
-        return { sql: `${this.walkCol(op.col)} ${opSymbol} ${p}::vector`, next: pos + 1 }
+        return { sql: `${this.walkCol(op.col)} ${VECTOR_OPERATORS[op.metric]} ${p}::${op.cast}`, next: pos + 1 }
       }
       case OP_REF:
         return { sql: this.column(op.path), next: pos + 1 }

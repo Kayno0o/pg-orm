@@ -292,7 +292,14 @@ describe('sync() on SQLite', () => {
     const vectors = defineTable('vectors', t => ({ id: t.serial().primaryKey(), embedding: t.vector(3) }))
     const patterns = defineTable('patterns', t => ({ id: t.serial().primaryKey(), code: t.text().pattern('^[A-Z]+$') }))
 
+    const halves = defineTable('halves', t => ({ id: t.serial().primaryKey(), embedding: t.halfvec(3) }))
+    const sparse = defineTable('sparse', t => ({ id: t.serial().primaryKey(), embedding: t.sparsevec(3) }))
+    const indexed = defineTable('indexed', t => ({ id: t.serial().primaryKey(), n: t.int4().index({ method: 'hnsw', opclass: 'vector_l2_ops' }) }))
+
     await expect(file()([vectors]).sync()).rejects.toThrow(DialectError)
+    await expect(file()([halves]).sync()).rejects.toThrow(DialectError)
+    await expect(file()([sparse]).sync()).rejects.toThrow(DialectError)
+    await expect(file()([indexed]).sync()).rejects.toThrow(DialectError)
     await expect(file()([patterns]).sync()).rejects.toThrow(DialectError)
   })
 })

@@ -1,5 +1,5 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereFn, WhereInput } from '../builder/query'
-import type { IncludeEntry } from '../builder/state'
+import type { BuilderState, IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
@@ -10,6 +10,7 @@ import type { TableRuntime } from './table-runtime'
 import { OP_SCALAR } from '../builder/_tape'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
 import { selectedColumns } from '../builder/state'
+import { vectorSearchSettings } from '../builder/vector-search'
 import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
@@ -197,7 +198,7 @@ export class ReadPipeline<
     if (countQuery)
       state.computedColumns.pop()
 
-    const rows = await this._executor.query(sql, params)
+    const rows = await this._query(state, sql, params)
     let total: number | undefined
 
     if (countQuery && rows.length > 0) {
@@ -216,6 +217,24 @@ export class ReadPipeline<
     })
 
     return { rows: processed, total }
+  }
+
+  // A statement with pgvector search settings sets them in the transaction it runs in, opened for it unless the executor is one already.
+  private async _query(state: BuilderState, sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+    if (!state.vectorSearch)
+      return this._executor.query(sql, params)
+
+    requirePostgres(this._dialect, 'vectorSearch()')
+
+    const settings = vectorSearchSettings(state.vectorSearch)
+    const run = async (exec: Executable): Promise<Record<string, unknown>[]> => {
+      if (settings.length)
+        await exec.query(`SELECT ${settings.map((_, i) => `set_config($${i * 2 + 1}, $${i * 2 + 2}, true)`).join(', ')}`, settings.flat())
+
+      return exec.query(sql, params)
+    }
+
+    return this._executor.atomic ? this._executor.atomic(run) : run(this._executor)
   }
 
   async findOne(arg?: FindArg<TColumns, TRelations>): Promise<any | null> {
@@ -506,7 +525,7 @@ export class ReadPipeline<
       chunkState.offset = offset
 
       const { sql, params } = chunkBuilder.toSQL(this._dialect)
-      const rows = await this._executor.query(sql, params)
+      const rows = await this._query(chunkState, sql, params)
 
       if (rows.length === 0)
         break

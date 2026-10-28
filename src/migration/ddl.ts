@@ -426,6 +426,12 @@ export function claimIndexName(taken: Set<string>, name: string, tableName: stri
   taken.add(name)
 }
 
+const INDEX_PARAM_NAMES = { m: 'm', efConstruction: 'ef_construction', lists: 'lists' } as const
+
+function indexParams(idx: IndexDef): string {
+  return Object.entries(INDEX_PARAM_NAMES).filter(([key]) => idx.with?.[key as keyof typeof INDEX_PARAM_NAMES] !== undefined).map(([key, name]) => `${name} = ${idx.with![key as keyof typeof INDEX_PARAM_NAMES]}`).join(', ')
+}
+
 // `concurrently` builds it alongside writes, outside any transaction, skipping a name a racing migration already built.
 export function buildCreateIndexSql(tableName: string, idx: IndexDef, concurrently = false): string {
   const name = idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)
@@ -439,6 +445,11 @@ export function buildCreateIndexSql(tableName: string, idx: IndexDef, concurrent
 
   if (idx.include?.length)
     sql += ` INCLUDE (${idx.include.map(quote).join(', ')})`
+
+  const params = indexParams(idx)
+
+  if (params)
+    sql += ` WITH (${params})`
 
   if (idx.where)
     sql += ` WHERE ${idx.where}`

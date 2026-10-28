@@ -2,6 +2,7 @@ import type {
   AnyTableDef,
   ColumnConstraint,
   ColumnDef,
+  ColumnIndexOpts,
   ForeignKeyRef,
   HasDefault,
   IsGenerated,
@@ -14,10 +15,10 @@ import type {
 } from '../types/index'
 import { phantom } from '../types/index'
 import { toSQLDefault, typeSql } from './column-default'
-import { validateFiniteNumber, validateFkAction, validateIdentifier, validateIndexMethod, validateTypeArg } from './validate'
+import { validateFiniteNumber, validateFkAction, validateIdentifier, validateIndexMethod, validateIndexParams, validateTypeArg } from './validate'
 
 /** Read the `_index` metadata off a builder before `_build()` finalizes it. */
-export function getColumnIndex(b: ColumnBuilder): { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean } | undefined {
+export function getColumnIndex(b: ColumnBuilder): ColumnIndexOpts | undefined {
   return b._index
 }
 
@@ -41,7 +42,7 @@ export class ColumnBuilder<
   private _references?: ForeignKeyRef
   _enumName?: string
   _enumValues?: readonly string[]
-  _index?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }
+  _index?: ColumnIndexOpts
   _renamedFrom?: string
   _min?: number
   _max?: number
@@ -233,9 +234,10 @@ export class ColumnBuilder<
   }
 
   /** Create a B-tree index on this column (or specify method/partial filter). */
-  index(opts?: { method?: 'btree' | 'hash' | 'gin' | 'gist' | 'brin', where?: string, concurrently?: boolean }): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
+  index(opts?: ColumnIndexOpts): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
     validateIndexMethod(opts?.method, 'index()')
-    this._index = { method: opts?.method, where: opts?.where, concurrently: opts?.concurrently }
+    validateIndexParams(opts?.method, opts?.with, 'index()')
+    this._index = { method: opts?.method, where: opts?.where, concurrently: opts?.concurrently, opclass: opts?.opclass, with: opts?.with }
 
     return this._narrow()
   }
