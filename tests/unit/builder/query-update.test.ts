@@ -93,6 +93,17 @@ describe('UpdateBuilder', () => {
     expect(() => update().set({ name: 'Bob' }).where(false).toSQL()).toThrow(/allRows\(\)/)
   })
 
+  it('throws when the WHERE is an AND of nothing, which every row passes', () => {
+    for (const where of [(e: any) => e.and(), (e: any) => e.and(e.and(), e.and(e.and())), () => []])
+      expect(() => update().set({ name: 'Bob' }).where(where).toSQL()).toThrow(/every row passes/)
+
+    expect(update().set({ name: 'Bob' }).where(e => e.and()).allRows().toSQL().sql).toBe('UPDATE "users" SET "name" = $1 WHERE TRUE')
+  })
+
+  it('takes an OR of nothing, which matches no row', () => {
+    expect(update().set({ name: 'Bob' }).where(e => e.or()).toSQL().sql).toBe('UPDATE "users" SET "name" = $1 WHERE FALSE')
+  })
+
   it('allRows() generates UPDATE without WHERE', () => {
     const { sql } = update().set({ name: 'Bob' }).allRows().toSQL()
 

@@ -99,6 +99,20 @@ describe('Soft Delete', () => {
     expect(await repo.read.count()).toBe(2)
   })
 
+  it('updateMany, deleteMany, deleteOne and forceDelete refuse a WHERE callback that comes out empty', async () => {
+    const repo = db.repo(usersTable)
+    const filters: string[] = []
+
+    await repo.write.insertMany([{ name: 'Alice', email: 'a@test.com' }, { name: 'Bob', email: 'b@test.com' }])
+    await expect(repo.write.updateMany({ name: 'pwned' }, e => e.and(...filters.map(f => e.eq('name', f))))).rejects.toThrow(ValidationError)
+    await expect(repo.write.updateOne({ name: 'pwned' }, e => e.and())).rejects.toThrow(ValidationError)
+    await expect(repo.write.deleteMany(e => e.and(e.and()))).rejects.toThrow(ValidationError)
+    await expect(repo.write.deleteOne(e => e.and())).rejects.toThrow(ValidationError)
+    await expect(repo.write.forceDelete(e => e.and())).rejects.toThrow(ValidationError)
+    expect(await repo.read.count({ name: { neq: 'pwned' } })).toBe(2)
+    expect(await repo.write.deleteMany(e => e.or())).toEqual([])
+  })
+
   it('forceDelete removes row permanently', async () => {
     const repo = db.repo(usersTable)
 

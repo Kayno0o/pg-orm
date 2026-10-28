@@ -103,6 +103,26 @@ export type ExprOp
 
 export type ExprTape = ExprOp[]
 
+// The position after the AND at `pos` when it holds for every row, an AND of nothing or only of such ANDs, else -1.
+function vacuousEnd(tape: ExprTape, pos: number): number {
+  const op = tape[pos]
+
+  if (op?.op !== OP_AND)
+    return -1
+
+  let cursor = pos + 1
+
+  for (let i = 0; i < op.count && cursor >= 0; i++)
+    cursor = vacuousEnd(tape, cursor)
+
+  return cursor
+}
+
+/** Whether `tape` prints as a WHERE every row passes: no condition, or ANDs of nothing such as a filter list that came out empty. */
+export function holdsForEveryRow(tape: ExprTape): boolean {
+  return tape.length === 0 || vacuousEnd(tape, 0) >= 0
+}
+
 export interface SubqueryRef {
   /** Placeholders numbered from `paramOffset + 1`, in the dialect of the query embedding it. */
   toSQL: (paramOffset: number, dialect?: Dialect) => { sql: string, params: unknown[] }

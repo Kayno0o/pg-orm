@@ -53,4 +53,10 @@ describe('DeleteBuilder', () => {
 
     expect(sql).toStartWith('EXPLAIN')
   })
+
+  it('throws on a WHERE every row passes, an AND of nothing at any depth', () => {
+    expect(() => del().where(e => e.and()).toSQL()).toThrow(ValidationError)
+    expect(() => del().where(e => e.and(e.and())).toSQL()).toThrow(ValidationError)
+    expect(del().where(e => e.and(e.and(), e.eq('id', 1))).toSQL().sql).toBe('DELETE FROM "users" WHERE (TRUE AND "id" = $1)')
+  })
 })

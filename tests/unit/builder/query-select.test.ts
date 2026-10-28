@@ -348,4 +348,8 @@ describe('SetOperationBuilder', () => {
 
     expect(sql).toContain('ORDER BY "name" DESC')
   })
+
+  it('keeps a WHERE callback that comes out empty, every row passing', () => {
+    expect(select().where(e => e.and()).toSQL().sql).toBe('SELECT * FROM "users" WHERE TRUE')
+  })
 })

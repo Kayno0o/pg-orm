@@ -4,7 +4,7 @@ import type { BuilderState, MergeWhen, OrderEntry } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
-import { assembleExpr, assertColumn, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
+import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
 import { isRawSql, joinQualifier, quoteCols, selectedColumns } from './state'
 
@@ -501,10 +501,10 @@ function printUpdate(sb: SqlBuilder, state: BuilderState): void {
   printReturning(sb, state)
 }
 
-// A falsy where() is a no-op, so a builder whose every condition came out falsy would otherwise reach the whole table.
+// A falsy where() is a no-op and an empty AND holds, so a builder whose every condition came out falsy or empty would otherwise reach the whole table.
 function requireWhereOrAllRows(state: BuilderState): void {
-  if (!state.whereTape && !state.allRows)
-    throw new ValidationError(`${state.op}() on "${state.table}" has no WHERE: call allRows() to reach every row on purpose.`, state.op)
+  if ((!state.whereTape || holdsForEveryRow(state.whereTape)) && !state.allRows)
+    throw new ValidationError(`${state.op}() on "${state.table}" has no WHERE, or one every row passes: call allRows() to reach every row on purpose.`, state.op)
 }
 
 // The other tables an UPDATE ... FROM or DELETE ... USING reads, each under its alias.

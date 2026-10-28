@@ -6,7 +6,7 @@ import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
+import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
@@ -70,12 +70,15 @@ interface ReturnableBuilder {
   toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
 }
 
-// The builders read a falsy WHERE as "no WHERE", which on a write is every row: only `deleteAll` may ask for that, by name.
-function requireWhere<T>(where: T, op: string): T {
-  if (!where)
-    throw new ValidationError(`${op}() needs a WHERE: a missing one would reach every row (deleteAll() clears a table on purpose).`, op, { value: where })
+// The builders read a falsy WHERE as "no WHERE", and an empty AND as one every row passes, which on a write is every row: only `deleteAll` may ask for that, by name.
+// The trait conditions ANDed on later would hide an empty clause from the builder's own check, so it is compiled here, once, and handed on as its tape.
+function requireWhere<TColumns extends AnyColumns>(where: Where<TColumns>, op: string): Where<TColumns> {
+  const tape = where ? compileWhere<TColumns>(where) : undefined
 
-  return where
+  if (!tape || holdsForEveryRow(tape))
+    throw new ValidationError(`${op}() needs a WHERE that filters: a missing or empty one would reach every row (deleteAll() clears a table on purpose).`, op, { value: where })
+
+  return () => tape
 }
 
 function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<TColumns>, opts?: InsertOptions<TColumns>): InsertBuilderCtor<TColumns> {
@@ -276,12 +279,11 @@ export class WritePipeline<
   // --- Update ---
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
-    requireWhere(where, 'updateMany')
-
+    const filter = requireWhere(where, 'updateMany')
     const s = this._normalizeJsonValues(await this._runtime.runBefore('beforeUpdate', set) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
-      .where(where)
+      .where(filter)
 
     this._runtime.behavior.prepareUpdate(builder, s)
     this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
@@ -363,7 +365,7 @@ export class WritePipeline<
 
     const rows = await this.updateMany(
       set,
-      e => e.and(compileWhere<TColumns>(where), e.eq(lockCol, currentVersion)),
+      e => e.and(compileWhere<TColumns>(requireWhere(where, 'updateWithLock')), e.eq(lockCol, currentVersion)),
       opts,
     )
 
