@@ -354,6 +354,7 @@ await repo.read.findOne({ email: 'a@test.com' })
 // By primary key — a composite key takes an object holding each part
 await repo.read.findById(1)
 await repo.read.findById(1, q => q.pick('id', 'name').include('posts'))
+await repo.read.findById(1, q => q.where({ tenantId }))  // the callback's where is ANDed with the key
 await repo.read.findByIdOrThrow(1)      // throws NotFoundError instead of returning null
 await repo.read.existsById(1)
 await repo.read.existsById(1, { withTrashed: true })

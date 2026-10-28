@@ -71,6 +71,19 @@ describe('read by id', () => {
     expect(exec.lastQuery!.sql).toBe('SELECT "id" FROM "users" WHERE "id" = $1 LIMIT $2')
   })
 
+  it('findById and findByIdOrThrow AND a where the callback set with the key', async () => {
+    const { exec, pipeline } = setupReadPipeline(users)
+
+    exec.preset([{ id: 1, name: 'Alice' }])
+    exec.preset([{ id: 1, name: 'Alice' }])
+    await pipeline.findById(1, q => q.where({ name: 'Alice' }))
+    expect(exec.lastQuery!.sql).toBe('SELECT * FROM "users" WHERE ("name" = $1 AND "id" = $2) LIMIT $3')
+    expect(exec.lastQuery!.params).toEqual(['Alice', 1, 1])
+
+    await pipeline.findByIdOrThrow(1, q => q.where({ name: 'Alice' }))
+    expect(exec.lastQuery!.sql).toBe('SELECT * FROM "users" WHERE ("name" = $1 AND "id" = $2) LIMIT $3')
+  })
+
   it('findByIdOrThrow throws NotFoundError on a miss', async () => {
     const { pipeline } = setupReadPipeline(users)
 

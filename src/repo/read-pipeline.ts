@@ -214,7 +214,7 @@ export class ReadPipeline<
   async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
     const where = this._runtime.pkWhere(id) as Where<TColumns>
 
-    return this.findOne(q => (cb ? cb(q) : q).where(where) as SelectBuilder<TColumns, TRelations, any>)
+    return this.findOne(q => (cb ? cb(q) : q).andWhere(where) as SelectBuilder<TColumns, TRelations, any>)
   }
 
   async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
