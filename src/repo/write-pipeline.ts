@@ -4,13 +4,13 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
-import { MAX_BIND_PARAMS, STATEMENT_PARAM_RESERVE } from '../constants'
+import { MAX_BIND_PARAMS, SOFT_DELETE_SCOPE, STATEMENT_PARAM_RESERVE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, ValidationError } from '../errors/index'
 import { hasHooks } from '../hooks/index'
@@ -20,6 +20,7 @@ import { copyField } from '../sql/copy'
 import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
+import { liftedScopes, resolveScopes } from './table-behavior'
 import { assertKeyValue, columnOf } from './table-runtime'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
@@ -293,7 +294,7 @@ export class WritePipeline<
       .where(filter)
 
     this._runtime.behavior.prepareUpdate(builder, s)
-    this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
+    this._runtime.behavior.guardWrite(builder, liftedScopes(opts))
 
     return this._execute({
       builder,
@@ -304,7 +305,7 @@ export class WritePipeline<
   }
 
   async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow('updateOne', requireWhere(where, 'updateOne'), opts?.withTrashed, opts?.onMany)
+    const single = this._singleRow('updateOne', requireWhere(where, 'updateOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this.updateMany(set, single.where, opts)
 
     return rows[0] ?? await single.noMatch()
@@ -318,15 +319,15 @@ export class WritePipeline<
   }
 
   /**
-   * The WHERE `updateOne` and `deleteOne` run, reaching one row however many match, and what to answer when it changed none. Trashed rows are passed over unless `withTrashed`, as the statement itself skips them.
+   * The WHERE `updateOne` and `deleteOne` run, reaching one row however many match, and what to answer when it changed none. Rows the table's scopes leave out are passed over unless `lifted`, as the statement itself skips them.
    * By default it is the first match by primary key. With `onMany: 'throw'` it is `where` holding only while exactly one row matches, so several change nothing, and a statement that changed nothing then counts the matches to tell none from several.
    * That count is a second statement: outside a transaction, a row written between the two can make it tell none from several wrongly, though the write itself never reaches more than one row.
    */
-  private _singleRow(op: string, where: Where<TColumns>, withTrashed?: boolean, onMany?: SingleRowOptions['onMany']): { where: Where<TColumns>, noMatch: () => Promise<null> } {
+  private _singleRow(op: string, where: Where<TColumns>, lifted: string[], onMany?: SingleRowOptions['onMany']): { where: Where<TColumns>, noMatch: () => Promise<null> } {
     const { pkColumns, table } = this._runtime
     const live = <B extends SelectBuilderCtor<TColumns>>(builder: B): B => {
-      if (!withTrashed)
-        this._runtime.behavior.prepareSelect(builder)
+      this._runtime.behavior.prepareSelect(builder)
+      builder.withoutScope(...lifted)
 
       return builder
     }
@@ -381,8 +382,8 @@ export class WritePipeline<
 
     const matches = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(where)
 
-    if (!opts?.withTrashed)
-      this._runtime.behavior.prepareSelect(matches)
+    this._runtime.behavior.prepareSelect(matches)
+    matches.withoutScope(...liftedScopes(opts))
 
     const { sql, params } = matches.toSQL(dialectOf(this._executor))
 
@@ -433,7 +434,7 @@ export class WritePipeline<
       const builder = new BulkUpdateBuilder(table.name, table.columns, [...pkColumns], chunk)
 
       this._runtime.behavior.prepareUpdate(builder, {})
-      this._runtime.behavior.excludeTrashed(builder, opts?.withTrashed)
+      this._runtime.behavior.guardWrite(builder, liftedScopes(opts))
 
       return pipeline._execute({
         builder,
@@ -446,33 +447,33 @@ export class WritePipeline<
 
   // --- Delete ---
 
-  async deleteMany(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async deleteMany(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._delete(requireWhere(where, 'deleteMany'), false, opts)
   }
 
-  async deleteOne(where: Where<TColumns>, opts?: WriteReturnOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    const single = this._singleRow('deleteOne', requireWhere(where, 'deleteOne'), false, opts?.onMany)
+  async deleteOne(where: Where<TColumns>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    const single = this._singleRow('deleteOne', requireWhere(where, 'deleteOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this._delete(single.where, false, opts)
 
     return rows[0] ?? await single.noMatch()
   }
 
   /** Delete the row a primary key names: the key bounds the statement, so it needs no `_singleRow`. */
-  async deleteById(key: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async deleteById(key: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.deleteMany(key, opts)
 
     return rows[0] ?? null
   }
 
-  async deleteAll(opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async deleteAll(opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._delete(null, false, opts)
   }
 
-  async forceDelete(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async forceDelete(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._delete(requireWhere(where, 'forceDelete'), true, opts)
   }
 
-  async purgeTrashed(olderThan: Date, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async purgeTrashed(olderThan: Date, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const softDeleteColumn = this._runtime.behavior.getSoftDeleteColumn()
     const { name } = this._runtime.table
 
@@ -486,15 +487,15 @@ export class WritePipeline<
   }
 
   // A `null` where is every row, which only `deleteAll` passes.
-  private async _delete(where: Where<TColumns> | null, force: boolean, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  private async _delete(where: Where<TColumns> | null, force: boolean, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     await this._runtime.runBefore('beforeDelete', undefined, this._hooks)
 
     // A soft delete is an UPDATE, so it runs the update path: `beforeUpdate` hooks (timestamps) and the version bump.
     const softSet = force ? null : this._runtime.behavior.softDeleteSet<TColumns>()
-    const hardDelete = new DeleteBuilderCtor<TColumns>(this._runtime.table)
+    const lifted = liftedScopes(opts)
     const builder = softSet
-      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet, this._hooks), where)
-      : where ? hardDelete.where(where) : hardDelete.allRows()
+      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet, this._hooks), where, lifted)
+      : this._hardDelete(where, force ? [...lifted, SOFT_DELETE_SCOPE] : lifted)
 
     return this._execute({
       builder,
@@ -504,13 +505,26 @@ export class WritePipeline<
     })
   }
 
+  private _hardDelete(where: Where<TColumns> | null, lifted: string[]): DeleteBuilderCtor<TColumns> {
+    const builder = new DeleteBuilderCtor<TColumns>(this._runtime.table)
+
+    if (where)
+      builder.where(where)
+    else
+      builder.allRows()
+
+    this._runtime.behavior.guardWrite(builder, lifted)
+
+    return builder
+  }
+
   // --- Upsert ---
 
   async upsertMany(
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
     update?: UpsertUpdate<TColumns>,
-    opts?: WriteReturnOptions,
+    opts?: ScopedWriteOptions,
   ): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
@@ -519,7 +533,7 @@ export class WritePipeline<
     const inserted = await this._runtime.runBeforeMany('beforeUpsert', await this._runtime.runBeforeMany('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>[]
     const { rows: hooked, columns } = await this._updateHookedRows(inserted)
     const v = hooked.map(row => this._normalizeValues(row)) as InferInsert<TColumns>[]
-    const conflict = this._conflictUpdate(update, columns)
+    const conflict = this._conflictUpdate(update, columns, liftedScopes(opts))
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
       const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
@@ -581,7 +595,7 @@ export class WritePipeline<
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
     update?: UpsertUpdate<TColumns>,
-    opts?: WriteReturnOptions,
+    opts?: ScopedWriteOptions,
   ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const rows = await this.upsertMany([values], conflictTarget, update, opts)
 
@@ -607,16 +621,20 @@ export class WritePipeline<
     return { rows: hooked, columns }
   }
 
-  // The row an upsert updates is updated like any other: the columns `beforeUpdate` hooks set (timestamps), taken from the incoming row, and the version bump apply to it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
-  private _conflictUpdate(update: UpsertUpdate<TColumns> | undefined, hookedColumns: string[]): ConflictUpdate<TColumns> {
-    const spec: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
+  // The row an upsert updates is updated like any other: the columns `beforeUpdate` hooks set (timestamps), taken from the incoming row, and the version bump apply to it, and only while the scopes not `lifted` hold for it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
+  private _conflictUpdate(update: UpsertUpdate<TColumns> | undefined, hookedColumns: string[], lifted: string[]): ConflictUpdate<TColumns> {
+    const given: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
+    const guards = resolveScopes(this._runtime.table).filter(scope => scope.name !== SOFT_DELETE_SCOPE && !lifted.includes(scope.name))
+    const spec: ConflictUpdate<TColumns> = guards.length === 0
+      ? given
+      : { ...given, where: e => e.and(...given.where ? [compileWhere<TColumns>(given.where, this._runtime.table.columns as TColumns)] : [], ...guards.map(scope => scope.tape)) }
     const lock = this._runtime.behavior.getOptimisticLockColumn()
     const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
     for (const col of spec.columns ?? [])
       columnOf(this._runtime.table, col, 'upsert')
 
-    if (!spec.set && hookedColumns.length === 0 && !lock && !trashCol)
+    if (!spec.set && hookedColumns.length === 0 && !lock && !trashCol && guards.length === 0)
       return spec
 
     return {
@@ -682,9 +700,11 @@ export class WritePipeline<
     throw new OrmError(`findOrCreate() on "${table.name}": the row conflicting with the insert was deleted before it could be read, ${FIND_OR_CREATE_ATTEMPTS} times over.`)
   }
 
-  // Rows matching `where`, trashed ones included, mapped and with virtuals like a write's.
+  // Rows matching `where` and the table's scopes, trashed ones included, mapped and with virtuals like a write's.
   private async _select(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where)
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where).withoutScope(SOFT_DELETE_SCOPE)
+
+    this._runtime.behavior.prepareSelect(builder)
     const { sql, params } = builder.toSQL(dialectOf(this._executor))
 
     return this._runtime.applyVirtuals(mapChunk(this._mapperFactory(builder), await this._executor.query(sql, params))) as WithVirtuals<TColumns, TVirtuals>[]
@@ -692,7 +712,7 @@ export class WritePipeline<
 
   // --- Restore ---
 
-  async restore(where: Where<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async restore(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const sdCol = this._runtime.behavior.getSoftDeleteColumn()
 
     if (sdCol === null) {
@@ -704,7 +724,7 @@ export class WritePipeline<
     }
 
     const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks)
-    const builder = this._runtime.behavior.buildRestoreUpdate(s, where)
+    const builder = this._runtime.behavior.buildRestoreUpdate(s, where, liftedScopes(opts))
 
     return this._execute({
       builder,

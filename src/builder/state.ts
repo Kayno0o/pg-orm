@@ -130,9 +130,9 @@ export interface BuilderState {
   rawParams: unknown[]
   // Includes (eager relation loading)
   includes: IncludeEntry[]
-  // Soft-delete: the trait's column, whose trashed rows a SELECT leaves out unless `withTrashed`
-  softDeleteColumn: string | null
-  withTrashed: boolean
+  // The table's scopes, ANDed onto a SELECT's WHERE unless named in `withoutScopes`
+  scopes: ScopeFilter[]
+  withoutScopes: string[]
   // An UPDATE or DELETE without a WHERE is refused unless this says every row is meant.
   allRows: boolean
   // Per-builder override for stream() chunk size. Unset → caller default.
@@ -144,15 +144,22 @@ interface ComputedColumn {
   alias: string
   /** An expression tape printed in place of `expr`, its params bound: `computed()` given `coalesce()` or `caseWhen()`. */
   tape?: ExprTape
-  /** A WHERE ANDed onto `expr` and the whole wrapped in parentheses, with bare columns qualified: how a filtered relation count carries its params. */
-  filter?: { tape: ExprTape, qualifier: string }
+  /** WHEREs ANDed onto `expr` and the whole wrapped in parentheses, each with its bare columns qualified: how a filtered or scoped relation count carries its params. */
+  filters?: { tape: ExprTape, qualifier: string }[]
+}
+
+/** A scope's WHERE, evaluated for one statement; `qualifier` prefixes its bare columns when it filters a joined table. */
+export interface ScopeFilter {
+  name: string
+  tape: ExprTape
+  qualifier?: string
 }
 
 interface RelationCount {
   relation: string
   alias: string
   where: ExprTape | null
-  withDeleted: boolean
+  withoutScopes: string[]
 }
 
 export function createState(op: QueryOp, table: string): BuilderState {
@@ -190,8 +197,8 @@ export function createState(op: QueryOp, table: string): BuilderState {
     rawSql: null,
     rawParams: [],
     includes: [],
-    softDeleteColumn: null,
-    withTrashed: false,
+    scopes: [],
+    withoutScopes: [],
     allRows: false,
   }
 }
@@ -278,6 +285,8 @@ export function cloneState(s: BuilderState): BuilderState {
     windows: s.windows.map(w => ({ ...w, partitionBy: [...w.partitionBy], orderBy: w.orderBy.map(o => ({ ...o })) })),
     rawParams: [...s.rawParams],
     includes: s.includes.map(i => ({ ...i })),
+    scopes: [...s.scopes],
+    withoutScopes: [...s.withoutScopes],
   }
 }
 

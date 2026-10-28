@@ -1,5 +1,5 @@
 import type { Trait } from '../traits/index'
-import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, TableDef, UniqueDef, VirtualDef } from '../types/index'
+import type { AnyColumnDef, AnyRelationDef, AnyRelations, AnyTableDef, AnyVirtuals, ColumnDef, HookEvent, HookRegistry, IndexDef, InferSelect, RelationTypes, Scope, TableDef, UniqueDef, VirtualDef } from '../types/index'
 import type { ColumnTypes } from './column-types'
 import { ValidationError } from '../errors/index'
 import { compileMapper } from '../mapper/index'
@@ -236,7 +236,14 @@ export function defineTable(
       return table
     },
 
-    // Apply a trait — merges columns, hooks, virtuals, and meta
+    withScope(name: string, scope: Scope<any>) {
+      applyTrait(table as unknown as AnyTableDef, { scopes: { [name]: scope } })
+      bump()
+
+      return table
+    },
+
+    // Apply a trait — merges columns, hooks, virtuals, scopes and meta
     withTrait(trait: Trait<any>) {
       applyTrait(table as unknown as AnyTableDef, trait)
       bump()

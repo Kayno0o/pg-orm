@@ -1,8 +1,8 @@
 import type { OptionalWhere, OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, PrimaryKeyColumn, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, PrimaryKeyColumn, ScopeOptions, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginatePage, PaginateResult, TrashedOptions } from './read-pipeline'
+import type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult, PaginateOptions, PaginatePage, PaginateResult } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
@@ -70,15 +70,15 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     return this._pipeline.findByIdOrThrow(id, cb)
   }
 
-  async existsById(id: unknown, opts?: TrashedOptions): Promise<boolean> {
+  async existsById(id: unknown, opts?: ScopeOptions): Promise<boolean> {
     return this._pipeline.existsById(id, opts)
   }
 
-  async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {
+  async count(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<number> {
     return this._pipeline.count(where, opts)
   }
 
-  async exists(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<boolean> {
+  async exists(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<boolean> {
     return this._pipeline.exists(where, opts)
   }
 

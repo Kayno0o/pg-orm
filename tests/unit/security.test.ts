@@ -930,9 +930,9 @@ describe('Security: alias and column arguments are validated', () => {
     expect(() => new MergeBuilder<any>('users').using('staging', evil)).toThrow(/Invalid/)
   })
 
-  it('a bulk update refuses a setRaw, whereNull or returning column the table lacks', () => {
+  it('a bulk update refuses a setRaw, filter or returning column the table lacks', () => {
     expect(() => bulk().setRaw(evil, '1')).toThrow('is not a column of "sec_items"')
-    expect(() => bulk().whereNull(evil)).toThrow('is not a column of "sec_items"')
+    expect(() => bulk().andWhere(createExprBuilder().isNull(evil)).toSQL()).toThrow(`Unknown column "${evil}"`)
     expect(() => bulk().returning('id', evil)).toThrow('is not a column of "sec_items"')
     expect(bulk().setRaw('n', '"n" + 1').returning('id').toSQL().sql).toContain('RETURNING "sec_items"."id"')
   })

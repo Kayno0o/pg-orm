@@ -3,7 +3,7 @@ import type { IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferPrimaryKey, InferSelect, PrimaryKeyColumn, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferPrimaryKey, InferSelect, PrimaryKeyColumn, ScopeOptions, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
@@ -14,11 +14,12 @@ import { DEFAULT_PRIMARY_KEY, DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
-import { columnBaseType, tableMeta } from '../schema/inspect'
+import { columnBaseType } from '../schema/inspect'
 import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { isPlainObject } from '../utils/collection'
 import { createMapperFactory } from './_mapper'
+import { liftedScopes, resolveScopes } from './table-behavior'
 import { buildTableRuntime, isKeyValue } from './table-runtime'
 
 // The column a page carries its total in.
@@ -40,12 +41,7 @@ function asSelectCb<TC extends AnyColumns, TR extends AnyRelations>(arg: FindArg
   return typeof arg === 'function' ? arg : q => q.where(arg) as SelectBuilder<TC, TR, any>
 }
 
-/** Opt in to rows the softDelete trait has hidden. */
-export interface TrashedOptions {
-  withTrashed?: boolean
-}
-
-export interface CopyToOptions<TColumns extends AnyColumns> extends TrashedOptions {
+export interface CopyToOptions<TColumns extends AnyColumns> extends ScopeOptions {
   where?: OptionalWhere<TColumns>
   /** The columns to export, in this order; every column by default. */
   pick?: (keyof TColumns & string)[]
@@ -79,7 +75,7 @@ function checkPageSize(op: string, name: string, size: number, limits?: PageLimi
     throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${size}`, op, { value: size })
 }
 
-export interface PaginateOptions<TColumns extends AnyColumns> extends TrashedOptions {
+export interface PaginateOptions<TColumns extends AnyColumns> extends ScopeOptions {
   page: number
   perPage: number
   where?: OptionalWhere<TColumns>
@@ -106,7 +102,7 @@ export type CursorOf<TColumns extends AnyColumns, K extends keyof TColumns & str
     ? InferPrimaryKey<TColumns>
     : { value: InferSelect<TColumns>[K], key: InferPrimaryKey<TColumns> }
 
-export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends keyof TColumns & string> extends TrashedOptions {
+export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends keyof TColumns & string> extends ScopeOptions {
   take: number
   /** The column to order by, the primary key by default. Ties are broken by the primary key; a nullable column is refused. */
   column?: K
@@ -115,7 +111,7 @@ export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends ke
   where?: OptionalWhere<TColumns>
 }
 
-export interface StreamCursorOptions<TColumns extends AnyColumns> extends TrashedOptions {
+export interface StreamCursorOptions<TColumns extends AnyColumns> extends ScopeOptions {
   chunkSize?: number
   column?: keyof TColumns & string
   direction?: 'forward' | 'backward'
@@ -253,15 +249,14 @@ export class ReadPipeline<
     return row
   }
 
-  async existsById(id: unknown, opts?: TrashedOptions): Promise<boolean> {
+  async existsById(id: unknown, opts?: ScopeOptions): Promise<boolean> {
     return this.exists(this._runtime.pkWhere(id) as Where<TColumns>, opts)
   }
 
-  async count(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<number> {
+  async count(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<number> {
     const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).count().where(where)
 
-    if (opts?.withTrashed)
-      builder.withTrashed()
+    builder.withoutScope(...liftedScopes(opts))
 
     return this._runCount(builder)
   }
@@ -275,11 +270,10 @@ export class ReadPipeline<
     return Number(rows[0]?.count ?? 0)
   }
 
-  async exists(where?: OptionalWhere<TColumns>, opts?: TrashedOptions): Promise<boolean> {
+  async exists(where?: OptionalWhere<TColumns>, opts?: ScopeOptions): Promise<boolean> {
     const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).asExists().limit(1).where(where)
 
-    if (opts?.withTrashed)
-      builder.withTrashed()
+    builder.withoutScope(...liftedScopes(opts))
 
     this._runtime.behavior.prepareSelect(builder)
 
@@ -292,7 +286,7 @@ export class ReadPipeline<
   async paginate(opts: PaginateOptions<TColumns> & { withTotal: false }, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginatePage<TColumns, TVirtuals>>
   async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals>>
   async paginate(opts: PaginateOptions<TColumns>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateResult<TColumns, TVirtuals> | PaginatePage<TColumns, TVirtuals>> {
-    const { page, perPage, where, withTrashed, withTotal = true } = opts
+    const { page, perPage, where, withTotal = true } = opts
 
     if (!Number.isInteger(page) || page < 1)
       throw new ValidationError(`paginate() requires page >= 1, got ${page}`, 'paginate', { value: page })
@@ -304,10 +298,7 @@ export class ReadPipeline<
       throw new ValidationError(`paginate(): page ${page} of ${perPage} rows reaches past the largest offset`, 'paginate', { value: page })
 
     const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
-    const rows = (cb ? cb(base) : base).andWhere(where)
-
-    if (withTrashed)
-      rows.withTrashed()
+    const rows = (cb ? cb(base) : base).andWhere(where).withoutScope(...liftedScopes(opts))
 
     this._orderByKeyIfUnordered(rows)
 
@@ -340,7 +331,7 @@ export class ReadPipeline<
 
   // Keyset paging on (column, primary key): a row-value comparison resumes after the cursor, so tied values are neither skipped nor repeated. A backward page is read descending, its cursor taken from the last row read, then reversed.
   async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateCursorResult<any, unknown>> {
-    const { take, cursor, direction = 'forward', where, withTrashed } = opts
+    const { take, cursor, direction = 'forward', where } = opts
     const { keys, byKey } = this._cursorKeys(opts.column)
     const isForward = direction === 'forward'
 
@@ -360,10 +351,7 @@ export class ReadPipeline<
       if (picked && keys.some(k => !picked.includes(k)))
         throw new ValidationError(`paginateCursor(): the callback's pick() or omit() leaves out a cursor column (${keys.join(', ')}).`, 'paginateCursor')
 
-      b.andWhere(where).limit(take + 1)
-
-      if (withTrashed)
-        b.withTrashed()
+      b.andWhere(where).limit(take + 1).withoutScope(...liftedScopes(opts))
 
       for (const key of keys)
         b.orderBy(key, isForward ? 'asc' : 'desc')
@@ -461,8 +449,7 @@ export class ReadPipeline<
     if (opts.pick)
       builder.pick(...opts.pick)
 
-    if (opts.withTrashed)
-      builder.withTrashed()
+    builder.withoutScope(...liftedScopes(opts))
 
     this._runtime.behavior.prepareSelect(builder)
 
@@ -653,7 +640,7 @@ export class ReadPipeline<
     const state = builder.getState()
     const { table, pkColumns } = this._runtime
 
-    for (const { relation, alias, where, withDeleted } of state.relationCounts.splice(0)) {
+    for (const { relation, alias, where, withoutScopes } of state.relationCounts.splice(0)) {
       const rel = (table.relations as AnyRelations)[relation]
 
       if (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough'))
@@ -666,20 +653,14 @@ export class ReadPipeline<
       const target = this._registered(rel.targetTable, relation)
       const pivot = rel.type === 'hasManyThrough' ? this._registered(rel.throughTable!, relation) : undefined
       const child = '"__count"'
-      const live = withDeleted ? '' : liveFilter(child, target) + (pivot ? liveFilter('"__pivot"', pivot) : '')
       const from = pivot
         ? `FROM ${quote(pivot.name)} AS "__pivot" JOIN ${quote(target.name)} AS ${child} ON ${child}.${quote(target.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
         : `FROM ${quote(target.name)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
-      const expr = `SELECT count(*)${this._dialect === 'postgres' ? '::int' : ''} ${from}${live}`
+      const expr = `SELECT count(*)${this._dialect === 'postgres' ? '::int' : ''} ${from}`
+      const scopes = [...resolveScopes(target, '__count'), ...pivot ? resolveScopes(pivot, '__pivot') : []].filter(scope => !withoutScopes.includes(scope.name))
+      const filters = [...where ? [{ tape: where, qualifier: '__count' }] : [], ...scopes.map(scope => ({ tape: scope.tape, qualifier: scope.qualifier! }))]
 
-      state.computedColumns.push(where ? { expr, alias, filter: { tape: where, qualifier: '__count' } } : { expr: `(${expr})`, alias })
+      state.computedColumns.push(filters.length > 0 ? { expr, alias, filters } : { expr: `(${expr})`, alias })
     }
   }
-}
-
-// The condition leaving out a soft-delete table's trashed rows, none for a table without the trait.
-function liveFilter(alias: string, table: AnyTableDef): string {
-  const column = tableMeta(table).softDelete?.column
-
-  return column ? ` AND ${alias}.${quote(column)} IS NULL` : ''
 }

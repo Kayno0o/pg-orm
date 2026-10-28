@@ -4,7 +4,7 @@ import type { BuilderState, MergeWhen, OrderEntry } from './state'
 import { DialectError, ValidationError } from '../errors/index'
 import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
-import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_IS_NULL, OP_RAW } from './_tape'
+import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
 import { isRawSql, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols, selectedColumns } from './state'
 
@@ -210,7 +210,7 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
     if (pgAggregate)
       sb.postgresOnly(`${pgAggregate[1]}()`)
 
-    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filter ? `(${cc.expr} AND ${sb.inlineExpr(cc.filter.tape, cc.filter.qualifier, null)})` : cc.expr
+    const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.filters ? `(${cc.expr}${cc.filters.map(f => ` AND ${sb.inlineExpr(f.tape, f.qualifier, null)}`).join('')})` : cc.expr
 
     cols.push(`${expr} AS ${quote(cc.alias)}`)
   }
@@ -319,14 +319,19 @@ function printLock(sb: SqlBuilder, state: BuilderState): void {
     sb.push('NOWAIT')
 }
 
-// Trashed rows are left out here rather than when the repository hands the builder over, so a withTrashed() called later still lets them in.
-function selectWhere(state: BuilderState): ExprTape | null {
-  if (!state.softDeleteColumn || state.withTrashed)
-    return state.whereTape
+// Scopes are ANDed on here rather than when the repository hands the builder over, so a withoutScope() called later still lifts them. A scope filtering a joined table is checked against that table, not the statement's.
+function printSelectWhere(sb: SqlBuilder, state: BuilderState): void {
+  const active = state.scopes.filter(scope => !state.withoutScopes.includes(scope.name))
+  const tapes = [...state.whereTape ? [state.whereTape] : [], ...active.filter(scope => !scope.qualifier).map(scope => scope.tape)]
+  const parts = tapes.length === 0 ? [] : [sb.inlineExpr(tapes.length === 1 ? tapes[0]! : [{ op: OP_AND, count: tapes.length }, ...tapes.flat()], joinQualifier(state))]
 
-  const live: ExprTape = [{ op: OP_IS_NULL, col: state.softDeleteColumn }]
+  for (const scope of active) {
+    if (scope.qualifier)
+      parts.push(sb.inlineExpr(scope.tape, scope.qualifier, null))
+  }
 
-  return state.whereTape ? [{ op: OP_AND, count: 2 }, ...state.whereTape, ...live] : live
+  if (parts.length > 0)
+    sb.push(`WHERE ${parts.length === 1 ? parts[0] : parts.map(part => `(${part})`).join(' AND ')}`)
 }
 
 export const PARTITION_RANK = '__pgorm_rn'
@@ -366,7 +371,7 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   printSelectHead(sb, inner, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
   printJoins(sb, state)
-  printWhere(sb, selectWhere(state), joinQualifier(state))
+  printSelectWhere(sb, state)
   printGroupHaving(sb, state)
   printWindows(sb, state)
   printOrderLimit(sb, state)

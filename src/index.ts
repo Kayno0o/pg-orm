@@ -106,7 +106,6 @@ export {
   type PaginatePage,
   type PaginateResult,
   type StreamCursorOptions,
-  type TrashedOptions,
 } from './repo/read-pipeline'
 
 export { type UpsertUpdate } from './repo/write-pipeline'
@@ -123,6 +122,7 @@ export {
   isColumn,
   type TableMeta,
   tableMeta,
+  tableScopes,
   traitColumns,
   writableColumns,
 } from './schema/inspect'
@@ -193,6 +193,10 @@ export type {
   NotPrimaryKey,
   RelationDef,
   RelationKind,
+  Scope,
+  ScopeContext,
+  ScopedWriteOptions,
+  ScopeOptions,
   SingleRowOptions,
   TableDef,
   UpdateOptions,

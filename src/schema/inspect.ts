@@ -1,8 +1,9 @@
-import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint } from '../types/index'
+import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint, Scope } from '../types/index'
 
 const ARRAY_SUFFIX_RE = /(?:\[\])+$/
 const TYPE_MODIFIER_RE = /\(.*\)$/
 const EMPTY_COLUMNS: ReadonlySet<string> = new Set()
+const NO_SCOPES: Readonly<Record<string, Scope>> = Object.freeze({})
 
 /** Typed view of the metadata the built-in traits write onto `table.meta`. */
 export interface TableMeta {
@@ -21,6 +22,11 @@ export function hasTrait(table: AnyTableDef, name: string): boolean {
   const applied = table.meta._appliedTraits as Set<string> | undefined
 
   return applied?.has(name) ?? false
+}
+
+/** The table's scopes by name, from its traits and `withScope`. */
+export function tableScopes(table: AnyTableDef): Readonly<Record<string, Scope>> {
+  return (table.meta._scopes as Record<string, Scope> | undefined) ?? NO_SCOPES
 }
 
 /** Every column any trait added to this table, custom traits included. */

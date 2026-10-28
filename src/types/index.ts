@@ -1,3 +1,4 @@
+import type { ExprBuilder, ExprTape } from '../builder/expr'
 import type { Repository } from '../repo/index'
 import type { Trait } from '../traits'
 
@@ -230,9 +231,18 @@ export interface TableDef<
   // Mark the table as renamed from a previous name, so sync renames it instead of dropping it
   renamedFrom: (oldName: string) => this
 
+  // Declare a scope: a WHERE every repository read and write on the table carries, unless a call lifts it by name
+  withScope: (name: string, scope: Scope<TColumns>) => this
+
   // Apply a trait (composable table behavior)
   withTrait: <TNewCols extends AnyColumns = {}, TNewVirts extends AnyVirtuals = {}>(trait: Trait<TNewCols, TNewVirts>) => TableDef<TName, TColumns & TNewCols, TRelations, TVirtuals & TNewVirts>
 }
+
+/** What a scope reads when a statement is built: the request context `db.withContext` bound, empty outside one. */
+export type ScopeContext = Readonly<Record<string, unknown>>
+
+/** A table-wide WHERE that every repository read, count, include, `withCount`, update and delete on the table carries, unless the call lifts it by name. */
+export type Scope<TColumns extends AnyColumns = AnyColumns> = (e: ExprBuilder<TColumns>, ctx: ScopeContext) => ExprTape
 
 export type HookEvent
   = | 'beforeInsert' | 'afterInsert'
@@ -289,7 +299,21 @@ export interface InsertOptions<TColumns extends AnyColumns = AnyColumns> extends
   skipConflicts?: (keyof TColumns & string)[]
 }
 
-export interface UpdateOptions extends WriteReturnOptions {
+/** Lifts scopes of the table for one call. */
+export interface ScopeOptions {
+  /** Also reach soft-deleted rows, which the softDelete scope hides: `withoutScopes: ['softDelete']`. */
+  withTrashed?: boolean
+  /** The scopes this call lifts, by the names a trait or `withScope` declared them under. */
+  withoutScopes?: string[]
+}
+
+/** A delete, restore or upsert: the scopes guarding it, but those it lifts. */
+export interface ScopedWriteOptions extends WriteReturnOptions {
+  /** The scopes this call lifts, by the names a trait or `withScope` declared them under. */
+  withoutScopes?: string[]
+}
+
+export interface UpdateOptions extends ScopedWriteOptions {
   /** Also update soft-deleted rows, which an update skips by default. */
   withTrashed?: boolean
 }

@@ -20,3 +20,6 @@ export const MAX_BIND_PARAMS = { postgres: 65535, sqlite: 32766 } as const
 
 /** Parameters held back from a multi-row write's chunk for its statement-wide ones (an upsert's set and where). */
 export const STATEMENT_PARAM_RESERVE = 1000
+
+/** The scope the softDelete trait declares, which `withTrashed` lifts. */
+export const SOFT_DELETE_SCOPE = 'softDelete'

@@ -2,6 +2,7 @@ import type { AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationRes
 import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape, SubqueryRef, TypedExpr } from './expr'
 import type { IncludeCallback, OrderDir, OrderEntry, TableTarget } from './state'
+import { SOFT_DELETE_SCOPE } from '../constants'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { placeholderNumbers } from './_placeholders'
@@ -413,16 +414,16 @@ export class SelectBuilder<
 
   /**
    * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
-   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withDeleted`.
+   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withDeleted`; the target's and pivot's other scopes apply unless named in `withoutScopes`.
    */
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
     relation: K,
-    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean },
+    opts?: { as?: TAlias, where?: OptionalWhere<RelationColumns<TRelations[K]>>, withDeleted?: boolean, withoutScopes?: string[] },
   ): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup, TJoined> {
     const alias = opts?.as ?? `${relation}Count`
 
     validateIdentifier(alias, 'withCount alias')
-    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null, withDeleted: opts?.withDeleted ?? false })
+    this._state.relationCounts.push({ relation, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: [...opts?.withoutScopes ?? [], ...opts?.withDeleted ? [SOFT_DELETE_SCOPE] : []] })
 
     return this as never
   }
@@ -459,9 +460,14 @@ export class SelectBuilder<
     return this as never
   }
 
-  /** Include soft-deleted rows in the result. */
+  /** Include soft-deleted rows in the result: `withoutScope('softDelete')`. */
   withTrashed(): this {
-    this._state.withTrashed = true
+    return this.withoutScope(SOFT_DELETE_SCOPE)
+  }
+
+  /** Lift these scopes of the table, by the names a trait or `withScope` declared them under. */
+  withoutScope(...names: string[]): this {
+    this._state.withoutScopes.push(...names)
 
     return this
   }

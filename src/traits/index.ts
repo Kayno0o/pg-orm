@@ -1,12 +1,13 @@
 import type { ColumnTypes } from '../schema/column-types'
-import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, VirtualDef } from '../types/index'
+import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
+import { SOFT_DELETE_SCOPE } from '../constants'
 import { OrmError } from '../errors/index'
 import { createColumnTypes } from '../schema/column-types'
 import { ColumnBuilder } from '../schema/columns'
 import { validateIdentifier } from '../schema/validate'
 
 /**
- * A trait is a composable table behavior that adds columns, hooks, virtuals, and metadata.
+ * A trait is a composable table behavior that adds columns, hooks, virtuals, scopes and metadata.
  * Apply with `table.withTrait(myTrait)`. Built-in traits: `softDelete()`, `timestamps()`, `optimisticLock()`.
  * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`.
  */
@@ -21,11 +22,14 @@ export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals
   columns?: (t: ColumnTypes) => Record<string, ColumnBuilder<any, any, any, any, any>>
   hooks?: (table: AnyTableDef) => void
   virtuals?: Record<string, (row: any) => any>
+  /** Table-wide WHEREs by name, which a call lifts with `withoutScope(name)` or `withoutScopes: [name]`. */
+  scopes?: Record<string, Scope<any>>
   meta?: Record<string, unknown>
 }
 
 const APPLIED_TRAITS_KEY = '_appliedTraits'
 const TRAIT_COLUMNS_KEY = '_traitColumns'
+const SCOPES_KEY = '_scopes'
 
 // Apply a trait to a table definition (mutates the table)
 export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
@@ -76,6 +80,17 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
     }
   }
 
+  if (trait.scopes) {
+    const scopes = ((table.meta as Record<string, unknown>)[SCOPES_KEY] ??= {}) as Record<string, Scope>
+
+    for (const name in trait.scopes) {
+      if (Object.hasOwn(scopes, name))
+        throw new OrmError(`Scope "${name}" is already declared on table "${table.name}".`)
+
+      scopes[name] = trait.scopes[name]!
+    }
+  }
+
   // Merge meta
   if (trait.meta) {
     const meta = table.meta
@@ -89,7 +104,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
 // --- Built-in Traits ---
 
 /**
- * Soft delete trait. Adds a nullable timestamp column and an `isDeleted` virtual.
+ * Soft delete trait. Adds a nullable timestamp column, an `isDeleted` virtual and a `softDelete` scope hiding trashed rows.
  * When applied, `deleteMany`/`deleteOne` will SET the column instead of DELETE.
  * Use `.withTrashed()` on queries to include soft-deleted rows.
  * Use `.forceDelete()` for a real DELETE.
@@ -101,6 +116,7 @@ export function softDelete<C extends string = 'deletedAt'>(column: C = 'deletedA
     virtuals: {
       isDeleted: (row: any) => row[column] != null,
     },
+    scopes: { [SOFT_DELETE_SCOPE]: e => e.isNull(column) },
     meta: { softDelete: { column } },
   }
 }

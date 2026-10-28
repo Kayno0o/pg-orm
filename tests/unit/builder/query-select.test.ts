@@ -230,10 +230,10 @@ describe('SelectBuilder', () => {
     expect(sql).toContain('CAST(AVG("age") AS double precision) AS "average"')
   })
 
-  it('withTrashed sets flag', () => {
+  it('withTrashed lifts the softDelete scope', () => {
     const b = select().withTrashed()
 
-    expect(b._state.withTrashed).toBe(true)
+    expect(b._state.withoutScopes).toEqual(['softDelete'])
   })
 
   it('explain wraps query', () => {

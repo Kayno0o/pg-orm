@@ -486,7 +486,7 @@ return new Response(csv, { headers: { 'content-type': 'text/csv' } })
 import { defineTable, softDelete, timestamps, optimisticLock } from '@kaynooo/pg-orm'
 
 const users = defineTable('users', t => ({ ... }))
-  .withTrait(softDelete('deletedAt'))  // adds deletedAt column + isDeleted virtual
+  .withTrait(softDelete('deletedAt'))  // adds deletedAt column + isDeleted virtual + softDelete scope
   .withTrait(timestamps())              // adds createdAt, updatedAt + auto-update hook
   .withTrait(optimisticLock())          // adds version column + auto-increment
 
@@ -516,18 +516,54 @@ await users.write.purgeTrashed(new Date(Date.now() - 30 * 86_400_000), { returni
 await users.write.forceDelete({ id: userId })
 ```
 
+### Scopes
+
+A scope is a WHERE a table carries on every repository call: reads, `count`, `exists`, `paginate`, both streams, `repo.read.select()`, an `include` or `withCount` reaching the table (a `hasManyThrough` pivot's scopes included), and the updates and deletes it guards, so a forgotten filter cannot leak rows. A trait declares scopes under `scopes`, a table with `withScope(name, e => ...)`; `softDelete` is one, named `softDelete`. Each runs when the statement is built and gets the request context `db.withContext` bound as its second argument, so a tenant id needs no argument on every call.
+
+```ts
+const tenant: Trait = {
+  name: 'tenant',
+  scopes: { tenant: (e, ctx) => e.eq('tenantId', ctx.tenantId) },
+}
+
+const projects = defineTable('projects', t => ({
+  id: t.serial().primaryKey(),
+  tenantId: t.int4(),
+  name: t.text(),
+  archived: t.boolean().default(false),
+})).withTrait(tenant).withScope('active', e => e.eq('archived', false))
+
+// In a request handler: every query below only sees the user's tenant's unarchived projects
+await db.withContext({ tenantId: req.user.tenantId }, async () => {
+  await db.repo(projects).read.findMany()
+  await db.repo(projects).write.updateMany({ name: 'x' }, { id: 3 }) // changes nothing if project 3 is another tenant's
+})
+
+// Lift a scope by name for one call
+await db.repo(projects).read.findMany(q => q.withoutScope('active'))
+await db.repo(projects).read.count(undefined, { withoutScopes: ['active'] })
+await db.repo(projects).write.deleteMany({ archived: true }, { withoutScopes: ['active'] })
+await db.repo(owners).read.findMany(q => q.withCount('projects', { withoutScopes: ['active'] }))
+```
+
+- `withTrashed` is `withoutScope('softDelete')`. Reads, `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
+- A scope reading a context value that is not there fails the call: `e.eq('tenantId', undefined)` throws a `ValidationError`, so a query run outside `withContext` cannot read every tenant.
+- An upsert guards only its update: a conflicting row a scope leaves out is not updated and not returned. Inserts are not filtered, so set the tenant column on the rows you write (a `beforeInsert` hook reading the same context does it once).
+- The statement builders `repo.write.insert()`, `update()`, `delete()` and `merge()`, and `db.raw`, carry no scope.
+
 ### Schema introspection
 
 Table and column metadata, typed — for generic code that derives request schemas, admin
 UIs or CRUD routes from a table definition instead of restating its shape.
 
 ```ts
-import { columnBaseType, hasTrait, isTableDef, tableMeta, traitColumns, writableColumns } from '@kaynooo/pg-orm'
+import { columnBaseType, hasTrait, isTableDef, tableMeta, tableScopes, traitColumns, writableColumns } from '@kaynooo/pg-orm'
 
 Object.values(await import('./schema')).filter(isTableDef) // the tables among a module's exports
 
 tableMeta(users).softDelete?.column   // 'deletedAt' — same for optimisticLock / timestamps
 hasTrait(users, 'softDelete')         // true; works for custom traits by their `name`
+Object.keys(tableScopes(users))       // ['softDelete'], the scopes by name
 
 traitColumns(users)                   // every column any trait added, custom traits included
 writableColumns(users)                // all columns except the pk, generated and trait-managed ones

@@ -132,7 +132,7 @@ describe('buildTableBehavior.rewriteDelete', () => {
 
   it('returns an UpdateBuilder that sets the soft-delete column on rows not already trashed', () => {
     const behavior = buildTableBehavior(makeSoft())
-    const ub = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1))
+    const ub = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1), [])
     const { sql } = ub.toSQL()
 
     expect(sql).toContain('UPDATE "soft" SET "deletedAt" =')
@@ -141,7 +141,7 @@ describe('buildTableBehavior.rewriteDelete', () => {
 
   it('bumps the optimistic-lock version', () => {
     const behavior = buildTableBehavior(makeSoftOpt())
-    const { sql } = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1)).toSQL()
+    const { sql } = behavior.rewriteDelete(behavior.softDeleteSet()!, e => e.eq('id', 1), []).toSQL()
 
     expect(sql).toContain('"version" = "version" + 1')
   })
@@ -151,13 +151,13 @@ describe('buildTableBehavior.buildRestoreUpdate', () => {
   it('throws when the table has no softDelete trait', () => {
     const behavior = buildTableBehavior(makePlain())
 
-    expect(() => behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1)))
+    expect(() => behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1), []))
       .toThrow(OrmError)
   })
 
   it('sets the soft-delete column to NULL and restricts to non-null rows', () => {
     const behavior = buildTableBehavior(makeSoft())
-    const b = behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1))
+    const b = behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1), [])
     const { sql, params } = b.toSQL()
 
     expect(sql).toContain('UPDATE "soft"')
@@ -168,7 +168,7 @@ describe('buildTableBehavior.buildRestoreUpdate', () => {
 
   it('applies the optimistic-lock bump on a table with both traits', () => {
     const behavior = buildTableBehavior(makeSoftOpt())
-    const b = behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1))
+    const b = behavior.buildRestoreUpdate({ deletedAt: null }, e => e.eq('id', 1), [])
     const { sql } = b.toSQL()
 
     expect(sql).toContain('"version" = "version" + 1')

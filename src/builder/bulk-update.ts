@@ -1,7 +1,9 @@
 import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
+import type { ExprTape } from './_tape'
 import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
+import { assembleExpr } from './_tape'
 import { validateValues } from './state'
 
 // A bound value needs a castable type name, and the serial pseudo-types are not one.
@@ -21,7 +23,7 @@ export interface BulkUpdateRow {
 export class BulkUpdateBuilder {
   private _returning: string[] = []
   private _raw = new Map<string, string>()
-  private _nullColumns: string[] = []
+  private _filters: ExprTape[] = []
 
   constructor(
     private readonly table: string,
@@ -41,9 +43,9 @@ export class BulkUpdateBuilder {
     return this
   }
 
-  /** Only update rows where this column is null. */
-  whereNull(column: string): this {
-    this._nullColumns.push(this._column(column, 'whereNull()'))
+  /** Only update rows this filter holds for, its bare columns read off the table. */
+  andWhere(tape: ExprTape): this {
+    this._filters.push(tape)
 
     return this
   }
@@ -97,7 +99,13 @@ export class BulkUpdateBuilder {
 
     const match = [
       ...this.keyColumns.map((col, i) => `${target}.${quote(col)} = "v"."k${i}"`),
-      ...this._nullColumns.map(col => `${target}.${quote(col)} IS NULL`),
+      ...this._filters.map((tape) => {
+        const filter = assembleExpr(tape, params.length, this.table, dialect, new Set(Object.keys(this.columns)))
+
+        params.push(...filter.params)
+
+        return `(${filter.sql})`
+      }),
     ].join(' AND ')
     const returning = this._returning.length
       ? this._returning.map(col => `${target}.${quote(col)}`).join(', ')

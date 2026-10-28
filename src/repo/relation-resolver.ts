@@ -1,4 +1,5 @@
 import type { IncludeEntry } from '../builder/query'
+import type { ScopeFilter } from '../builder/state'
 import type { Executable } from '../sql/executor'
 import type { AnyRelationDef, AnyTableDef } from '../types/index'
 import { PARTITION_RANK } from '../builder/assembler'
@@ -7,9 +8,9 @@ import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { dialectOf } from '../dialect'
 import { OrmError, ValidationError } from '../errors/index'
-import { tableMeta } from '../schema/inspect'
 import { quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
+import { resolveScopes } from './table-behavior'
 
 /**
  * Callback interface supplied by the read pipeline so eager-loaded child rows
@@ -31,8 +32,8 @@ interface Through {
   table: string
   from: string
   to: string
-  // The pivot table soft-delete column, whose trashed rows link nothing.
-  softDelete: string | null
+  // The pivot table's scopes, under the alias it is joined as: a row they leave out links nothing.
+  scopes: ScopeFilter[]
 }
 
 interface ChildRows {
@@ -177,7 +178,7 @@ export class RelationResolver {
     let slice: ChildRows['slice']
 
     state.includes = []
-    state.softDeleteColumn = tableMeta(table).softDelete?.column ?? null
+    state.scopes = resolveScopes(table)
     state.tableColumns = Object.keys(table.columns)
 
     if (selectedColumns(state)?.includes(column) === false) {
@@ -210,9 +211,7 @@ export class RelationResolver {
         .join(through.table, THROUGH_ALIAS, e => e.eq(column, e.ref(`${THROUGH_ALIAS}.${through.to}`)))
         .andWhere(e => e.in(`${THROUGH_ALIAS}.${through.from}`, chunk))
 
-      if (through.softDelete && !state.withTrashed)
-        query.andWhere(e => e.isNull(`${THROUGH_ALIAS}.${through.softDelete}`))
-
+      query.getState().scopes.push(...through.scopes)
       query.getState().computedColumns.push({ expr: `${quote(THROUGH_ALIAS)}.${quote(through.from)}`, alias: THROUGH_PARENT })
 
       return query.toSQL(dialectOf(this.executor))
@@ -365,7 +364,7 @@ export class RelationResolver {
 
     const parentIds = collectParentIds(parentRows, sourcePk)
     const { rows, chunks, parents, nestedIncludes, slice } = parentIds.length > 0
-      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, softDelete: tableMeta(pivot).softDelete?.column ?? null })
+      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS) })
       : { rows: [], chunks: [], parents: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 

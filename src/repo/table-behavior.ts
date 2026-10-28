@@ -1,15 +1,32 @@
 import type { ExprBuilder } from '../builder/expr'
-import type { SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
-import type { AnyColumns, AnyTableDef, InferUpdate } from '../types/index'
+import type { DeleteBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
+import type { ScopeFilter } from '../builder/state'
+import type { AnyColumns, AnyTableDef, InferUpdate, ScopeOptions } from '../types/index'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { SOFT_DELETE_SCOPE } from '../constants'
 import { OrmError } from '../errors/index'
-import { tableMeta } from '../schema/inspect'
+import { tableMeta, tableScopes } from '../schema/inspect'
+import { queryContextStorage } from '../sql/base-executor'
 import { quote } from '../sql/utils'
 
 /** Any UPDATE a trait can add a raw SET to: the single-statement builder or the per-row bulk one. */
 interface RawSettable {
   setRaw: (column: string, sqlExpression: string) => unknown
+}
+
+/** The scopes a call lifts. */
+export function liftedScopes(opts?: ScopeOptions): string[] {
+  const lifted = opts?.withoutScopes ?? []
+
+  return opts?.withTrashed ? [...lifted, SOFT_DELETE_SCOPE] : lifted
+}
+
+/** The table's scopes, each WHERE built now against the request context; `qualifier` names the alias the table is joined under. */
+export function resolveScopes(table: AnyTableDef, qualifier?: string): ScopeFilter[] {
+  const ctx = queryContextStorage.getStore() ?? {}
+
+  return Object.entries(tableScopes(table)).map(([name, scope]) => ({ name, tape: compileWhere(e => scope(e, ctx), table.columns), qualifier }))
 }
 
 /**
@@ -23,7 +40,7 @@ interface RawSettable {
  * the method itself.
  */
 export interface TableBehavior {
-  /** Apply all pre-SELECT transforms: the soft-delete filter, which the assembler applies unless `withTrashed()` was called, before or after. */
+  /** Apply all pre-SELECT transforms: the table's scopes, which the assembler applies unless `withoutScope()` lifted them, before or after. */
   prepareSelect: (builder: SelectBuilder<any, any, any>) => void
 
   /**
@@ -34,16 +51,17 @@ export interface TableBehavior {
    */
   prepareUpdate: (builder: RawSettable, set: Record<string, unknown>) => void
 
-  /** Keep an UPDATE off soft-deleted rows, unless `withTrashed`. */
-  excludeTrashed: (builder: UpdateBuilder<any> | BulkUpdateBuilder, withTrashed?: boolean) => void
+  /** Keep an UPDATE or DELETE to the rows the table's scopes hold for, but those `lifted`. */
+  guardWrite: (builder: UpdateBuilder<any> | DeleteBuilder<any> | BulkUpdateBuilder, lifted: string[]) => void
 
   /** The SET a soft delete writes (the deletion timestamp), or `null` when the table hard-deletes. Run it through `beforeUpdate` hooks, then hand it to `rewriteDelete`. */
   softDeleteSet: <TColumns extends AnyColumns>() => InferUpdate<TColumns> | null
 
-  /** Build the UPDATE a soft delete runs: restricted to rows not already trashed, post-SET transforms (version bump) included. A `null` where trashes every row. */
+  /** Build the UPDATE a soft delete runs: restricted to rows not already trashed and to the scopes not `lifted`, post-SET transforms (version bump) included. A `null` where trashes every row. */
   rewriteDelete: <TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
     where: WhereInput<TColumns> | null,
+    lifted: string[],
   ) => UpdateBuilder<TColumns>
 
   /**
@@ -51,11 +69,12 @@ export interface TableBehavior {
    *
    * Throws if the table does not have a soft-delete trait. The returned builder
    * already restricts the where to rows where the soft-delete column is not
-   * null and has had post-SET transforms applied.
+   * null and to the other scopes not `lifted`, and has had post-SET transforms applied.
    */
   buildRestoreUpdate: <TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
     where: WhereInput<TColumns>,
+    lifted: string[],
   ) => UpdateBuilder<TColumns>
 
   /** Return the optimistic-lock column name, or `null` if the trait is absent. */
@@ -78,9 +97,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     const state = b.getState()
 
     state.tableColumns = columnNames
-
-    if (hasSoftDelete)
-      state.softDeleteColumn = softDeleteColumn
+    state.scopes = resolveScopes(table)
   }
 
   function prepareUpdate(b: RawSettable, _set: Record<string, unknown>): void {
@@ -91,14 +108,16 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     }
   }
 
-  function excludeTrashed(b: UpdateBuilder<any> | BulkUpdateBuilder, withTrashed?: boolean): void {
-    if (!hasSoftDelete || withTrashed)
-      return
+  function guardWrite(b: UpdateBuilder<any> | DeleteBuilder<any> | BulkUpdateBuilder, lifted: string[]): void {
+    for (const { name, tape } of resolveScopes(table)) {
+      if (lifted.includes(name))
+        continue
 
-    if (b instanceof BulkUpdateBuilder)
-      b.whereNull(softDeleteColumn!)
-    else
-      b.andWhere(e => e.isNull(softDeleteColumn!))
+      if (b instanceof BulkUpdateBuilder)
+        b.andWhere(tape)
+      else
+        b.andWhere(() => tape)
+    }
   }
 
   function softDeleteSet<TColumns extends AnyColumns>(): InferUpdate<TColumns> | null {
@@ -108,11 +127,13 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   function rewriteDelete<TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
     where: WhereInput<TColumns> | null,
+    lifted: string[],
   ): UpdateBuilder<TColumns> {
     const builder = new UpdateBuilderCtor<TColumns>(table)
       .set(set)
       .where((e: ExprBuilder<TColumns>) => where ? e.and(compileWhere<TColumns>(where, table.columns as TColumns), e.isNull(softDeleteColumn!)) : e.isNull(softDeleteColumn!))
 
+    guardWrite(builder, [...lifted, SOFT_DELETE_SCOPE])
     prepareUpdate(builder, set as Record<string, unknown>)
 
     return builder
@@ -121,6 +142,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   function buildRestoreUpdate<TColumns extends AnyColumns>(
     set: InferUpdate<TColumns>,
     where: WhereInput<TColumns>,
+    lifted: string[],
   ): UpdateBuilder<TColumns> {
     if (softDeleteColumn === null) {
       throw new OrmError(
@@ -132,6 +154,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
       .set(set)
       .where((e: ExprBuilder<TColumns>) => e.and(compileWhere<TColumns>(where, table.columns as TColumns), e.isNotNull(softDeleteColumn)))
 
+    guardWrite(builder, [...lifted, SOFT_DELETE_SCOPE])
     prepareUpdate(builder, set as Record<string, unknown>)
 
     return builder
@@ -148,7 +171,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   return Object.freeze({
     prepareSelect,
     prepareUpdate,
-    excludeTrashed,
+    guardWrite,
     softDeleteSet,
     rewriteDelete,
     buildRestoreUpdate,
