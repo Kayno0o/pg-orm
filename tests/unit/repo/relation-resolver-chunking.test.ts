@@ -1,3 +1,4 @@
+import type { AnyTableDef } from '../../../src/types/index'
 import { describe, expect, test } from 'bun:test'
 import { defineTable } from '../../../src/index'
 import { RelationResolver } from '../../../src/repo/relation-resolver'
@@ -19,10 +20,17 @@ const parentsTable = defineTable('parents', t => ({
   children: r.hasMany<Child>('children', 'parentId'),
 }))
 
+const childrenTable = defineTable('children', t => ({
+  id: t.int4().primaryKey(),
+  parentId: t.int4(),
+}))
+
+const registry = new Map<string, AnyTableDef>([['parents', parentsTable], ['children', childrenTable]])
+
 const includes = [{ relation: 'children' as const, strategy: 'batch' as const, callback: undefined }]
 
 function makeResolver(exec: MockExecutor, chunkSize: number): RelationResolver {
-  return new RelationResolver(parentsTable, exec, 5, chunkSize)
+  return new RelationResolver(parentsTable, exec, 5, chunkSize, registry)
 }
 
 function parents(...ids: number[]): Record<string, unknown>[] {

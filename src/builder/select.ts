@@ -413,7 +413,7 @@ export class SelectBuilder<
 
   /**
    * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
-   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children are counted only with `withDeleted`.
+   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withDeleted`.
    */
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(
     relation: K,

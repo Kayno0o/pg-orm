@@ -7,10 +7,10 @@ import { buildTableRuntime } from '../../../../src/repo/table-runtime'
 import { WritePipeline } from '../../../../src/repo/write-pipeline'
 import { MockExecutor } from '../../../helpers/mock-executor'
 
-export function setupOpEnv(table: AnyTableDef) {
+export function setupOpEnv(table: AnyTableDef, tableRegistry?: ReadonlyMap<string, AnyTableDef>) {
   const exec = new MockExecutor()
   const rt = buildTableRuntime(table)
-  const rel = new RelationResolver(table, exec, 5, 1000)
+  const rel = new RelationResolver(table, exec, 5, 1000, tableRegistry)
   const map = createMapperFactory(table)
   const hooks: HookContext = { repo: other => new Repository({ table: other, executor: exec }) as never }
 
@@ -18,7 +18,7 @@ export function setupOpEnv(table: AnyTableDef) {
 }
 
 export function setupReadPipeline(table: AnyTableDef, tableRegistry?: ReadonlyMap<string, AnyTableDef>) {
-  const { exec, rt, rel, map, hooks } = setupOpEnv(table)
+  const { exec, rt, rel, map, hooks } = setupOpEnv(table, tableRegistry)
   const pipeline = new ReadPipeline<AnyColumns, AnyRelations, AnyVirtuals>({
     executor: exec,
     runtime: rt,

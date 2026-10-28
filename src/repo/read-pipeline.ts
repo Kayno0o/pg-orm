@@ -605,11 +605,11 @@ export class ReadPipeline<
   }
 
   // An included table's runtime and mapper factory, built once per definition and version rather than per include per query.
-  private _child(tableName: string): ChildTable | undefined {
+  private _child(tableName: string): ChildTable {
     const table = this._tableRegistry?.get(tableName)
 
     if (!table)
-      return undefined
+      throw new ValidationError(`"${tableName}" is not in the database's tables: list it in config.tables.`, 'include', { field: tableName })
 
     const cached = this._children.get(tableName)
 
@@ -627,7 +627,7 @@ export class ReadPipeline<
     if (tableName === this._runtime.table.name)
       return this._runtime
 
-    return this._child(tableName)?.runtime ?? this._runtime
+    return this._child(tableName).runtime
   }
 
   // `builder`, an include callback's, shapes the mapper with its pick, omit and computed columns.
@@ -635,9 +635,17 @@ export class ReadPipeline<
     if (tableName === this._runtime.table.name)
       return this._mapper(builder)
 
-    const child = this._child(tableName)
+    return this._child(tableName).mappers(builder)
+  }
 
-    return child ? child.mappers(builder) : (row: Record<string, unknown>) => row
+  // A counted table outside the registry has no known soft-delete column, so its trashed rows would be counted.
+  private _registered(name: string, relation: string): AnyTableDef {
+    const table = this._tableRegistry?.get(name)
+
+    if (!table)
+      throw new ValidationError(`withCount("${relation}"): "${name}" is not in the database's tables: list it in config.tables.`, 'withCount', { field: relation })
+
+    return table
   }
 
   // Each `withCount` becomes a correlated COUNT subquery; it needs the registry for the target's key and soft-delete column, which the builder does not have.
@@ -655,16 +663,23 @@ export class ReadPipeline<
         throw new ValidationError(`withCount(): "${table.name}" has a composite primary key, which a relation count cannot join on.`, 'withCount', { field: relation })
 
       const parentKey = `${quote(state.alias ?? table.name)}.${quote(pkColumns[0]!)}`
-      const target = this._tableRegistry?.get(rel.targetTable)
-      const trashed = target && !withDeleted ? tableMeta(target).softDelete?.column : undefined
+      const target = this._registered(rel.targetTable, relation)
+      const pivot = rel.type === 'hasManyThrough' ? this._registered(rel.throughTable!, relation) : undefined
       const child = '"__count"'
-      const live = trashed ? ` AND ${child}.${quote(trashed)} IS NULL` : ''
-      const from = rel.type === 'hasMany'
-        ? `FROM ${quote(rel.targetTable)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
-        : `FROM ${quote(rel.throughTable!)} AS "__pivot" JOIN ${quote(rel.targetTable)} AS ${child} ON ${child}.${quote(target?.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
+      const live = withDeleted ? '' : liveFilter(child, target) + (pivot ? liveFilter('"__pivot"', pivot) : '')
+      const from = pivot
+        ? `FROM ${quote(pivot.name)} AS "__pivot" JOIN ${quote(target.name)} AS ${child} ON ${child}.${quote(target.primaryKey ?? DEFAULT_PRIMARY_KEY)} = "__pivot".${quote(rel.throughTo!)} WHERE "__pivot".${quote(rel.throughFrom!)} = ${parentKey}`
+        : `FROM ${quote(target.name)} AS ${child} WHERE ${child}.${quote(rel.foreignKey)} = ${parentKey}`
       const expr = `SELECT count(*)${this._dialect === 'postgres' ? '::int' : ''} ${from}${live}`
 
       state.computedColumns.push(where ? { expr, alias, filter: { tape: where, qualifier: '__count' } } : { expr: `(${expr})`, alias })
     }
   }
+}
+
+// The condition leaving out a soft-delete table's trashed rows, none for a table without the trait.
+function liveFilter(alias: string, table: AnyTableDef): string {
+  const column = tableMeta(table).softDelete?.column
+
+  return column ? ` AND ${alias}.${quote(column)} IS NULL` : ''
 }

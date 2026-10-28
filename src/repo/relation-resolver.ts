@@ -31,6 +31,8 @@ interface Through {
   table: string
   from: string
   to: string
+  // The pivot table soft-delete column, whose trashed rows link nothing.
+  softDelete: string | null
 }
 
 interface ChildRows {
@@ -88,13 +90,16 @@ export class RelationResolver {
       if (!rel)
         throw new ValidationError(`include(): "${this.table.name}" has no relation "${inc.relation}"`, 'include', { value: inc.relation })
 
+      const target = this._table(rel.targetTable, inc.relation)
+      const pivot = rel.type === 'hasManyThrough' && rel.throughTable ? this._table(rel.throughTable, inc.relation) : undefined
+
       tasks.push((async () => {
         if (rel.type === 'belongsTo')
-          await this._loadBelongsTo(parentRows, rel, inc, depth, processor)
+          await this._loadBelongsTo(parentRows, rel, target, inc, depth, processor)
         else if (rel.type === 'hasOne' || rel.type === 'hasMany')
-          await this._loadHasOneOrMany(parentRows, rel, inc, depth, processor)
-        else if (rel.type === 'hasManyThrough' && rel.throughTable)
-          await this._loadHasManyThrough(parentRows, rel, inc, depth, processor)
+          await this._loadHasOneOrMany(parentRows, rel, target, inc, depth, processor)
+        else if (pivot)
+          await this._loadHasManyThrough(parentRows, rel, target, pivot, inc, depth, processor)
       })())
     }
 
@@ -119,8 +124,14 @@ export class RelationResolver {
     return results
   }
 
-  private _resolveTable(name: string): AnyTableDef | undefined {
-    return this.tableRegistry?.get(name)
+  // A table outside the registry has no known soft delete, hooks or column types, so its rows would come back trashed, uncoerced and through the parent's hooks.
+  private _table(name: string, relation: string): AnyTableDef {
+    const table = this.tableRegistry?.get(name)
+
+    if (!table)
+      throw new ValidationError(`include("${relation}"): "${name}" is not in the database's tables: list it in config.tables.`, 'include', { field: relation })
+
+    return table
   }
 
   private _primaryKey(table: AnyTableDef, relation: string): string {
@@ -148,15 +159,9 @@ export class RelationResolver {
     }
   }
 
-  private _softDeleteColumn(tableName: string): string | null {
-    const table = this._resolveTable(tableName)
-
-    return table ? tableMeta(table).softDelete?.column ?? null : null
-  }
-
   // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. `perParent` partitions a callback limit by `column`, otherwise it comes back as `slice`. With `through`, `ids` are parent ids and `column` the target's primary key, a row matched by several chunks processed once.
   private async _childQuery(
-    tableName: string,
+    table: AnyTableDef,
     column: string,
     ids: unknown[],
     inc: IncludeEntry,
@@ -164,6 +169,7 @@ export class RelationResolver {
     processor?: RelationProcessor,
     through?: Through,
   ): Promise<ChildRows> {
+    const tableName = table.name
     const base = new SelectBuilder<any, any>(tableName)
     const filtered = inc.callback ? inc.callback(base) : base
     const state = filtered.getState()
@@ -171,8 +177,8 @@ export class RelationResolver {
     let slice: ChildRows['slice']
 
     state.includes = []
-    state.softDeleteColumn = this._softDeleteColumn(tableName)
-    state.tableColumns = Object.keys(this._resolveTable(tableName)?.columns ?? {})
+    state.softDeleteColumn = tableMeta(table).softDelete?.column ?? null
+    state.tableColumns = Object.keys(table.columns)
 
     if (selectedColumns(state)?.includes(column) === false) {
       throw new ValidationError(
@@ -203,9 +209,11 @@ export class RelationResolver {
       query
         .join(through.table, THROUGH_ALIAS, e => e.eq(column, e.ref(`${THROUGH_ALIAS}.${through.to}`)))
         .andWhere(e => e.in(`${THROUGH_ALIAS}.${through.from}`, chunk))
-        .getState()
-        .computedColumns
-        .push({ expr: `${quote(THROUGH_ALIAS)}.${quote(through.from)}`, alias: THROUGH_PARENT })
+
+      if (through.softDelete && !state.withTrashed)
+        query.andWhere(e => e.isNull(`${THROUGH_ALIAS}.${through.softDelete}`))
+
+      query.getState().computedColumns.push({ expr: `${quote(THROUGH_ALIAS)}.${quote(through.from)}`, alias: THROUGH_PARENT })
 
       return query.toSQL(dialectOf(this.executor))
     })
@@ -249,6 +257,7 @@ export class RelationResolver {
   private async _loadBelongsTo(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
+    targetTable: AnyTableDef,
     inc: IncludeEntry,
     depth: number,
     processor?: RelationProcessor,
@@ -265,9 +274,8 @@ export class RelationResolver {
       return
     }
 
-    const targetTable = this._resolveTable(rel.targetTable)
-    const targetPk = targetTable ? this._primaryKey(targetTable, inc.relation) : DEFAULT_PRIMARY_KEY
-    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetPk, parentIds, inc, true, processor)
+    const targetPk = this._primaryKey(targetTable, inc.relation)
+    const { rows, nestedIncludes } = await this._childQuery(targetTable, targetPk, parentIds, inc, true, processor)
     const indexed = indexBy(rows, targetPk)
 
     for (const parent of parentRows) {
@@ -280,6 +288,7 @@ export class RelationResolver {
   private async _loadHasOneOrMany(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
+    target: AnyTableDef,
     inc: IncludeEntry,
     depth: number,
     processor?: RelationProcessor,
@@ -301,7 +310,6 @@ export class RelationResolver {
     }
 
     // A parent matching several rows gets the first in the include's order, else the one with the lowest primary key.
-    const target = this._resolveTable(rel.targetTable)
     const ordered: IncludeEntry = isMany
       ? inc
       : {
@@ -310,14 +318,14 @@ export class RelationResolver {
           const b = inc.callback ? inc.callback(q) : q
 
           if (b.getState().orderBy.length === 0) {
-            for (const col of (target?.primaryKey ?? DEFAULT_PRIMARY_KEY).split(','))
+            for (const col of (target.primaryKey ?? DEFAULT_PRIMARY_KEY).split(','))
               b.orderBy(col.trim())
           }
 
           return b
         },
       }
-    const { rows, nestedIncludes } = await this._childQuery(rel.targetTable, targetFk, parentIds, ordered, true, processor)
+    const { rows, nestedIncludes } = await this._childQuery(target, targetFk, parentIds, ordered, true, processor)
 
     if (isMany) {
       const grouped = groupBy(rows, targetFk)
@@ -334,21 +342,22 @@ export class RelationResolver {
       }
     }
 
-    await this._loadNested(this._resolveTable(rel.targetTable), rows, nestedIncludes, depth, processor)
+    await this._loadNested(target, rows, nestedIncludes, depth, processor)
   }
 
   // The targets joined to their pivot rows in one query through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
+    targetTable: AnyTableDef,
+    pivot: AnyTableDef,
     inc: IncludeEntry,
     depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
     const relationName = inc.relation
     const sourcePk = this._primaryKey(this.table, relationName)
-    const targetTable = this._resolveTable(rel.targetTable)
-    const targetPk = targetTable ? this._primaryKey(targetTable, relationName) : DEFAULT_PRIMARY_KEY
+    const targetPk = this._primaryKey(targetTable, relationName)
     const from = rel.throughFrom!
     const to = rel.throughTo!
 
@@ -356,7 +365,7 @@ export class RelationResolver {
 
     const parentIds = collectParentIds(parentRows, sourcePk)
     const { rows, chunks, parents, nestedIncludes, slice } = parentIds.length > 0
-      ? await this._childQuery(rel.targetTable, targetPk, parentIds, inc, false, processor, { table: rel.throughTable!, from, to })
+      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, softDelete: tableMeta(pivot).softDelete?.column ?? null })
       : { rows: [], chunks: [], parents: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
@@ -382,13 +391,13 @@ export class RelationResolver {
   }
 
   private async _loadNested(
-    targetTable: AnyTableDef | undefined,
+    targetTable: AnyTableDef,
     childRows: Record<string, unknown>[],
     nestedIncludes: IncludeEntry[],
     depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
-    if (nestedIncludes.length === 0 || !targetTable || childRows.length === 0)
+    if (nestedIncludes.length === 0 || childRows.length === 0)
       return
 
     const childResolver = new RelationResolver(targetTable, this.executor, this.maxIncludeDepth, this.batchChunkSize, this.tableRegistry)

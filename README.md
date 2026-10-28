@@ -204,9 +204,9 @@ const chain = await EmployeeRepo.read.findMany(q => q.include('manager', employe
 const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.withTrashed()))
 ```
 
-A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key.
+A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key. Every table a relation reads, a `hasManyThrough` pivot included, must be in the database's `tables`: an `include` or `withCount` on one that is not throws a `ValidationError` naming it, as its soft delete, hooks and column types would be unknown. A soft-deleted pivot row links nothing unless the include's callback calls `withTrashed()`.
 
-`withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows unless given `withDeleted: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
+`withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows, and those linked through a soft-deleted pivot row, unless given `withDeleted: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
 
 ```ts
 const posts = await PostRepo.read.findMany(q =>
