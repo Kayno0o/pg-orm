@@ -1,7 +1,7 @@
 import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyVirtuals, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import type { UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder, UpsertBuilder } from '../builder/query'
@@ -28,15 +28,19 @@ export class WriteSuite<
     this._rt = _rt
   }
 
+  /** `skipConflicts` answers `null` when the row clashed with an existing one and was skipped. */
+  async insertOne(values: InferInsert<TColumns>, opts: InsertOptions<TColumns> & { skipConflicts: (keyof TColumns & string)[], pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async insertOne(values: InferInsert<TColumns>, opts: InsertOptions<TColumns> & { skipConflicts: (keyof TColumns & string)[], pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
   async insertOne(values: InferInsert<TColumns>, opts: { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.insertOne(values, opts)
   }
 
-  async insertMany(values: InferInsert<TColumns>[]): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async insertMany(values: InferInsert<TColumns>[], opts: { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async insertMany(values: InferInsert<TColumns>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  /** `skipConflicts` leaves out the rows clashing with existing ones, answering only those inserted. */
+  async insertMany(values: InferInsert<TColumns>[], opts?: InsertOptions<TColumns> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async insertMany(values: InferInsert<TColumns>[], opts: InsertOptions<TColumns> & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async insertMany(values: InferInsert<TColumns>[], opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     return this._pipeline.insertMany(values, opts)
   }
 

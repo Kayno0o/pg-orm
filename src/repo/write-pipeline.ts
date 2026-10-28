@@ -4,7 +4,7 @@ import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
+import type { AnyColumns, AnyVirtuals, ColumnConstraint, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
 import { OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
@@ -77,6 +77,10 @@ function requireWhere<T>(where: T, op: string): T {
   return where
 }
 
+function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<TColumns>, opts?: InsertOptions<TColumns>): InsertBuilderCtor<TColumns> {
+  return opts?.skipConflicts ? builder.onConflict(opts.skipConflicts).doNothing() : builder
+}
+
 /** Frozen dependencies for a single write pipeline. */
 export interface WritePipelineContext {
   executor: Executable
@@ -146,19 +150,18 @@ export class WritePipeline<
 
   // --- Insert ---
 
-  async insertOne(values: InferInsert<TColumns>, opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     const v = this._normalizeJsonValues(await this._runtime.runBefore('beforeInsert', values) as Record<string, unknown>) as InferInsert<TColumns>
-    const builder = new InsertBuilderCtor<TColumns>(this._runtime.table).values(v)
 
     return this._execute({
-      builder,
+      builder: skipConflicts(new InsertBuilderCtor<TColumns>(this._runtime.table).values(v), opts),
       afterEvent: 'afterInsert',
-      project: rows => this._projectOne(rows, opts),
+      project: rows => this._projectOne(rows, opts) ?? null,
       opts,
     })
   }
 
-  async insertMany(values: InferInsert<TColumns>[], opts?: WriteReturnOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+  async insertMany(values: InferInsert<TColumns>[], opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
 
@@ -166,7 +169,7 @@ export class WritePipeline<
       .map(row => this._normalizeJsonValues(row as Record<string, unknown>)) as InferInsert<TColumns>[]
 
     return this._chunked(v, (pipeline, rows) => pipeline._execute({
-      builder: pipeline._insertMany(rows),
+      builder: skipConflicts(pipeline._insertMany(rows), opts),
       afterEvent: 'afterInsert',
       project: written => pipeline._projectMany(written, opts),
       opts,

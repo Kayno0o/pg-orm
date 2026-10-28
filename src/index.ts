@@ -182,6 +182,7 @@ export type {
   InferUpdateFromTable,
   InferVirtuals,
   InferWhere,
+  InsertOptions,
   IsGenerated,
   IsNullable,
   IsPrimaryKey,

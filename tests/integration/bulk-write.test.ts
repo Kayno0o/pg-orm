@@ -74,6 +74,26 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
     expect(await db.repo(marks).read.count({ n: 1 })).toBe(ROWS)
   }, 60_000)
 
+  it('insertMany with skipConflicts skips the rows clashing on the target and answers only those inserted', async () => {
+    await db.repo(marks).write.insertMany(rows(ROWS / 2), { pk: true })
+    const written = await db.repo(hooked).write.insertMany(rows(ROWS, 1), { skipConflicts: ['code'] })
+
+    expect(written).toHaveLength(ROWS / 2)
+    expect(written.every((row, i) => row.code === `c${ROWS / 2 + i}` && row.n === 1)).toBe(true)
+    expect(fired.afterInsert).toBe(ROWS / 2)
+    expect(await db.repo(marks).read.count()).toBe(ROWS)
+    expect(await db.repo(marks).read.count({ n: 0 })).toBe(ROWS / 2)
+  }, 60_000)
+
+  it('insertOne with skipConflicts answers null for a clashing row', async () => {
+    const repo = db.repo(marks).write
+
+    expect(await repo.insertOne({ code: 'one', n: 0 }, { skipConflicts: ['code'], pk: true })).toEqual(expect.any(Number))
+    expect(await repo.insertOne({ code: 'one', n: 1 }, { skipConflicts: ['code'], pk: true })).toBeNull()
+    expect(await repo.insertOne({ code: 'one', n: 1 }, { skipConflicts: ['code'] })).toBeNull()
+    expect(await repo.insertOne({ code: 'two', n: 1 }, { skipConflicts: ['code'] })).toMatchObject({ code: 'two', n: 1 })
+  })
+
   it('writes nothing when a later chunk fails', async () => {
     const batch = [...rows(ROWS - 1), { code: 'c0', n: 0 }]
 

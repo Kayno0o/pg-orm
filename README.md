@@ -377,6 +377,9 @@ const rows = await repo.write.insertMany([{ ... }, { ... }])
 // ...or only its primary key with `{ pk: true }`
 const id = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
 
+// Skip the rows clashing with existing ones on a unique target (ON CONFLICT (...) DO NOTHING): only the inserted rows come back, insertOne answering null for a skipped one
+const stored = await points.write.insertMany(batch, { skipConflicts: ['deviceId', 'recordedAt'] })
+
 // Update — the where takes both forms, and `updateById` spells out the common one
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
 // updateOne/deleteOne change only the first matching row by primary key, however many match

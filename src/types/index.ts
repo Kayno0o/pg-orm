@@ -282,6 +282,11 @@ export interface WriteReturnOptions {
   pk?: boolean
 }
 
+export interface InsertOptions<TColumns extends AnyColumns = AnyColumns> extends WriteReturnOptions {
+  /** Skip each row clashing with an existing one on this unique target (`ON CONFLICT (...) DO NOTHING`), leaving it out of the result. */
+  skipConflicts?: (keyof TColumns & string)[]
+}
+
 export interface UpdateOptions extends WriteReturnOptions {
   /** Also update soft-deleted rows, which an update skips by default. */
   withTrashed?: boolean
