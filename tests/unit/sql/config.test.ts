@@ -50,8 +50,17 @@ describe('validateDbConfig', () => {
 })
 
 describe('normalizeDbConfig', () => {
-  it('returns an empty options bag for an empty config', () => {
-    expect(normalizeDbConfig({})).toEqual({})
+  it('returns only the idle timeout default for an empty config', () => {
+    expect(normalizeDbConfig({})).toEqual({ idleTimeout: 30 })
+  })
+
+  it('keeps an explicit idle timeout, 0 included', () => {
+    expect(normalizeDbConfig({ pool: { idleTimeout: 0 } })).toEqual({ idleTimeout: 0 })
+    expect(normalizeDbConfig({ pool: { idleTimeout: 5 } })).toEqual({ idleTimeout: 5 })
+  })
+
+  it('adds no idle timeout on SQLite, which has no pool', () => {
+    expect(normalizeDbConfig({ url: 'sqlite://:memory:' })).toEqual({ url: 'sqlite://:memory:' })
   })
 
   it('passes through driver-level options', () => {
@@ -69,6 +78,7 @@ describe('normalizeDbConfig', () => {
       port: 5432,
       database: 'test',
       username: 'u',
+      idleTimeout: 30,
     })
   })
 
@@ -92,30 +102,30 @@ describe('normalizeDbConfig', () => {
       url: 'postgres://localhost/test',
     })
 
-    expect(out).toEqual({ url: 'postgres://localhost/test' })
+    expect(out).toEqual({ url: 'postgres://localhost/test', idleTimeout: 30 })
   })
 
   it('sends the timeouts as connection startup parameters, so they hold outside transactions too', () => {
     const out = normalizeDbConfig({ url: 'postgres://localhost/test', statementTimeout: 100.7, idleInTransactionTimeout: 200 })
 
-    expect(out).toEqual({ url: 'postgres://localhost/test', connection: { statement_timeout: 100, idle_in_transaction_session_timeout: 200 } })
+    expect(out).toEqual({ url: 'postgres://localhost/test', idleTimeout: 30, connection: { statement_timeout: 100, idle_in_transaction_session_timeout: 200 } })
   })
 
   it('flattens pool options onto the top-level', () => {
     const out = normalizeDbConfig({
       pool: {
         max: 10,
-        idleTimeout: 30_000,
-        maxLifetime: 60_000,
-        connectionTimeout: 5_000,
+        idleTimeout: 60,
+        maxLifetime: 600,
+        connectionTimeout: 5,
       },
     })
 
     expect(out).toEqual({
       max: 10,
-      idleTimeout: 30_000,
-      maxLifetime: 60_000,
-      connectionTimeout: 5_000,
+      idleTimeout: 60,
+      maxLifetime: 600,
+      connectionTimeout: 5,
     })
   })
 
@@ -126,17 +136,17 @@ describe('normalizeDbConfig', () => {
       port: undefined,
     })
 
-    expect(out).toEqual({ hostname: 'localhost' })
+    expect(out).toEqual({ hostname: 'localhost', idleTimeout: 30 })
     expect('url' in out).toBe(false)
     expect('port' in out).toBe(false)
   })
 
   it('drops undefined pool sub-fields', () => {
     const out = normalizeDbConfig({
-      pool: { max: 10, idleTimeout: undefined },
+      pool: { max: 10, maxLifetime: undefined },
     })
 
-    expect(out).toEqual({ max: 10 })
-    expect('idleTimeout' in out).toBe(false)
+    expect(out).toEqual({ max: 10, idleTimeout: 30 })
+    expect('maxLifetime' in out).toBe(false)
   })
 })
