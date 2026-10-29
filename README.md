@@ -919,12 +919,12 @@ const db = new Database({
   username: 'user',
   password: 'pass',
 
-  // Pool
+  // Pool, times in seconds: an unused connection closes after `idleTimeout` (30 by default, 0 keeps it)
   pool: {
     max: 10,
-    idleTimeout: 30000,
-    maxLifetime: 600000,
-    connectionTimeout: 5000,
+    idleTimeout: 30,
+    maxLifetime: 600,
+    connectionTimeout: 5,
   },
 
   // TLS
@@ -991,7 +991,7 @@ const db = new Database({
 
   // Pool — size to peak concurrent in-flight queries; oversizing wastes server
   // connections and starves other clients.
-  pool: { max: 20, idleTimeout: 30_000, connectionTimeout: 5_000 },
+  pool: { max: 20, idleTimeout: 30, connectionTimeout: 5 },
 
   // Server-side safety net for runaway queries (kills statements after N ms).
   statementTimeout: 30_000,

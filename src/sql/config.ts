@@ -5,6 +5,8 @@ import { DialectError, ValidationError } from '../errors/index'
 
 // --- Connection & Pool Configuration ---
 
+const DEFAULT_IDLE_TIMEOUT_S = 30
+
 export interface DbConfig {
   /** `postgres://user:pass@host:5432/db`, or `sqlite://./data/app.db` (`sqlite://:memory:` in memory) for a SQLite file, which ignores the pool and connection options. */
   url?: string | undefined
@@ -13,10 +15,15 @@ export interface DbConfig {
   database?: string | undefined
   username?: string | undefined
   password?: string | (() => string | Promise<string>) | undefined
+  /** Bun's pool, its times in seconds. */
   pool?: {
+    /** Connections the pool opens at most (default: 10). */
     max?: number | undefined
+    /** Seconds an unused connection stays open (default: 30); `0` keeps it open for good. */
     idleTimeout?: number | undefined
+    /** Seconds a connection lives before it is replaced (default: 0, forever). */
     maxLifetime?: number | undefined
+    /** Seconds to wait for a new connection (default: 30). */
     connectionTimeout?: number | undefined
   } | undefined
   tls?: boolean | object | undefined
@@ -153,7 +160,7 @@ export function validateDbConfig(cfg: DbConfig): void {
 /**
  * Flatten a `DbConfig` into the option bag `bun:sql`'s `SQL` constructor accepts.
  * Strips pg-orm-only fields, flattens `pool`, and drops `undefined` entries so the
- * driver only sees explicitly set values.
+ * driver only sees explicitly set values, plus pg-orm's own `idleTimeout` default.
  */
 export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
   const {
@@ -198,6 +205,10 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     if (pool.connectionTimeout !== undefined)
       sqlOpts.connectionTimeout = pool.connectionTimeout
   }
+
+  // Bun's own default never closes an unused connection, so every app would hold `max` of them on the server from its first burst on.
+  if (sqlOpts.idleTimeout === undefined && dialectOfUrl(cfg.url) === 'postgres')
+    sqlOpts.idleTimeout = DEFAULT_IDLE_TIMEOUT_S
 
   // Startup parameters, so they hold on every pooled connection from its first query.
   const startup: Record<string, number> = {}
