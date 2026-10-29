@@ -3,9 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SQL } from 'bun'
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from 'bun:test'
 import { testDatabase } from '../../src/index'
 import { TEST_URL } from '../helpers/db'
+
+// Every test creates and drops databases, each drop waiting on a checkpoint: past 5 s on a busy disk.
+setDefaultTimeout(30_000)
 
 const dirs: string[] = []
 const prefix = `tdb_${crypto.randomUUID().slice(0, 6)}`
@@ -133,8 +136,7 @@ describe('testDatabase', () => {
     await (await testDatabase({ ...app, seed: seedAda })).drop()
     await (await testDatabase({ ...app, seed: async db => void await db.raw('INSERT INTO member (name) VALUES ($1)', ['Grace']) })).drop()
     expect(await databases(`${base}_tpl_%`)).toHaveLength(1)
-  // Seven databases created and dropped, each drop waiting on a checkpoint: past 5 s on a busy disk.
-  }, 30_000)
+  })
 
   it('drops the copy though the app is still connected to it', async () => {
     const database = await testDatabase(project({ '0001_member': MEMBER }))
