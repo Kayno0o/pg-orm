@@ -9,7 +9,7 @@ fix:
 test *args:
   #!/usr/bin/env bash
   bun run db:up
-  bun test {{args}}
+  bun run test {{args}}
   status=$?
   bun run db:down
   exit $status
@@ -33,6 +33,11 @@ release level:
 	npm version {{level}}
 	tag=$(git tag --points-at HEAD)
 	if ! git push --atomic origin HEAD "$tag"; then
+	  # origin has two push URLs, atomic only within each: once Forgejo holds the tag the release is published, so keep the bump and finish the other remote.
+	  if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null; then
+	    echo "$tag is on Forgejo and published; rerun: git push --atomic origin HEAD $tag" >&2
+	    exit 1
+	  fi
 	  git tag -d "$tag"
 	  git reset --keep HEAD~1
 	  exit 1

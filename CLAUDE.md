@@ -9,8 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Runtime is **Bun only** — never `node`/`npm`/`npx`. Use `bun`/`bunx`.
 
 - **Verify before commit**: `just fix` — runs circular-dep check, typecheck (`bun check --no-script --strict`, Bun's native checker; `tsc` stays for the build's `.d.ts` emit and CI's standalone examples check), `keslint --fix`, `bun run llms` (regenerates `llms.txt` / `llms-full.txt` from the README; `tests/unit/llms.test.ts` fails when they are stale), and build, in that order. This is the standard "is it green" gate.
-- **Tests**: `just test` — starts PG, runs the suite, stops PG (`bun run db:up && bun test && bun run db:down`). Extra args are forwarded to `bun test`: `just test tests/unit/builder`, `just test tests/unit/security.test.ts -t "rejects"`. PG is torn down even when tests fail.
-  - Use bare `bun test` only when a PG is already up and you want to keep it running.
+- **Tests**: `just test` — starts PG, runs the suite, stops PG (`bun run db:up && bun run test && bun run db:down`). Extra args are forwarded to `bun test`: `just test tests/unit/builder`, `just test tests/unit/security.test.ts -t "rejects"`. PG is torn down even when tests fail.
+  - `bun run test` is `bun test --timeout 30000`: the integration tests share a disk with other projects' Postgres, and 5 s timed out hooks and tests under that load. Every runner (just, the pre-push hook, CI, coverage) goes through it, since bunfig has no timeout setting and a preloaded `setDefaultTimeout` covers only the first file.
+  - Use bare `bun run test` only when a PG is already up and you want to keep it running.
   - **Integration tests require a live PG** at `127.0.0.1:8532` (docker-compose, pgvector/pgvector:pg18, so the pgvector tests run; a Postgres without the extension skips them). `bun run db:up` waits for the healthcheck; reset with `bun run db:reset`. Connection string in `.env` / `.env.example`.
   - Unit tests use `tests/helpers/mock-executor.ts` and never touch a real DB.
 - **Coverage**: `bun run test:coverage` (lcov + genhtml).

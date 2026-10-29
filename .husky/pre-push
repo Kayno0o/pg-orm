@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # /dev/tcp probe below is a bash feature, not POSIX sh.
 
+# origin pushes to Forgejo then GitHub, running this hook for each: the suite runs before the first only, so a failure stops the push before either remote takes it.
+if [ "$2" != "$(git remote get-url --push --all "$1" | head -n 1)" ]; then
+  exit 0
+fi
+
 BUN_PATH=bun
 
 if [ -f ~/.bun/bin/bun ]; then
@@ -25,4 +30,4 @@ if ! (echo > /dev/tcp/127.0.0.1/8532) 2>/dev/null; then
   fi
 fi
 
-$BUN_PATH test
+$BUN_PATH run test
