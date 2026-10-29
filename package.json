@@ -56,7 +56,6 @@
     "db:reset": "docker compose down -v && docker compose up -d --wait",
     "circular": "madge --circular --warning ./src/index.ts",
     "duplicates": "jscpd ./src --threshold 2 --min-lines 10",
-    "unused": "knip",
     "bench": "bash bench.sh",
     "prepare": "husky"
   },
@@ -68,7 +67,6 @@
     "baseline-browser-mapping": "^2.11.34",
     "bun-types": "^1.4.4",
     "husky": "^9.1.7",
-    "knip": "^6.44.0",
     "madge": "^8.0.0",
     "typedoc": "^0.28.20",
     "typedoc-github-theme": "^0.4.0",

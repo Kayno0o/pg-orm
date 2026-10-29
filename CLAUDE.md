@@ -14,7 +14,7 @@ Runtime is **Bun only** — never `node`/`npm`/`npx`. Use `bun`/`bunx`.
   - **Integration tests require a live PG** at `127.0.0.1:8532` (docker-compose, pgvector/pgvector:pg18, so the pgvector tests run; a Postgres without the extension skips them). `bun run db:up` waits for the healthcheck; reset with `bun run db:reset`. Connection string in `.env` / `.env.example`.
   - Unit tests use `tests/helpers/mock-executor.ts` and never touch a real DB.
 - **Coverage**: `bun run test:coverage` (lcov + genhtml).
-- **Other checks**: `bun run circular` (madge), `bun run duplicates` (jscpd, 2% threshold), `bun run unused` (knip), `bun run bench` (CPU-pinned benchmarks).
+- **Other checks**: `bun run circular` (madge), `bun run duplicates` (jscpd, 2% threshold), `bun run bench` (CPU-pinned benchmarks).
 
 The Husky pre-commit hook runs eslint + duplicates + build + typecheck on staged `.ts` files (tests are skipped there). CI (`.gitea/workflows/test.yml`) runs the same checks plus integration tests against a real PG.
 
