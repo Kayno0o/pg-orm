@@ -56,10 +56,7 @@ export function serializePgArray(val: unknown[]): string {
     if (item instanceof Uint8Array)
       return quoteElement(byteaHex(item))
 
-    if (typeof item === 'object')
-      return quoteElement(JSON.stringify(item, bigintAsString))
-
-    return String(item)
+    return typeof item === 'object' ? quoteElement(JSON.stringify(item, bigintAsString)) : String(item)
   })
 
   return `{${items.join(',')}}`

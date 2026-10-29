@@ -617,11 +617,7 @@ describe('diffSchema — extended migration tests', () => {
           return [{ table_name: 'old', column_name: 'id', data_type: 'integer', formatted_type: 'integer', is_nullable: 'NO', column_default: null, is_generated: 'NEVER', generation_expression: null }]
         }
 
-        if (sql.includes('PRIMARY KEY')) {
-          return [{ table_name: 'old', column_name: 'id' }]
-        }
-
-        return []
+        return sql.includes('PRIMARY KEY') ? [{ table_name: 'old', column_name: 'id' }] : []
       },
       sql: {},
     } as unknown as Executable

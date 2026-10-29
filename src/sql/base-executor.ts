@@ -137,10 +137,7 @@ export abstract class BaseExecutor implements Executable {
     if (!ambient)
       return this._context
 
-    if (!this._context)
-      return ambient
-
-    return { ...ambient, ...this._context }
+    return !this._context ? ambient : { ...ambient, ...this._context }
   }
 
   query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {

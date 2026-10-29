@@ -154,12 +154,7 @@ export class WritePipeline<
       }
 
       // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
-      if ((col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined) {
-        out[key] = jsonParam(val)
-      }
-      else {
-        out[key] = val
-      }
+      out[key] = (col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined ? jsonParam(val) : val
     }
 
     return out

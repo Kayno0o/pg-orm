@@ -238,17 +238,11 @@ class ExprAssembler {
     if (op.op <= OP_NOT)
       return this.walkLogical(op, pos)
 
-    if (op.op <= OP_BETWEEN)
-      return this.walkFilter(op, pos)
-
-    return this.walkAdvanced(op, pos)
+    return op.op <= OP_BETWEEN ? this.walkFilter(op, pos) : this.walkAdvanced(op, pos)
   }
 
   private walkCol(col: string | ExprTape): string {
-    if (typeof col === 'string')
-      return this.column(col)
-
-    return this.walkSubTape(col)
+    return typeof col === 'string' ? this.column(col) : this.walkSubTape(col)
   }
 
   private column(name: string): string {

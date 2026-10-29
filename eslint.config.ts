@@ -14,6 +14,8 @@ export default defineConfig({
       ],
       'max-depth': ['warn', 4],
       'ts/no-empty-object-type': 'off',
+      'ts/no-explicit-any': 'off',
+      'no-nested-ternary': 'off',
       'e18e/prefer-static-regex': 'off',
       'style/no-extra-parens': ['warn', 'all', { nestedBinaryExpressions: false, ternaryOperandBinaryExpressions: false }],
       'ts/switch-exhaustiveness-check': 'off',

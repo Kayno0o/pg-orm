@@ -32,7 +32,7 @@ describe('SQL Injection E2E', () => {
       `1 OR 1=1`,
       `" OR ""="`,
       `'; UPDATE users SET name='hacked' WHERE '1'='1`,
-      `\'; SELECT pg_sleep(10);--`,
+      `'; SELECT pg_sleep(10);--`,
     ]
 
     for (const payload of payloads) {

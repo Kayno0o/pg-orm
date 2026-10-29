@@ -50,10 +50,7 @@ async function captureRaw(sql: string, params: unknown[] = []): Promise<Error & 
   catch (e) {
     const cause = (e as Error & { cause?: unknown }).cause
 
-    if (cause instanceof Error)
-      return cause as Error & Record<string, unknown>
-
-    return e as Error & Record<string, unknown>
+    return cause instanceof Error ? cause as Error & Record<string, unknown> : e as Error & Record<string, unknown>
   }
 }
 

@@ -150,9 +150,9 @@ describe('Cursor Pagination', () => {
 
     // No overlap between pages
     const page1Ids = page1.data.map(u => u.id)
-    const page2Ids = page2.data.map(u => u.id)
+    const page2Ids = new Set(page2.data.map(u => u.id))
 
-    expect(page1Ids.some(id => page2Ids.includes(id))).toBe(false)
+    expect(page1Ids.some(id => page2Ids.has(id))).toBe(false)
   })
 
   it('last page returns null cursor', async () => {

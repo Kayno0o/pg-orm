@@ -49,19 +49,13 @@ export function toSQLDefault(value: unknown, pgType: string): string {
     return `'${value.toISOString()}'`
 
   if (Array.isArray(value)) {
-    if (value.length === 0)
-      return `ARRAY[]::${pgType}`
-
-    return `ARRAY[${value.map(arrayItem).join(',')}]::${pgType}`
+    return value.length === 0 ? `ARRAY[]::${pgType}` : `ARRAY[${value.map(arrayItem).join(',')}]::${pgType}`
   }
 
   if (typeof value === 'object')
     return `'${escapeLiteralBody(JSON.stringify(value))}'::${pgType}`
 
-  if (typeof value === 'string')
-    return quoteLiteral(value)
-
-  return String(value)
+  return typeof value === 'string' ? quoteLiteral(value) : String(value)
 }
 
 // A number printed into DDL: NaN and the infinities have no literal there, and a value typed past `number` must not reach the SQL.
@@ -106,10 +100,7 @@ function sqliteLiteral(value: unknown): string {
   if (value instanceof Date)
     return quoteLiteral(value.toISOString())
 
-  if (typeof value === 'string')
-    return quoteLiteral(value)
-
-  return quoteLiteral(JSON.stringify(value))
+  return typeof value === 'string' ? quoteLiteral(value) : quoteLiteral(JSON.stringify(value))
 }
 
 /**

@@ -27,10 +27,7 @@ function valueText(value: unknown): string {
     return value ? 't' : 'f'
 
   // Any other object bun:sql would encode to JSON, as it does for a json/jsonb value a WHERE compares.
-  if (typeof value === 'object' && value !== null)
-    return JSON.stringify(value, bigintAsString)
-
-  return String(value)
+  return typeof value === 'object' && value !== null ? JSON.stringify(value, bigintAsString) : String(value)
 }
 
 /** One value as a field of `COPY ... FROM STDIN` in text format, written as an INSERT would bind it: JSON text for a json column, an array literal for an array. */

@@ -200,8 +200,5 @@ function formatPkValue(value: unknown): string {
   if (value === null)
     return 'null'
 
-  if (typeof value === 'string')
-    return `"${value}"`
-
-  return String(value)
+  return typeof value === 'string' ? `"${value}"` : String(value)
 }

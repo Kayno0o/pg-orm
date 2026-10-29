@@ -692,18 +692,12 @@ export class ReadPipeline<
   }
 
   private _runtimeFor(tableName: string): TableRuntime {
-    if (tableName === this._runtime.table.name)
-      return this._runtime
-
-    return this._child(tableName).runtime
+    return tableName === this._runtime.table.name ? this._runtime : this._child(tableName).runtime
   }
 
   // `builder`, an include callback's, shapes the mapper with its pick, omit and computed columns.
   private _mapperForTable(tableName: string, builder: SelectBuilder<any, any, any> = new SelectBuilderCtor<any, any>(tableName)): RowMapper<Record<string, unknown>> {
-    if (tableName === this._runtime.table.name)
-      return this._mapper(builder)
-
-    return this._child(tableName).mappers(builder)
+    return tableName === this._runtime.table.name ? this._mapper(builder) : this._child(tableName).mappers(builder)
   }
 
   // The relation filters in the WHERE need the registry, which the builder lacks.

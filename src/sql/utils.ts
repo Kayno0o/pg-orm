@@ -5,10 +5,7 @@ import { DOUBLE_QUOTE_RE, SINGLE_QUOTE_RE } from '../utils/regex'
  * Handles internal double quotes by escaping them as "".
  */
 export function quote(name: string): string {
-  if (name === '*')
-    return '*'
-
-  return `"${name.replace(DOUBLE_QUOTE_RE, '""')}"`
+  return name === '*' ? '*' : `"${name.replace(DOUBLE_QUOTE_RE, '""')}"`
 }
 
 /**

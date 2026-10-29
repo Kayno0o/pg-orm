@@ -401,10 +401,7 @@ function sanitizeMessage(message: string): string {
   if (shouldHardRedact())
     return '[REDACTED]'
 
-  if (isProduction())
-    return sanitizePgErrorMessage(message)
-
-  return message
+  return isProduction() ? sanitizePgErrorMessage(message) : message
 }
 
 function rawRequested(): boolean {

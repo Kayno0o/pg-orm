@@ -9,11 +9,7 @@ import { columnEntries } from '../types'
 export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
   const { enumName, enumValues } = getColumnMeta(colDef)
 
-  if (enumName && enumValues) {
-    return { name: enumName, values: [...enumValues] }
-  }
-
-  return null
+  return enumName && enumValues ? { name: enumName, values: [...enumValues] } : null
 }
 
 /** The enum types the definitions use, an array of one included, with their values. */

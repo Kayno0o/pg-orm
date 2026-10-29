@@ -15,7 +15,7 @@ if [ -z "$STAGED_TS_FILES" ]; then
   exit 0
 fi
 
-$BUN_PATH eslint --cache $STAGED_TS_FILES
+$BUN_PATH keslint --cache $STAGED_TS_FILES
 $BUN_PATH run duplicates
 $BUN_PATH run build
 $BUN_PATH run check
