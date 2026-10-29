@@ -48,7 +48,7 @@
     "dev": "bun --watch ./src/index.ts",
     "test:coverage": "rm -rf coverage coverage-report && bun test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
     "doc": "typedoc ./src/**/*.ts --out ./typedoc --plugin typedoc-github-theme --hostedBaseUrl https://pages.kaynooo.fr/kaynooo/pg-orm/docs/ --useHostedBaseUrlForAbsoluteLinks",
-    "check": "tsc --noEmit --strict",
+    "check": "bun check --no-script --strict",
     "llms": "bun scripts/llms.ts",
     "lint:fix": "keslint . --fix --cache",
     "db:up": "docker compose up -d --wait",
