@@ -5,36 +5,33 @@ import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { Exit, fail, parse, runCli } from '@kaynooo/cli-kit'
 import { MigrationError, sanitizePgErrorMessage } from './errors/index'
 import { applyMigrationFiles, migrationFiles, refuseInconsistent, syncMigration } from './migration/files'
 import { migrationName } from './migration/history'
 import { generateMigration, getMigrationStatus } from './migration/index'
 
-interface Flags { allowDestructive: boolean, check: boolean, dryRun: boolean, raw: boolean }
-
-const FLAGS: Record<string, keyof Flags> = { '--allow-destructive': 'allowDestructive', '--check': 'check', '--dry-run': 'dryRun', '--raw': 'raw' }
-
-// A flag a command ignores is refused, so `rollback --dry-run` never rolls back for real; `--raw` applies to every command.
-const COMMAND_FLAGS: Record<string, (keyof Flags)[]> = { generate: ['allowDestructive', 'dryRun'], sync: ['allowDestructive', 'dryRun'], apply: ['dryRun'], status: ['check'] }
-
 const COUNT_RE = /^[1-9]\d*$/
-const HELP_ARGS = new Set(['--help', '-h'])
 
-async function loadConfig(): Promise<Required<Pick<PgOrmConfig, 'migrationsDir'>> & PgOrmConfig> {
+const RAW = { type: 'boolean', description: 'print errors with the row values they quote, which are redacted by default' } as const
+const ALLOW_DESTRUCTIVE = { type: 'boolean', description: 'let generate and sync drop tables, columns and constraints' } as const
+const DRY_RUN = { type: 'boolean', description: 'print what would happen, changing nothing' } as const
+
+interface Flags { allowDestructive?: boolean, dryRun?: boolean }
+
+type Config = PgOrmConfig & { migrationsDir: string }
+
+async function loadConfig(): Promise<Config> {
   const cfgPath = resolve(process.cwd(), 'pg-orm.config.ts')
 
-  if (!existsSync(cfgPath)) {
-    console.error('pg-orm.config.ts not found in current directory')
-    process.exit(1)
-  }
+  if (!existsSync(cfgPath))
+    fail('pg-orm.config.ts not found in current directory', 1)
 
   const mod = (await import(cfgPath)) as { default: PgOrmConfig }
   const cfg = mod.default
 
-  if (!cfg?.db) {
-    console.error('pg-orm.config.ts must export default { db, migrationsDir?, ignoreTables? }')
-    process.exit(1)
-  }
+  if (!cfg?.db)
+    fail('pg-orm.config.ts must export default { db, migrationsDir?, ignoreTables? }', 1)
 
   return { ...cfg, migrationsDir: cfg.migrationsDir ?? 'migrations' }
 }
@@ -61,7 +58,7 @@ function printFiles(title: string, files: string[]): void {
 }
 
 // With `check`, anything left to do or out of line exits 1, so a CI step can gate on it.
-async function cmdStatus(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
+async function cmdStatus(cfg: Config, check: boolean): Promise<number> {
   const { db } = cfg
   const { drift, hasDrift } = await getMigrationStatus(db, db.getTablesRegistry(), db.schema, cfg.ignoreTables)
 
@@ -83,19 +80,18 @@ async function cmdStatus(cfg: PgOrmConfig & { migrationsDir: string }, flags: Fl
   printFiles('Pending files sorting before an applied file', files.outOfOrder)
   printFiles('Applied files changed since they ran', files.edited)
 
-  if (flags.check && (hasDrift || files.pending.length > 0 || files.edited.length > 0))
-    process.exitCode = 1
+  return check && (hasDrift || files.pending.length > 0 || files.edited.length > 0) ? 1 : 0
 }
 
 // The diff reads the live database, so a file it has not applied would be diffed again into the new one, and a rebuild written from the stale table would drop what that file adds.
-async function refusePending(cfg: PgOrmConfig & { migrationsDir: string }, command: string): Promise<void> {
+async function refusePending(cfg: Config, command: string): Promise<void> {
   const { pending } = await migrationFiles(cfg.db, cfg.migrationsDir)
 
   if (pending.length > 0)
     throw new MigrationError(`${pending.length} migration file(s) not applied yet: ${pending.join(', ')}. Run \`pg-orm apply\` before \`pg-orm ${command}\`.`, 'diff')
 }
 
-async function cmdGenerate(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
+async function cmdGenerate(cfg: Config, flags: Flags): Promise<void> {
   const { db } = cfg
 
   await refusePending(cfg, 'generate')
@@ -114,8 +110,8 @@ async function cmdGenerate(cfg: PgOrmConfig & { migrationsDir: string }, flags: 
     console.log(`Generated: ${join(cfg.migrationsDir, writeMigration(cfg.migrationsDir, file.name, file.up, file.down))}`)
 }
 
-async function cmdApply(db: Database, dir: string, flags: Flags): Promise<void> {
-  if (flags.dryRun) {
+async function cmdApply(db: Database, dir: string, dryRun: boolean): Promise<void> {
+  if (dryRun) {
     const files = await migrationFiles(db, dir)
     const { pending } = files
 
@@ -159,12 +155,12 @@ function cmdNew(dir: string, label: string): void {
 }
 
 // The file is written once the migration is applied and recorded, so a failed apply leaves none behind.
-async function cmdSync(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flags): Promise<void> {
+async function cmdSync(cfg: Config, flags: Flags): Promise<void> {
   const { db } = cfg
 
   await refusePending(cfg, 'sync')
 
-  const file = await syncMigration(db, db.getTablesRegistry(), { schema: db.schema, ignoreTables: cfg.ignoreTables, ...flags })
+  const file = await syncMigration(db, db.getTablesRegistry(), { schema: db.schema, ignoreTables: cfg.ignoreTables, allowDestructive: flags.allowDestructive, dryRun: flags.dryRun })
 
   if (!file) {
     console.log('No drift, nothing to sync')
@@ -181,139 +177,91 @@ async function cmdSync(cfg: PgOrmConfig & { migrationsDir: string }, flags: Flag
   console.log(`Applied: ${join(cfg.migrationsDir, writeMigration(cfg.migrationsDir, file.name, file.up, file.down))}`)
 }
 
-const HELP = `Usage: pg-orm <command> [flags]
-
-Commands:
-  status          Show schema drift, pending files and applied files changed since
-  generate        Generate a migration file from current drift
-  new [name]      Create an empty migration file
-  apply           Apply pending migration files to the database
-  rollback [n]    Roll back the last N applied migrations (default: 1)
-  sync            Generate, apply and record a migration, then write its file
-
-Flags:
-  --allow-destructive   Let generate and sync drop tables, columns and constraints
-  --check               Make status exit 1 on schema drift, a pending file or an applied file changed since
-  --dry-run             Print what generate, sync or apply would do, changing nothing
-  --raw                 Print errors with the row values they quote, which are redacted by default`
-
-function parseArgs(argv: string[]): { positional: string[], flags: Flags } {
-  const flags: Flags = { allowDestructive: false, check: false, dryRun: false, raw: false }
-  const positional: string[] = []
-
-  for (const arg of argv) {
-    if (!arg.startsWith('--')) {
-      positional.push(arg)
-
-      continue
-    }
-
-    const flag = FLAGS[arg]
-
-    if (!flag) {
-      console.error(`Unknown flag: ${arg}\n\n${HELP}`)
-      process.exit(1)
-    }
-
-    flags[flag] = true
-  }
-
-  return { positional, flags }
-}
-
-function parseCount(arg: string | undefined): number {
-  if (arg === undefined)
-    return 1
-
-  if (!COUNT_RE.test(arg)) {
-    console.error(`rollback takes a positive whole count, got "${arg}"\n\n${HELP}`)
-    process.exit(1)
-  }
-
-  return Number(arg)
-}
-
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2)
-
-  if (argv.some(a => HELP_ARGS.has(a))) {
-    console.log(HELP)
-
-    return
-  }
-
-  const { positional: [cmd, arg], flags } = parseArgs(argv)
-
-  // A CI log outlives the run, so a value an error quotes stays redacted unless asked for.
-  if (flags.raw)
+// A CI log outlives the run, so a value an error quotes stays redacted unless asked for.
+async function withConfig(raw: boolean | undefined, run: (cfg: Config) => Promise<number | void> | void): Promise<number> {
+  if (raw)
     process.env.REDACT_QUERY_LOGS = '0'
 
-  if (!cmd || cmd === 'help') {
-    console.log(HELP)
-
-    return
-  }
-
-  const refused = Object.entries(FLAGS).find(([, flag]) => flag !== 'raw' && flags[flag] && !COMMAND_FLAGS[cmd]?.includes(flag))
-
-  if (refused) {
-    console.error(`${refused[0]} does nothing for ${cmd}
-
-${HELP}`)
-    process.exit(1)
-  }
-
-  const count = cmd === 'rollback' ? parseCount(arg) : 1
   const cfg = await loadConfig()
 
-  if (cmd === 'new') {
-    cmdNew(cfg.migrationsDir, arg ?? '')
-    await cfg.db.close()
-
-    return
-  }
-
   try {
-    if (cmd === 'status') {
-      await cmdStatus(cfg, flags)
-    }
-    else if (cmd === 'generate') {
-      await cmdGenerate(cfg, flags)
-    }
-    else if (cmd === 'apply') {
-      await cmdApply(cfg.db, cfg.migrationsDir, flags)
-    }
-    else if (cmd === 'rollback') {
-      await cmdRollback(cfg.db, count)
-    }
-    else if (cmd === 'sync') {
-      await cmdSync(cfg, flags)
-    }
-    else {
-      console.error(`Unknown command: ${cmd}\n\n${HELP}`)
-      process.exit(1)
-    }
+    return await run(cfg) ?? 0
+  }
+  catch (err) {
+    if (!(err instanceof Error) || err instanceof Exit)
+      throw err
+
+    const cause = err.cause instanceof Error ? `\n  caused by: ${sanitizePgErrorMessage(err.cause.message)}` : ''
+
+    return fail(`${err.name}: ${err.message}${cause}`, 1)
   }
   finally {
     await cfg.db.close()
   }
 }
 
-void (async () => {
-  try {
-    await main()
-  }
-  catch (err) {
-    if (err instanceof Error) {
-      console.error(`${err.name}: ${err.message}`)
+const version = ((await Bun.file(new URL('../package.json', import.meta.url)).json()) as { version: string }).version
 
-      if (err.cause instanceof Error)
-        console.error(`  caused by: ${sanitizePgErrorMessage(err.cause.message)}`)
-    }
-    else {
-      console.error(String(err))
-    }
+process.exitCode = await runCli({
+  name: 'pg-orm',
+  version,
+  about: 'migrations for @kaynooo/pg-orm',
+  commands: {
+    status: {
+      summary: 'show schema drift, pending files and applied files changed since',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm status [options]', { check: { type: 'boolean', description: 'exit 1 on schema drift, a pending file or an applied file changed since' }, raw: RAW })
 
-    process.exit(1)
-  }
-})()
+        return parsed ? withConfig(parsed.values.raw, cfg => cmdStatus(cfg, parsed.values.check === true)) : 0
+      },
+    },
+    generate: {
+      summary: 'generate a migration file from current drift',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm generate [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration instead of writing its file' }, 'raw': RAW })
+
+        return parsed ? withConfig(parsed.values.raw, cfg => cmdGenerate(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] })) : 0
+      },
+    },
+    new: {
+      summary: 'create an empty migration file',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm new [name] [options]', { raw: RAW })
+
+        return parsed ? withConfig(parsed.values.raw, cfg => cmdNew(cfg.migrationsDir, parsed.positionals[0] ?? '')) : 0
+      },
+    },
+    apply: {
+      summary: 'apply pending migration files to the database',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm apply [options]', { 'dry-run': { ...DRY_RUN, description: 'list the pending files without applying them' }, 'raw': RAW })
+
+        return parsed ? withConfig(parsed.values.raw, cfg => cmdApply(cfg.db, cfg.migrationsDir, parsed.values['dry-run'] === true)) : 0
+      },
+    },
+    rollback: {
+      summary: 'roll back the last N applied migrations (default: 1)',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm rollback [n] [options]', { raw: RAW })
+
+        if (!parsed)
+          return 0
+
+        const [arg] = parsed.positionals
+
+        if (arg !== undefined && !COUNT_RE.test(arg))
+          fail(`rollback takes a positive whole count, got "${arg}"`)
+
+        return withConfig(parsed.values.raw, cfg => cmdRollback(cfg.db, arg === undefined ? 1 : Number(arg)))
+      },
+    },
+    sync: {
+      summary: 'generate, apply and record a migration, then write its file',
+      async run(args) {
+        const parsed = parse(args, 'usage: pg-orm sync [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration without applying it or writing its file' }, 'raw': RAW })
+
+        return parsed ? withConfig(parsed.values.raw, cfg => cmdSync(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] })) : 0
+      },
+    },
+  },
+})

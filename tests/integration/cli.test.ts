@@ -96,8 +96,8 @@ describe('pg-orm CLI', () => {
 
     const rollback = await cli(dir, ['rollback', '--dry-run'], '2')
 
-    expect(rollback.code).toBe(1)
-    expect(rollback.out).toContain('--dry-run does nothing for rollback')
+    expect(rollback.code).toBe(2)
+    expect(rollback.out).toContain('pg-orm rollback: Unknown option \'--dry-run\'')
     expect(await columns()).toEqual(['id', 'title'])
   })
 
@@ -205,19 +205,48 @@ describe('pg-orm CLI', () => {
     expect(refused.out).toContain('Pending migration file(s) sort before a file already applied: 0000_early.sql')
   })
 
-  it('prints usage for --help and refuses a count that is not a whole number', async () => {
+  it('prints usage for --help and the version, and exits 2 on a usage error', async () => {
     const dir = project()
     const help = await cli(dir, ['status', '--help'])
 
     expect(help.code).toBe(0)
-    expect(help.out).toStartWith('Usage: pg-orm')
-    expect((await cli(dir, ['-h'])).out).toStartWith('Usage: pg-orm')
+    expect(help.out).toStartWith('usage: pg-orm status')
+    expect(help.out).toContain('--check')
+    expect(help.out).not.toContain('--dry-run')
+    expect((await cli(dir, ['-h'])).out).toContain('pg-orm 8.')
+    expect((await cli(dir, ['--version'])).out.trim()).toMatch(/^\d+\.\d+\.\d+/)
+
+    for (const [args, message] of [[['frobnicate'], 'pg-orm: no command frobnicate'], [['status', '--nope'], 'pg-orm status: Unknown option \'--nope\''], [['apply', '--check'], 'pg-orm apply: Unknown option \'--check\'']] as const) {
+      const refused = await cli(dir, [...args])
+
+      expect(refused.code).toBe(2)
+      expect(refused.out).toStartWith(message)
+    }
 
     for (const count of ['2x', '0', '-1', '1.5']) {
       const refused = await cli(dir, ['rollback', count])
 
-      expect(refused.code).toBe(1)
-      expect(refused.out).toContain('rollback takes a positive whole count')
+      expect(refused.code).toBe(2)
+      expect(refused.out).toMatch(/rollback takes a positive whole count|Unknown option '-1'/)
     }
+  })
+
+  it('creates an empty file with new, named by its positional', async () => {
+    const dir = project()
+
+    expect((await cli(dir, ['new', 'add_index'])).code).toBe(0)
+    expect(files(dir)).toHaveLength(1)
+    expect(files(dir)[0]).toEndWith('_add_index.sql')
+  })
+
+  it('exits 1 when pg-orm.config.ts is missing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pg-orm-cli-'))
+
+    dirs.push(dir)
+
+    const missing = await cli(dir, ['status'])
+
+    expect(missing.code).toBe(1)
+    expect(missing.out).toContain('pg-orm status: pg-orm.config.ts not found in current directory')
   })
 })

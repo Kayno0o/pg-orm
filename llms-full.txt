@@ -982,7 +982,8 @@ pg-orm new add_index                # an empty file to write by hand
 - `--allow-destructive` lets `generate` and `sync` drop tables, columns and constraints; without it they refuse with `DestructiveOpError`.
 - `--dry-run` prints what `generate`, `sync` or `apply` would do and changes nothing, destructive ops included, as `db.sync({ dryRun: true })` lists them.
 - `apply` refuses with `MigrationError` when an applied file changed since it ran (its `up` is compared with the sha256 the history recorded) or when a pending file sorts before a file already applied, which a branch merged late brings: restore the first, rename the second to sort last.
-- `--help` prints the usage; `rollback` takes a positive whole count.
+- `--help` prints a command's usage, `--version` the version; each command takes only its own flags, so `rollback --dry-run` is a usage error. `rollback` takes a positive whole count.
+- Exit codes: 0 on success, 2 on a usage error (an unknown command or flag, a bad count), 1 when a command fails (a missing config, a migration error, `status --check` finding anything left to do).
 - An error the CLI prints has the values Postgres quotes back redacted, as CI logs outlive the run; `--raw`, on any command, prints them.
 - `generate` and `sync` refuse with `MigrationError` while migration files are not applied, naming them: the diff reads the live database, so it would write their changes again. Run `pg-orm apply` first.
 - Each file, and each `sync`, is applied and recorded in one transaction holding an advisory lock: two deploys applying at once run each migration once, and a failed one leaves neither a record nor, for `sync`, a file.
