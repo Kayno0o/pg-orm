@@ -5,7 +5,7 @@ import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { badUsage, Exit, fail, parse, runCli } from '@kaynooo/cli-kit'
+import { badUsage, fail, parse, runCli } from '@kaynooo/cli-kit'
 import { MigrationError, sanitizePgErrorMessage } from './errors/index'
 import { applyMigrationFiles, migrationFiles, refuseInconsistent, syncMigration } from './migration/files'
 import { migrationName } from './migration/history'
@@ -177,7 +177,7 @@ async function cmdSync(cfg: Config, flags: Flags): Promise<void> {
   console.log(`Applied: ${join(cfg.migrationsDir, writeMigration(cfg.migrationsDir, file.name, file.up, file.down))}`)
 }
 
-// A CI log outlives the run, so a value an error quotes stays redacted unless asked for.
+// A CI log outlives the run, so a value an error quotes stays redacted unless asked for: runCli prints errors through sanitizePgErrorMessage, which --raw turns off.
 async function withConfig(raw: boolean | undefined, run: (cfg: Config) => Promise<number | void> | void): Promise<number> {
   if (raw)
     process.env.REDACT_QUERY_LOGS = '0'
@@ -186,14 +186,6 @@ async function withConfig(raw: boolean | undefined, run: (cfg: Config) => Promis
 
   try {
     return await run(cfg) ?? 0
-  }
-  catch (err) {
-    if (!(err instanceof Error) || err instanceof Exit)
-      throw err
-
-    const cause = err.cause instanceof Error ? `\n  caused by: ${sanitizePgErrorMessage(err.cause.message)}` : ''
-
-    return fail(`${err.name}: ${err.message}${cause}`, 1)
   }
   finally {
     await cfg.db.close()
@@ -206,47 +198,44 @@ process.exitCode = await runCli({
   name: 'pg-orm',
   version,
   about: 'migrations for @kaynooo/pg-orm',
+  redact: sanitizePgErrorMessage,
   commands: {
     status: {
       summary: 'show schema drift, pending files and applied files changed since',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm status [options]', { check: { type: 'boolean', description: 'exit 1 on schema drift, a pending file or an applied file changed since' }, raw: RAW })
+        const parsed = parse(args, 'usage: pg-orm status [options]', { check: { type: 'boolean', description: 'exit 1 on schema drift, a pending file or an applied file changed since' }, raw: RAW }, { positionals: [] })
 
-        return parsed ? withConfig(parsed.values.raw, cfg => cmdStatus(cfg, parsed.values.check === true)) : 0
+        return withConfig(parsed.values.raw, cfg => cmdStatus(cfg, parsed.values.check === true))
       },
     },
     generate: {
       summary: 'generate a migration file from current drift',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm generate [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration instead of writing its file' }, 'raw': RAW })
+        const parsed = parse(args, 'usage: pg-orm generate [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration instead of writing its file' }, 'raw': RAW }, { positionals: [] })
 
-        return parsed ? withConfig(parsed.values.raw, cfg => cmdGenerate(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] })) : 0
+        return withConfig(parsed.values.raw, cfg => cmdGenerate(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] }))
       },
     },
     new: {
       summary: 'create an empty migration file',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm new [name] [options]', { raw: RAW })
+        const parsed = parse(args, 'usage: pg-orm new [name] [options]', { raw: RAW }, { positionals: ['[name]'] })
 
-        return parsed ? withConfig(parsed.values.raw, cfg => cmdNew(cfg.migrationsDir, parsed.positionals[0] ?? '')) : 0
+        return withConfig(parsed.values.raw, cfg => cmdNew(cfg.migrationsDir, parsed.positionals[0] ?? ''))
       },
     },
     apply: {
       summary: 'apply pending migration files to the database',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm apply [options]', { 'dry-run': { ...DRY_RUN, description: 'list the pending files without applying them' }, 'raw': RAW })
+        const parsed = parse(args, 'usage: pg-orm apply [options]', { 'dry-run': { ...DRY_RUN, description: 'list the pending files without applying them' }, 'raw': RAW }, { positionals: [] })
 
-        return parsed ? withConfig(parsed.values.raw, cfg => cmdApply(cfg.db, cfg.migrationsDir, parsed.values['dry-run'] === true)) : 0
+        return withConfig(parsed.values.raw, cfg => cmdApply(cfg.db, cfg.migrationsDir, parsed.values['dry-run'] === true))
       },
     },
     rollback: {
       summary: 'roll back the last N applied migrations (default: 1)',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm rollback [n] [options]', { raw: RAW })
-
-        if (!parsed)
-          return 0
-
+        const parsed = parse(args, 'usage: pg-orm rollback [n] [options]', { raw: RAW }, { positionals: ['[n]'] })
         const [arg] = parsed.positionals
 
         if (arg !== undefined && !COUNT_RE.test(arg))
@@ -258,9 +247,9 @@ process.exitCode = await runCli({
     sync: {
       summary: 'generate, apply and record a migration, then write its file',
       async run(args) {
-        const parsed = parse(args, 'usage: pg-orm sync [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration without applying it or writing its file' }, 'raw': RAW })
+        const parsed = parse(args, 'usage: pg-orm sync [options]', { 'allow-destructive': ALLOW_DESTRUCTIVE, 'dry-run': { ...DRY_RUN, description: 'print the migration without applying it or writing its file' }, 'raw': RAW }, { positionals: [] })
 
-        return parsed ? withConfig(parsed.values.raw, cfg => cmdSync(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] })) : 0
+        return withConfig(parsed.values.raw, cfg => cmdSync(cfg, { allowDestructive: parsed.values['allow-destructive'], dryRun: parsed.values['dry-run'] }))
       },
     },
   },

@@ -220,6 +220,8 @@ describe('pg-orm CLI', () => {
       [['frobnicate'], 'error: pg-orm: no command frobnicate\n  hint: run pg-orm --help for its commands'],
       [['status', '--nope'], 'error: pg-orm status: unknown option \'--nope\'\n  hint: run pg-orm status --help for its options'],
       [['apply', '--check'], 'error: pg-orm apply: unknown option \'--check\'\n  hint: run pg-orm apply --help for its options'],
+      [['status', 'foo'], 'error: pg-orm status: unexpected argument foo\n  hint: run pg-orm status --help for its options'],
+      [['rollback', '1', '2'], 'error: pg-orm rollback: unexpected argument 2\n  hint: run pg-orm rollback --help for its options'],
     ] as const) {
       const refused = await cli(dir, [...args])
 
