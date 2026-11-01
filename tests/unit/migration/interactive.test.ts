@@ -1,5 +1,7 @@
+import type { Terminal } from '@kaynooo/cli-kit/prompt'
 import type { MigrationOp } from '../../../src/migration/types'
-import { resolve } from 'node:path'
+import { EventEmitter } from 'node:events'
+import { stripAnsi } from '@kaynooo/cli-kit'
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { MigrationError } from '../../../src/errors/index'
 import { promptSync } from '../../../src/migration/interactive'
@@ -12,6 +14,31 @@ function op(overrides: Partial<MigrationOp> = {}): MigrationOp {
     destructive: false,
     ...overrides,
   }
+}
+
+// A raw-mode terminal sending `keys` once the prompt listens, then ending stdin when `end` is set; `drawn` is what the prompt wrote, colours stripped.
+function terminal(keys: string[], { tty = true, end = false } = {}) {
+  const input = new EventEmitter()
+  const drawn: string[] = []
+  const fake = {
+    stdin: Object.assign(input, {
+      isTTY: tty,
+      setRawMode: () => undefined,
+      resume: () => {
+        queueMicrotask(() => {
+          for (const key of keys)
+            input.emit('data', Buffer.from(key))
+
+          if (end)
+            input.emit('end')
+        })
+      },
+      pause: () => undefined,
+    }),
+    stderr: { isTTY: tty, columns: 120, rows: 24, write: (text: string) => drawn.push(stripAnsi(text)) },
+  } as unknown as Terminal
+
+  return { fake, drawn, listeners: () => input.listenerCount('data') }
 }
 
 describe('promptSync', () => {
@@ -29,48 +56,33 @@ describe('promptSync', () => {
     console.log = origLog
   })
 
-  it('returns true on explicit "y"', async () => {
-    const ok = await promptSync([op()], [], async () => 'y')
-
-    expect(ok).toBe(true)
+  it('returns true on "y", whatever the case', async () => {
+    expect(await promptSync([op()], [], terminal(['y']).fake)).toBe(true)
+    expect(await promptSync([op()], [], terminal(['Y']).fake)).toBe(true)
   })
 
-  it('returns true on "yes" (case insensitive)', async () => {
-    expect(await promptSync([op()], [], async () => 'YES')).toBe(true)
-    expect(await promptSync([op()], [], async () => 'Yes')).toBe(true)
+  it('returns true on Enter when no destructive ops (default Y)', async () => {
+    expect(await promptSync([op()], [], terminal(['\r']).fake)).toBe(true)
   })
 
-  it('returns true on empty answer when no destructive ops (default Y)', async () => {
-    const ok = await promptSync([op()], [], async () => '')
-
-    expect(ok).toBe(true)
-  })
-
-  it('returns false on empty answer when destructive ops present (default N)', async () => {
+  it('returns false on Enter when destructive ops present (default N)', async () => {
     const destructive = op({ destructive: true, sql: 'DROP TABLE foo' })
-    const ok = await promptSync([destructive], [destructive], async () => '')
 
-    expect(ok).toBe(false)
+    expect(await promptSync([destructive], [destructive], terminal(['\r']).fake)).toBe(false)
   })
 
-  it('returns false on "n"', async () => {
-    const ok = await promptSync([op()], [], async () => 'n')
-
-    expect(ok).toBe(false)
+  it('returns false on "n", other keys ignored until then', async () => {
+    expect(await promptSync([op()], [], terminal(['n']).fake)).toBe(false)
+    expect(await promptSync([op()], [], terminal(['x', 'q', 'n']).fake)).toBe(false)
   })
 
-  it('returns false on arbitrary non-yes input', async () => {
-    expect(await promptSync([op()], [], async () => 'maybe')).toBe(false)
-    expect(await promptSync([op()], [], async () => 'whatever')).toBe(false)
-  })
-
-  it('trims whitespace and lowercases before comparing', async () => {
-    expect(await promptSync([op()], [], async () => '  Y  ')).toBe(true)
-    expect(await promptSync([op()], [], async () => '\tyes\n')).toBe(true)
+  it('returns false once Escape or Ctrl+C cancels', async () => {
+    expect(await promptSync([op()], [], terminal(['\x1B']).fake)).toBe(false)
+    expect(await promptSync([op()], [], terminal(['\x03']).fake)).toBe(false)
   })
 
   it('logs preview of safe operations', async () => {
-    await promptSync([op({ description: 'create users table' })], [], async () => 'y')
+    await promptSync([op({ description: 'create users table' })], [], terminal(['y']).fake)
 
     const joined = logged.join('\n')
 
@@ -81,7 +93,7 @@ describe('promptSync', () => {
   it('logs preview of destructive operations separately', async () => {
     const drop = op({ description: 'drop users table', destructive: true })
 
-    await promptSync([drop], [drop], async () => 'y')
+    await promptSync([drop], [drop], terminal(['y']).fake)
 
     const joined = logged.join('\n')
 
@@ -90,11 +102,7 @@ describe('promptSync', () => {
   })
 
   it('logs SQL to execute for each op', async () => {
-    await promptSync(
-      [op({ sql: 'CREATE TABLE a()' }), op({ sql: 'CREATE TABLE b()' })],
-      [],
-      async () => 'y',
-    )
+    await promptSync([op({ sql: 'CREATE TABLE a()' }), op({ sql: 'CREATE TABLE b()' })], [], terminal(['y']).fake)
 
     const joined = logged.join('\n')
 
@@ -103,63 +111,46 @@ describe('promptSync', () => {
   })
 
   it('logs "Sync cancelled." when user declines', async () => {
-    await promptSync([op()], [], async () => 'n')
+    await promptSync([op()], [], terminal(['n']).fake)
 
     expect(logged.some(l => l.includes('Sync cancelled.'))).toBe(true)
   })
 
-  it('passes the prompt text to the reader (includes destructive count)', async () => {
-    let receivedPrompt = ''
+  it('asks with the op and destructive counts, Enter meaning no', async () => {
     const destructive = op({ destructive: true })
+    const { fake, drawn } = terminal(['y'])
 
-    await promptSync([destructive, destructive], [destructive], async (p) => {
-      receivedPrompt = p
+    await promptSync([destructive, destructive], [destructive], fake)
 
-      return 'y'
-    })
-
-    expect(receivedPrompt).toContain('2 operation(s)')
-    expect(receivedPrompt).toContain('1 destructive')
-    expect(receivedPrompt).toContain('[y/N]')
+    expect(drawn[1]).toEndWith('? Apply 2 operation(s) (1 destructive)? (y/N)')
   })
 
-  it('uses [Y/n] prompt when no destructive ops', async () => {
-    let receivedPrompt = ''
+  it('asks without a destructive count when there is none, Enter meaning yes', async () => {
+    const { fake, drawn } = terminal(['y'])
 
-    await promptSync([op(), op()], [], async (p) => {
-      receivedPrompt = p
+    await promptSync([op(), op()], [], fake)
 
-      return 'y'
-    })
-
-    expect(receivedPrompt).toContain('[Y/n]')
-    expect(receivedPrompt).not.toContain('destructive')
+    expect(drawn[1]).toEndWith('? Apply 2 operation(s)? (Y/n)')
   })
 
-  it('answers no when stdin ends unanswered, even where an empty answer is yes', async () => {
-    expect(await promptSync([op()], [], async () => null)).toBe(false)
+  it('answers no when stdin ends unanswered, even where Enter is yes, and stops listening', async () => {
+    const { fake, listeners } = terminal([], { end: true })
+
+    expect(await promptSync([op()], [], fake)).toBe(false)
+    expect(listeners()).toBe(0)
   })
 
-  it('refuses before printing anything when stdin is not a terminal and no reader is given', async () => {
-    const tty = process.stdin.isTTY
-
-    process.stdin.isTTY = false
+  it('refuses before printing anything when stdin is not a terminal', async () => {
+    let refused: unknown
 
     try {
-      await expect(promptSync([op()], [])).rejects.toBeInstanceOf(MigrationError)
-      expect(logged).toEqual([])
+      await promptSync([op()], [], terminal([], { tty: false }).fake)
     }
-    finally {
-      process.stdin.isTTY = tty
+    catch (error) {
+      refused = error
     }
+
+    expect(refused).toBeInstanceOf(MigrationError)
+    expect(logged).toEqual([])
   })
-
-  it('the default reader answers no on a closed stdin instead of waiting forever', async () => {
-    const module = JSON.stringify(resolve(import.meta.dir, '../../../src/migration/interactive.ts'))
-    const proc = Bun.spawn(['bun', '-e', `process.stdin.isTTY = true; const { promptSync } = await import(${module}); console.error(await promptSync([{ type: 'create_table', sql: 'SELECT 1', description: 'x', destructive: false }], []))`], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
-    const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
-
-    expect(code).toBe(0)
-    expect(err.trim()).toBe('false')
-  }, 10_000)
 })
