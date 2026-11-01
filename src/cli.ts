@@ -5,7 +5,7 @@ import type { MigrationFile } from './migration/index'
 import type { Database } from './sql/database'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { Exit, fail, parse, runCli } from '@kaynooo/cli-kit'
+import { badUsage, Exit, fail, parse, runCli } from '@kaynooo/cli-kit'
 import { MigrationError, sanitizePgErrorMessage } from './errors/index'
 import { applyMigrationFiles, migrationFiles, refuseInconsistent, syncMigration } from './migration/files'
 import { migrationName } from './migration/history'
@@ -250,7 +250,7 @@ process.exitCode = await runCli({
         const [arg] = parsed.positionals
 
         if (arg !== undefined && !COUNT_RE.test(arg))
-          fail(`rollback takes a positive whole count, got "${arg}"`)
+          badUsage(`rollback takes a positive whole count, got "${arg}"`)
 
         return withConfig(parsed.values.raw, cfg => cmdRollback(cfg.db, arg === undefined ? 1 : Number(arg)))
       },

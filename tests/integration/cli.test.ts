@@ -97,7 +97,7 @@ describe('pg-orm CLI', () => {
     const rollback = await cli(dir, ['rollback', '--dry-run'], '2')
 
     expect(rollback.code).toBe(2)
-    expect(rollback.out).toContain('pg-orm rollback: Unknown option \'--dry-run\'')
+    expect(rollback.out).toContain('error: pg-orm rollback: unknown option \'--dry-run\'')
     expect(await columns()).toEqual(['id', 'title'])
   })
 
@@ -210,13 +210,17 @@ describe('pg-orm CLI', () => {
     const help = await cli(dir, ['status', '--help'])
 
     expect(help.code).toBe(0)
-    expect(help.out).toStartWith('usage: pg-orm status')
+    expect(help.out).toStartWith('Usage: pg-orm status')
     expect(help.out).toContain('--check')
     expect(help.out).not.toContain('--dry-run')
     expect((await cli(dir, ['-h'])).out).toContain('pg-orm 8.')
     expect((await cli(dir, ['--version'])).out.trim()).toMatch(/^\d+\.\d+\.\d+/)
 
-    for (const [args, message] of [[['frobnicate'], 'pg-orm: no command frobnicate'], [['status', '--nope'], 'pg-orm status: Unknown option \'--nope\''], [['apply', '--check'], 'pg-orm apply: Unknown option \'--check\'']] as const) {
+    for (const [args, message] of [
+      [['frobnicate'], 'error: pg-orm: no command frobnicate\n  hint: run pg-orm --help for its commands'],
+      [['status', '--nope'], 'error: pg-orm status: unknown option \'--nope\'\n  hint: run pg-orm status --help for its options'],
+      [['apply', '--check'], 'error: pg-orm apply: unknown option \'--check\'\n  hint: run pg-orm apply --help for its options'],
+    ] as const) {
       const refused = await cli(dir, [...args])
 
       expect(refused.code).toBe(2)
@@ -227,7 +231,8 @@ describe('pg-orm CLI', () => {
       const refused = await cli(dir, ['rollback', count])
 
       expect(refused.code).toBe(2)
-      expect(refused.out).toMatch(/rollback takes a positive whole count|Unknown option '-1'/)
+      expect(refused.out).toMatch(/rollback takes a positive whole count|unknown option '-1'/)
+      expect(refused.out).toContain('hint: run pg-orm rollback --help for its options')
     }
   })
 
