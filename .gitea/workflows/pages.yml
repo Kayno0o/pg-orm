@@ -9,30 +9,20 @@ permissions:
 jobs:
   pages:
     runs-on: alpine
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Start PostgreSQL
-        run: |
-          # Cluster is pre-initialized in the runner image; just start + seed.
-          mkdir -p /run/postgresql
-          chown postgres:postgres /run/postgresql
-          su postgres -c "pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql' -w start"
-          su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test' SUPERUSER;\""
-          su postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
-          # Verify connectivity
-          PGPASSWORD=test psql -h 127.0.0.1 -U test -d orm_test -c "SELECT 1"
+      - uses: https://git.kevyn.fr/kaynooo/actions/postgres@v1
+        with:
+          database: orm_test
 
-      - name: Install project deps
-        run: bun install --frozen-lockfile
+      - uses: https://git.kevyn.fr/kaynooo/actions/setup-bun@v1
 
       - name: Build pages
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/orm_test
         run: |
           bun run doc
           bun run test:coverage

@@ -22,14 +22,13 @@ on:
 jobs:
   lint-and-typecheck:
     runs-on: alpine
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Install project deps
-        run: bun install --frozen-lockfile
+      - uses: https://git.kevyn.fr/kaynooo/actions/setup-bun@v1
 
       - name: Check circular dependencies
         run: bunx madge --circular ./src/index.ts
@@ -45,34 +44,22 @@ jobs:
 
   test:
     runs-on: alpine
+    timeout-minutes: 15
     steps:
-      - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Start PostgreSQL
-        run: |
-          # Cluster is pre-initialized in the runner image; just start + seed.
-          mkdir -p /run/postgresql
-          chown postgres:postgres /run/postgresql
-          su postgres -c "pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql' -w start"
-          su postgres -c "psql -c \"CREATE USER test WITH PASSWORD 'test' SUPERUSER;\""
-          su postgres -c "psql -c \"CREATE DATABASE orm_test OWNER test;\""
-          # The image's cluster trusts every TCP connection, which would let the wrong-password test sign in: ask for the password, as the docker-compose Postgres does.
-          sed -i -E 's/^(host[[:space:]].*[[:space:]])trust$/\1scram-sha-256/' /var/lib/postgresql/data/pg_hba.conf
-          su postgres -c "pg_ctl -D /var/lib/postgresql/data reload"
-          # Verify connectivity, and that a wrong password is refused
-          if psql "postgres://test:wrong@127.0.0.1/orm_test" -c "SELECT 1"; then echo "a wrong password was let in" >&2; exit 1; fi
-          psql "postgres://test:test@127.0.0.1/orm_test" -c "SELECT 1"
+      # Passwords on TCP, for the test of a wrong one, as the docker-compose Postgres asks for them.
+      - uses: https://git.kevyn.fr/kaynooo/actions/postgres@v1
+        with:
+          database: orm_test
+          password-auth: true
 
-      - name: Install project deps
-        run: bun install --frozen-lockfile
+      - uses: https://git.kevyn.fr/kaynooo/actions/setup-bun@v1
 
       - name: Build
         run: bun run build
 
       - name: Run tests
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/orm_test
         run: bun run test

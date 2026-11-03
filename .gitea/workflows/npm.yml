@@ -1,4 +1,4 @@
-name: Publish to Forgejo Package Registry
+name: Publish
 
 permissions:
   contents: read
@@ -8,37 +8,22 @@ on:
     tags:
       - 'v*'
 
+# The tests are not rerun here: the release waits for the CI run on main before the version bump.
 jobs:
   publish:
     runs-on: alpine
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Install project deps
-        run: bun install --frozen-lockfile
+      - uses: https://git.kevyn.fr/kaynooo/actions/setup-bun@v1
 
-      - name: Build package files
-        run: bun run build
-
-      - name: Configure npm authentication
-        run: |
-          echo "@kaynooo:registry=https://git.kaynooo.fr/api/packages/kaynooo/npm/" > ~/.npmrc
-          echo "//git.kaynooo.fr/api/packages/kaynooo/npm/:_authToken=${PACKAGE_TOKEN}" >> ~/.npmrc
-        env:
-          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-
-      - name: Publish to Forgejo npm registry
-        run: bun publish --access public --ignore-scripts
-        env:
-          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
-
-      # The registry token leaves the runner before any other tool runs.
-      - name: Remove npm authentication
-        if: always()
-        run: rm -f ~/.npmrc
+      - uses: https://git.kevyn.fr/kaynooo/actions/npm-publish@v1
+        with:
+          token: ${{ secrets.PACKAGE_TOKEN }}
+          npm-token: ${{ secrets.NPM_TOKEN }}
 
       # The changelog tool is the locked dev dependency, not whatever the registry serves as latest.
       - name: Generate changelog
