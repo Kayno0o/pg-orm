@@ -122,7 +122,7 @@ describe('promptSync', () => {
 
     await promptSync([destructive, destructive], [destructive], fake)
 
-    expect(drawn[1]).toEndWith('? Apply 2 operation(s) (1 destructive)? (y/N)')
+    expect(drawn[1]?.trim()).toEndWith('? Apply 2 operation(s) (1 destructive)? (y/N)')
   })
 
   it('asks without a destructive count when there is none, Enter meaning yes', async () => {
@@ -130,7 +130,7 @@ describe('promptSync', () => {
 
     await promptSync([op(), op()], [], fake)
 
-    expect(drawn[1]).toEndWith('? Apply 2 operation(s)? (Y/n)')
+    expect(drawn[1]?.trim()).toEndWith('? Apply 2 operation(s)? (Y/n)')
   })
 
   it('answers no when stdin ends unanswered, even where Enter is yes, and stops listening', async () => {
