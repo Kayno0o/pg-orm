@@ -27,7 +27,7 @@ jobs:
 
       # The changelog tool is the locked dev dependency, not whatever the registry serves as latest.
       - name: Generate changelog
-        run: ./node_modules/.bin/changelogitea
+        run: ./node_modules/.bin/changelog
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
           DISCORD_WEBHOOK: ${{secrets.DISCORD_WEBHOOK}}
