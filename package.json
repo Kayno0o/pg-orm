@@ -63,7 +63,7 @@
   "devDependencies": {
     "@kaynooo/cli-changelog": "2.3.5",
     "@kaynooo/cli-kit": "0.41.0",
-    "@kaynooo/eslint": "8.0.0",
+    "@kaynooo/eslint": "8.0.1",
     "@kaynooo/utils": "^2.30.1",
     "@types/bun": "^1.4.4",
     "husky": "^9.1.7",
