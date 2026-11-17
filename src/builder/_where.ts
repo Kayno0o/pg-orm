@@ -4,7 +4,7 @@ import type { BuilderState } from './state'
 import { ValidationError } from '../errors/index'
 import { isPlainObject } from '../utils/collection'
 import { createExprBuilder, OP_AND } from './expr'
-import { scalarColumnsOf } from './state'
+import { isScalarColumn } from './state'
 
 /** A WHERE callback. */
 export type WhereFn<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = (e: ExprBuilder<TColumns, TRelations>) => ExprTape
@@ -154,7 +154,7 @@ function expectArray(col: string, op: string, value: unknown): unknown[] {
   return value
 }
 
-function entryToTape(e: ExprBuilder<any>, col: string, value: unknown, scalarColumns: ReadonlySet<string> | undefined): ExprTape {
+function entryToTape(e: ExprBuilder<any>, col: string, value: unknown, columnDefs: object | undefined): ExprTape {
   if (value === undefined) {
     throw new ValidationError(
       `where: column "${col}" was given undefined. Pass null to match IS NULL, or omit the key.`,
@@ -186,7 +186,7 @@ function entryToTape(e: ExprBuilder<any>, col: string, value: unknown, scalarCol
       return andTapes(opKeys.map(k => opToTape(e, col, k, value[k])))
     }
 
-    if (scalarColumns?.has(col)) {
+    if (columnDefs && isScalarColumn(columnDefs, col)) {
       throw new ValidationError(
         `where: column "${col}" was given an object naming no operator (${keys.join(', ') || 'no keys'}). The operators are ${[...WHERE_OPS].join(', ')}.`,
         'where',
@@ -203,10 +203,10 @@ function entryToTape(e: ExprBuilder<any>, col: string, value: unknown, scalarCol
  * Given the table's `columns`, an object naming no operator on a column that is not json or geometric throws instead of comparing as a literal.
  */
 export function compileWhere<TColumns extends AnyColumns>(where: WhereInput<TColumns>, columns?: TColumns): ExprTape {
-  return compileWith(where, columns && scalarColumnsOf(columns))
+  return compileWith(where, columns)
 }
 
-function compileWith<TColumns extends AnyColumns>(where: WhereInput<TColumns>, scalarColumns: ReadonlySet<string> | undefined): ExprTape {
+function compileWith<TColumns extends AnyColumns>(where: WhereInput<TColumns>, columnDefs: object | undefined): ExprTape {
   const e = createExprBuilder<TColumns>()
 
   if (typeof where === 'function')
@@ -217,16 +217,16 @@ function compileWith<TColumns extends AnyColumns>(where: WhereInput<TColumns>, s
   if (entries.length === 0)
     throw new ValidationError('where: the object shorthand needs at least one column; an empty object would match every row.', 'where')
 
-  return andTapes(entries.map(([col, value]) => entryToTape(e as ExprBuilder<any>, col, value, scalarColumns)))
+  return andTapes(entries.map(([col, value]) => entryToTape(e as ExprBuilder<any>, col, value, columnDefs)))
 }
 
 /** Compile the truthy clauses in `conds` to tapes, dropping the falsy ones. */
-function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[], scalarColumns: ReadonlySet<string> | undefined): ExprTape[] {
+function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[], columnDefs: object | undefined): ExprTape[] {
   const tapes: ExprTape[] = []
 
   for (const cond of conds) {
     if (cond)
-      tapes.push(compileWith<TColumns>(cond, scalarColumns))
+      tapes.push(compileWith<TColumns>(cond, columnDefs))
   }
 
   return tapes
@@ -246,12 +246,12 @@ export function whereColumn<TColumns extends AnyColumns>(table: { readonly name:
 /** Replace `state.whereTape` with `where`'s tape. A falsy `where` leaves it untouched. */
 export function replaceWhere<TColumns extends AnyColumns>(state: BuilderState, where: OptionalWhere<TColumns>): void {
   if (where)
-    state.whereTape = compileWith<TColumns>(where, state.scalarColumns)
+    state.whereTape = compileWith<TColumns>(where, state.columnDefs)
 }
 
 /** AND the truthy conditions onto `state.whereTape`, keeping any existing clause. */
 export function appendWhere<TColumns extends AnyColumns>(state: BuilderState, conds: OptionalWhere<TColumns>[]): void {
-  const tapes = compile(conds, state.scalarColumns)
+  const tapes = compile(conds, state.columnDefs)
 
   if (state.whereTape)
     tapes.unshift(state.whereTape)

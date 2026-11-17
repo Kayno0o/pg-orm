@@ -87,8 +87,8 @@ export interface BuilderState {
   omitColumns: string[]
   // The table's column names, set by the repository, so omit() can list the rest instead of fetching *.
   tableColumns?: readonly string[]
-  // The columns no plain object is a value of, so the object WHERE form refuses an object on them that names no operator.
-  scalarColumns?: ReadonlySet<string>
+  // The table's column definitions, so the object WHERE form refuses an object naming no operator on a column no plain object is a value of.
+  columnDefs?: object
   // An include's join column: limit and offset then apply per value of it, through ROW_NUMBER(), rather than to the whole batch.
   limitPer?: string
   computedColumns: ComputedColumn[]
@@ -256,20 +256,15 @@ export type TableTarget = string | { readonly name: string, readonly columns: ob
 // The column types a plain object is a value of.
 const OBJECT_TYPES = new Set(['json', 'jsonb', 'point', 'line', 'circle', 'polygon', 'box', 'path'])
 
-/** The columns of `columns` whose type no plain object is a value of. */
-export function scalarColumnsOf(columns: object): ReadonlySet<string> {
-  const names = new Set<string>()
+/** Whether `name` is a column of `columns` whose type no plain object is a value of. */
+export function isScalarColumn(columns: object, name: string): boolean {
+  const pgType = Object.hasOwn(columns, name) ? (columns as Record<string, { pgType?: unknown }>)[name]!.pgType : undefined
 
-  for (const [name, col] of Object.entries(columns as Record<string, { pgType?: unknown }>)) {
-    if (typeof col.pgType === 'string' && !OBJECT_TYPES.has(col.pgType))
-      names.add(name)
-  }
-
-  return names
+  return typeof pgType === 'string' && !OBJECT_TYPES.has(pgType)
 }
 
 // Keyed on the version too: a trait adds its columns to the same object.
-const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[], scalarColumns: ReadonlySet<string> }>()
+const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[] }>()
 
 /** The state for a builder on `table`, knowing its columns when given its definition. */
 export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
@@ -279,11 +274,11 @@ export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
   let cached = columnLists.get(table.columns)
 
   if (!cached || cached.version !== table._version) {
-    cached = { version: table._version, columns: Object.keys(table.columns), scalarColumns: scalarColumnsOf(table.columns) }
+    cached = { version: table._version, columns: Object.keys(table.columns) }
     columnLists.set(table.columns, cached)
   }
 
-  return { ...createState(op, table.name), tableColumns: cached.columns, scalarColumns: cached.scalarColumns }
+  return { ...createState(op, table.name), tableColumns: cached.columns, columnDefs: table.columns }
 }
 
 export function cloneState(s: BuilderState): BuilderState {
