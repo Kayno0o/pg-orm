@@ -36,6 +36,11 @@ const VECTOR_TYPE_RE = /^(?:vector|halfvec)\(\d+\)$/
 // SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
 const SQLITE_OR_TERMS = 500
 
+// pgvector reads a vector from its `[1,2]` text, so a number[] or Float32Array is sent as that.
+function vectorValue(val: unknown): unknown {
+  return Array.isArray(val) || val instanceof Float32Array ? vectorText(val) : val
+}
+
 async function* prepend<T>(first: T, rest: Iterator<T> | AsyncIterator<T>): AsyncGenerator<T> {
   try {
     yield first
@@ -147,8 +152,8 @@ export class WritePipeline<
     for (const [key, val] of Object.entries(values)) {
       const col = columnOf(this._runtime.table, key, 'write')
 
-      if (VECTOR_TYPE_RE.test(col.pgType) && (Array.isArray(val) || val instanceof Float32Array)) {
-        out[key] = vectorText(val)
+      if (VECTOR_TYPE_RE.test(col.pgType)) {
+        out[key] = vectorValue(val)
 
         continue
       }
@@ -237,6 +242,7 @@ export class WritePipeline<
   private async* _copyChunks(first: Record<string, unknown>, rest: Iterator<unknown> | AsyncIterator<unknown>, columns: string[]): AsyncGenerator<string> {
     const table = this._runtime.table
     const json = columns.map(name => table.columns[name]!.pgType === 'json' || table.columns[name]!.pgType === 'jsonb')
+    const vector = columns.map(name => VECTOR_TYPE_RE.test(table.columns[name]!.pgType))
     const expected = new Set(columns)
     let buffer = ''
 
@@ -244,7 +250,7 @@ export class WritePipeline<
       const row = value as Record<string, unknown>
 
       assertCopyRow(row, columns, expected)
-      buffer += `${columns.map((name, i) => copyField(row[name], json[i]!)).join('\t')}\n`
+      buffer += `${columns.map((name, i) => copyField(vector[i] ? vectorValue(row[name]) : row[name], json[i]!)).join('\t')}\n`
 
       if (buffer.length >= COPY_CHUNK_CHARS) {
         yield buffer

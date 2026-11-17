@@ -56,4 +56,11 @@ describe.skipIf(!available?.n)('vector distances on pgvector', () => {
     expect(await repo.updateMany({ embedding: null }, { id: 1 })).toEqual([{ id: 1, embedding: null }])
     expect(await db.repo(notes).read.findMany(q => q.orderBy('id'))).toEqual([{ id: 1, embedding: null }, { id: 2, embedding: [6, 7] }, { id: 3, embedding: [1.5, -2] }])
   })
+
+  it('copies a number[] or Float32Array into a vector column', async () => {
+    await db.raw('DELETE FROM "vec_notes"')
+    await db.repo(notes).write.copyFrom([{ id: 1, embedding: [1, 2] }, { id: 2, embedding: new Float32Array([0.5, 3]) as never }, { id: 3, embedding: null }])
+
+    expect(await db.repo(notes).read.findMany(q => q.orderBy('id'))).toEqual([{ id: 1, embedding: [1, 2] }, { id: 2, embedding: [0.5, 3] }, { id: 3, embedding: null }])
+  })
 })
