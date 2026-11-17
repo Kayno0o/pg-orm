@@ -32,3 +32,26 @@ describe('serial columns', () => {
     expect(await admin.raw(`INSERT INTO ${q('si')} DEFAULT VALUES RETURNING id`)).toEqual([{ id: 8 }])
   })
 })
+
+describe('json defaults', () => {
+  it('creates json and jsonb columns defaulting to an array, a string or a number, and then finds nothing', async () => {
+    const table = defineTable('jd', t => ({
+      id: t.serial().primaryKey(),
+      list: t.jsonb<number[]>().default([1, 2]),
+      empty: t.json<string[]>().default([]),
+      word: t.jsonb<string>().default('plain'),
+      quoted: t.json<string>().default('it\'s "x"'),
+      count: t.jsonb<number>().default(3),
+      flag: t.jsonb<boolean>().default(true),
+      obj: t.jsonb<{ b: number, a: number }>().default({ b: 1, a: 2 }),
+    }))
+
+    await sync([table])
+    await admin.raw(`INSERT INTO ${q('jd')} DEFAULT VALUES`)
+
+    expect(await admin.raw(`SELECT list, "empty", word, quoted, count, flag, obj FROM ${q('jd')}`)).toEqual([{ list: [1, 2], empty: [], word: 'plain', quoted: 'it\'s "x"', count: 3, flag: true, obj: { a: 2, b: 1 } }])
+    expect((await sync([table])).ops).toEqual([])
+  })
+})
+
+// END
