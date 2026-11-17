@@ -371,10 +371,11 @@ function frameBound(bound: FrameBound): string {
   if (typeof bound === 'string')
     return keyword(FRAME_EDGES, bound, 'window frame bound')
 
-  const [side, offset] = Object.entries(bound)[0] ?? []
+  const entries = bound !== null && typeof bound === 'object' ? Object.entries(bound) : []
+  const [side, offset] = entries.length === 1 ? entries[0]! : []
 
   if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)
-    throw new ValidationError('A window frame offset must be a whole number of 0 or more.', 'window frame bound', { value: bound })
+    throw new ValidationError('A window frame bound is a keyword or one { preceding } or { following } offset, a whole number of 0 or more.', 'window frame bound', { value: bound })
 
   return `${offset} ${keyword(FRAME_SIDES, side, 'window frame bound')}`
 }

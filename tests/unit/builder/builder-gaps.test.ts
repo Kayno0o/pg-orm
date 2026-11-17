@@ -93,6 +93,8 @@ describe('expressions the builder used to leave to raw SQL', () => {
     expect(frame({ from: { preceding: -1 } })).toThrow(ValidationError)
     expect(frame({ from: { sideways: 1 } })).toThrow(ValidationError)
     expect(frame({ from: {} })).toThrow(ValidationError)
+    expect(frame({ from: null })).toThrow(ValidationError)
+    expect(frame({ from: { preceding: 1, following: 1 } })).toThrow(ValidationError)
   })
 
   it('several windows share one WINDOW clause', () => {

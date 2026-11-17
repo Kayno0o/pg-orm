@@ -506,7 +506,7 @@ export class ReadPipeline<
 
     this._prepare(boundaryRow)
 
-    // The row comparison `(column, key) > (boundary, key value)`, spelled out so the boundary can be a subquery.
+    // The row comparison `(column, key) > (boundary, key value)`, spelled out so the boundary can be a subquery; the planner then seeks on `column >= boundary` and filters the ties, slower only over long runs of equal values.
     return (e) => {
       const boundary = e.coalesce(e.scalar(boundaryRow), values[0] as never)
       const afterKey = e.raw(`(${rest.map(quote).join(', ')}) ${op} (${rest.map(() => '?').join(', ')})`, ...values.slice(1))

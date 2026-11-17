@@ -203,9 +203,9 @@ describe.each(dialects)('hasManyThrough links on %s', (_name, open) => {
     }
   })
 
-  // SQLite caps a statement at 32766 bound parameters; Postgres binds an IN list as one array.
+  // Past the 250000 parameters Bun's SQLite takes in one statement; Postgres binds an IN list as one array.
   it('attaches, syncs and detaches more targets than one statement can bind', async () => {
-    const many = await db.repo(rolesDef).write.insertMany(Array.from({ length: 33_000 }, (_, i) => ({ label: `r${i}` })), { pk: true }) as number[]
+    const many = await db.repo(rolesDef).write.insertMany(Array.from({ length: 260_000 }, (_, i) => ({ label: `r${i}` })), { pk: true }) as number[]
     const write = db.repo(users).write
 
     expect(await write.attach(user, 'roles', many)).toHaveLength(many.length)

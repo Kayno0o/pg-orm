@@ -366,7 +366,7 @@ export class SelectBuilder<
 
   /**
    * Declare a named WINDOW for use in window functions.
-   * `frame` sets the rows each function sees; with an `orderBy` and no frame they end at the current row, so `lastValue()` reads that row's own value.
+   * `frame` sets the rows each function sees; with an `orderBy` and no frame they end at the current row's last peer, so `lastValue()` reads the current row's value unless another row ties with it on the order.
    */
   window(name: string, opts: { partitionBy?: string[], orderBy?: OrderEntry[], frame?: WindowFrame }): this {
     validateIdentifier(name, 'window name')

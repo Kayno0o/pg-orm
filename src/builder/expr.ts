@@ -238,7 +238,6 @@ function escapeLikePattern(op: string, col: unknown, input: string): string {
 const BITS_RE = /^[01]+$/
 const VECTOR_TYPES = new Set<unknown>(['vector', 'halfvec', 'sparsevec'])
 
-// The cast is printed into the SQL, so a type from an untyped caller is checked here.
 // A window value function's call, `IGNORE NULLS` going between it and the OVER that over() adds; the number argument is inlined, checked whole by the caller.
 function windowValue(fn: string, col: string, opts: WindowValueOptions | undefined, arg?: number): AggResult<never> {
   const args = arg === undefined ? qualifyCol(col) : `${qualifyCol(col)}, ${arg}`
@@ -253,6 +252,7 @@ function wholeNumber(what: string, value: number, min: number): number {
   return value
 }
 
+// The cast is printed into the SQL, so a type from an untyped caller is checked here.
 function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): TypedExpr<number> {
   if (type !== undefined && !VECTOR_TYPES.has(type))
     throw new ValidationError(`vector distance on ${describeCol(col)}: the type must be vector, halfvec or sparsevec, got ${String(type)}.`, 'vectorDistance', { value: type })
