@@ -415,15 +415,31 @@ function shouldRedact(): boolean {
   return shouldHardRedact() || (isProduction() && !rawRequested())
 }
 
-// A key's value runs to the end of the line: it may itself hold `)`, and an exclusion conflict names a second key after it.
-const PG_KEY_VALUE_RE = /Key \(((?:[^)]|\)(?!=\())*)\)=\(.*$/gm
+const PG_LINE_RE = /[^\n\r\u2028\u2029]+/g
 const PG_DETAIL_LINE_RE = /\bDetail:.*$/gm
 // Input Postgres quotes back in a data exception: `invalid input syntax for type uuid: "x"`, `value "x" is out of range`, `invalid byte sequence for encoding "UTF8": 0x00`.
 const PG_TRAILING_INPUT_RE = /: ".*$/gm
-const PG_OUT_OF_RANGE_RE = /\bvalue ".*" is out of range/g
+const PG_VALUE_QUOTE_RE = /\bvalue "/
 const PG_BYTE_SEQUENCE_RE = /(invalid byte sequence for encoding "[^"]*"): .*$/gm
 // A parameter value Postgres names inline: `time zone "x" not recognized`, `syntax error at or near "x"`.
 const PG_QUOTED_INPUT_RE = /\b(time zone|at or near) "(?:[^"]|"")*"/g
+
+// A key's value runs to the end of the line: it may itself hold `)`, and an exclusion conflict names a second key after it.
+// Scanned with indexOf rather than a regex, which retried from every `Key (` and took seconds on a long line of them.
+function redactKeyValue(line: string): string {
+  const start = line.indexOf('Key (')
+  const close = start < 0 ? -1 : line.indexOf(')=(', start + 5)
+
+  return close < 0 ? line : `${line.slice(0, start)}Key (${line.slice(start + 5, close)})=([REDACTED])`
+}
+
+// `value "x" is out of range`, the value running from the first `value "` to the last `" is out of range` of the line.
+function redactOutOfRange(line: string): string {
+  const end = line.lastIndexOf('" is out of range')
+  const start = end < 0 ? -1 : line.search(PG_VALUE_QUOTE_RE)
+
+  return start < 0 || start + 7 > end ? line : `${line.slice(0, start)}value "[REDACTED]${line.slice(end)}`
+}
 
 /**
  * Strip data values from a raw PG error message before it becomes a `QueryError.message`, in every environment, development included.
@@ -436,10 +452,10 @@ export function sanitizePgErrorMessage(message: string): string {
     return message
 
   return message
-    .replace(PG_KEY_VALUE_RE, (_match, columns: string) => `Key (${columns})=([REDACTED])`)
+    .replace(PG_LINE_RE, redactKeyValue)
     .replace(PG_DETAIL_LINE_RE, 'Detail: [redacted]')
     .replace(PG_TRAILING_INPUT_RE, ': "[REDACTED]"')
-    .replace(PG_OUT_OF_RANGE_RE, 'value "[REDACTED]" is out of range')
+    .replace(PG_LINE_RE, redactOutOfRange)
     .replace(PG_BYTE_SEQUENCE_RE, (_match, prefix: string) => `${prefix}: [REDACTED]`)
     .replace(PG_QUOTED_INPUT_RE, (_match, prefix: string) => `${prefix} "[REDACTED]"`)
 }

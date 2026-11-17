@@ -50,6 +50,16 @@ describe('sanitizePgErrorMessage', () => {
     expect(sanitizePgErrorMessage('syntax error at or near "hunter2"')).toBe('syntax error at or near "[REDACTED]"')
   })
 
+  it('sanitises a long line of repeated markers in linear time', () => {
+    for (const marker of ['value "', 'Key (']) {
+      const line = marker.repeat(40_000)
+      const start = performance.now()
+
+      sanitizePgErrorMessage(line)
+      expect(performance.now() - start).toBeLessThan(100)
+    }
+  })
+
   it('REDACT_QUERY_LOGS=0 opts out of sanitization', () => {
     process.env.REDACT_QUERY_LOGS = '0'
 
