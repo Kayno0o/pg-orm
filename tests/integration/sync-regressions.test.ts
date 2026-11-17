@@ -279,5 +279,3 @@ describe('renamed indexed columns', () => {
     expect((await sync([after])).ops).toEqual([])
   })
 })
-
-// END
