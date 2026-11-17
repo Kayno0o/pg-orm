@@ -48,6 +48,23 @@ describe('ReadPipeline post-processing', () => {
     expect(rows[0]!.seenAs).toBe('bigint')
   })
 
+  it('replaces the result with the rows an afterSelect hook returns', async () => {
+    const table = defineTable('hooked_new_rows', t => ({
+      id: t.int4().primaryKey(),
+      name: t.text().notNull(),
+    }))
+
+    table.hook('afterSelect', rows => rows.map(r => ({ ...r, name: `X${r.name}` })))
+
+    const { exec, pipeline } = setupReadPipeline(table)
+
+    exec.preset([{ id: 1, name: 'a' }])
+
+    const rows = await pipeline.findMany() as any[]
+
+    expect(rows[0]!.name).toBe('Xa')
+  })
+
   it('installs virtuals on findMany rows', async () => {
     const { exec, pipeline } = setupReadPipeline(virtualTable)
 

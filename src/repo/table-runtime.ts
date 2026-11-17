@@ -31,7 +31,8 @@ export interface TableRuntime {
   // Hook surface
   runBefore: <T>(event: HookEvent, value: T, ctx: HookContext) => Promise<T>
   runBeforeMany: <T>(event: HookEvent, values: T[], ctx: HookContext) => Promise<T[]>
-  runAfter: (event: HookEvent, rows: unknown[] | undefined, ctx: HookContext) => Promise<void>
+  /** Runs the after hooks and returns the rows they hand back, or the ones given when none does. */
+  runAfter: <T>(event: HookEvent, rows: T[], ctx: HookContext) => Promise<T[]>
 
   // Virtual surface
   applyVirtuals: <T extends Record<string, unknown>>(rows: T[]) => T[]
@@ -84,12 +85,12 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
     }
   }
 
-  async function runAfter(event: HookEvent, rows: unknown[] | undefined, ctx: HookContext): Promise<void> {
+  async function runAfter<T>(event: HookEvent, rows: T[], ctx: HookContext): Promise<T[]> {
     if (!hasHooks(table, event))
-      return
+      return rows
 
     try {
-      await runHooksAsync(table, event, rows, ctx)
+      return await runHooksAsync(table, event, rows, ctx)
     }
     catch (err) {
       throw new AfterHookError(table.name, event, err)

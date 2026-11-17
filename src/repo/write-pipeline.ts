@@ -725,9 +725,9 @@ export class WritePipeline<
       const [found] = await this._select(key)
 
       if (found) {
-        await this._runtime.runAfter('afterSelect', [found], this._hooks)
+        const [hooked = found] = await this._runtime.runAfter('afterSelect', [found], this._hooks)
 
-        return { row: found, created: false }
+        return { row: hooked, created: false }
       }
     }
 

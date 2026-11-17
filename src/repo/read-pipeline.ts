@@ -676,7 +676,7 @@ export class ReadPipeline<
       mapped = mapChunk(mapper, rows)
     }
 
-    await runtime.runAfter('afterSelect', mapped, this._hooks)
+    mapped = await runtime.runAfter('afterSelect', mapped, this._hooks)
 
     mapped = runtime.applyVirtuals(mapped)
 
