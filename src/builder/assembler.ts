@@ -187,9 +187,14 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   sb.push(`ON CONFLICT${target} DO UPDATE SET ${clauses.join(', ')}${conflictGuard(sb, state)}`)
 }
 
-// Printed after everything else in the clause, so its parameters number after the SET values'.
+// Printed after everything else in the clause, so its parameters number after the SET values'. The incoming row is `excluded`, holding the table's columns.
 function conflictGuard(sb: SqlBuilder, state: BuilderState): string {
-  return state.conflictWhere ? ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table)}` : ''
+  if (!state.conflictWhere)
+    return ''
+
+  const columns = sb.columns && new Set([...sb.columns, ...(state.tableColumns ?? []).map(col => `excluded.${col}`)])
+
+  return ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table, columns ?? null)}`
 }
 
 function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): void {

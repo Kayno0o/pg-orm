@@ -154,6 +154,17 @@ describe('upsert guarded by a where', () => {
     expect([...written].sort()).toEqual(['k1', 'k3'])
     expect((await db.repo(kv).read.findByIdOrThrow('k2')).value).toBe('closed')
   })
+
+  it('compares with the incoming row through excluded.<column>, and refuses a name that is not a column', async () => {
+    await db.repo(kv).write.insertOne({ key: 'k', value: 'b' }, { pk: true })
+
+    const newer = (value: string) => db.repo(kv).write.upsertOne({ key: 'k', value }, ['key'], { where: e => e.lt('value', e.ref('excluded.value')) }, { pk: true })
+
+    expect(await newer('a')).toBeNull()
+    expect(await newer('c')).toBe('k')
+    expect((await db.repo(kv).read.findByIdOrThrow('k')).value).toBe('c')
+    await expect(db.repo(kv).write.upsertOne({ key: 'k', value: 'd' }, ['key'], { where: e => e.lt('value', e.ref('excluded.nope')) })).rejects.toThrow('Unknown column "excluded.nope"')
+  })
 })
 
 describe.skipIf(!pg19)('ON CONFLICT DO SELECT (Postgres 19)', () => {
@@ -173,6 +184,15 @@ describe.skipIf(!pg19)('ON CONFLICT DO SELECT (Postgres 19)', () => {
     const builder = db.repo(kv).write.insert().values({ key: 'k', value: 'x' }).onConflict(['key']).doSelect({ where: { value: 'open' } })
 
     expect(await db.raw(...sqlOf(builder))).toEqual([])
+  })
+
+  it('reads the incoming row in its guard as excluded.<column>', async () => {
+    await db.repo(kv).write.insertOne({ key: 'k', value: 'same' }, { pk: true })
+
+    const select = (value: string) => db.repo(kv).write.insert().values({ key: 'k', value }).onConflict(['key']).doSelect({ where: e => e.eq('value', e.ref('excluded.value')) })
+
+    expect(await db.raw(...sqlOf(select('other')))).toEqual([])
+    expect(await db.raw(...sqlOf(select('same')))).toEqual([{ key: 'k', value: 'same' }])
   })
 })
 
