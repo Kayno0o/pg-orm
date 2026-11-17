@@ -2,7 +2,7 @@ import type { AnyColumns, InferInsert, InferSelect } from '../types/index'
 import type { SubqueryRef } from './_tape'
 import type { OptionalWhere } from './_where'
 import type { ConflictExprBuilder, ConflictSet } from './conflict'
-import type { TableTarget } from './state'
+import type { LockMode, TableTarget } from './state'
 import { compileWhere } from './_where'
 import { MutationBuilder } from './base'
 import { createConflictExprBuilder } from './conflict'
@@ -15,6 +15,14 @@ export interface ConflictUpdate<TColumns extends AnyColumns> {
   /** Columns written from the existing and incoming rows: `u => ({ visits: u.add(u.existing('visits'), 1) })`. Wins over `columns` for a column in both. */
   set?: (u: ConflictExprBuilder<TColumns>) => ConflictSet<TColumns>
   /** Update only when this holds, bare columns naming the existing row (`e.ref('excluded.col')` for the incoming one). A row it skips is not returned. */
+  where?: OptionalWhere<TColumns>
+}
+
+/** What `DO SELECT` does with the row an insert conflicts with. */
+export interface ConflictSelect<TColumns extends AnyColumns> {
+  /** Lock the conflicting row, as `SELECT ... FOR UPDATE` would. Every conflicting row is locked, even one `where` leaves out. */
+  lock?: LockMode
+  /** Return the conflicting row only when this holds, bare columns naming the existing row (`e.ref('excluded.col')` for the incoming one). */
   where?: OptionalWhere<TColumns>
 }
 
@@ -77,6 +85,21 @@ export class OnConflictBuilder<TColumns extends AnyColumns, TResult> {
     this.parent._state.conflictUpdateCols = cols as string[]
 
     return this.parent
+  }
+
+  /**
+   * `DO SELECT` (Postgres 19 or later): the conflicting row comes back through RETURNING as it is, unchanged, so one statement inserts or reads.
+   * Without `returning()` it returns every column.
+   */
+  doSelect(opts: ConflictSelect<TColumns> = {}): InsertBuilder<TColumns, [TResult] extends [void] ? InferSelect<TColumns> : TResult> {
+    const state = this.parent._state
+
+    state.conflictAction = 'select'
+    state.conflictLock = opts.lock
+    state.conflictWhere = opts.where ? compileWhere(opts.where) : null
+    state.returning ??= []
+
+    return this.parent as never
   }
 
   /** `DO UPDATE` with values computed from the existing row, and an optional guard. See `ConflictUpdate`. */

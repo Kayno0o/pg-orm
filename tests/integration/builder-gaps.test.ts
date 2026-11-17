@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { Database, defineTable, InsertBuilder, SelectBuilder } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, serverVersion } from '../helpers/db'
 
 const items = defineTable('bg_items', t => ({
   id: t.serial().primaryKey(),
@@ -31,6 +31,7 @@ const docs = defineTable('bg_docs', t => ({
 }))
 
 const tables = [items, stock, archive]
+const pg19 = await serverVersion() >= 190000
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-builder-gaps-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -122,6 +123,37 @@ describe.each(dialects)('builder gaps on %s', (name, open) => {
     const [counted] = await db.repo(items).read.findMany(q => q.pick().computed(e => e.countDistinct('grp'), 'groups'))
 
     expect(counted).toEqual({ groups: 2 })
+  })
+
+  it('lead, lag and the frame value functions over a framed window', async () => {
+    const rows = await db.repo(items).read.findMany(q => q
+      .pick('name')
+      .window('w', { orderBy: [{ col: 'n', dir: 'asc' }], frame: { from: 'unbounded preceding', to: 'unbounded following' } })
+      .computed(e => e.over(e.lead('name'), 'w'), 'next')
+      .computed(e => e.over(e.lag('note'), 'w'), 'prevNote')
+      .computed(e => e.over(e.firstValue('name'), 'w'), 'first')
+      .computed(e => e.over(e.lastValue('name'), 'w'), 'last')
+      .computed(e => e.over(e.nthValue('name', 2), 'w'), 'second')
+      .orderBy('id'))
+    const typed: { name: string, next: string | null, prevNote: string | null, first: string, last: string, second: string | null }[] = rows
+
+    expect(typed).toEqual([
+      { name: 'Apple', next: 'Banana', prevNote: null, first: 'Apple', last: 'cherry', second: 'Banana' },
+      { name: 'apple pie', next: 'cherry', prevNote: 'y', first: 'Apple', last: 'cherry', second: 'Banana' },
+      { name: 'Banana', next: 'apple pie', prevNote: 'x', first: 'Apple', last: 'cherry', second: 'Banana' },
+      { name: 'cherry', next: null, prevNote: null, first: 'Apple', last: 'cherry', second: 'Banana' },
+    ])
+  })
+
+  it.skipIf(name !== 'postgres' || !pg19)('IGNORE NULLS skips the null notes (Postgres 19)', async () => {
+    const rows = await db.repo(items).read.findMany(q => q
+      .pick('name')
+      .window('w', { orderBy: [{ col: 'n', dir: 'asc' }], frame: { from: 'unbounded preceding', to: 'unbounded following' } })
+      .computed(e => e.over(e.lag('note', { ignoreNulls: true }), 'w'), 'prevNote')
+      .computed(e => e.over(e.lastValue('note', { ignoreNulls: true }), 'w'), 'lastNote')
+      .orderBy('id'))
+
+    expect(rows.map(r => [r.name, r.prevNote, r.lastNote])).toEqual([['Apple', null, 'y'], ['apple pie', 'y', 'y'], ['Banana', 'x', 'y'], ['cherry', 'y', 'y']])
   })
 
   it('IN and NOT IN a subquery builder, and a CTE from a builder', async () => {

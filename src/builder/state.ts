@@ -12,6 +12,9 @@ export type QueryOp = 'select' | 'insert' | 'insert_many' | 'update' | 'delete' 
 
 // --- ORDER BY ---
 export type OrderDir = 'asc' | 'desc'
+
+/** A row lock: FOR UPDATE, FOR SHARE, FOR NO KEY UPDATE or FOR KEY SHARE. */
+export type LockMode = 'update' | 'share' | 'no_key_update' | 'key_share'
 // `expr`, when set, orders by that expression instead of `col`.
 export interface OrderEntry { col: string, dir: OrderDir, nulls?: 'first' | 'last', expr?: ExprTape }
 
@@ -38,10 +41,22 @@ interface CteEntry {
 }
 
 // --- WINDOW ---
+
+/** One end of a window frame: a fixed edge, or a number of rows (`rows`), peer groups (`groups`) or order-column units (`range`) away from the current row. */
+export type FrameBound = 'unbounded preceding' | 'current row' | 'unbounded following' | { preceding: number } | { following: number }
+
+/** The rows a window function sees around the current one. Without `to` the frame ends at the current row. */
+export interface WindowFrame {
+  mode?: 'rows' | 'range' | 'groups'
+  from: FrameBound
+  to?: FrameBound
+}
+
 interface WindowEntry {
   name: string
   partitionBy: string[]
   orderBy: OrderEntry[]
+  frame?: WindowFrame
 }
 
 // --- MERGE WHEN ---
@@ -94,7 +109,7 @@ export interface BuilderState {
   groupByExprs?: ExprTape[]
   havingTape: ExprTape | null
   // FOR UPDATE / SKIP LOCKED
-  lockMode: 'update' | 'share' | 'no_key_update' | 'key_share' | null
+  lockMode: LockMode | null
   skipLocked: boolean
   noWait?: boolean
   lockOf?: string[]
@@ -117,8 +132,10 @@ export interface BuilderState {
   returningExtra?: string
   // UPSERT (ON CONFLICT)
   conflictTarget: string[] | null
-  conflictAction: 'nothing' | 'update' | null
+  conflictAction: 'nothing' | 'update' | 'select' | null
   conflictUpdateCols: string[] | null
+  // The lock DO SELECT takes on the conflicting row.
+  conflictLock?: LockMode
   // Conflict-update values beyond plain EXCLUDED copies: per column a value or a ConflictValue, and the guard on the update.
   conflictSet: Record<string, unknown> | null
   conflictWhere: ExprTape | null
@@ -313,6 +330,9 @@ const ORDER_DIRS = new Map([['asc', 'ASC'], ['desc', 'DESC']])
 const NULLS_POSITIONS = new Map([['first', 'FIRST'], ['last', 'LAST']])
 const JOIN_TYPES = new Map([['inner', 'INNER'], ['left', 'LEFT'], ['right', 'RIGHT'], ['full', 'FULL']])
 const LOCK_MODES = new Map([['update', 'UPDATE'], ['share', 'SHARE'], ['no_key_update', 'NO KEY UPDATE'], ['key_share', 'KEY SHARE']])
+const FRAME_MODES = new Map([['rows', 'ROWS'], ['range', 'RANGE'], ['groups', 'GROUPS']])
+const FRAME_EDGES = new Map([['unbounded preceding', 'UNBOUNDED PRECEDING'], ['current row', 'CURRENT ROW'], ['unbounded following', 'UNBOUNDED FOLLOWING']])
+const FRAME_SIDES = new Map([['preceding', 'PRECEDING'], ['following', 'FOLLOWING']])
 
 // The SQL keyword for `value` out of a fixed table, never the input itself: the types are the only other guard, and a direction read off a query string passes them.
 function keyword(table: Map<string, string>, value: unknown, what: string): string {
@@ -337,6 +357,26 @@ export function joinKeyword(type: string): string {
 
 export function lockKeyword(mode: string): string {
   return keyword(LOCK_MODES, mode, 'lock mode')
+}
+
+/** A window frame as SQL, every keyword read off a fixed table and every offset checked to be a whole number. */
+export function frameClause(frame: WindowFrame): string {
+  const mode = keyword(FRAME_MODES, frame.mode ?? 'rows', 'window frame mode')
+  const from = frameBound(frame.from)
+
+  return frame.to === undefined ? `${mode} ${from}` : `${mode} BETWEEN ${from} AND ${frameBound(frame.to)}`
+}
+
+function frameBound(bound: FrameBound): string {
+  if (typeof bound === 'string')
+    return keyword(FRAME_EDGES, bound, 'window frame bound')
+
+  const [side, offset] = Object.entries(bound)[0] ?? []
+
+  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)
+    throw new ValidationError('A window frame offset must be a whole number of 0 or more.', 'window frame bound', { value: bound })
+
+  return `${offset} ${keyword(FRAME_SIDES, side, 'window frame bound')}`
 }
 
 export function formatOrderBy(entries: OrderEntry[], qualifier?: string): string {

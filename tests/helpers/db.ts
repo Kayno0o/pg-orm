@@ -41,3 +41,17 @@ export async function truncateAll(db: Database): Promise<void> {
 export async function dropAllTables(db: Database): Promise<void> {
   await db.raw('DROP TABLE IF EXISTS "post_tags", "comments", "posts", "versioned_items", "tags", "users", "items", "documents", "big_items" CASCADE', [])
 }
+
+/** The test server's `server_version_num` (190000 for Postgres 19), for a test needing a newer server than the oldest one supported. */
+export async function serverVersion(): Promise<number> {
+  const probe = createTestDb({ tables: [] })
+
+  try {
+    const [row] = await probe.raw<{ v: number }>('SELECT current_setting(\'server_version_num\')::int AS v')
+
+    return row?.v ?? 0
+  }
+  finally {
+    await probe.close()
+  }
+}

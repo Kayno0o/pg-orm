@@ -63,6 +63,11 @@ export type VectorType = 'vector' | 'halfvec' | 'sparsevec'
 type ColType<TColumns extends AnyColumns, K extends keyof TColumns & string>
   = TColumns[K] extends AnyColumnDef ? TColumns[K]['_type'] : unknown
 
+export interface WindowValueOptions {
+  /** Skip the rows where the column is null (`IGNORE NULLS`, Postgres 19 or later). */
+  ignoreNulls?: boolean
+}
+
 // --- Expression Builder (lambda surface that compiles to ExprTape) ---
 
 // A value, or an expression from the builder (`ref()`, `coalesce()`, `caseWhen()`) to compare against.
@@ -182,6 +187,15 @@ export interface ExprBuilder<TColumns extends AnyColumns, TRelations extends Any
   rowNumber: () => AggResult<number>
   rank: () => AggResult<number>
   denseRank: () => AggResult<number>
+  /** The column `offset` rows (1 by default) after the current one in the window, null past its end. */
+  lead: <K extends keyof TColumns & string>(col: K, opts?: WindowValueOptions & { offset?: number }) => AggResult<ColType<TColumns, K> | null>
+  /** The column `offset` rows (1 by default) before the current one in the window, null past its start. */
+  lag: <K extends keyof TColumns & string>(col: K, opts?: WindowValueOptions & { offset?: number }) => AggResult<ColType<TColumns, K> | null>
+  firstValue: <K extends keyof TColumns & string>(col: K, opts?: WindowValueOptions) => AggResult<ColType<TColumns, K>>
+  /** The column on the frame's last row: give the window a `frame` reaching `'unbounded following'`, or it is the current row. */
+  lastValue: <K extends keyof TColumns & string>(col: K, opts?: WindowValueOptions) => AggResult<ColType<TColumns, K>>
+  /** The column on the frame's `n`th row (from 1), null when the frame is shorter. */
+  nthValue: <K extends keyof TColumns & string>(col: K, n: number, opts?: WindowValueOptions) => AggResult<ColType<TColumns, K> | null>
   over: <T>(fn: AggResult<T>, window: string) => AggResult<T>
 
   // JSON/Array aggregate expressions
@@ -225,6 +239,20 @@ const BITS_RE = /^[01]+$/
 const VECTOR_TYPES = new Set<unknown>(['vector', 'halfvec', 'sparsevec'])
 
 // The cast is printed into the SQL, so a type from an untyped caller is checked here.
+// A window value function's call, `IGNORE NULLS` going between it and the OVER that over() adds; the number argument is inlined, checked whole by the caller.
+function windowValue(fn: string, col: string, opts: WindowValueOptions | undefined, arg?: number): AggResult<never> {
+  const args = arg === undefined ? qualifyCol(col) : `${qualifyCol(col)}, ${arg}`
+
+  return `${fn}(${args})${opts?.ignoreNulls ? ' IGNORE NULLS' : ''}` as AggResult<never>
+}
+
+function wholeNumber(what: string, value: number, min: number): number {
+  if (!Number.isSafeInteger(value) || value < min)
+    throw new ValidationError(`${what} must be a whole number of ${min} or more.`, what, { value })
+
+  return value
+}
+
 function vectorDistance(col: string | ExprTape, vec: VectorValue, metric: VectorMetric, type?: VectorType): TypedExpr<number> {
   if (type !== undefined && !VECTOR_TYPES.has(type))
     throw new ValidationError(`vector distance on ${describeCol(col)}: the type must be vector, halfvec or sparsevec, got ${String(type)}.`, 'vectorDistance', { value: type })
@@ -337,6 +365,11 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   rowNumber: () => 'ROW_NUMBER()' as AggResult<number>,
   rank: () => 'RANK()' as AggResult<number>,
   denseRank: () => 'DENSE_RANK()' as AggResult<number>,
+  lead: (col, opts) => windowValue('lead', col, opts, wholeNumber('lead() offset', opts?.offset ?? 1, 0)),
+  lag: (col, opts) => windowValue('lag', col, opts, wholeNumber('lag() offset', opts?.offset ?? 1, 0)),
+  firstValue: (col, opts) => windowValue('first_value', col, opts),
+  lastValue: (col, opts) => windowValue('last_value', col, opts),
+  nthValue: (col, n, opts) => windowValue('nth_value', col, opts, wholeNumber('nthValue() n', n, 1)),
   over: (fn, window) => {
     validateIdentifier(window, 'over() window')
 

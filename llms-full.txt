@@ -445,6 +445,16 @@ q.window('w', { partitionBy: ['department'], orderBy: [{ col: 'salary', dir: 'de
   .computed(e => e.over(e.rowNumber(), 'w'), 'rank')        // rank(), denseRank() too
   .computed(e => e.over(e.sum('salary'), 'w'), 'running')
 
+// lead/lag (an offset, null past the edge), firstValue, lastValue, nthValue; `frame` widens what they see past the current row
+q.window('w', { orderBy: [{ col: 'day', dir: 'asc' }], frame: { from: 'unbounded preceding', to: 'unbounded following' } })
+  .computed(e => e.over(e.lag('price', { offset: 7 }), 'w'), 'weekAgo')
+  .computed(e => e.over(e.lastValue('price'), 'w'), 'closing')
+// frame: mode 'rows' (default), 'range' or 'groups'; bounds 'unbounded preceding', 'current row', 'unbounded following', { preceding: n }, { following: n }
+
+// IGNORE NULLS (Postgres 19 or later): the last price actually recorded
+q.window('w', { orderBy: [{ col: 'day', dir: 'asc' }] })
+  .computed(e => e.over(e.lastValue('price', { ignoreNulls: true }), 'w'), 'lastKnown')
+
 // Aggregates
 q.aggregate(e => ({
   total: e.countCol(),
@@ -561,6 +571,10 @@ const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'],
 
 // Insert if missing, return the existing row otherwise - never overwrites; `created` says which
 const { row: alice, created } = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
+
+// ...or as one statement on Postgres 19 or later: ON CONFLICT DO SELECT returns the conflicting row as it is, optionally locked and guarded (no hooks, no restore)
+const { sql, params } = repo.write.insert().values({ email, name }).onConflict(['email']).doSelect({ lock: 'update' }).toSQL()
+const [user] = await db.raw(sql, params)
 ```
 
 `conflictTarget` must be covered by a unique index (a unique column, or a composite

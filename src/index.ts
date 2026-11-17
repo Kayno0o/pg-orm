@@ -15,18 +15,22 @@ export {
   type VectorMetric,
   type VectorType,
   type VectorValue,
+  type WindowValueOptions,
 } from './builder/expr'
 // Query builders
 export {
   compileWhere,
   type ConflictExprBuilder,
+  type ConflictSelect,
   type ConflictSet,
   type ConflictUpdate,
   type ConflictValue,
   DeleteBuilder,
+  type FrameBound,
   type IncludeCallback,
   type IncludeEntry,
   InsertBuilder,
+  type LockMode,
   MergeBuilder,
   OnConflictBuilder,
   type OptionalWhere,
@@ -43,6 +47,7 @@ export {
   type WhereInput,
   type WhereObject,
   type WhereOps,
+  type WindowFrame,
 } from './builder/query'
 
 export type { VectorSearchOptions } from './builder/vector-search'

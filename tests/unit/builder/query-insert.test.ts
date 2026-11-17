@@ -1,6 +1,7 @@
-import type { ColumnDef, HasDefault, IsNullable, IsPrimaryKey, NoDefault, NotGenerated, NotNullable, NotPrimaryKey } from '../../../src/types/index'
-import { describe, expect, it } from 'bun:test'
+import type { ColumnDef, HasDefault, InferSelect, IsNullable, IsPrimaryKey, NoDefault, NotGenerated, NotNullable, NotPrimaryKey } from '../../../src/types/index'
+import { describe, expect, expectTypeOf, it } from 'bun:test'
 import { InsertBuilder } from '../../../src/builder/query'
+import { DialectError, ValidationError } from '../../../src/errors/index'
 
 // eslint-disable-next-line ts/consistent-type-definitions
 type Cols = {
@@ -126,5 +127,52 @@ describe('InsertBuilder', () => {
       .explain()
 
     expect(sql).toStartWith('EXPLAIN')
+  })
+})
+
+describe('ON CONFLICT DO SELECT', () => {
+  it('returns every column of the conflicting row when no returning() was given', () => {
+    const { sql } = insert().values({ name: 'Alice', email: 'a@b.com' }).onConflict(['email']).doSelect().toSQL()
+
+    expect(sql).toEndWith('ON CONFLICT ("email") DO SELECT RETURNING *')
+  })
+
+  it('keeps the columns returning() named, before or after', () => {
+    expect(insert().values({ name: 'A', email: 'a@b.com' }).returning('id').onConflict(['email']).doSelect().toSQL().sql).toEndWith('DO SELECT RETURNING "id"')
+    expect(insert().values({ name: 'A', email: 'a@b.com' }).onConflict(['email']).doSelect().returning('id').toSQL().sql).toEndWith('DO SELECT RETURNING "id"')
+  })
+
+  it('locks the conflicting row and guards it, the guard numbering after the values', () => {
+    const { sql, params } = insert()
+      .values({ name: 'Alice', email: 'a@b.com' })
+      .onConflict(['email'])
+      .doSelect({ lock: 'no_key_update', where: e => e.eq('name', 'Alice') })
+      .toSQL()
+
+    expect(sql).toContain('ON CONFLICT ("email") DO SELECT FOR NO KEY UPDATE WHERE "users"."name" = $3 RETURNING *')
+    expect(params).toEqual(['Alice', 'a@b.com', 'Alice'])
+  })
+
+  it('refuses a lock mode outside the four', () => {
+    expect(() => insert().values({ name: 'A', email: 'a@b.com' }).onConflict(['email']).doSelect({ lock: 'nowait' as never }).toSQL()).toThrow(ValidationError)
+  })
+
+  it('needs a conflict target', () => {
+    const builder = insert().values({ name: 'A', email: 'a@b.com' })
+
+    builder.onConflict([]).doSelect()
+    expect(() => builder.toSQL()).toThrow('ON CONFLICT DO SELECT needs the conflict target')
+  })
+
+  it('is refused on SQLite', () => {
+    expect(() => insert().values({ name: 'A', email: 'a@b.com' }).onConflict(['email']).doSelect().toSQL('sqlite')).toThrow(DialectError)
+  })
+
+  it('types the result as a selected row', () => {
+    const builder = insert().values({ name: 'A', email: 'a@b.com' }).onConflict(['email']).doSelect()
+    const picked = insert().values({ name: 'A', email: 'a@b.com' }).returning('id').onConflict(['email']).doSelect()
+
+    expectTypeOf(builder).toEqualTypeOf<InsertBuilder<Cols, InferSelect<Cols>>>()
+    expectTypeOf(picked).toEqualTypeOf<InsertBuilder<Cols, Pick<InferSelect<Cols>, 'id'>>>()
   })
 })

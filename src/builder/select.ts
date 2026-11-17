@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyColumns, AnyRelations, AnyTableDef, ColumnDef, InferRelationResult, InferSelect, IsNullable, RelationDef, ScopeOptions } from '../types/index'
 import type { OptionalWhere, WhereInput } from './_where'
 import type { AggResult, ExprBuilder, ExprTape, RelationTarget, RelationWhere, SubqueryRef, TypedExpr } from './expr'
-import type { IncludeCallback, OrderDir, OrderEntry, RelationAggregateFn, TableTarget } from './state'
+import type { IncludeCallback, OrderDir, OrderEntry, RelationAggregateFn, TableTarget, WindowFrame } from './state'
 import type { VectorSearchOptions } from './vector-search'
 import { SOFT_DELETE_SCOPE } from '../constants'
 import { ValidationError } from '../errors/index'
@@ -364,10 +364,13 @@ export class SelectBuilder<
     return this
   }
 
-  /** Declare a named WINDOW for use in window functions. */
-  window(name: string, opts: { partitionBy?: string[], orderBy?: OrderEntry[] }): this {
+  /**
+   * Declare a named WINDOW for use in window functions.
+   * `frame` sets the rows each function sees; with an `orderBy` and no frame they end at the current row, so `lastValue()` reads that row's own value.
+   */
+  window(name: string, opts: { partitionBy?: string[], orderBy?: OrderEntry[], frame?: WindowFrame }): this {
     validateIdentifier(name, 'window name')
-    this._state.windows.push({ name, partitionBy: opts.partitionBy ?? [], orderBy: opts.orderBy ?? [] })
+    this._state.windows.push({ name, partitionBy: opts.partitionBy ?? [], orderBy: opts.orderBy ?? [], ...opts.frame && { frame: { ...opts.frame } } })
 
     return this
   }

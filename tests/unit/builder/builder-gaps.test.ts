@@ -51,6 +51,56 @@ describe('expressions the builder used to leave to raw SQL', () => {
     expect(() => select().computed(e => e.over(e.rank(), 'w; DROP'), 'r')).toThrow(ValidationError)
   })
 
+  it('lead, lag, firstValue, lastValue and nthValue, IGNORE NULLS between the call and OVER', () => {
+    const q = select()
+      .window('w', { orderBy: [{ col: 'n', dir: 'asc' }], frame: { from: 'unbounded preceding', to: 'unbounded following' } })
+      .computed(e => e.over(e.lead('a'), 'w'), 'next')
+      .computed(e => e.over(e.lag('a', { offset: 2, ignoreNulls: true }), 'w'), 'prev')
+      .computed(e => e.over(e.firstValue('a'), 'w'), 'first')
+      .computed(e => e.over(e.lastValue('a', { ignoreNulls: true }), 'w'), 'last')
+      .computed(e => e.over(e.nthValue('a', 3), 'w'), 'third')
+      .toSQL()
+
+    expect(q.sql).toBe('SELECT *, lead("a", 1) OVER "w" AS "next", lag("a", 2) IGNORE NULLS OVER "w" AS "prev", first_value("a") OVER "w" AS "first", last_value("a") IGNORE NULLS OVER "w" AS "last", nth_value("a", 3) OVER "w" AS "third" FROM "t" WINDOW "w" AS (ORDER BY "n" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)')
+  })
+
+  it('refuses an offset or position that is not a whole number in range', () => {
+    expect(() => select().computed(e => e.lag('a', { offset: -1 }), 'x')).toThrow(ValidationError)
+    expect(() => select().computed(e => e.lead('a', { offset: 1.5 }), 'x')).toThrow(ValidationError)
+    expect(() => select().computed(e => e.nthValue('a', 0), 'x')).toThrow(ValidationError)
+    expect(select().computed(e => e.lag('a', { offset: 0 }), 'x').toSQL().sql).toContain('lag("a", 0)')
+  })
+
+  it('IGNORE NULLS is refused on SQLite, the plain window value functions are not', () => {
+    expect(() => select().window('w', {}).computed(e => e.over(e.lag('a', { ignoreNulls: true }), 'w'), 'x').toSQL('sqlite')).toThrow(DialectError)
+    expect(select().window('w', {}).computed(e => e.over(e.lag('a'), 'w'), 'x').toSQL('sqlite').sql).toContain('lag("a", 1) OVER "w"')
+  })
+
+  it('window frames: a mode, one bound or two, numeric offsets', () => {
+    const frame = (f: Parameters<SelectBuilder<any>['window']>[1]['frame']) => select().window('w', { orderBy: [{ col: 'n', dir: 'asc' }], frame: f }).toSQL().sql
+
+    expect(frame({ from: { preceding: 2 }, to: 'current row' })).toEndWith('(ORDER BY "n" ASC ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)')
+    expect(frame({ mode: 'range', from: 'unbounded preceding' })).toEndWith('(ORDER BY "n" ASC RANGE UNBOUNDED PRECEDING)')
+    expect(frame({ mode: 'groups', from: 'current row', to: { following: 1 } })).toEndWith('(ORDER BY "n" ASC GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING)')
+  })
+
+  it('window frames refuse anything outside their keywords and whole offsets', () => {
+    const frame = (f: unknown) => () => select().window('w', { frame: f as never }).toSQL()
+
+    expect(frame({ mode: 'rows; DROP', from: 'current row' })).toThrow(ValidationError)
+    expect(frame({ from: 'current row; DROP' })).toThrow(ValidationError)
+    expect(frame({ from: { preceding: '1; DROP' } })).toThrow(ValidationError)
+    expect(frame({ from: { preceding: -1 } })).toThrow(ValidationError)
+    expect(frame({ from: { sideways: 1 } })).toThrow(ValidationError)
+    expect(frame({ from: {} })).toThrow(ValidationError)
+  })
+
+  it('several windows share one WINDOW clause', () => {
+    const q = select().window('a', { orderBy: [{ col: 'n', dir: 'asc' }] }).window('b', { partitionBy: ['g'] }).toSQL()
+
+    expect(q.sql).toBe('SELECT * FROM "t" WINDOW "a" AS (ORDER BY "n" ASC), "b" AS (PARTITION BY "g")')
+  })
+
   it('contains, startsWith and endsWith are case-sensitive, the i-variants are not', () => {
     expect(where(e => e.contains('a', 'x_'))).toEqual({ sql: 'SELECT * FROM "t" WHERE "a" LIKE $1', params: ['%x\\_%'] })
     expect(where(e => e.startsWith('a', 'x')).sql).toBe('SELECT * FROM "t" WHERE "a" LIKE $1')

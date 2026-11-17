@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable, optimisticLock, timestamps } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, serverVersion } from '../helpers/db'
+
+const pg19 = await serverVersion() >= 190000
 
 const players = defineTable('uc_players', t => ({
   uuid: t.text().primaryKey(),
@@ -153,3 +155,29 @@ describe('upsert guarded by a where', () => {
     expect((await db.repo(kv).read.findByIdOrThrow('k2')).value).toBe('closed')
   })
 })
+
+describe.skipIf(!pg19)('ON CONFLICT DO SELECT (Postgres 19)', () => {
+  const getOrCreate = (handle: string) => db.repo(handles).write.insert().values({ handle }).onConflict(['handle']).doSelect({ lock: 'update' })
+
+  it('inserts a missing row and returns the existing one untouched, in one statement each', async () => {
+    const [created] = await db.raw<{ id: number, handle: string }>(...sqlOf(getOrCreate('ada')))
+    const [found] = await db.raw<{ id: number, handle: string }>(...sqlOf(getOrCreate('ada')))
+
+    expect(found).toEqual(created!)
+    expect(await db.repo(handles).read.count()).toBe(1)
+  })
+
+  it('leaves out a conflicting row the guard rejects', async () => {
+    await db.repo(kv).write.insertOne({ key: 'k', value: 'closed' }, { pk: true })
+
+    const builder = db.repo(kv).write.insert().values({ key: 'k', value: 'x' }).onConflict(['key']).doSelect({ where: { value: 'open' } })
+
+    expect(await db.raw(...sqlOf(builder))).toEqual([])
+  })
+})
+
+function sqlOf(builder: { toSQL: () => { sql: string, params: unknown[] } }): [string, unknown[]] {
+  const { sql, params } = builder.toSQL()
+
+  return [sql, params]
+}

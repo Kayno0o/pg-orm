@@ -6,7 +6,7 @@ import { qualifyCol, quote, quotePath } from '../sql/utils'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
 import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { isRawSql, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols, selectedColumns } from './state'
+import { frameClause, isRawSql, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols, selectedColumns } from './state'
 
 /**
  * Single bottleneck for placeholder counting and parameter accumulation.
@@ -141,15 +141,24 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   // No target skips a row conflicting on any constraint, which only DO NOTHING can do.
   const target = state.conflictTarget.length ? ` (${quoteCols(state.conflictTarget)})` : ''
 
-  if (state.conflictAction !== 'update') {
-    if (state.conflictAction === 'nothing')
-      sb.push(`ON CONFLICT${target} DO NOTHING`)
+  if (state.conflictAction === 'nothing') {
+    sb.push(`ON CONFLICT${target} DO NOTHING`)
 
     return
   }
 
+  if (!state.conflictAction)
+    return
+
   if (!target)
-    throw new ValidationError('ON CONFLICT DO UPDATE needs the conflict target: name the columns in onConflict().', 'onConflict')
+    throw new ValidationError(`ON CONFLICT DO ${state.conflictAction.toUpperCase()} needs the conflict target: name the columns in onConflict().`, 'onConflict')
+
+  if (state.conflictAction === 'select') {
+    sb.postgresOnly('ON CONFLICT DO SELECT')
+    sb.push(`ON CONFLICT${target} DO SELECT${state.conflictLock ? ` FOR ${lockKeyword(state.conflictLock)}` : ''}${conflictGuard(sb, state)}`)
+
+    return
+  }
 
   const set = state.conflictSet ?? {}
   // `[]` copies every incoming column but the target, `null` copies none.
@@ -175,9 +184,12 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
   if (clauses.length === 0)
     clauses.push(...state.conflictTarget.map(c => `${quote(c)} = EXCLUDED.${quote(c)}`))
 
-  const guard = state.conflictWhere ? ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table)}` : ''
+  sb.push(`ON CONFLICT${target} DO UPDATE SET ${clauses.join(', ')}${conflictGuard(sb, state)}`)
+}
 
-  sb.push(`ON CONFLICT${target} DO UPDATE SET ${clauses.join(', ')}${guard}`)
+// Printed after everything else in the clause, so its parameters number after the SET values'.
+function conflictGuard(sb: SqlBuilder, state: BuilderState): string {
+  return state.conflictWhere ? ` WHERE ${sb.inlineExpr(state.conflictWhere, state.table)}` : ''
 }
 
 function printWhere(sb: SqlBuilder, tape: ExprTape | null, qualifier?: string): void {
@@ -209,6 +221,9 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
 
     if (pgAggregate)
       sb.postgresOnly(`${pgAggregate[1]}()`)
+
+    if (cc.expr.includes(') IGNORE NULLS OVER '))
+      sb.postgresOnly('IGNORE NULLS')
 
     const expr = cc.tape ? sb.inlineExpr(cc.tape, q) : cc.expr
 
@@ -269,15 +284,21 @@ function printGroupHaving(sb: SqlBuilder, state: BuilderState): void {
     sb.push(`HAVING ${sb.inlineExpr(state.havingTape, q, null)}`)
 }
 
+// One WINDOW clause lists every window, comma-separated.
 function printWindows(sb: SqlBuilder, state: BuilderState): void {
-  const q = joinQualifier(state)
+  if (!state.windows.length)
+    return
 
-  for (const w of state.windows) {
+  const q = joinQualifier(state)
+  const windows = state.windows.map((w) => {
     const partBy = w.partitionBy.length ? `PARTITION BY ${w.partitionBy.map(col => sb.column(col, q)).join(', ')}` : ''
     const ordBy = w.orderBy.length ? `ORDER BY ${printOrder(sb, w.orderBy, q)}` : ''
+    const frame = w.frame ? frameClause(w.frame) : ''
 
-    sb.push(`WINDOW ${quote(w.name)} AS (${[partBy, ordBy].filter(Boolean).join(' ')})`)
-  }
+    return `${quote(w.name)} AS (${[partBy, ordBy, frame].filter(Boolean).join(' ')})`
+  })
+
+  sb.push(`WINDOW ${windows.join(', ')}`)
 }
 
 function printOrderLimit(sb: SqlBuilder, state: BuilderState): void {
