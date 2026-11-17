@@ -63,6 +63,16 @@ describe('JSONB — insert & select round-trip', () => {
 
     expect(doc.data as unknown as string[]).toEqual(rows)
   })
+
+  it('writes a json array through the repository statement builders as JSON', async () => {
+    const repo = db.repo(documentsTable)
+    const insert = repo.write.insert().values({ data: ['a', 'b'] as never }).returning('id').toSQL()
+    const [{ id }] = await db.raw<{ id: number }>(insert.sql, insert.params) as [{ id: number }]
+    const update = repo.write.update().set({ data: [1, [2]] as never }).where({ id }).toSQL()
+
+    await db.raw(update.sql, update.params)
+    expect((await repo.read.findByIdOrThrow(id)).data as unknown).toEqual([1, [2]])
+  })
 })
 
 describe('JSONB — full-column update', () => {

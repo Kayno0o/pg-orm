@@ -57,6 +57,16 @@ describe.skipIf(!available?.n)('vector distances on pgvector', () => {
     expect(await db.repo(notes).read.findMany(q => q.orderBy('id'))).toEqual([{ id: 1, embedding: null }, { id: 2, embedding: [6, 7] }, { id: 3, embedding: [1.5, -2] }])
   })
 
+  it('encodes a vector on the repository statement builders too', async () => {
+    const write = db.repo(notes).write
+    const insert = write.insert().values({ id: 4, embedding: [1, 2] }).toSQL()
+    const update = write.update().set({ embedding: new Float32Array([3, 4]) as never }).where({ id: 4 }).toSQL()
+
+    await db.raw(insert.sql, insert.params)
+    await db.raw(update.sql, update.params)
+    expect(await db.repo(notes).read.findById(4)).toEqual({ id: 4, embedding: [3, 4] })
+  })
+
   it('copies a number[] or Float32Array into a vector column', async () => {
     await db.raw('DELETE FROM "vec_notes"')
     await db.repo(notes).write.copyFrom([{ id: 1, embedding: [1, 2] }, { id: 2, embedding: new Float32Array([0.5, 3]) as never }, { id: 3, embedding: null }])

@@ -8,10 +8,11 @@ import type { Executable } from '../sql/executor'
 import type { TransactionClient } from '../sql/transaction'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR, vectorText } from '../builder/_tape'
+import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { columnValue } from '../builder/state'
 import { MAX_BIND_PARAMS, SOFT_DELETE_SCOPE, STATEMENT_PARAM_RESERVE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, ValidationError } from '../errors/index'
@@ -19,7 +20,6 @@ import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
 import { copyField } from '../sql/copy'
-import { jsonParam } from '../sql/json-param'
 import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { resolveRelationFilters } from './relation-filter'
@@ -32,14 +32,8 @@ const INSERTED_FLAG = '__pgorm_inserted'
 // The size a COPY's rows are batched to before each write to the stream.
 const COPY_CHUNK_CHARS = 64 * 1024
 const FIND_OR_CREATE_ATTEMPTS = 3
-const VECTOR_TYPE_RE = /^(?:vector|halfvec)\(\d+\)$/
 // SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
 const SQLITE_OR_TERMS = 500
-
-// pgvector reads a vector from its `[1,2]` text, so a number[] or Float32Array is sent as that.
-function vectorValue(val: unknown): unknown {
-  return Array.isArray(val) || val instanceof Float32Array ? vectorText(val) : val
-}
 
 async function* prepend<T>(first: T, rest: Iterator<T> | AsyncIterator<T>): AsyncGenerator<T> {
   try {
@@ -138,29 +132,14 @@ export class WritePipeline<
   }
 
   /**
-   * Mark json/jsonb values before parameter binding. bun:sql's unsafe() path does not
-   * know column types, and serializeParams() would otherwise turn every JS array into a
-   * PostgreSQL array literal (e.g. {"a","b"}), which is not JSON. Marking them leaves the
-   * value untouched all the way to the driver, which encodes it to JSON itself - stringifying
-   * here instead would arrive as a string and be encoded a second time, storing a JSON string
-   * scalar that reads back correctly and answers `string` to jsonb_typeof. A vector goes in as pgvector's `[1,2]` text for the same reason.
+   * Each value encoded for its column (`columnValue`: json marked, a vector as its text) before binding.
    * A key that is not a column of the table is refused, so a request body passed as is never writes a quoted identifier the table lacks.
    */
   private _normalizeValues(values: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {}
 
-    for (const [key, val] of Object.entries(values)) {
-      const col = columnOf(this._runtime.table, key, 'write')
-
-      if (VECTOR_TYPE_RE.test(col.pgType)) {
-        out[key] = vectorValue(val)
-
-        continue
-      }
-
-      // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
-      out[key] = (col.pgType === 'json' || col.pgType === 'jsonb') && val !== null && val !== undefined ? jsonParam(val) : val
-    }
+    for (const [key, val] of Object.entries(values))
+      out[key] = columnValue(columnOf(this._runtime.table, key, 'write').pgType, val)
 
     return out
   }
@@ -241,8 +220,8 @@ export class WritePipeline<
 
   private async* _copyChunks(first: Record<string, unknown>, rest: Iterator<unknown> | AsyncIterator<unknown>, columns: string[]): AsyncGenerator<string> {
     const table = this._runtime.table
-    const json = columns.map(name => table.columns[name]!.pgType === 'json' || table.columns[name]!.pgType === 'jsonb')
-    const vector = columns.map(name => VECTOR_TYPE_RE.test(table.columns[name]!.pgType))
+    const types = columns.map(name => table.columns[name]!.pgType)
+    const json = types.map(type => type === 'json' || type === 'jsonb')
     const expected = new Set(columns)
     let buffer = ''
 
@@ -250,7 +229,8 @@ export class WritePipeline<
       const row = value as Record<string, unknown>
 
       assertCopyRow(row, columns, expected)
-      buffer += `${columns.map((name, i) => copyField(vector[i] ? vectorValue(row[name]) : row[name], json[i]!)).join('\t')}\n`
+      // copyField writes a json value's text itself; any other goes through the encoding an INSERT gives it (a vector's `[1,2]`).
+      buffer += `${columns.map((name, i) => copyField(json[i] ? row[name] : columnValue(types[i], row[name]), json[i]!)).join('\t')}\n`
 
       if (buffer.length >= COPY_CHUNK_CHARS) {
         yield buffer

@@ -2,8 +2,10 @@ import type { ExprTape, SubqueryRef } from './_tape'
 import type { SelectBuilder } from './select'
 import type { VectorSearchOptions } from './vector-search'
 import { ValidationError } from '../errors/index'
+import { isJsonParam, jsonParam } from '../sql/json-param'
 import { qualifyCol } from '../sql/utils'
 import { capitalize } from '../utils/string'
+import { isSqlValue, vectorText } from './_tape'
 
 export { PLACEHOLDER_RE } from './_placeholders'
 
@@ -407,6 +409,38 @@ export function isRawSql(val: unknown): val is RawSql {
 }
 
 // Validate values for INSERT/UPDATE — reject undefined, non-finite numbers, and __raw objects
+/** A pgvector column type: `vector(3)`, `halfvec(3)`. */
+export const VECTOR_TYPE_RE = /^(?:vector|halfvec)\(\d+\)$/
+
+/**
+ * A value as it is bound for a column of `pgType`. bun:sql's unsafe() path does not know column types and would bind a JS array as a Postgres array literal (`{"a","b"}`), which is not JSON:
+ * a json/jsonb value is marked so the driver encodes it to JSON itself (stringifying here would store a JSON string scalar), and a vector goes in as pgvector's `[1,2]` text. Expressions, raw fragments and marked values pass as they are.
+ */
+export function columnValue(pgType: string | undefined, val: unknown): unknown {
+  if (val === null || val === undefined || pgType === undefined || isSqlValue(val) || isRawSql(val) || isJsonParam(val))
+    return val
+
+  // A scalar too: SQLite stores the string "123" or `true` as its JSON text only when marked.
+  if (pgType === 'json' || pgType === 'jsonb')
+    return jsonParam(val)
+
+  return VECTOR_TYPE_RE.test(pgType) && (Array.isArray(val) || val instanceof Float32Array) ? vectorText(val) : val
+}
+
+/** `values` with each one encoded for its column, when the builder knows the table's columns. */
+export function columnValues(values: Record<string, unknown>, columnDefs: object | undefined): Record<string, unknown> {
+  if (!columnDefs)
+    return { ...values }
+
+  const defs = columnDefs as Record<string, { pgType?: string }>
+  const out: Record<string, unknown> = {}
+
+  for (const [key, val] of Object.entries(values))
+    out[key] = columnValue(Object.hasOwn(defs, key) ? defs[key]!.pgType : undefined, val)
+
+  return out
+}
+
 export function validateValues(vals: Record<string, unknown>, context: string): void {
   for (const [key, val] of Object.entries(vals)) {
     if (val === undefined) {

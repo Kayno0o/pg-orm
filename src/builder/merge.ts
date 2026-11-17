@@ -4,7 +4,7 @@ import type { TableTarget } from './state'
 import { validateIdentifier } from '../schema/validate'
 import { MutationBuilder } from './base'
 import { createExprBuilder } from './expr'
-import { validateValues } from './state'
+import { columnValues, validateValues } from './state'
 
 export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   constructor(table: TableTarget) {
@@ -35,7 +35,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     this._state.mergeWhen.push({
       type: 'matched',
       action: 'update',
-      values,
+      values: columnValues(values, this._state.columnDefs),
       condition: condition ? condition(builder) : undefined,
     })
 
@@ -62,7 +62,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     this._state.mergeWhen.push({
       type: 'not_matched',
       action: 'insert',
-      values,
+      values: columnValues(values, this._state.columnDefs),
       condition: condition ? condition(builder) : undefined,
     })
 
@@ -77,7 +77,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
     this._state.mergeWhen.push({
       type: 'not_matched_by_source',
       action: 'update',
-      values,
+      values: columnValues(values, this._state.columnDefs),
       condition: condition ? condition(builder) : undefined,
     })
 

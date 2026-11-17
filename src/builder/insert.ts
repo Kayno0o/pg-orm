@@ -6,7 +6,7 @@ import type { LockMode, TableTarget } from './state'
 import { compileWhere } from './_where'
 import { MutationBuilder } from './base'
 import { createConflictExprBuilder } from './conflict'
-import { validateValues } from './state'
+import { columnValues, validateValues } from './state'
 
 /** What an upsert does to the row it conflicts with. */
 export interface ConflictUpdate<TColumns extends AnyColumns> {
@@ -33,7 +33,7 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
 
   values(vals: InferInsert<TColumns>): this {
     validateValues(vals as Record<string, unknown>, 'InsertBuilder.values()')
-    this._state.insertValues = { ...vals } as Record<string, unknown>
+    this._state.insertValues = columnValues(vals as Record<string, unknown>, this._state.columnDefs)
 
     return this
   }
@@ -43,7 +43,7 @@ export class InsertBuilder<TColumns extends AnyColumns, TResult = void> extends 
     for (const v of vals) {
       validateValues(v as Record<string, unknown>, 'InsertBuilder.many()')
     }
-    this._state.insertManyValues = vals.map(v => ({ ...v })) as Record<string, unknown>[]
+    this._state.insertManyValues = vals.map(v => columnValues(v as Record<string, unknown>, this._state.columnDefs))
 
     return this
   }
@@ -113,7 +113,7 @@ export class OnConflictBuilder<TColumns extends AnyColumns, TResult> {
     state.conflictAction = 'update'
     // In state `[]` means every incoming column and `null` none, the shape `doUpdate()` already uses.
     state.conflictUpdateCols = update.columns === undefined ? [] : update.columns.length ? update.columns as string[] : null
-    state.conflictSet = set ?? null
+    state.conflictSet = set ? columnValues(set, state.columnDefs) : null
     state.conflictWhere = update.where ? compileWhere(update.where) : null
 
     return this.parent

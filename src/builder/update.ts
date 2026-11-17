@@ -4,7 +4,7 @@ import type { Joined } from './select'
 import type { TableTarget } from './state'
 import { WhereableMutationBuilder } from './base'
 import { createExprBuilder } from './expr'
-import { rawSql, validateValues } from './state'
+import { columnValues, rawSql, validateValues } from './state'
 
 /** What `set()` writes: per column a value, or an expression (`e.ref('o.qty')`, `e.coalesce(...)`) printed as SQL. */
 export type SetValues<TColumns extends AnyColumns> = { [K in keyof InferUpdate<TColumns>]?: InferUpdate<TColumns>[K] | ColumnRef }
@@ -19,7 +19,7 @@ export class UpdateBuilder<TColumns extends AnyColumns, _TResult = void, TJoined
     const values = (typeof vals === 'function' ? vals(createExprBuilder<TColumns & TJoined>()) : vals) as Record<string, unknown>
 
     validateValues(values, 'UpdateBuilder.set()')
-    this._state.setValues = { ...values }
+    this._state.setValues = columnValues(values, this._state.columnDefs)
 
     return this
   }
