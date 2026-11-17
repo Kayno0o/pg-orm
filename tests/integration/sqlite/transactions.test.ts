@@ -128,4 +128,38 @@ describe('sqlite transactions', () => {
     expect(events.find(e => e.sql.startsWith('INSERT'))?.context).toEqual({ requestId: 'r1' })
     await db.close()
   })
+
+  it('a statement on the outer client waits for a running savepoint, so its rollback leaves the outer write', async () => {
+    const db = await memoryDb()
+
+    await db.transaction(async (tx) => {
+      const [failing] = await Promise.allSettled([
+        tx.savepoint(async (sp) => {
+          await sp.query('INSERT INTO t VALUES (1)', [])
+          await Bun.sleep(20)
+
+          throw new Error('savepoint fails')
+        }),
+        tx.query('INSERT INTO t VALUES (2)', []),
+      ])
+
+      expect(failing.status).toBe('rejected')
+    })
+
+    expect(await db.raw('SELECT v FROM t')).toEqual([{ v: 2 }])
+    await db.close()
+  })
+
+  it('the outer client still reaches its own transaction from inside a savepoint body', async () => {
+    const db = await memoryDb()
+
+    await db.transaction(async (tx) => {
+      await tx.savepoint(async () => {
+        await tx.query('INSERT INTO t VALUES (1)', [])
+      })
+    })
+
+    expect(await count(db)).toBe(1)
+    await db.close()
+  })
 })

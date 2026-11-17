@@ -34,6 +34,8 @@ export class TransactionRunner {
   private readonly _active = new AsyncLocalStorage<TransactionClient>()
   // The last nested call started on each outer transaction: the next one waits for it, since two savepoints cannot interleave on one connection.
   private readonly _nestedTail = new WeakMap<TransactionClient, Promise<unknown>>()
+  // How many nested calls on each outer transaction have not settled yet.
+  private readonly _nestedOpen = new WeakMap<TransactionClient, number>()
 
   /** Whether a `transaction()` call with these options joins a transaction body running in this async context. A transaction that settled is not joined, even from work its body started. */
   joins(opts?: TransactionOptions): boolean {
@@ -190,11 +192,40 @@ export class TransactionRunner {
       throw new ValidationError('savepoint(): called on an outer transaction client from inside one of its savepoints, which it would wait for forever: use the client the savepoint body was given.', 'savepoint')
 
     const previous = this._nestedTail.get(outer)
-    const current = this._afterSettled(previous, () => this._savepoint(outer, fn, opts))
+
+    // Counted from this call, before the savepoint starts, so a statement issued right after it already waits.
+    this._nestedOpen.set(outer, (this._nestedOpen.get(outer) ?? 0) + 1)
+
+    const current = this._afterSettled(previous, () => this._countOpen(outer, () => this._savepoint(outer, fn, opts)))
 
     this._nestedTail.set(outer, current)
 
     return current
+  }
+
+  private async _countOpen<T>(outer: TransactionClient, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run()
+    }
+    finally {
+      this._nestedOpen.set(outer, this._nestedOpen.get(outer)! - 1)
+    }
+  }
+
+  // A statement on a client while one of its savepoints is open or queued would run inside that savepoint, and its rollback would undo the write. Work started inside the savepoint body reaches the client at once, as it always did.
+  private _waitForSavepoints(tx: TransactionClient): Promise<void> | undefined {
+    return this._nestedOpen.get(tx) && !this._insideSavepointOf(tx) ? this._drainSavepoints(tx) : undefined
+  }
+
+  private async _drainSavepoints(tx: TransactionClient): Promise<void> {
+    while (this._nestedOpen.get(tx)) {
+      try {
+        await this._nestedTail.get(tx)
+      }
+      catch {
+        // the savepoint's failure is its caller's to handle
+      }
+    }
   }
 
   private _insideSavepointOf(outer: TransactionClient): boolean {
@@ -268,6 +299,7 @@ export class TransactionRunner {
     const tx = new TransactionClient(sqlTx, this.hooks, this.dialect)
 
     tx._nest = fn => this._runNested(tx, fn)
+    tx._beforeStatement = () => this._waitForSavepoints(tx)
 
     return tx
   }

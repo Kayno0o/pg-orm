@@ -157,4 +157,24 @@ describe('Transaction rollback chains', () => {
 
     expect(count).toBe(0)
   })
+
+  it('a write on the outer client made while a savepoint runs survives the savepoint\'s rollback', async () => {
+    await db.transaction(async (tx) => {
+      const [failing] = await Promise.allSettled([
+        tx.savepoint(async (sp) => {
+          await db.repo(usersTable).using(sp).write.insertOne({ name: 'Inner', email: 'inner@race.test' }, { pk: true })
+          await Bun.sleep(20)
+
+          throw new Error('savepoint fails')
+        }),
+        db.repo(usersTable).using(tx).write.insertOne({ name: 'Outer', email: 'outer@race.test' }, { pk: true }),
+      ])
+
+      expect(failing.status).toBe('rejected')
+    })
+
+    const users = await db.repo(usersTable).read.findMany()
+
+    expect(users.map(u => u.email)).toEqual(['outer@race.test'])
+  })
 })
