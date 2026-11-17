@@ -27,7 +27,7 @@ export function isolationStatement(opts: { isolation?: string, accessMode?: stri
   const modes: string[] = []
 
   if (opts.isolation) {
-    const isolationSql = ISOLATION_SQL[opts.isolation as IsolationLevel]
+    const isolationSql = Object.hasOwn(ISOLATION_SQL, opts.isolation) ? ISOLATION_SQL[opts.isolation as IsolationLevel] : undefined
 
     if (!isolationSql) {
       throw new ValidationError(
@@ -41,7 +41,7 @@ export function isolationStatement(opts: { isolation?: string, accessMode?: stri
   }
 
   if (opts.accessMode) {
-    const accessSql = ACCESS_MODE_SQL[opts.accessMode as AccessMode]
+    const accessSql = Object.hasOwn(ACCESS_MODE_SQL, opts.accessMode) ? ACCESS_MODE_SQL[opts.accessMode as AccessMode] : undefined
 
     if (!accessSql) {
       throw new ValidationError(

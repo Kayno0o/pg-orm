@@ -326,10 +326,13 @@ describe('TransactionRunner', () => {
       })).rejects.toBe(bodyError)
     })
 
-    it('refuses an unknown isolation level before BEGIN', async () => {
+    it('refuses an unknown isolation level or access mode before BEGIN, an Object.prototype key included', async () => {
       const begun: string[] = []
 
-      await expect(readOnlyRunner(begun).run({ isolation: 'bogus' as never }, async () => 'never runs')).rejects.toBeInstanceOf(ValidationError)
+      for (const isolation of ['bogus', 'constructor', 'toString'])
+        await expect(readOnlyRunner(begun).run({ isolation: isolation as never }, async () => 'never runs')).rejects.toBeInstanceOf(ValidationError)
+
+      await expect(readOnlyRunner(begun).run({ accessMode: '__proto__' as never }, async () => 'never runs')).rejects.toBeInstanceOf(ValidationError)
       expect(begun).toEqual([])
     })
   })
