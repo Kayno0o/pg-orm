@@ -81,7 +81,7 @@ export class Database extends BaseExecutor {
         writes: config.retry?.writes ?? false,
       },
       { ...hooks, onPingError: config.onPingError },
-      this._dialect === 'sqlite' ? new SqliteDriver(sqliteFilename(config.url!)) : undefined,
+      this._dialect === 'sqlite' ? new SqliteDriver(sqliteFilename(config.url!), config.sqlite?.synchronous) : undefined,
     )
 
     this.sql = this._connection.sql

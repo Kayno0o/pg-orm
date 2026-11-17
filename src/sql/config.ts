@@ -1,5 +1,6 @@
 import type { AnyTableDef } from '../types/index'
 import type { CallbackErrorEvent, QueryErrorEvent, QueryEvent, SlowQueryEvent } from './base-executor'
+import type { SqliteSynchronous } from './sqlite-driver'
 import { dialectOfUrl } from '../dialect'
 import { DialectError, ValidationError } from '../errors/index'
 
@@ -25,6 +26,11 @@ export interface DbConfig {
     maxLifetime?: number | undefined
     /** Seconds to wait for a new connection (default: 30). */
     connectionTimeout?: number | undefined
+  } | undefined
+  /** Options of a `sqlite://` file, refused on Postgres. */
+  sqlite?: {
+    /** `normal` (the default) under WAL can lose the last commits to a power cut, never to a process crash, and never corrupts the file; `full` syncs every commit, at about 50 times the cost of an autocommit write. */
+    synchronous?: SqliteSynchronous | undefined
   } | undefined
   tls?: boolean | object | undefined
   prepare?: boolean | undefined
@@ -169,6 +175,14 @@ export function validateDbConfig(cfg: DbConfig): void {
 
   validateRetry(cfg.retry, 'DbConfig.retry')
 
+  const synchronous = cfg.sqlite?.synchronous
+
+  if (synchronous !== undefined && synchronous !== 'normal' && synchronous !== 'full')
+    throw new ValidationError('DbConfig.sqlite.synchronous must be \'normal\' or \'full\'', 'DbConfig.sqlite.synchronous', { value: synchronous })
+
+  if (dialectOfUrl(cfg.url) !== 'sqlite' && cfg.sqlite !== undefined)
+    throw new DialectError('DbConfig.sqlite', 'postgres')
+
   if (dialectOfUrl(cfg.url) === 'sqlite') {
     if (statementTimeout !== undefined)
       throw new DialectError('DbConfig.statementTimeout', 'sqlite')
@@ -203,6 +217,7 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
   const {
     pool,
     tables: _tables,
+    sqlite: _sqlite,
     cacheSize: _cacheSize,
     schema: _schema,
     statementTimeout,

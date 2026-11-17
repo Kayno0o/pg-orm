@@ -1071,7 +1071,7 @@ const db = new Database({ url: 'sqlite://data/app.db', tables: [User, Post] }) /
 await db.sync()
 ```
 
-The file and its directory are created on first use, in WAL mode, with foreign keys enforced. `db.dialect` says which one a database speaks.
+The file and its directory are created on first use, in WAL mode with `synchronous = NORMAL`, with foreign keys enforced. NORMAL can lose the last commits to a power cut, never to a process crash, and never corrupts the file; `sqlite: { synchronous: 'full' }` syncs every commit instead, at about 50 times the cost of an autocommit write. `db.dialect` says which one a database speaks.
 
 **Storage.** Integers, serials and booleans are `INTEGER` (a boolean reads back as `true`/`false`), floats `REAL`, `numeric` `NUMERIC`, `bytea` `BLOB`, and everything else `TEXT`: a date is its ISO string, which sorts and compares in time order, and a json or array column its JSON text. An enum is `TEXT` with a CHECK on its values. A single serial or integer primary key is the rowid, `AUTOINCREMENT` for a serial so a deleted id is never handed out again. `int8` keeps its precision past 2^53. A `numeric` is stored as a number, so it reads back as plain decimal text (never `1e-10`) but without the trailing zeros its scale gave it. `now()` and `gen_random_uuid()` defaults become their SQLite equivalents.
 

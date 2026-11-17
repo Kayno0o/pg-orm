@@ -15,6 +15,8 @@ const SQLITE_BUSY = 5
 const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER)
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
 const STATEMENT_CACHE_MAX = 500
+// A multi-row insert prints one text per row count, each compiled statement holding megabytes: past this length it is finalized after its run instead of kept.
+const STATEMENT_CACHE_MAX_LENGTH = 8192
 
 const MEMORY_FILENAMES = new Set([':memory:', ''])
 
@@ -84,9 +86,13 @@ function narrowIntegers(rows: Record<string, unknown>[]): Record<string, unknown
  * pg-orm's driver for a SQLite file, over `bun:sqlite`: one connection, so a statement waits while a transaction holds it, and one issued from inside the transaction's body runs in it.
  * Foreign keys are enforced and a file database runs in WAL mode, opened on first use, its directory created as needed.
  */
+/** How a SQLite file syncs to disk: `normal` under WAL can lose the last commits to a power cut, never to a process crash, and never corrupts the file; `full` syncs every commit. */
+export type SqliteSynchronous = 'normal' | 'full'
+
 export class SqliteDriver implements SqliteHandle {
   private _db?: SqliteDatabase
   private _closed = false
+  // Keyed by the SQL as pg-orm prints it, so a cached statement skips the `$N` to `?N` rewrite too.
   private readonly _statements = new Map<string, Statement>()
   private _tail: Promise<void> = Promise.resolve()
   private _queued = 0
@@ -94,7 +100,7 @@ export class SqliteDriver implements SqliteHandle {
   // Set for the async scope of a transaction body, whose statements skip the queue it holds; `open` clears at its end, so work the body started that outlives it queues like any other.
   private readonly _transactionScope = new AsyncLocalStorage<{ open: boolean }>()
 
-  constructor(readonly filename: string) {}
+  constructor(readonly filename: string, private readonly _synchronous: SqliteSynchronous = 'normal') {}
 
   async unsafe(sql: string, params: unknown[]): Promise<unknown[]> {
     if (this._inTransaction())
@@ -260,8 +266,17 @@ export class SqliteDriver implements SqliteHandle {
   }
 
   private _run(sql: string, params: unknown[]): unknown[] {
-    const { text, statements } = toSqliteText(sql)
     const db = this._open()
+    const cached = this._statements.get(sql)
+
+    if (cached) {
+      this._statements.delete(sql)
+      this._statements.set(sql, cached)
+
+      return narrowIntegers(cached.all(...params.map(toBinding)) as Record<string, unknown>[])
+    }
+
+    const { text, statements } = toSqliteText(sql)
 
     // A migration whose down SQL is only `-- Cannot reverse` comments has nothing to run, which prepare() would refuse.
     if (statements === 0)
@@ -276,23 +291,25 @@ export class SqliteDriver implements SqliteHandle {
       return []
     }
 
-    return narrowIntegers(this._statement(db, text).all(...params.map(toBinding)) as Record<string, unknown>[])
+    const statement = db.prepare(text)
+
+    if (sql.length > STATEMENT_CACHE_MAX_LENGTH) {
+      try {
+        return narrowIntegers(statement.all(...params.map(toBinding)) as Record<string, unknown>[])
+      }
+      finally {
+        statement.finalize()
+      }
+    }
+
+    this._keep(sql, statement)
+
+    return narrowIntegers(statement.all(...params.map(toBinding)) as Record<string, unknown>[])
   }
 
   // Compiled statements are kept per SQL text, the least recently used finalized past the cap, where `db.query()` would cache every IN-list length forever.
-  private _statement(db: SqliteDatabase, text: string): Statement {
-    const cached = this._statements.get(text)
-
-    if (cached) {
-      this._statements.delete(text)
-      this._statements.set(text, cached)
-
-      return cached
-    }
-
-    const statement = db.prepare(text)
-
-    this._statements.set(text, statement)
+  private _keep(sql: string, statement: Statement): void {
+    this._statements.set(sql, statement)
 
     if (this._statements.size > STATEMENT_CACHE_MAX) {
       const [oldest, evicted] = this._statements.entries().next().value!
@@ -300,8 +317,6 @@ export class SqliteDriver implements SqliteHandle {
       this._statements.delete(oldest)
       evicted.finalize()
     }
-
-    return statement
   }
 
   private _open(): SqliteDatabase {
@@ -321,8 +336,10 @@ export class SqliteDriver implements SqliteHandle {
     try {
       db.run('PRAGMA foreign_keys = ON')
 
-      if (!memory)
+      if (!memory) {
         db.run('PRAGMA journal_mode = WAL')
+        db.run(`PRAGMA synchronous = ${this._synchronous === 'full' ? 'FULL' : 'NORMAL'}`)
+      }
     }
     catch (err) {
       db.close()
