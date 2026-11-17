@@ -11,6 +11,12 @@ interface Token {
 const WORD_START_RE = /[a-z_]/i
 const WORD_RE = /[\w$.]/
 const DIGIT_RE = /\d/
+const SPACE_RE = /\s/
+const NUMBER_RE = /^\d+(?:\.\d+)?(?:e[+-]?\d+)?/i
+const QUOTED_TYPE_RE = /^\s*"[^"]*"/
+const TYPE_NAME_RE = /^\s*[a-z_][\w.$]*/i
+const TYPE_MODIFIER_RE = /^\s*\([\d,\s]*\)/
+const ARRAY_BRACKETS_RE = /^(?:\[\d*\])+/
 const OPERATOR_CHAR_RE = /[<>=!~+\-*/%|&^#@]/
 // A type name Postgres prints after a cast, whose extra words (`character varying`, `timestamp with time zone`, `double precision`) follow its first.
 const TYPE_TAIL_WORDS = new Set(['varying', 'precision', 'with', 'without', 'time', 'zone'])
@@ -68,7 +74,7 @@ function tokenize(text: string): Token[] {
   while (i < text.length) {
     const ch = text[i]!
 
-    if (/\s/.test(ch)) {
+    if (SPACE_RE.test(ch)) {
       i++
     }
     else if (ch === '\'') {
@@ -93,7 +99,7 @@ function tokenize(text: string): Token[] {
       i = end + 1
     }
     else if (DIGIT_RE.test(ch)) {
-      const match = /^\d+(?:\.\d+)?(?:e[+-]?\d+)?/i.exec(text.slice(i))![0]
+      const match = NUMBER_RE.exec(text.slice(i))![0]
 
       tokens.push({ kind: 'number', text: match.toLowerCase() })
       i += match.length
@@ -135,8 +141,8 @@ function tokenize(text: string): Token[] {
 function skipCastType(text: string, from: number): number {
   let i = from
   const word = (): string | undefined => {
-    const quoted = /^\s*"[^"]*"/.exec(text.slice(i))
-    const plain = /^\s*[a-z_][\w.$]*/i.exec(text.slice(i))
+    const quoted = QUOTED_TYPE_RE.exec(text.slice(i))
+    const plain = TYPE_NAME_RE.exec(text.slice(i))
     const found = quoted?.[0] ?? plain?.[0]
 
     if (found)
@@ -159,12 +165,12 @@ function skipCastType(text: string, from: number): number {
       i = save
   }
 
-  const modifier = /^\s*\([\d,\s]*\)/.exec(text.slice(i))
+  const modifier = TYPE_MODIFIER_RE.exec(text.slice(i))
 
   if (modifier)
     i += modifier[0].length
 
-  const brackets = /^(?:\[\d*\])+/.exec(text.slice(i))
+  const brackets = ARRAY_BRACKETS_RE.exec(text.slice(i))
 
   if (brackets)
     i += brackets[0].length
