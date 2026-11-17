@@ -11,6 +11,7 @@ import { placeholderNumbers } from './_placeholders'
 import { appendWhere, compileWhere, replaceWhere } from './_where'
 import { BaseBuilder } from './base'
 import { createExprBuilder } from './expr'
+import { liftedScopes } from './scope-options'
 import { aggregateMethod } from './state'
 import { vectorSearchSettings } from './vector-search'
 
@@ -500,7 +501,7 @@ export class SelectBuilder<
     const alias = opts?.as ?? fallback
 
     validateIdentifier(alias, `${aggregateMethod(fn)} alias`)
-    this._state.relationAggregates.push({ fn, relation, column, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: [...opts?.withoutScopes ?? [], ...opts?.withDeleted ? [SOFT_DELETE_SCOPE] : []] })
+    this._state.relationAggregates.push({ fn, relation, column, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: liftedScopes({ withoutScopes: opts?.withoutScopes, withTrashed: opts?.withDeleted }) })
 
     return this as never
   }

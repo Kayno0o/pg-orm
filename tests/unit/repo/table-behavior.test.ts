@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
-import { OrmError } from '../../../src/errors/index'
+import { OrmError, ValidationError } from '../../../src/errors/index'
 import { defineTable, optimisticLock, softDelete } from '../../../src/index'
-import { buildTableBehavior } from '../../../src/repo/table-behavior'
+import { buildTableBehavior, liftedScopes } from '../../../src/repo/table-behavior'
+import { setupWritePipeline } from './ops/_helpers'
 
 function makePlain() {
   return defineTable('plain', t => ({
@@ -172,5 +173,27 @@ describe('buildTableBehavior.buildRestoreUpdate', () => {
     const { sql } = b.toSQL()
 
     expect(sql).toContain('"version" = "version" + 1')
+  })
+})
+
+describe('scope options of the wrong type', () => {
+  // Options often come from a parsed request: a string would lift a scope by substring, and 'false' is truthy.
+  it('throw rather than lift a scope', () => {
+    const bad = [{ withoutScopes: 'tenant' }, { withoutScopes: [1] }, { withTrashed: 'false' }, { withTrashed: 1 }] as never[]
+
+    for (const opts of bad)
+      expect(() => liftedScopes(opts)).toThrow(ValidationError)
+
+    expect(liftedScopes({ withoutScopes: ['tenant'], withTrashed: false })).toEqual(['tenant'])
+    expect(liftedScopes({ withTrashed: true })).toEqual(['softDelete'])
+  })
+
+  it('throw from a write and a relation aggregate too', async () => {
+    const soft = makeSoft()
+    const { exec, pipeline } = setupWritePipeline(soft)
+
+    await expect(pipeline.updateMany({ name: 'x' }, { id: 1 }, { withoutScopes: 'softDelete' } as never)).rejects.toThrow(ValidationError)
+    expect(() => new SelectBuilder(soft).withCount('nope' as never, { withDeleted: 'false' } as never)).toThrow(ValidationError)
+    expect(exec.queries).toHaveLength(0)
   })
 })

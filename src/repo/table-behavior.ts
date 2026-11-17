@@ -1,9 +1,10 @@
 import type { ExprBuilder } from '../builder/expr'
 import type { DeleteBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
 import type { ScopeFilter } from '../builder/state'
-import type { AnyColumns, AnyTableDef, InferUpdate, ScopeOptions } from '../types/index'
+import type { AnyColumns, AnyTableDef, InferUpdate } from '../types/index'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
+import { liftedScopes } from '../builder/scope-options'
 import { SOFT_DELETE_SCOPE } from '../constants'
 import { OrmError } from '../errors/index'
 import { tableMeta, tableScopes } from '../schema/inspect'
@@ -15,12 +16,7 @@ interface RawSettable {
   setRaw: (column: string, sqlExpression: string) => unknown
 }
 
-/** The scopes a call lifts. */
-export function liftedScopes(opts?: ScopeOptions): string[] {
-  const lifted = opts?.withoutScopes ?? []
-
-  return opts?.withTrashed ? [...lifted, SOFT_DELETE_SCOPE] : lifted
-}
+export { liftedScopes }
 
 /** The table's scopes, each WHERE built now against the request context; `qualifier` names the alias the table is joined under. */
 export function resolveScopes(table: AnyTableDef, qualifier?: string): ScopeFilter[] {

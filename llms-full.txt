@@ -689,6 +689,7 @@ await db.repo(owners).read.findMany(q => q.withCount('projects', { withoutScopes
 ```
 
 - `withTrashed` is `withoutScope('softDelete')`. Reads, `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
+- `withoutScopes` must be an array of names and `withTrashed` a boolean, or the call throws a `ValidationError`: options spread from a parsed request cannot lift a scope with `'tenant'` or `'false'`.
 - A scope reading a context value that is not there fails the call: `e.eq('tenantId', undefined)` throws a `ValidationError`, so a query run outside `withContext` cannot read every tenant.
 - An upsert guards only its update: a conflicting row a scope leaves out is not updated and not returned. Inserts are not filtered, so set the tenant column on the rows you write (a `beforeInsert` hook reading the same context does it once).
 - The statement builders `repo.write.insert()`, `update()`, `delete()` and `merge()`, and `db.raw`, carry no scope. Neither does a table you reach through an explicit `join()` or a subquery you build: add its condition yourself. Relation reads and filters (`include`, `withCount` and the other aggregates, `whereHas`, `e.has`) apply the related table's scopes.
