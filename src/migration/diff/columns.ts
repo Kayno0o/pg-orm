@@ -42,6 +42,7 @@ export function diffTableColumns(
   const ops: MigrationOp[] = []
   const renameMap = new Map<string, string>()
   const processedColumns = new Set<string>()
+  const singleUniques = new Map((tableDef.uniques ?? []).filter(u => u.columns.length === 1).map(u => [u.columns[0]!, uniqueName(tableName, u)]))
 
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
     const { renamedFrom } = getColumnMeta(colDef)
@@ -68,7 +69,7 @@ export function diffTableColumns(
         })
         processedColumns.add(renamedFrom)
 
-        ops.push(...diffColumn(tableName, colName, colDef, renamedLiveCol))
+        ops.push(...diffColumn(tableName, colName, colDef, renamedLiveCol, singleUniques.get(colName)))
 
         continue
       }
@@ -78,7 +79,7 @@ export function diffTableColumns(
       continue
     }
 
-    ops.push(...diffColumn(tableName, colName, colDef, liveCol))
+    ops.push(...diffColumn(tableName, colName, colDef, liveCol, singleUniques.get(colName)))
     processedColumns.add(colName)
   }
 
@@ -107,7 +108,9 @@ export function diffTableColumns(
 // A UNIQUE over several columns is matched by name: one gone or over other columns is dropped before the columns change, a new one added after. Only the ones this ORM would have named are dropped, as with CHECKs: one made by hand under another name is left alone.
 function diffUniques(tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): { before: MigrationOp[], after: MigrationOp[] } {
   const desired = new Map((tableDef.uniques ?? []).map(u => [uniqueName(tableName, u), u]))
-  const owned = (liveTable.uniques ?? []).filter(u => desired.has(u.name) || u.name === uniqueName(tableName, { columns: u.columns }))
+  // A one-column UNIQUE is filed on its column when read back: it counts here when the definitions declare it.
+  const singles = liveTable.columns.filter(c => c.isUnique && c.uniqueConstraint !== undefined && desired.has(c.uniqueConstraint)).map(c => ({ name: c.uniqueConstraint!, columns: [c.name] }))
+  const owned = [...liveTable.uniques ?? [], ...singles].filter(u => desired.has(u.name) || u.name === uniqueName(tableName, { columns: u.columns }))
   const live = new Map(owned.map(u => [u.name, u]))
   const same = (name: string) => desired.get(name)?.columns.join() === live.get(name)?.columns.join()
   const before: MigrationOp[] = [...live.keys()].filter(name => !same(name)).map(name => ({
@@ -263,6 +266,7 @@ export function diffColumn(
   colName: string,
   colDef: AnyColumnDef,
   liveCol: LiveColumn,
+  tableUnique?: string,
 ): MigrationOp[] {
   const desiredExpr = colDef.constraints.find((c: ColumnConstraint) => c.type === 'generated')?.value
 
@@ -326,8 +330,20 @@ export function diffColumn(
     ops.push(...diffColumnType(tableName, colName, { colDef, desiredType, liveType }))
 
   const desiredUnique = colDef.constraints.some((c: ColumnConstraint) => c.type === 'unique')
+  // A one-column UNIQUE the table declares is added and dropped with the table's other UNIQUEs, under its own name.
+  const tableOwned = tableUnique !== undefined && !desiredUnique
 
-  if (desiredUnique && !liveCol.isUnique && !liveCol.isPrimaryKey) {
+  if (tableOwned && liveCol.isUnique && !liveCol.isPrimaryKey && liveCol.uniqueConstraint !== tableUnique) {
+    ops.push({
+      type: 'drop_constraint',
+      table: tableName,
+      column: colName,
+      sql: buildDropConstraintSql(tableName, liveCol.uniqueConstraint ?? uniqueConstraintName(tableName, colName)),
+      destructive: true,
+      description: `Drop UNIQUE constraint on "${colName}" in "${tableName}"`,
+    })
+  }
+  else if (!tableOwned && desiredUnique && !liveCol.isUnique && !liveCol.isPrimaryKey) {
     ops.push({
       type: 'add_constraint',
       table: tableName,
@@ -337,7 +353,7 @@ export function diffColumn(
       description: `Add UNIQUE constraint on "${colName}" in "${tableName}"`,
     })
   }
-  else if (!desiredUnique && liveCol.isUnique && !liveCol.isPrimaryKey) {
+  else if (!tableOwned && !desiredUnique && liveCol.isUnique && !liveCol.isPrimaryKey) {
     ops.push({
       type: 'drop_constraint',
       table: tableName,

@@ -56,6 +56,15 @@ describe('sync() on SQLite', () => {
     expect(await getMigrationHistory(db)).toHaveLength(1)
   })
 
+  it('finds nothing left to do for a one-column withUnique', async () => {
+    const table = defineTable('uniq', t => ({ id: t.serial().primaryKey(), a: t.text() })).withUnique(['a'])
+    const db = file()([table])
+
+    await db.sync()
+
+    expect((await db.sync()).ops).toEqual([])
+  })
+
   it('adds a column and renames one in place, keeping the rows', async () => {
     const open = file()
 

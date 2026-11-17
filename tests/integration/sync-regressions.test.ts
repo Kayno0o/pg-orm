@@ -127,4 +127,27 @@ describe('expressions that differ only in grouping', () => {
   })
 })
 
+describe('uniques', () => {
+  it('syncs a one-column withUnique once, then drops it with the declaration', async () => {
+    const v1 = defineTable('ua', t => ({ id: t.serial().primaryKey(), a: t.text(), b: t.text() })).withUnique(['a'])
+
+    await sync([v1])
+
+    expect((await sync([v1])).ops).toEqual([])
+
+    const v2 = defineTable('ua', t => ({ id: t.serial().primaryKey(), a: t.text(), b: t.text() }))
+
+    expect((await sync([v2], true)).ops.map(o => o.type)).toEqual(['drop_constraint'])
+    expect((await sync([v2])).ops).toEqual([])
+  })
+
+  it('keeps a column UNIQUE and a one-column withUnique on another column apart', async () => {
+    const table = defineTable('ub', t => ({ id: t.serial().primaryKey(), a: t.text().unique(), b: t.text() })).withUnique(['b'])
+
+    await sync([table])
+
+    expect((await sync([table])).ops).toEqual([])
+  })
+})
+
 // END
