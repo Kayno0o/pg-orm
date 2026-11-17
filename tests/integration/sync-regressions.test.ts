@@ -200,4 +200,33 @@ describe('dropping referenced columns', () => {
   })
 })
 
+describe('primary key defaults', () => {
+  it('syncs a changed default of a primary key column, and a dropped one', async () => {
+    const make = (fn?: string) => defineTable('pkd', t => ({ id: fn === undefined ? t.uuid().primaryKey() : t.uuid().primaryKey().defaultRaw(fn), n: t.int4().nullable() }))
+    const v1 = make('gen_random_uuid()')
+
+    await sync([v1])
+
+    expect((await sync([v1])).ops).toEqual([])
+
+    const v2 = make('\'00000000-0000-0000-0000-000000000001\'')
+
+    expect((await sync([v2])).ops.map(o => o.sql)).toEqual([`ALTER TABLE "pkd" ALTER COLUMN "id" SET DEFAULT '00000000-0000-0000-0000-000000000001'`])
+    expect(await admin.raw(`INSERT INTO ${q('pkd')} DEFAULT VALUES RETURNING id`)).toEqual([{ id: '00000000-0000-0000-0000-000000000001' }])
+    expect((await sync([v2])).ops).toEqual([])
+
+    const v3 = make()
+
+    expect((await sync([v3])).ops.map(o => o.sql)).toEqual(['ALTER TABLE "pkd" ALTER COLUMN "id" DROP DEFAULT'])
+  })
+
+  it('leaves a serial primary key alone', async () => {
+    const table = defineTable('pks', t => ({ id: t.serial().primaryKey() }))
+
+    await sync([table])
+
+    expect((await sync([table])).ops).toEqual([])
+  })
+})
+
 // END

@@ -391,7 +391,7 @@ export function diffColumn(
 
   const desiredIdentity = colDef.constraints.find((c: ColumnConstraint) => c.type === 'identity')?.value as 'always' | 'by default' | undefined
 
-  if ((!liveCol.isPrimaryKey || dropsDefault) && desiredExpr === undefined && desiredIdentity === undefined) {
+  if (desiredExpr === undefined && desiredIdentity === undefined) {
     const desiredDefault = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')?.value ?? null
     const liveDefault = dropsDefault ? null : liveCol.defaultValue
 
