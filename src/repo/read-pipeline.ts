@@ -586,6 +586,9 @@ export class ReadPipeline<
     this._prepare(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
+
+    checkPageSize('stream.offset', 'chunkSize', chunkSize)
+
     const mapperFn = this._mapper(finalBuilder)
     // A limit or offset the callback set bounds the whole stream, read in chunks within it.
     const { limit, offset: start } = finalBuilder.getState()
