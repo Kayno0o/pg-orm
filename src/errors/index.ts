@@ -287,6 +287,14 @@ export class DestructiveOpError extends MigrationError {
  * Thrown when an after-hook (afterInsert, afterUpdate, afterDelete) throws.
  * The mutation was already committed — `committed: true` signals this to callers.
  */
+// A hook's own error can quote the row or a provider's reply; where values are redacted it is named, not quoted, and stays whole on `cause`. pg-orm's own errors are sanitised already.
+function hookCauseText(cause: unknown): string {
+  if (cause instanceof OrmError || !shouldRedact())
+    return cause instanceof Error ? cause.message : String(cause)
+
+  return `(${cause instanceof Error ? cause.name : typeof cause} message redacted, see cause)`
+}
+
 export class AfterHookError extends OrmError {
   readonly committed = true
   readonly table: string
@@ -294,7 +302,7 @@ export class AfterHookError extends OrmError {
   constructor(table: string, hook: string, cause: unknown) {
     super(
       `"${hook}" hook on table "${table}" threw after the mutation was committed. `
-      + `The database change was NOT rolled back. ${cause instanceof Error ? cause.message : String(cause)}`,
+      + `The database change was NOT rolled back. ${hookCauseText(cause)}`,
       cause,
     )
     this.name = 'AfterHookError'
@@ -315,7 +323,7 @@ export class BeforeHookError extends OrmError {
   constructor(table: string, hook: string, cause: unknown) {
     super(
       `"${hook}" hook on table "${table}" threw before the mutation was applied. `
-      + `The database change was NOT performed. ${cause instanceof Error ? cause.message : String(cause)}`,
+      + `The database change was NOT performed. ${hookCauseText(cause)}`,
       cause,
     )
     this.name = 'BeforeHookError'

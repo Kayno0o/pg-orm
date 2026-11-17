@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { sanitizePgErrorMessage, UniqueError, ValidationError, withParamRedactor, wrapPgError } from '../../../src/errors/index'
+import { AfterHookError, BeforeHookError, sanitizePgErrorMessage, UniqueError, ValidationError, withParamRedactor, wrapPgError } from '../../../src/errors/index'
 
 afterEach(() => {
   delete process.env.REDACT_QUERY_LOGS
@@ -72,6 +72,24 @@ describe('sanitizePgErrorMessage', () => {
     const raw = 'unique_violation in users'
 
     expect(sanitizePgErrorMessage(raw)).toBe(raw)
+  })
+})
+
+describe('hook errors', () => {
+  it('quote the cause in development, name it in production, and keep it whole on cause', () => {
+    const cause = new TypeError('embedding failed for "alice@example.com"')
+
+    expect(new BeforeHookError('users', 'beforeInsert', cause).message).toContain('alice@example.com')
+
+    process.env.NODE_ENV = 'production'
+
+    for (const err of [new BeforeHookError('users', 'beforeInsert', cause), new AfterHookError('users', 'afterInsert', cause)]) {
+      expect(err.message).not.toContain('alice@example.com')
+      expect(err.message).toContain('TypeError')
+      expect(err.cause).toBe(cause)
+    }
+
+    expect(new BeforeHookError('users', 'beforeInsert', new ValidationError('bad input', 'insert')).message).toContain('bad input')
   })
 })
 
