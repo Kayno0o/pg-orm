@@ -64,6 +64,12 @@ describe('writableColumns', () => {
     expect(writableColumns(posts)).toEqual(['title', 'tags'])
   })
 
+  it('drops a GENERATED ALWAYS identity column, which Postgres refuses a value for, and keeps a BY DEFAULT one', () => {
+    const table = defineTable('ids', t => ({ id: t.int4().primaryKey(), seq: t.int8().identity({ always: true }), n: t.int4().identity(), name: t.text() }))
+
+    expect(writableColumns(table)).toEqual(['n', 'name'])
+  })
+
   it('drops the extra columns passed as exclude', () => {
     expect(writableColumns(posts, { exclude: ['tags'] })).toEqual(['title'])
   })
