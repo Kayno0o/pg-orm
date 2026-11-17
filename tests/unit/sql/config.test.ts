@@ -36,6 +36,13 @@ describe('validateDbConfig', () => {
     expect(() => validateDbConfig({ retry: { maxRetries: 3, baseDelayMs: 0, maxDelayMs: 100 } })).not.toThrow()
   })
 
+  it('rejects a size or limit that would loop forever, read nothing or lift a cap by accident', () => {
+    for (const cfg of [{ batchChunkSize: 0 }, { batchChunkSize: 2.5 }, { maxPageSize: 0 }, { maxPageSize: Number.NaN }, { defaultLimit: 0 }, { defaultLimit: Infinity }, { maxIncludeDepth: -1 }, { slowQueryThreshold: Number.NaN }, { slowQueryThreshold: -1 }])
+      expect(() => validateDbConfig(cfg)).toThrow(ValidationError)
+
+    expect(() => validateDbConfig({ batchChunkSize: 1, maxPageSize: Infinity, defaultLimit: 50, maxIncludeDepth: 0, slowQueryThreshold: 0 })).not.toThrow()
+  })
+
   it('attaches the context and value to the ValidationError', () => {
     try {
       validateDbConfig({ statementTimeout: -1 })

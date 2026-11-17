@@ -130,12 +130,26 @@ export interface DbConfig {
   } | undefined
 }
 
+// A count where 0 would read nothing or loop forever, and NaN would slip past every comparison; `Infinity` only where it means "no cap".
+function requireCount(value: number | undefined, field: string, { min = 1, infinite = false } = {}): void {
+  if (value !== undefined && !(value >= min && (Number.isInteger(value) || (infinite && value === Infinity))))
+    throw new ValidationError(`DbConfig.${field} must be an integer of at least ${min}${infinite ? ', or Infinity' : ''}`, `DbConfig.${field}`, { value })
+}
+
 /**
  * Validate the numeric fields on a `DbConfig`. Throws `ValidationError` for
- * non-finite or negative timeouts. Called once at `Database` construction.
+ * non-finite or negative timeouts and for sizes that are not whole numbers. Called once at `Database` construction.
  */
 export function validateDbConfig(cfg: DbConfig): void {
-  const { statementTimeout, idleInTransactionTimeout } = cfg
+  const { statementTimeout, idleInTransactionTimeout, slowQueryThreshold } = cfg
+
+  requireCount(cfg.batchChunkSize, 'batchChunkSize')
+  requireCount(cfg.defaultLimit, 'defaultLimit')
+  requireCount(cfg.maxPageSize, 'maxPageSize', { infinite: true })
+  requireCount(cfg.maxIncludeDepth, 'maxIncludeDepth', { min: 0 })
+
+  if (slowQueryThreshold !== undefined && !(slowQueryThreshold >= 0))
+    throw new ValidationError('slowQueryThreshold must be a non-negative number', 'DbConfig.slowQueryThreshold', { value: slowQueryThreshold })
 
   if (statementTimeout !== undefined && (!Number.isFinite(statementTimeout) || statementTimeout < 0)) {
     throw new ValidationError(
