@@ -226,8 +226,9 @@ const context = await db.repo(chunks).read.nearest(question!, { k: 5, where: { d
 // context: (Chunk & { distance: number })[], closest first
 ```
 
-- The trait adds a nullable text column, `embeddingHash` by default (`hashColumn` renames it), holding a sha256 of the text last embedded. After an insert, and after an update whose source text changed, the rows of that write go to `embed` in one call and their vectors are written back by key through the write's executor, inside its transaction when there is one. The write-back runs no hook and no scope, and bumps no optimistic-lock version or `updatedAt`, so the rows the write returned (vectors included) match what is stored. An update that leaves the source unchanged, and an upsert landing on an unchanged row, never call `embed`.
+- The trait adds a nullable text column, `embeddingHash` by default (`hashColumn` renames it), holding a sha256 of the text last embedded. After an insert, and after an update whose source text changed, the rows of that write go to `embed` in one call and their vectors are written back by key through the write's executor, inside its transaction when there is one. The write-back runs no hook and no scope, and bumps no optimistic-lock version or `updatedAt`, so the rows the write returned (vectors included) match what is stored; an `afterUpdate` hook never sees the vector being filled in. An update that leaves the source unchanged, and an upsert landing on an unchanged row, never call `embed`.
 - The column must be a nullable `vector` or `halfvec`: it is NULL between the row's insert and the write-back, and a failing `embed` rejects the write, rolling it back inside a transaction and leaving the column NULL outside one. `embed` must return one vector per text, in order; a count mismatch throws `OrmError`. It gets every text of one write at once, so split the batch inside it when the provider caps a request's inputs.
+- A write past the bind parameter limit runs its chunks in one transaction, and `embed` runs inside it, once per chunk, after the last chunk landed: each provider round trip holds that transaction's locks and connection. Insert a large ingest in batches of a few thousand rows to keep each one short.
 - `nearest(vec, { k, where?, maxDistance?, metric?, column?, withTrashed?, withoutScopes? })` orders by the distance, limits to `k` (capped by `maxPageSize`) and adds `distance: number` to each row. `metric` is `'cosine'` by default (`'hamming'` on a `bit` column), or `'l2'`, `'inner'`, `'l1'`, `'jaccard'`; `maxDistance` is in that metric's unit. Scopes and soft delete apply as on any read. `column` names the vector column on a table without the trait, which otherwise throws `ValidationError`.
 - Chunking, prompting and reranking stay in the app.
 
@@ -361,7 +362,7 @@ their values. The two mix freely.
 q.where({ status: 'active' })
 q.where({ status: 'active', role: 'admin' })
 q.where({ deletedAt: null })          // IS NULL
-q.where({ role: ['admin', 'mod'] })   // = ANY($1), one array bound on Postgres; IN (…) on SQLite. An empty array matches nothing
+q.where({ role: ['admin', 'mod'] })   // = ANY($1), one array bound on Postgres; IN (…) on SQLite, read from one JSON array past 1000 numbers or strings. An empty array matches nothing
 q.where({ prefs: { theme: 'dark' } }) // a json/jsonb value, compared for equality; on any other column an object must name operators
 
 // ...with operators, several of which AND together
