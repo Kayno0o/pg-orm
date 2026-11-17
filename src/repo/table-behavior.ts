@@ -113,10 +113,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
       if (lifted.includes(name))
         continue
 
-      if (b instanceof BulkUpdateBuilder)
-        b.andWhere(tape)
-      else
-        b.andWhere(() => tape)
+      b instanceof BulkUpdateBuilder ? b.andWhere(tape) : b.andWhere(() => tape)
     }
   }
 
