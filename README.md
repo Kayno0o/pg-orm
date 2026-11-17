@@ -1110,7 +1110,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `TransactionAbortedError` | 25P02 | Statement sent to a transaction an earlier failure aborted |
 | `InvalidQueryError` | 42xxx | Syntax error, unknown table or column, missing privilege (`code`) |
 | `AuthenticationError` | 28xxx | Credentials refused, never retried |
-| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it. `commitOutcome: 'unknown'` when it was lost during COMMIT |
+| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection refused, failed, closed, timed out, or TLS not established | Connection lost or refused, server shutting down or starting; a read retries it. `commitOutcome: 'unknown'` when it was lost during COMMIT |
 | `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
 | `AbortError` | - | The signal bound by `db.withSignal` aborted; `cause` is its reason, never retried |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |

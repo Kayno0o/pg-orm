@@ -1,6 +1,5 @@
-import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { ForeignKeyError, NotNullError, UniqueError } from '../../src/index'
+import { ConnectionError, Database, ForeignKeyError, NotNullError, UniqueError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
 
@@ -90,6 +89,18 @@ describe('Error Wrapping - integration', () => {
     const result = await db.ping()
 
     expect(result).toBe(true)
+  })
+
+  it('raises ConnectionError when the server refuses the connection', async () => {
+    // Nothing listens on port 1.
+    const refused = new Database({ url: 'postgres://x:y@127.0.0.1:1/none', retry: { maxRetries: 2, baseDelayMs: 1 } })
+
+    try {
+      await expect(refused.raw('SELECT 1', [])).rejects.toBeInstanceOf(ConnectionError)
+    }
+    finally {
+      await refused.close({ timeout: 1000 })
+    }
   })
 
   it('close disconnects cleanly', async () => {

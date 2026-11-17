@@ -91,7 +91,7 @@ export class QueryError extends OrmError {
   }
 }
 
-/** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection closed or timed out). Indicates network or server issues; a read hitting one can be retried. */
+/** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection refused, failed, closed or timed out, or TLS not established). Indicates network or server issues; a read hitting one can be retried. */
 export class ConnectionError extends QueryError {
   /** `'unknown'` when the connection was lost during a transaction's COMMIT: the commit may or may not have landed, and neither `onCommit` nor `onRollback` ran. */
   readonly commitOutcome?: 'unknown'
@@ -447,7 +447,16 @@ export function sanitizePgErrorMessage(message: string): string {
 // Driver error fields that name what failed without holding a value: `detail`, `hint`, `where` and `internalQuery` can quote the row.
 const SAFE_DRIVER_FIELDS = ['code', 'errno', 'severity', 'schema', 'schema_name', 'table', 'table_name', 'column', 'column_name', 'dataType', 'constraint', 'constraint_name', 'routine'] as const
 
-const BUN_CONNECTION_CODES = new Set(['ERR_POSTGRES_CONNECTION_CLOSED', 'ERR_POSTGRES_CONNECTION_TIMEOUT', 'ERR_POSTGRES_IDLE_TIMEOUT', 'ERR_POSTGRES_LIFETIME_TIMEOUT'])
+const BUN_CONNECTION_CODES = new Set([
+  'ERR_POSTGRES_CONNECTION_CLOSED',
+  'ERR_POSTGRES_CONNECTION_TIMEOUT',
+  'ERR_POSTGRES_CONNECTION_REFUSED',
+  'ERR_POSTGRES_CONNECTION_FAILED',
+  'ERR_POSTGRES_IDLE_TIMEOUT',
+  'ERR_POSTGRES_LIFETIME_TIMEOUT',
+  'ERR_POSTGRES_TLS_NOT_AVAILABLE',
+  'ERR_POSTGRES_TLS_UPGRADE_FAILED',
+])
 
 const DELETE_RE = /^\s*DELETE\b/i
 const NOT_NULL_COLUMN_RE = /^null value in column "((?:[^"]|"")+)"/

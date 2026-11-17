@@ -97,7 +97,15 @@ describe('wrapPgError', () => {
     const errors = [
       Object.assign(new Error('crash shutdown'), { errno: '57P02' }),
       Object.assign(new Error('the database system is starting up'), { errno: '57P03' }),
-      ...['ERR_POSTGRES_CONNECTION_TIMEOUT', 'ERR_POSTGRES_IDLE_TIMEOUT', 'ERR_POSTGRES_LIFETIME_TIMEOUT'].map(code => Object.assign(new Error(code), { code })),
+      ...[
+        'ERR_POSTGRES_CONNECTION_TIMEOUT',
+        'ERR_POSTGRES_IDLE_TIMEOUT',
+        'ERR_POSTGRES_LIFETIME_TIMEOUT',
+        'ERR_POSTGRES_CONNECTION_REFUSED',
+        'ERR_POSTGRES_CONNECTION_FAILED',
+        'ERR_POSTGRES_TLS_NOT_AVAILABLE',
+        'ERR_POSTGRES_TLS_UPGRADE_FAILED',
+      ].map(code => Object.assign(new Error(code), { code })),
     ]
 
     for (const raw of errors) {
