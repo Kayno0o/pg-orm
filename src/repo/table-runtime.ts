@@ -4,6 +4,7 @@ import type { TableBehavior } from './table-behavior'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { AfterHookError, BeforeHookError, OrmError, ValidationError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
+import { scopeResolver } from './relation-filter'
 import { buildTableBehavior } from './table-behavior'
 
 type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
@@ -39,9 +40,9 @@ export interface TableRuntime {
 }
 
 /** Build the consolidated runtime for a single table. */
-export function buildTableRuntime(table: AnyTableDef): TableRuntime {
+export function buildTableRuntime(table: AnyTableDef, registry?: ReadonlyMap<string, AnyTableDef>): TableRuntime {
   const primaryKey = table.primaryKey ?? DEFAULT_PRIMARY_KEY
-  const behavior = buildTableBehavior(table)
+  const behavior = buildTableBehavior(table, scopeResolver(table, registry))
   const keyless = table.primaryKey == null && !(DEFAULT_PRIMARY_KEY in table.columns)
   const pkColumns = keyless ? [] : primaryKey.split(',').map(col => col.trim())
 

@@ -583,7 +583,7 @@ const [user] = await db.raw(sql, params)
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
-An upsert that updates is an update: `beforeUpdate` hooks, run on each incoming row (so `timestamps()`'s `updatedAt`), and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`.
+An upsert that updates is an update: `beforeUpdate` hooks, run on each incoming row (so `timestamps()`'s `updatedAt`), and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`; a live row it only finds runs none. A conflicting row that a scope hides makes it throw an `OrmError` saying so.
 
 An upsert fires `afterInsert` for the rows it inserted and `afterUpdate` for the ones it updated (on SQLite, told apart by reading the conflicting keys first, so a row inserted concurrently in between counts as updated). `findOrCreate` fires `afterInsert` only when it created the row.
 
@@ -662,7 +662,7 @@ await users.write.forceDelete({ id: userId })
 
 ### Scopes
 
-A scope is a WHERE a table carries on every repository call: reads, `count`, `exists`, `paginate`, both streams, `repo.read.select()`, an `include` or `withCount` reaching the table (a `hasManyThrough` pivot's scopes included), and the updates and deletes it guards, so a forgotten filter cannot leak rows. A trait declares scopes under `scopes`, a table with `withScope(name, e => ...)`; `softDelete` is one, named `softDelete`. Each runs when the statement is built and gets the request context `db.withContext` bound as its second argument, so a tenant id needs no argument on every call.
+A scope is a WHERE a table carries on every repository call: reads, `count`, `exists`, `paginate`, both streams, `repo.read.select()`, an `include` or `withCount` reaching the table (a `hasManyThrough` pivot's scopes included), and the updates and deletes it guards, so a forgotten filter cannot leak rows. A trait declares scopes under `scopes`, a table with `withScope(name, e => ...)`; `softDelete` is one, named `softDelete`. Each runs when the statement is built and gets the request context `db.withContext` bound as its second argument, so a tenant id needs no argument on every call. A scope may use `e.has()` and `e.doesntHave()` on the table's relations.
 
 ```ts
 const tenant: Trait = {

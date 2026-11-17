@@ -10,7 +10,7 @@ import { dialectOf } from '../dialect'
 import { OrmError, ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
-import { resolveRelationFilters } from './relation-filter'
+import { resolveRelationFilters, scopeResolver } from './relation-filter'
 import { resolveScopes } from './table-behavior'
 
 /**
@@ -179,7 +179,7 @@ export class RelationResolver {
     let slice: ChildRows['slice']
 
     state.includes = []
-    state.scopes = resolveScopes(table)
+    state.scopes = resolveScopes(table, undefined, scopeResolver(table, this.tableRegistry))
     state.tableColumns = Object.keys(table.columns)
 
     state.whereTape &&= resolveRelationFilters(state.whereTape, table, state.alias ?? tableName, this.tableRegistry)
@@ -367,7 +367,7 @@ export class RelationResolver {
 
     const parentIds = collectParentIds(parentRows, sourcePk)
     const { rows, chunks, parents, nestedIncludes, slice } = parentIds.length > 0
-      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS) })
+      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS, scopeResolver(pivot, this.tableRegistry)) })
       : { rows: [], chunks: [], parents: [], nestedIncludes: [], slice: undefined }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 

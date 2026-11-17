@@ -1,3 +1,4 @@
+import type { ExprTape } from '../builder/_tape'
 import type { ExprBuilder } from '../builder/expr'
 import type { DeleteBuilder, SelectBuilder, UpdateBuilder, WhereInput } from '../builder/query'
 import type { ScopeFilter } from '../builder/state'
@@ -18,11 +19,18 @@ interface RawSettable {
 
 export { liftedScopes }
 
+/** Turns the `has()` and `doesntHave()` of a scope's tape into subqueries, `outer` naming the row they correlate with. */
+export type ScopeResolver = (tape: ExprTape, outer: string) => ExprTape
+
 /** The table's scopes, each WHERE built now against the request context; `qualifier` names the alias the table is joined under. */
-export function resolveScopes(table: AnyTableDef, qualifier?: string): ScopeFilter[] {
+export function resolveScopes(table: AnyTableDef, qualifier?: string, resolve?: ScopeResolver): ScopeFilter[] {
   const ctx = queryContextStorage.getStore() ?? {}
 
-  return Object.entries(tableScopes(table)).map(([name, scope]) => ({ name, tape: compileWhere(e => scope(e, ctx), table.columns), qualifier }))
+  return Object.entries(tableScopes(table)).map(([name, scope]) => {
+    const tape = compileWhere(e => scope(e, ctx), table.columns)
+
+    return { name, tape: resolve ? resolve(tape, qualifier ?? table.name) : tape, qualifier }
+  })
 }
 
 /**
@@ -81,7 +89,7 @@ export interface TableBehavior {
 }
 
 /** Build the consolidated behavior object for a single table. */
-export function buildTableBehavior(table: AnyTableDef): TableBehavior {
+export function buildTableBehavior(table: AnyTableDef, resolve?: ScopeResolver): TableBehavior {
   const meta = tableMeta(table)
   const softDeleteColumn = meta.softDelete?.column ?? null
   const optimisticLockColumn = meta.optimisticLock?.column ?? null
@@ -93,7 +101,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
     const state = b.getState()
 
     state.tableColumns = columnNames
-    state.scopes = resolveScopes(table)
+    state.scopes = resolveScopes(table, undefined, resolve)
   }
 
   function prepareUpdate(b: RawSettable, _set: Record<string, unknown>): void {
@@ -105,7 +113,7 @@ export function buildTableBehavior(table: AnyTableDef): TableBehavior {
   }
 
   function guardWrite(b: UpdateBuilder<any> | DeleteBuilder<any> | BulkUpdateBuilder, lifted: string[]): void {
-    for (const { name, tape } of resolveScopes(table)) {
+    for (const { name, tape } of resolveScopes(table, undefined, resolve)) {
       if (lifted.includes(name))
         continue
 

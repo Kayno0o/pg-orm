@@ -702,7 +702,7 @@ export class ReadPipeline<
     if (cached?.table === table && cached.version === table._version)
       return cached
 
-    const child = { table, version: table._version, runtime: buildTableRuntime(table), mappers: createMapperFactory(table, this._dialect) }
+    const child = { table, version: table._version, runtime: buildTableRuntime(table, this._tableRegistry), mappers: createMapperFactory(table, this._dialect) }
 
     this._children.set(tableName, child)
 
