@@ -1,7 +1,65 @@
 import type { AnyTableDef } from '../../types/index'
 import type { LiveSchema, MigrationOp } from '../types'
+import { getColumnMeta } from '../../schema/column-meta'
 import { quote } from '../../sql/utils'
 import { buildIndexName, buildRenameTableSql, uniqueName } from '../ddl'
+import { columnEntries } from '../types'
+
+/**
+ * Gives the live indexes the names of the columns `renamedFrom()` renames, so the diff compares them with the definitions and finds nothing to rebuild: Postgres follows a renamed column in an index on its own.
+ * An index named after its columns by default, as `.index()` and `withIndexes()` name one, is renamed with them when the definitions still declare it. An index over an expression keeps its text, which still names the old column, and is rebuilt.
+ */
+export function renameIndexedColumns(live: LiveSchema, desired: ReadonlyMap<string, AnyTableDef>): { ops: MigrationOp[], live: LiveSchema } {
+  const renames = new Map<string, Map<string, string>>()
+  const declared = new Set<string>()
+
+  for (const [tableName, tableDef] of desired) {
+    const liveColumns = new Set(live.tables.find(t => t.name === tableName)?.columns.map(c => c.name))
+    const columns = columnEntries(tableDef.columns)
+    const taken = new Set(columns.map(([name]) => name))
+    const moved = new Map<string, string>()
+
+    for (const [name, colDef] of columns) {
+      const from = getColumnMeta(colDef).renamedFrom
+
+      if (from !== undefined && liveColumns.has(from) && !liveColumns.has(name) && !taken.has(from))
+        moved.set(from, name)
+    }
+
+    if (moved.size > 0)
+      renames.set(tableName, moved)
+
+    for (const idx of tableDef.indexes ?? [])
+      declared.add(`${tableName}.${idx.name ?? buildIndexName(tableName, idx.columns, idx.unique ?? false)}`)
+  }
+
+  const ops: MigrationOp[] = []
+  const indexes = live.indexes?.map((idx) => {
+    const moved = renames.get(idx.tableName)
+
+    if (!moved || !idx.columns.some(c => moved.has(c)))
+      return idx
+
+    const columns = idx.columns.map(c => moved.get(c) ?? c)
+    const name = buildIndexName(idx.tableName, columns, idx.isUnique)
+
+    if (idx.name !== buildIndexName(idx.tableName, idx.columns, idx.isUnique) || !declared.has(`${idx.tableName}.${name}`))
+      return { ...idx, columns }
+
+    ops.push({
+      type: 'rename_index',
+      table: idx.tableName,
+      sql: `ALTER INDEX ${quote(idx.name)} RENAME TO ${quote(name)}`,
+      destructive: false,
+      description: `Rename index "${idx.name}" to "${name}"`,
+      down: `ALTER INDEX ${quote(name)} RENAME TO ${quote(idx.name)}`,
+    })
+
+    return { ...idx, name, columns }
+  })
+
+  return { ops, live: { ...live, indexes } }
+}
 
 /**
  * Renames the tables whose definition says `renamedFrom()`: live under the old name, which no definition takes, and not yet under the new one.

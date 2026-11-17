@@ -262,4 +262,22 @@ describe('citext', () => {
   })
 })
 
+describe('renamed indexed columns', () => {
+  it('renames the index of a renamed column instead of dropping and rebuilding it', async () => {
+    const before = defineTable('ri', t => ({ id: t.serial().primaryKey(), label: t.text().index(), tag: t.text().nullable() }))
+      .withIndexes([{ name: 'ri_tag_label', columns: ['tag', 'label'] }])
+
+    await sync([before])
+
+    const after = defineTable('ri', t => ({ id: t.serial().primaryKey(), title: t.text().index().renamedFrom('label'), tag: t.text().nullable() }))
+      .withIndexes([{ name: 'ri_tag_label', columns: ['tag', 'title'] }])
+    const { ops } = await sync([after])
+
+    expect(ops.map(o => o.type)).toEqual(['rename_index', 'rename_column'])
+    expect(ops.some(o => o.destructive)).toBe(false)
+    expect(await admin.raw(`SELECT indexname AS name FROM pg_indexes WHERE schemaname = '${SCHEMA}' AND tablename = 'ri' ORDER BY indexname`)).toEqual([{ name: 'ri_pkey' }, { name: 'ri_tag_label' }, { name: 'ri_title_idx' }])
+    expect((await sync([after])).ops).toEqual([])
+  })
+})
+
 // END
