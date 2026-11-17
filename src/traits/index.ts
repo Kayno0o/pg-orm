@@ -1,7 +1,8 @@
 import type { ColumnTypes } from '../schema/column-types'
-import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, HookContext, InferSelect, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
+import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, HookContext, IndexDef, InferSelect, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
 import { DEFAULT_PRIMARY_KEY, SOFT_DELETE_SCOPE } from '../constants'
-import { OrmError } from '../errors/index'
+import { OrmError, ValidationError } from '../errors/index'
+import { columnIndexDef } from '../schema/column-index'
 import { createColumnTypes } from '../schema/column-types'
 import { ColumnBuilder } from '../schema/columns'
 import { columnBaseType } from '../schema/inspect'
@@ -36,6 +37,14 @@ const SCOPES_KEY = '_scopes'
 
 // Apply a trait to a table definition (mutates the table)
 export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
+  const builders = trait.columns?.(createColumnTypes()) ?? {}
+
+  // Nothing is applied when a column clashes: a trait cannot take over a column the table declared.
+  for (const key in builders) {
+    if (Object.hasOwn(table.columns, key))
+      throw new ValidationError(`Trait "${trait.name ?? 'unnamed'}" adds column "${key}", which table "${table.name}" already has.`, 'column', { field: key })
+  }
+
   if (trait.name) {
     const meta = table.meta as Record<string, unknown>
     const applied = (meta[APPLIED_TRAITS_KEY] ??= new Set<string>()) as Set<string>
@@ -52,8 +61,6 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
 
   // Merge columns, recording their names so `traitColumns()` can report every trait-managed column, custom traits included.
   if (trait.columns) {
-    const t = createColumnTypes()
-    const builders = trait.columns(t)
     const columns = table.columns as Record<string, unknown>
     const meta = table.meta as Record<string, unknown>
     const managed = (meta[TRAIT_COLUMNS_KEY] ??= new Set<string>()) as Set<string>
@@ -65,6 +72,11 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
       if (b instanceof ColumnBuilder) {
         columns[key] = b._build()
         managed.add(key)
+
+        const idx = columnIndexDef(key, b)
+
+        if (idx)
+          (table.indexes as IndexDef[]).push(idx)
       }
     }
   }

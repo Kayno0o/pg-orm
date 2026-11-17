@@ -4,8 +4,9 @@ import type { ColumnTypes } from './column-types'
 import { ValidationError } from '../errors/index'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
+import { columnIndexDef } from './column-index'
 import { createColumnTypes } from './column-types'
-import { ColumnBuilder, getColumnIndex } from './columns'
+import { ColumnBuilder } from './columns'
 import { createRelationTypes } from './relations'
 import { validateIdentifier, validateIndexMethod, validateIndexParams, validateRawSqlFragment } from './validate'
 
@@ -55,25 +56,10 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
       if (columns[key].constraints.some(c => c.type === 'identity') && !columns[key].constraints.some(c => c.type === 'not_null'))
         throw new ValidationError(`Column "${key}" is an identity column, which Postgres keeps NOT NULL: drop .nullable().`, 'column', { field: key })
 
-      const idx = getColumnIndex(b)
+      const idx = columnIndexDef(key, b)
 
-      if (idx) {
-        if (idx.where !== undefined)
-          validateRawSqlFragment(idx.where, `index on "${key}"`)
-
-        if (idx.opclass !== undefined)
-          validateIdentifier(idx.opclass, 'index operator class')
-
-        indexes.push({
-          columns: [key],
-          unique: false,
-          method: idx.method,
-          where: idx.where,
-          ...idx.concurrently ? { concurrently: true } : {},
-          ...idx.opclass ? { opclass: { [key]: idx.opclass } } : {},
-          ...idx.with ? { with: idx.with } : {},
-        })
-      }
+      if (idx)
+        indexes.push(idx)
     }
   }
 
