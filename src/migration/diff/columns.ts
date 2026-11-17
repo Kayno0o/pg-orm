@@ -3,6 +3,7 @@ import type { LiveColumn, LiveTable, MigrationOp } from '../types'
 import { toSQLDefault } from '../../schema/column-default'
 import { getColumnMeta } from '../../schema/column-meta'
 import {
+  alterableTypeSql,
   buildAddColumnSql,
   buildAddPrimaryKeySql,
   buildAddUniqueConstraintSql,
@@ -15,6 +16,7 @@ import {
   buildDropExpressionSql,
   buildDropNotNullSql,
   buildRenameColumnSql,
+  buildSerialSequenceSqls,
   buildSetDefaultSql,
   buildSetExpressionSql,
   buildSetNotNullSql,
@@ -250,7 +252,7 @@ export function diffColumnType(
     type: 'alter_column',
     table: tableName,
     column: colName,
-    sql: buildAlterColumnTypeSql(tableName, colName, columnTypeSql(ctx.colDef), usingClause(colName, ctx.liveType, ctx.desiredType, columnTypeSql(ctx.colDef))),
+    sql: buildAlterColumnTypeSql(tableName, colName, alterableTypeSql(ctx.colDef), usingClause(colName, ctx.liveType, ctx.desiredType, alterableTypeSql(ctx.colDef))),
     destructive: true,
     description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
   }]
@@ -401,6 +403,7 @@ export function diffColumn(
 
   return [
     ...ops,
+    ...diffSerial(tableName, colName, colDef, liveCol, retyped),
     ...diffIdentity(tableName, colName, desiredIdentity, liveCol),
     ...diffComment(tableName, colName, getColumnMeta(colDef).comment, liveCol.comment),
   ]
@@ -428,6 +431,20 @@ function diffIdentity(tableName: string, colName: string, desired: 'always' | 'b
     // The identity's own sequence, found by its internal dependency: a former serial's sequence stays owned by the column too.
     op(`SELECT setval(d.objid::regclass, (SELECT COALESCE(MAX("${colName}"), 0) + 1 FROM "${tableName}"), false) FROM pg_depend d JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid WHERE d.refobjid = '"${tableName}"'::regclass AND a.attname = '${colName}' AND d.deptype = 'i' AND d.classid = 'pg_class'::regclass`, `Start the identity of "${colName}" in "${tableName}" past its values`),
   ]
+}
+
+// A column made a serial gets the sequence Postgres would have made for it; one already a serial keeps its sequence, widened with its type.
+function diffSerial(tableName: string, colName: string, colDef: AnyColumnDef, liveCol: LiveColumn, retyped: boolean): MigrationOp[] {
+  if (!SERIAL_TYPE_RE.test(colDef.pgType) || liveCol.identity)
+    return []
+
+  const op = (sql: string, description: string): MigrationOp => ({ type: 'alter_column', table: tableName, column: colName, sql, destructive: false, description })
+  if (!liveCol.defaultValue?.startsWith('nextval(')) {
+    return buildSerialSequenceSqls(tableName, colName, colDef).map((sql, i) => op(sql, ['Create the sequence', 'Default to the sequence', 'Start the sequence past the values'][i]! + ` of "${colName}" in "${tableName}"`))
+  }
+
+  // The sequence is found through its column, as Postgres prints its name differently by search path.
+  return retyped ? [op(`DO $$ BEGIN EXECUTE format('ALTER SEQUENCE %s AS ${alterableTypeSql(colDef)}', pg_get_serial_sequence('"${tableName}"', '${colName}')); END $$`, `Give the sequence of "${colName}" in "${tableName}" its new type`)] : []
 }
 
 // A serial column's default is the `nextval()` of the sequence Postgres made for it, which the schema never spells out.

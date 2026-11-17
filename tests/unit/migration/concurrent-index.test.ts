@@ -15,7 +15,7 @@ const registry = new Map([[events.name, events]])
 const liveEvents: LiveTable = {
   name: 'ev_events',
   columns: [
-    { name: 'id', dataType: 'integer', udtName: 'int4', isNullable: false, columnDefault: 'nextval(\'ev_events_id_seq\'::regclass)', isPrimaryKey: true, isUnique: false },
+    { name: 'id', dataType: 'integer', udtName: 'int4', isNullable: false, defaultValue: 'nextval(\'ev_events_id_seq\'::regclass)', isPrimaryKey: true, isUnique: false },
     { name: 'kind', dataType: 'text', udtName: 'text', isNullable: false, columnDefault: null, isPrimaryKey: false, isUnique: false },
     { name: 'at', dataType: 'timestamp with time zone', udtName: 'timestamptz', isNullable: false, columnDefault: null, isPrimaryKey: false, isUnique: false },
   ],

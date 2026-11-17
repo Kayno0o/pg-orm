@@ -12,7 +12,6 @@ export const TYPE_QUALIFIER_RE = /^[^(]*\./
 export const TYPE_MODIFIER_RE = /\(\d+(?:,\d+)?\)/g
 export const ARRAY_SUFFIX_RE = /\[\]$/
 export const SERIAL_TYPE_RE = /^(?:small|big)?serial[248]?$/i
-
 // The parts of a default expression: a quoted literal is kept verbatim, the rest loses its spacing, its case and its casts (`''::text`, `::character varying(10)[]`).
 export const DEFAULT_LITERAL_RE = /('(?:[^']|'')*')/
 export const DEFAULT_CAST_RE = /::(?:"[^"]*"|[a-z_][\w.]*)(?:\([\d,]*\))?(?:\[\d*\])*/g

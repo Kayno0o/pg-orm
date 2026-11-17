@@ -37,6 +37,14 @@ export function columnTypeSql(colDef: AnyColumnDef): string {
   return typeSql(colDef.pgType, getColumnMeta(colDef).enumName)
 }
 
+// The integer type a serial column is made of: `ALTER COLUMN ... TYPE` has no pseudo-type.
+const SERIAL_BASE_TYPES: Record<string, string> = { smallserial: 'smallint', serial2: 'smallint', serial: 'integer', serial4: 'integer', bigserial: 'bigint', serial8: 'bigint' }
+
+/** A column type as `ALTER COLUMN ... TYPE` takes it: a serial is its integer type. */
+export function alterableTypeSql(colDef: AnyColumnDef): string {
+  return SERIAL_BASE_TYPES[colDef.pgType.toLowerCase()] ?? columnTypeSql(colDef)
+}
+
 export function generateColumnDDL(name: string, colDef: AnyColumnDef, tableName?: string): string {
   const parts: string[] = [quote(name), columnTypeSql(colDef)]
 
@@ -313,6 +321,18 @@ export function buildSetNotNullSql(tableName: string, colName: string): string {
 
 export function buildDropNotNullSql(tableName: string, colName: string): string {
   return `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(colName)} DROP NOT NULL`
+}
+
+/** The sequence a column made a serial gets, owned by it and starting past the values already there, and the default taking its values. */
+export function buildSerialSequenceSqls(tableName: string, colName: string, colDef: AnyColumnDef): string[] {
+  const sequence = quote(fitIdentifier(`${tableName}_${colName}`, '_seq'))
+  const type = SERIAL_BASE_TYPES[colDef.pgType.toLowerCase()] ?? 'bigint'
+
+  return [
+    `CREATE SEQUENCE ${sequence} AS ${type} OWNED BY ${quote(tableName)}.${quote(colName)}`,
+    buildSetDefaultSql(tableName, colName, `nextval('${sequence}'::regclass)`),
+    `SELECT setval('${sequence}'::regclass, (SELECT COALESCE(MAX(${quote(colName)}), 0) + 1 FROM ${quote(tableName)}), false)`,
+  ]
 }
 
 export function buildSetDefaultSql(tableName: string, colName: string, value: string): string {

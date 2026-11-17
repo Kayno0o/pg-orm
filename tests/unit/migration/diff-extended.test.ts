@@ -17,7 +17,8 @@ function liveCol(name: string, overrides: Partial<{
     name,
     dataType: overrides.dataType ?? 'text',
     isNullable: overrides.isNullable ?? true,
-    defaultValue: overrides.defaultValue ?? null,
+    // An integer key stands for a serial, whose default is its sequence's.
+    defaultValue: overrides.defaultValue !== undefined ? overrides.defaultValue : overrides.isPrimaryKey && (overrides.dataType === 'integer' || overrides.dataType === 'bigint') ? `nextval('${name}_seq'::regclass)` : null,
     isPrimaryKey: overrides.isPrimaryKey ?? false,
     isUnique: overrides.isUnique ?? false,
     isGenerated: overrides.isGenerated ?? false,
