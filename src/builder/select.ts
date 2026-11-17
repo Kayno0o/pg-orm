@@ -32,12 +32,10 @@ type AvgOf<T> = T extends number ? number : string
 
 type TargetColumn<R, C extends string> = ColumnType<RelationColumns<R>[C]>
 
-/** What every relation aggregate takes: an alias, a filter on the related rows typed against their table, and the scopes to lift (`withDeleted` lifts softDelete). */
-export interface RelationAggregateOptions<TAlias extends string, R> {
+/** What every relation aggregate takes: an alias, a filter on the related rows typed against their table, and the scopes to lift (`withTrashed` lifts softDelete). */
+export interface RelationAggregateOptions<TAlias extends string, R> extends ScopeOptions {
   as?: TAlias
   where?: OptionalWhere<RelationTarget<R>['columns'], RelationTarget<R>['relations']>
-  withDeleted?: boolean
-  withoutScopes?: string[]
 }
 
 // A joined table's columns, keyed `alias.col`; an outer join makes them nullable.
@@ -466,7 +464,7 @@ export class SelectBuilder<
 
   /**
    * Add the number of related rows as a column, in the same query: `.withCount('tiers')` gives each row `tiersCount: number`.
-   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withDeleted`; the target's and pivot's other scopes apply unless named in `withoutScopes`.
+   * `as` renames it, `where` counts only matching children (typed against the target when the relation was built from a table thunk). Soft-deleted children, and those linked through a soft-deleted pivot row, are counted only with `withTrashed`; the target's and pivot's other scopes apply unless named in `withoutScopes`.
    */
   withCount<K extends CountableRelations<TRelations>, TAlias extends string = `${K}Count`>(relation: K, opts?: RelationAggregateOptions<TAlias, TRelations[K]>): SelectBuilder<TColumns, TRelations, TResult & Record<TAlias, number>, TGroup, TJoined> {
     return this._aggregate('count', relation, undefined, opts, `${relation}Count`)
@@ -501,7 +499,7 @@ export class SelectBuilder<
     const alias = opts?.as ?? fallback
 
     validateIdentifier(alias, `${aggregateMethod(fn)} alias`)
-    this._state.relationAggregates.push({ fn, relation, column, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: liftedScopes({ withoutScopes: opts?.withoutScopes, withTrashed: opts?.withDeleted }) })
+    this._state.relationAggregates.push({ fn, relation, column, alias, where: opts?.where ? compileWhere(opts.where) : null, withoutScopes: liftedScopes(opts) })
 
     return this as never
   }

@@ -61,9 +61,9 @@ describe('a soft-deleted pivot row', () => {
     expect(await teamNames(true)).toEqual(['A', 'B'])
   })
 
-  it('is not counted by withCount, unless withDeleted', async () => {
+  it('is not counted by withCount, unless withTrashed', async () => {
     const [live] = await db.repo(users).read.findMany(q => q.withCount('teams'))
-    const [all] = await db.repo(users).read.findMany(q => q.withCount('teams', { as: 'all', withDeleted: true }))
+    const [all] = await db.repo(users).read.findMany(q => q.withCount('teams', { as: 'all', withTrashed: true }))
 
     expect(live!.teamsCount).toBe(1)
     expect(all!.all).toBe(2)

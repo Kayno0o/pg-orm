@@ -193,7 +193,7 @@ describe('scope options of the wrong type', () => {
     const { exec, pipeline } = setupWritePipeline(soft)
 
     await expect(pipeline.updateMany({ name: 'x' }, { id: 1 }, { withoutScopes: 'softDelete' } as never)).rejects.toThrow(ValidationError)
-    expect(() => new SelectBuilder(soft).withCount('nope' as never, { withDeleted: 'false' } as never)).toThrow(ValidationError)
+    expect(() => new SelectBuilder(soft).withCount('nope' as never, { withTrashed: 'false' } as never)).toThrow(ValidationError)
     expect(exec.queries).toHaveLength(0)
   })
 })

@@ -118,13 +118,13 @@ describe.each(dialects)('relation aggregates on %s', (_name, open) => {
     expect([bob!.ordersExists, bob!.hasProfile]).toEqual([false, false])
   })
 
-  it('takes withCount\'s alias, filter and withDeleted', async () => {
+  it('takes withCount\'s alias, filter and withTrashed', async () => {
     const [ann] = await db.repo(customers).read.findMany(q => q
       .where({ name: 'ann' })
       .withSum('orders', 'total', { as: 'big', where: { total: { gt: 15 } } })
-      .withSum('orders', 'total', { as: 'all', withDeleted: true })
+      .withSum('orders', 'total', { as: 'all', withTrashed: true })
       .withExists('orders', { as: 'hasHuge', where: e => e.gt('total', 50) })
-      .withExists('orders', { as: 'hadHuge', where: e => e.gt('total', 50), withDeleted: true }))
+      .withExists('orders', { as: 'hadHuge', where: e => e.gt('total', 50), withTrashed: true }))
 
     expect([ann!.big, ann!.all, ann!.hasHuge, ann!.hadHuge]).toEqual([20, 130, false, true])
   })

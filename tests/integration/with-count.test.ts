@@ -69,7 +69,7 @@ describe('withCount', () => {
 
   it('counts soft-deleted children when asked', async () => {
     const { a } = await seed()
-    const [row] = await db.repo(lists).read.findMany(q => q.pick('id').withCount('items', { withDeleted: true }).where({ id: a }))
+    const [row] = await db.repo(lists).read.findMany(q => q.pick('id').withCount('items', { withTrashed: true }).where({ id: a }))
 
     expect(row).toEqual({ id: a, itemsCount: 3 })
   })
