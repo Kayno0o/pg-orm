@@ -251,4 +251,15 @@ describe('applyMigration', () => {
   })
 })
 
+describe('citext', () => {
+  it('syncs a citext column on a database without the extension, then finds nothing', async () => {
+    const table = defineTable('ci', t => ({ id: t.serial().primaryKey(), email: t.citext().unique() }))
+
+    await sync([table])
+
+    expect((await sync([table])).ops).toEqual([])
+    expect(await admin.raw(`INSERT INTO ${q('ci')} (email) VALUES ('A@x.io') RETURNING email = 'a@x.io' AS same`)).toEqual([{ same: true }])
+  })
+})
+
 // END
