@@ -262,31 +262,6 @@ function timeKey(text: string, zoned: boolean): string | undefined {
   return `${Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds)}|${offset}`
 }
 
-// Months, days and seconds an interval adds up to, as Postgres keeps them apart; undefined when a unit is unknown.
-function intervalKey(text: string): string | undefined {
-  let months = 0
-  let days = 0
-  let seconds = 0
-
-  for (const [, amount, unit, sign, hours, minutes, secs] of text.matchAll(INTERVAL_PART_RE)) {
-    if (unit !== undefined) {
-      const scale = INTERVAL_UNITS[unit.toLowerCase()]
-
-      if (scale === undefined)
-        return undefined
-
-      months += Number(amount) * scale[0]
-      days += Number(amount) * scale[1]
-      seconds += Number(amount) * scale[2]
-    }
-    else {
-      seconds += (sign === '-' ? -1 : 1) * (Number(hours) * 3600 + Number(minutes) * 60 + Number(secs ?? 0))
-    }
-  }
-
-  return `${months}|${days}|${seconds}`
-}
-
 // Months, days and seconds in one of each unit an interval is written with.
 const INTERVAL_UNITS: Record<string, [number, number, number] | undefined> = {
   year: [12, 0, 0],
@@ -313,6 +288,31 @@ const INTERVAL_UNITS: Record<string, [number, number, number] | undefined> = {
   seconds: [0, 0, 1],
   sec: [0, 0, 1],
   secs: [0, 0, 1],
+}
+
+// Months, days and seconds an interval adds up to, as Postgres keeps them apart; undefined when a unit is unknown.
+function intervalKey(text: string): string | undefined {
+  let months = 0
+  let days = 0
+  let seconds = 0
+
+  for (const [, amount, unit, sign, hours, minutes, secs] of text.matchAll(INTERVAL_PART_RE)) {
+    if (unit !== undefined) {
+      const scale = INTERVAL_UNITS[unit.toLowerCase()]
+
+      if (scale === undefined)
+        return undefined
+
+      months += Number(amount) * scale[0]
+      days += Number(amount) * scale[1]
+      seconds += Number(amount) * scale[2]
+    }
+    else {
+      seconds += (sign === '-' ? -1 : 1) * (Number(hours) * 3600 + Number(minutes) * 60 + Number(secs ?? 0))
+    }
+  }
+
+  return `${months}|${days}|${seconds}`
 }
 
 function canonicalJson(text: string): string | undefined {

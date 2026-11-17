@@ -26,7 +26,16 @@ function comparableDefinition(definition: string): string {
   return normalizeExpression(definition.slice(definition.indexOf(' USING ')).replace(QUOTED_PARAM_RE, '$1=$2'))
 }
 
-function indexChanged(liveIdx: LiveIndex, idx: IndexDef, tableName: string): boolean {
+// Postgres prints no operator class an index leaves at its type's default, so one the definition names as such is left out of the comparison.
+function withoutDefaultOpclasses(idx: IndexDef, defaults: readonly string[]): IndexDef {
+  const opclass = Object.fromEntries(Object.entries(idx.opclass ?? {}).filter(([, name]) => !defaults.includes(name)))
+
+  return { ...idx, opclass }
+}
+
+function indexChanged(liveIdx: LiveIndex, idxDef: IndexDef, tableName: string): boolean {
+  const idx = withoutDefaultOpclasses(idxDef, liveIdx.defaultOpclasses ?? [])
+
   // An index on expressions, sorted, with operator classes or included columns compares as the definition Postgres prints back, from its method on.
   if (idx.expressions?.length || idx.desc?.length || idx.include?.length || idx.with || Object.keys(idx.opclass ?? {}).length) {
     const desired = buildCreateIndexSql(tableName, idx)

@@ -86,4 +86,20 @@ describe('defaults Postgres respells', () => {
   })
 })
 
+describe('indexes', () => {
+  it('syncs an index naming its default operator class once, and still sees another one', async () => {
+    const make = (opclass: string) => defineTable('ops', t => ({ id: t.serial().primaryKey(), a_text: t.text() })).withIndexes([{ columns: ['a_text'], name: 'ops_a_text_idx', opclass: { a_text: opclass } }])
+    const v1 = make('text_ops')
+
+    await sync([v1])
+
+    expect((await sync([v1])).ops).toEqual([])
+
+    const v2 = make('text_pattern_ops')
+
+    expect((await sync([v2], true)).ops.map(o => o.type)).toEqual(['drop_index', 'create_index'])
+    expect((await sync([v2])).ops).toEqual([])
+  })
+})
+
 // END
