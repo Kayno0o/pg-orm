@@ -23,3 +23,6 @@ export const STATEMENT_PARAM_RESERVE = 1000
 
 /** The scope the softDelete trait declares, which `withTrashed` lifts. */
 export const SOFT_DELETE_SCOPE = 'softDelete'
+
+/** Values from which a SQLite IN list binds as one JSON array read through json_each, rather than a parameter each. */
+export const SQLITE_JSON_IN_LIST_MIN = 1000

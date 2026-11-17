@@ -66,4 +66,16 @@ describe.each(dialects)('IN and NOT IN lists on %s', (_name, open) => {
 
     expect(labels(await db.repo(things).read.findMany(q => q.where(e => e.or(e.in('label', many), e.eq('label', 'plain')))))).toEqual(['plain'])
   })
+
+  // Past the 250000 parameters Bun's SQLite takes, and the 32766 of a default build, for strings, numbers and bigints.
+  it('takes a list of 300000 keys of each kind, IN and NOT IN', async () => {
+    const read = db.repo(things).read
+    const n = 300_000
+    const ids = (await read.findMany({ label: 'plain' })).map(r => r.id)
+
+    expect(labels(await read.findMany({ label: [...Array.from({ length: n }, (_, i) => `n${i}`), 'a,b'] }))).toEqual(['a,b'])
+    expect(labels(await read.findMany({ id: [...Array.from({ length: n }, (_, i) => -i - 1), ...ids] }))).toEqual(['plain'])
+    expect(labels(await read.findMany({ big: [...Array.from({ length: n }, (_, i) => BigInt(-i - 1)), 9007199254740993n] }))).toEqual(['a,b'])
+    expect(labels(await read.findMany({ label: { notIn: [...Array.from({ length: n }, (_, i) => `n${i}`), 'plain'] } }))).toEqual(['a,b', 'say "hi"'])
+  })
 })

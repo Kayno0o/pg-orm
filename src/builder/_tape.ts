@@ -5,8 +5,10 @@
 import type { Dialect } from '../dialect'
 import type { AnyColumns, ScopeOptions } from '../types/index'
 import type { ExprBuilder } from './expr'
+import { SQLITE_JSON_IN_LIST_MIN } from '../constants'
 import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
+import { bigintAsString } from '../sql/json-param'
 import { qualifyCol } from '../sql/utils'
 import { bindRawParams } from './_placeholders'
 
@@ -169,6 +171,11 @@ function isArrayElement(val: unknown): boolean {
   return val === null || typeof val !== 'object' || val instanceof Date
 }
 
+// A key-like value JSON carries unchanged: a bigint goes as its digits, which an integer column reads back exactly.
+function isJsonScalar(val: unknown): boolean {
+  return typeof val === 'string' || typeof val === 'bigint' || (typeof val === 'number' && Number.isFinite(val))
+}
+
 export function isSqlValue(val: unknown): val is TypedExpr<unknown> {
   return Array.isArray(val) && (val as unknown as Record<symbol, unknown>)[SQL_VALUE] === true
 }
@@ -318,6 +325,10 @@ class ExprAssembler {
         // On Postgres a list of plain values binds as one array, so the statement reads the same whatever its length and never nears the bind-parameter limit.
         if (this.dialect === 'postgres' && op.vals.every(isArrayElement))
           return { sql: `${colSql} ${negate ? '<> ALL' : '= ANY'}(${this.nextParam(op.vals)})`, next: pos + 1 }
+
+        // SQLite caps a statement's bound parameters (32766 unless built otherwise), so a long list of numbers and strings goes as one JSON array.
+        if (this.dialect === 'sqlite' && op.vals.length >= SQLITE_JSON_IN_LIST_MIN && op.vals.every(isJsonScalar))
+          return { sql: `${colSql} ${negate ? 'NOT IN' : 'IN'} (SELECT "value" FROM json_each(${this.nextParam(JSON.stringify(op.vals, bigintAsString))}))`, next: pos + 1 }
 
         const list = op.vals.map(v => this.operand(v))
 
