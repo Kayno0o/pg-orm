@@ -52,6 +52,9 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
     if (b instanceof ColumnBuilder) {
       columns[key] = b._build()
 
+      if (columns[key].constraints.some(c => c.type === 'identity') && !columns[key].constraints.some(c => c.type === 'not_null'))
+        throw new ValidationError(`Column "${key}" is an identity column, which Postgres keeps NOT NULL: drop .nullable().`, 'column', { field: key })
+
       const idx = getColumnIndex(b)
 
       if (idx) {

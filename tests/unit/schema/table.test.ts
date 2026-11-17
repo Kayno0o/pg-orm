@@ -32,6 +32,12 @@ describe('defineTable', () => {
     expect(table.primaryKey).toBe('a,b')
   })
 
+  it('refuses a nullable identity column, which Postgres keeps NOT NULL', () => {
+    expect(() => defineTable('idn', t => ({ n: t.int4().identity().nullable() }))).toThrow('identity')
+    expect(() => defineTable('idn', t => ({ n: t.int4().nullable().identity() }))).toThrow('identity')
+    expect(defineTable('idn', t => ({ n: t.int4().identity() })).columns.n).toBeDefined()
+  })
+
   it('returns null when no primary key', () => {
     const table = defineTable('test', t => ({
       name: t.text(),
