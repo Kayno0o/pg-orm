@@ -150,4 +150,54 @@ describe('uniques', () => {
   })
 })
 
+describe('foreign keys', () => {
+  it('drops a composite foreign key made outside the definitions once', async () => {
+    const parent = defineTable('fkp', t => ({ a: t.int4().primaryKey(), b: t.int4().primaryKey() }))
+    const child = defineTable('fkc', t => ({ id: t.serial().primaryKey(), a: t.int4(), b: t.int4() }))
+
+    await sync([parent, child])
+    await admin.raw(`ALTER TABLE ${q('fkc')} ADD CONSTRAINT fkc_fk FOREIGN KEY (a, b) REFERENCES ${q('fkp')} (a, b)`)
+
+    const { ops } = await sync([parent, child], true)
+
+    expect(ops.filter(o => o.type === 'drop_fk')).toHaveLength(1)
+    expect(await admin.raw(`SELECT conname FROM pg_constraint WHERE conrelid = '${q('fkc')}'::regclass AND contype = 'f'`)).toEqual([])
+    expect((await sync([parent, child])).ops).toEqual([])
+  })
+})
+
+describe('dropping referenced columns', () => {
+  it('drops the foreign key before the column it points at, whatever the table order', async () => {
+    const par1 = defineTable('par', t => ({ id: t.serial().primaryKey(), code: t.text().unique() }))
+    const kid1 = defineTable('kid', t => ({ id: t.serial().primaryKey(), pcode: t.text().references(() => par1, 'code') }))
+
+    await sync([par1, kid1])
+
+    const par2 = defineTable('par', t => ({ id: t.serial().primaryKey() }))
+    const kid2 = defineTable('kid', t => ({ id: t.serial().primaryKey() }))
+
+    for (const tables of [[par2, kid2], [kid2, par2]]) {
+      await sync([par1, kid1])
+
+      const { ops } = await sync(tables, true)
+
+      expect(ops.map(o => o.type)[0]).toBe('drop_fk')
+      expect((await sync(tables)).ops).toEqual([])
+    }
+  })
+
+  it('drops the foreign key of a column kept while the table it points at goes', async () => {
+    const par1 = defineTable('par2', t => ({ id: t.serial().primaryKey(), code: t.text().unique() }))
+    const kid1 = defineTable('kid2', t => ({ id: t.serial().primaryKey(), pcode: t.text().references(() => par1, 'code') }))
+
+    await sync([par1, kid1])
+
+    const kid2 = defineTable('kid2', t => ({ id: t.serial().primaryKey(), pcode: t.text() }))
+
+    await sync([kid2], true)
+
+    expect((await sync([kid2])).ops).toEqual([])
+  })
+})
+
 // END
