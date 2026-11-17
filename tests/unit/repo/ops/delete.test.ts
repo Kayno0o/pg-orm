@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { ValidationError } from '../../../../src/errors/index'
 import { defineTable, softDelete } from '../../../../src/index'
 import { isJsonParam } from '../../../../src/sql/json-param'
 import { setupWritePipeline as setup } from './_helpers'
@@ -99,6 +100,19 @@ describe('WritePipeline restore', () => {
 
     expect(exec.lastQuery!.sql).toMatch(/UPDATE "soft"/)
     expect(exec.lastQuery!.sql).toMatch(/"deletedAt" IS NOT NULL/)
+  })
+
+  it('refuses a missing WHERE or one every row passes, which restoreAll spells out', async () => {
+    const { exec, pipeline } = setup(soft)
+
+    await expect(pipeline.restore(e => e.and())).rejects.toThrow(/needs a WHERE that filters/)
+    await expect(pipeline.restore(undefined as never)).rejects.toBeInstanceOf(ValidationError)
+    expect(exec.queries).toHaveLength(0)
+
+    exec.preset([])
+    await pipeline.restoreAll({ pk: true })
+
+    expect(exec.lastQuery!.sql).toMatch(/UPDATE "soft"/)
   })
 })
 

@@ -479,7 +479,7 @@ q.pick().computed(e => e.countCol(), 'n').groupByExpr(e => e.caseWhen([[e.gt('pr
 Repository operations are grouped into three suites accessed as properties:
 
 - `repo.read` — `findMany`, `findOne`, `findOneOrThrow`, `findById`, `findByIdOrThrow`, `existsById`, `count`, `exists`, `paginate`, `paginateCursor`, `select()`
-- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`, `purgeTrashed`, plus `insert/update/delete/merge` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s), or `{ returning: false }` to a many-row write (`insertMany`, `updateMany`, `deleteMany`, `upsertMany`, `deleteAll`, `forceDelete`, `restore`, `purgeTrashed`) to send it without RETURNING and get nothing back; a single-row write refuses it with a ValidationError, since it reads its row back to tell whether it changed one. An after-write hook still gets its rows, read for it alone
+- `repo.write` — `insertOne/Many`, `updateOne/Many/ById`, `updateWithLock`, `deleteOne/Many/ById`, `upsertOne/Many`, `findOrCreate`, `restore`, `restoreAll`, `forceDelete`, `purgeTrashed`, plus `insert/update/delete/merge` builders. These return the written row(s) with virtuals applied; pass `{ pk: true }` for only the primary key(s), or `{ returning: false }` to a many-row write (`insertMany`, `updateMany`, `deleteMany`, `upsertMany`, `deleteAll`, `forceDelete`, `restore`, `restoreAll`, `purgeTrashed`) to send it without RETURNING and get nothing back; a single-row write refuses it with a ValidationError, since it reads its row back to tell whether it changed one. An after-write hook still gets its rows, read for it alone
 - `repo.stream` — `offset` (LIMIT/OFFSET), `cursor` (keyset) and `copyTo` (CSV export through COPY)
 
 `db.repo(table)` is memoized per table definition, so calling it inline (`db.repo(users).read.findMany()`) on every request is free - no need to hoist repositories into module-level constants or wrap them in your own cache. The cache is keyed weakly on the table def and invalidated automatically when the def is mutated (`withRelations`, `withVirtuals`, `withTrait`, `hook`). `repo.using(tx)` is memoized per transaction client, so rebinding inside a loop is free too.
@@ -541,6 +541,8 @@ await repo.write.updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1, t
 await repo.write.deleteById(1)
 await repo.write.deleteMany({ createdAt: { lt: cutoff } })
 await repo.write.deleteAll()
+// restore refuses the same WHEREs; restoring every trashed row is restoreAll()
+await repo.write.restoreAll()
 
 // The raw update()/delete() builders refuse a statement left without a WHERE too, unless told
 const { sql, params } = repo.write.delete().allRows().toSQL()
@@ -589,7 +591,7 @@ What each op gives when no row matches:
 
 | Op | No match |
 |----|----------|
-| `findMany`, `*Many`, `deleteAll`, `restore`, `forceDelete`, `purgeTrashed` | `[]` |
+| `findMany`, `*Many`, `deleteAll`, `restore`, `restoreAll`, `forceDelete`, `purgeTrashed` | `[]` |
 | `findOne`, `findById`, `updateOne`, `updateById`, `deleteOne`, `deleteById` | `null` |
 | `upsertOne` with a `where` guard that skipped the update | `null` |
 | `findOneOrThrow`, `findByIdOrThrow` | throws `NotFoundError` |
@@ -755,7 +757,7 @@ Which hooks each operation runs, in order:
 | `updateManyById` | `beforeUpdate` on each row's patch, `afterUpdate` |
 | `deleteOne`, `deleteMany`, `deleteById`, `deleteAll` | `beforeDelete`, then on a `softDelete` table `beforeUpdate` on the soft-delete `set`, `afterDelete` |
 | `forceDelete` | `beforeDelete`, `afterDelete` |
-| `restore` | `beforeUpdate`, `afterUpdate` |
+| `restore`, `restoreAll` | `beforeUpdate`, `afterUpdate` |
 | `upsertOne`, `upsertMany` | `beforeInsert`, `beforeUpsert` and `beforeUpdate` on each row, then `afterInsert` for the rows inserted and `afterUpdate` for the ones updated |
 | `findOrCreate` | `beforeInsert`, `beforeUpsert`, then `afterInsert` when it created the row, `restore`'s hooks when it restored one, `afterSelect` when it found one |
 | `find*`, `paginate*`, `repo.stream.offset`, `repo.stream.cursor` | `afterSelect`, also on included relations' rows |

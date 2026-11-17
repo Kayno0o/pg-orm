@@ -767,6 +767,15 @@ export class WritePipeline<
   // --- Restore ---
 
   async restore(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._restore(this._requireWhere(where, 'restore'), opts)
+  }
+
+  /** Restores every trashed row, which `restore` refuses a WHERE for. */
+  async restoreAll(opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    return this._restore(e => e.and(), opts)
+  }
+
+  private async _restore(where: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const sdCol = this._runtime.behavior.getSoftDeleteColumn()
 
     if (sdCol === null) {
@@ -778,7 +787,7 @@ export class WritePipeline<
     }
 
     const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
-    const builder = this._runtime.behavior.buildRestoreUpdate(s, where && this._resolved(compileWhere<TColumns>(where, this._runtime.table.columns)), liftedScopes(opts))
+    const builder = this._runtime.behavior.buildRestoreUpdate(s, where, liftedScopes(opts))
 
     return this._execute({
       builder,

@@ -167,6 +167,14 @@ export class WriteSuite<
     return unreturned(opts, await this._pipeline.restore(where, opts))
   }
 
+  /** Restore every trashed row. `restore` refuses a WHERE that holds for every row, so restoring them all is spelled out. */
+  async restoreAll(opts: ScopedWriteOptions & Unreturned): Promise<void>
+  async restoreAll(opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async restoreAll(opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async restoreAll(opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+    return unreturned(opts, await this._pipeline.restoreAll(opts))
+  }
+
   /** Delete every row, trashing them on a soft-delete table. `deleteMany` refuses a missing WHERE, so clearing a table is spelled out. */
   async deleteAll(opts: ScopedWriteOptions & Unreturned): Promise<void>
   async deleteAll(opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
