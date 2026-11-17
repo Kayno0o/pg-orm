@@ -11,8 +11,9 @@ import { validateIdentifier } from '../schema/validate'
  * A trait is a composable table behavior that adds columns, hooks, virtuals, scopes and metadata.
  * Apply with `table.withTrait(myTrait)`. Built-in traits: `softDelete()`, `timestamps()`, `optimisticLock()`.
  * The generic `TCols` carries the type-level column definitions for proper inference via `withTrait`, and `THost` the columns of the table it applies to, which `withTrait` infers so a trait's callbacks are typed against the row.
+ * A trait fitting any table leaves `THost` at `{}`, not `any`, so passing it to `withTrait` lints clean under `ts/no-unsafe-argument`.
  */
-export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}, THost extends AnyColumns = any> {
+export interface Trait<TCols extends AnyColumns = {}, TVirts extends AnyVirtuals = {}, THost extends AnyColumns = {}> {
   /**
    * Identifier used to detect duplicate applications. When set, `applyTrait`
    * tracks it in `table.meta._appliedTraits` and throws on re-apply.

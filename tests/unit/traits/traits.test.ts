@@ -1,5 +1,6 @@
+import type { Trait } from '../../../src/index'
 import type { HookContext } from '../../../src/types/index'
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, expectTypeOf, it } from 'bun:test'
 import { defineTable, optimisticLock, OrmError, softDelete, timestamps } from '../../../src/index'
 
 describe('softDelete trait', () => {
@@ -134,5 +135,16 @@ describe('trait double-application guard', () => {
       .withTrait(timestamps())
 
     expect(() => table.withTrait(timestamps())).toThrow(/timestamps.*users/)
+  })
+})
+
+// typescript-eslint's no-unsafe-argument flags a Trait<..., any> handed to withTrait, which wants the table's own columns as its host.
+describe('built-in traits fit any table without an any host', () => {
+  type HostOf<T> = T extends Trait<any, any, infer H> ? H : never
+
+  it('types each host as {}', () => {
+    expectTypeOf<HostOf<ReturnType<typeof timestamps>>>().toEqualTypeOf<{}>()
+    expectTypeOf<HostOf<ReturnType<typeof softDelete>>>().toEqualTypeOf<{}>()
+    expectTypeOf<HostOf<ReturnType<typeof optimisticLock>>>().toEqualTypeOf<{}>()
   })
 })
