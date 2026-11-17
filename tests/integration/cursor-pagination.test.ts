@@ -22,7 +22,14 @@ const events = defineTable('cp_events', t => ({
   local: t.timestamp(),
 }))
 
-const tables = [items, cells, events]
+// Rows of two tenants, softDelete on top, paged by a timestamp: the boundary row is read back by key, and must be one the read can see.
+const notes = defineTable('cp_notes', t => ({
+  id: t.int4().primaryKey(),
+  tenantId: t.int4(),
+  at: t.timestamptz(),
+})).withScope('tenant', (e, ctx) => e.eq('tenantId', ctx.tenantId as number)).withTrait(softDelete())
+
+const tables = [items, cells, events, notes]
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-cursor-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -48,6 +55,7 @@ describe.each(dialects)('cursor pagination on %s', (_name, open) => {
     await db.raw('DELETE FROM "cp_items"')
     await db.raw('DELETE FROM "cp_cells"')
     await db.raw('DELETE FROM "cp_events"')
+    await db.raw('DELETE FROM "cp_notes"')
     ids = await db.repo(items).write.insertMany(GROUPS.map(grp => ({ grp, label: null })), { pk: true })
   })
 
@@ -177,5 +185,53 @@ describe.each(dialects)('cursor pagination on %s', (_name, open) => {
         expect({ column, direction, seen, streamed }).toEqual({ column, direction, seen: expected, streamed: expected })
       }
     }
+  })
+})
+
+describe.each(dialects)('a cursor naming a row the scopes hide, on %s', (_name, open) => {
+  let db: Database
+  const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s))
+  // Older than every row: a boundary falling back to it pages from the start.
+  const carried = at(0)
+
+  beforeAll(async () => {
+    db = open()
+    await db.sync({ allowDestructive: true })
+  })
+
+  beforeEach(async () => {
+    await db.raw('DELETE FROM "cp_notes"')
+    await db.repo(notes).write.insertMany([
+      { id: 1, tenantId: 1, at: at(10) },
+      { id: 2, tenantId: 1, at: at(20) },
+      { id: 3, tenantId: 1, at: at(30) },
+      { id: 4, tenantId: 2, at: at(25) },
+      { id: 5, tenantId: 1, at: at(15) },
+    ], { pk: true })
+    await db.withContext({ tenantId: 1 }, () => db.repo(notes).write.deleteById(5))
+  })
+
+  afterAll(async () => {
+    await db.close()
+  })
+
+  const page = (key: number, opts: { withTrashed?: boolean, direction?: 'forward' | 'backward', value?: Date } = {}) => db.withContext({ tenantId: 1 }, async () => {
+    const { data } = await db.repo(notes).read.paginateCursor({ take: 10, column: 'at', cursor: { value: opts.value ?? carried, key }, direction: opts.direction, withTrashed: opts.withTrashed })
+
+    return data.map(r => r.id)
+  })
+
+  it('falls back to the carried value for another tenant\'s row', async () => {
+    expect(await page(4)).toEqual([1, 2, 3])
+    expect(await page(4, { direction: 'backward', value: at(40) })).toEqual([1, 2, 3])
+  })
+
+  it('falls back for a trashed row, and reads its value when withTrashed lifts the scope', async () => {
+    expect(await page(5)).toEqual([1, 2, 3])
+    expect(await page(5, { withTrashed: true })).toEqual([2, 3])
+  })
+
+  it('still reads a visible boundary row\'s own value', async () => {
+    expect(await page(2)).toEqual([3])
   })
 })

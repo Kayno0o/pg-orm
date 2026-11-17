@@ -156,7 +156,6 @@ export interface PaginateCursorResult<TRow, TCursor> {
 let _streamWarned = false
 
 const TIMESTAMP_TYPES = new Set(['timestamp', 'timestamptz'])
-const CURSOR_ROW = '__cursor_row'
 
 /**
  * Deep module owning the full read-result lifecycle for a single table:
@@ -438,7 +437,7 @@ export class ReadPipeline<
         b.orderBy(key, isForward ? 'asc' : 'desc')
 
       if (cursor != null)
-        b.andWhere(this._afterCursor(keys, this._cursorValues(cursor, keys, byKey), isForward))
+        b.andWhere(this._afterCursor(keys, this._cursorValues(cursor, keys, byKey), isForward, state.withoutScopes))
 
       return b
     })
@@ -490,24 +489,32 @@ export class ReadPipeline<
     return values
   }
 
-  private _afterCursor(keys: string[], values: unknown[], isForward: boolean): WhereFn<TColumns> {
+  private _afterCursor(keys: string[], values: unknown[], isForward: boolean, lifted: string[]): WhereFn<TColumns> {
     const op = isForward ? '>' : '<'
 
     if (keys.length === 1)
       return e => isForward ? e.gt(keys[0]! as keyof TColumns & string, values[0] as never) : e.lt(keys[0]! as keyof TColumns & string, values[0] as never)
 
     const { pkColumns, table } = this._runtime
-    const [column, ...rest] = keys
+    const [column, ...rest] = keys as [keyof TColumns & string, ...string[]]
 
-    // A Date holds milliseconds where Postgres keeps microseconds, so the boundary row's own value is read back by its key; the carried one stands in when that row is gone.
-    if (TIMESTAMP_TYPES.has(columnBaseType(table.columns[column!]!).base) && !pkColumns.includes(column!)) {
-      const byPk = pkColumns.map(c => `${quote(CURSOR_ROW)}.${quote(c)} = ?`).join(' AND ')
-      const boundary = `COALESCE((SELECT ${quote(CURSOR_ROW)}.${quote(column!)} FROM ${quote(table.name)} AS ${quote(CURSOR_ROW)} WHERE ${byPk}), ?)`
+    if (!TIMESTAMP_TYPES.has(columnBaseType(table.columns[column]!).base) || pkColumns.includes(column))
+      return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
 
-      return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${boundary}, ${rest.map(() => '?').join(', ')})`, ...values.slice(1), ...values)
+    // A Date holds milliseconds where Postgres keeps microseconds, so the boundary row's own value is read back by its key, through the scopes the page reads with; the carried one stands in when that row is gone or hidden.
+    const boundaryRow = new SelectBuilderCtor<TColumns>(table).pick(column).where(this._runtime.pkWhere(pkColumns.length === 1 ? values[1] : Object.fromEntries(pkColumns.map((c, i) => [c, values[i + 1]]))) as Where<TColumns>).withoutScope(...lifted)
+
+    this._prepare(boundaryRow)
+
+    // The row comparison `(column, key) > (boundary, key value)`, spelled out so the boundary can be a subquery.
+    return (e) => {
+      const boundary = e.coalesce(e.scalar(boundaryRow), values[0] as never)
+      const afterKey = e.raw(`(${rest.map(quote).join(', ')}) ${op} (${rest.map(() => '?').join(', ')})`, ...values.slice(1))
+
+      return isForward
+        ? e.and(e.gte(column, boundary), e.or(e.gt(column, boundary), afterKey))
+        : e.and(e.lte(column, boundary), e.or(e.lt(column, boundary), afterKey))
     }
-
-    return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
   }
 
   // OFFSET pages are only disjoint over a total order, so an unordered read walks the primary key.
