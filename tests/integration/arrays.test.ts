@@ -1,7 +1,8 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { defineTable } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
-import { itemsTable } from '../helpers/fixtures'
+import { allTables, itemsTable } from '../helpers/fixtures'
 
 let db: Database
 
@@ -101,5 +102,32 @@ describe('array columns — arrayOverlap filter', () => {
 
     expect(results).toHaveLength(2)
     expect(results.map(r => r.name)).toEqual(['match1', 'match2'])
+  })
+})
+
+// Bun hands back an array of a custom type such as an enum as its text literal, so the mapper parses it, every element staying a string.
+const badges = defineTable('arr_badges', t => ({
+  id: t.serial().primaryKey(),
+  kinds: t.array(t.enum('ArrBadgeKind', ['1', 'true', 'two words', 'a,b', 'q"t'])).nullable(),
+}))
+
+describe('enum array columns', () => {
+  it('read back as arrays of strings', async () => {
+    const enumDb = createTestDb({ tables: [...allTables, badges] })
+
+    try {
+      await enumDb.sync({ allowDestructive: true })
+      const repo = enumDb.repo(badges)
+      const ids = await repo.write.insertMany([{ kinds: ['1', 'true', 'two words', 'a,b', 'q"t'] }, { kinds: [] }, { kinds: null }], { pk: true })
+      const rows = await repo.read.findMany(q => q.orderBy('id'))
+
+      expect(rows.map(r => r.kinds)).toEqual([['1', 'true', 'two words', 'a,b', 'q"t'], [], null])
+      expect(await repo.read.findById(ids[0]!)).toMatchObject({ kinds: ['1', 'true', 'two words', 'a,b', 'q"t'] })
+    }
+    finally {
+      await enumDb.raw('DROP TABLE IF EXISTS "arr_badges"')
+      await enumDb.raw('DROP TYPE IF EXISTS "ArrBadgeKind"')
+      await enumDb.close()
+    }
   })
 })

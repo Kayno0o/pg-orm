@@ -1,5 +1,6 @@
 import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
+import { getColumnMeta } from '../schema/column-meta'
 
 /**
  * JIT row mapper: pre-compile row-to-object mappers via `new Function()` at startup.
@@ -55,9 +56,9 @@ const DATE_TYPES = new Set(['date', 'timestamp', 'timestamptz'])
 
 /**
  * Parse a PostgreSQL array literal into a JS array.
- * Handles empty arrays, quoted strings, unquoted items, and nested arrays.
+ * Handles empty arrays, quoted strings, unquoted items, and nested arrays. `strings` keeps an unquoted item as text rather than reading `true` or `1` as a boolean or number.
  */
-function parsePgArrayLiteral(text: string): unknown {
+function parsePgArrayLiteral(text: string, strings = false): unknown {
   if (text === '{}')
     return []
 
@@ -134,6 +135,9 @@ function parsePgArrayLiteral(text: string): unknown {
     if (token === 'NULL')
       return null
 
+    if (strings)
+      return token
+
     if (token === 'true')
       return true
 
@@ -202,6 +206,8 @@ const coercions = {
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
   byteaArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBytes),
+  // Bun reads an array of a type it does not know, such as an enum, as its Postgres text literal.
+  textArray: (v: unknown): unknown => typeof v === 'string' ? parsePgArrayLiteral(v, true) : v,
   // pgvector writes a vector or halfvec as `[1,2]`, which is JSON.
   vector: (v: unknown): unknown => typeof v === 'string' ? JSON.parse(v) : v,
 }
@@ -235,7 +241,7 @@ function sqliteCoercion(pgType: string): Coercion | undefined {
   return undefined
 }
 
-function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
+function coercionFor(pgType: string, dialect: Dialect, enumName?: string): Coercion | undefined {
   if (needsBigintCoercion(pgType))
     return 'bigint'
 
@@ -250,7 +256,10 @@ function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
   if (pgType.startsWith('vector(') || pgType.startsWith('halfvec('))
     return 'vector'
 
-  return dialect === 'sqlite' ? sqliteCoercion(pgType) : undefined
+  if (dialect === 'sqlite')
+    return sqliteCoercion(pgType)
+
+  return enumName && pgType.endsWith('[]') ? 'textArray' : undefined
 }
 
 type Field = readonly [key: string, coercion: Coercion | undefined]
@@ -319,7 +328,7 @@ export function compileMapper<TColumns extends AnyColumns>(
   const coerced = new Map<string, Coercion>()
 
   for (const c of allKeys) {
-    const coercion = coercionFor(columns[c]!.pgType, dialect)
+    const coercion = coercionFor(columns[c]!.pgType, dialect, getColumnMeta(columns[c]!).enumName)
 
     if (coercion)
       coerced.set(c, coercion)
