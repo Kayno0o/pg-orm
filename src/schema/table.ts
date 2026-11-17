@@ -4,8 +4,9 @@ import type { ColumnTypes } from './column-types'
 import { ValidationError } from '../errors/index'
 import { compileMapper } from '../mapper/index'
 import { applyTrait } from '../traits/index'
+import { columnIndexDef } from './column-index'
 import { createColumnTypes } from './column-types'
-import { ColumnBuilder, getColumnIndex } from './columns'
+import { ColumnBuilder } from './columns'
 import { createRelationTypes } from './relations'
 import { validateIdentifier, validateIndexMethod, validateIndexParams, validateRawSqlFragment } from './validate'
 
@@ -52,25 +53,13 @@ function buildColumns(builders: Record<string, ColumnBuilder>): { columns: Recor
     if (b instanceof ColumnBuilder) {
       columns[key] = b._build()
 
-      const idx = getColumnIndex(b)
+      if (columns[key].constraints.some(c => c.type === 'identity') && !columns[key].constraints.some(c => c.type === 'not_null'))
+        throw new ValidationError(`Column "${key}" is an identity column, which Postgres keeps NOT NULL: drop .nullable().`, 'column', { field: key })
 
-      if (idx) {
-        if (idx.where !== undefined)
-          validateRawSqlFragment(idx.where, `index on "${key}"`)
+      const idx = columnIndexDef(key, b)
 
-        if (idx.opclass !== undefined)
-          validateIdentifier(idx.opclass, 'index operator class')
-
-        indexes.push({
-          columns: [key],
-          unique: false,
-          method: idx.method,
-          where: idx.where,
-          ...idx.concurrently ? { concurrently: true } : {},
-          ...idx.opclass ? { opclass: { [key]: idx.opclass } } : {},
-          ...idx.with ? { with: idx.with } : {},
-        })
-      }
+      if (idx)
+        indexes.push(idx)
     }
   }
 
@@ -199,8 +188,10 @@ export function defineTable(
         if (idx.name !== undefined)
           validateIdentifier(idx.name, 'index')
 
-        for (const col of [...idx.columns, ...idx.desc ?? [], ...idx.include ?? [], ...Object.keys(idx.opclass ?? {})])
+        for (const col of [...idx.columns, ...idx.desc ?? [], ...idx.include ?? [], ...Object.keys(idx.opclass ?? {})]) {
           validateIdentifier(col, 'index column')
+          requireColumn(col, `index "${idx.name ?? idx.columns.join('_')}"`)
+        }
 
         for (const opclass of Object.values(idx.opclass ?? {}))
           validateIdentifier(opclass, 'index operator class')
@@ -221,8 +212,10 @@ export function defineTable(
     },
 
     withUnique(columns: string[], name?: string) {
-      for (const col of columns)
+      for (const col of columns) {
         validateIdentifier(col, 'unique column')
+        requireColumn(col, `unique constraint (${columns.join(', ')})`)
+      }
 
       if (name !== undefined)
         validateIdentifier(name, 'unique constraint')
@@ -262,6 +255,12 @@ export function defineTable(
 
       return table
     },
+  }
+
+  // An index or a unique over a column the table lacks would only fail at sync, as SQL naming a column Postgres does not know.
+  function requireColumn(column: string, subject: string): void {
+    if (!Object.hasOwn(columns, column))
+      throw new ValidationError(`The ${subject} names column "${column}", which table "${name}" does not have.`, 'column', { field: column })
   }
 
   // Invalidates repositories cached against this table def (see Database.repo).

@@ -99,7 +99,8 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
       ix.indisunique AS is_unique,
       ix.indisvalid AS is_valid,
       pg_get_indexdef(ix.indexrelid) AS definition,
-      array_agg(a.attname ORDER BY x.ordinality) FILTER (WHERE a.attname IS NOT NULL) AS columns
+      array_agg(a.attname ORDER BY x.ordinality) FILTER (WHERE a.attname IS NOT NULL) AS columns,
+      array_agg(oc.opcname ORDER BY x.ordinality) FILTER (WHERE oc.opcdefault) AS default_opclasses
     FROM pg_index ix
     JOIN pg_class i ON i.oid = ix.indexrelid
     JOIN pg_class t ON t.oid = ix.indrelid
@@ -107,6 +108,7 @@ async function runIntrospectionQueries(executor: { query: QueryFn }, schema: str
     JOIN pg_am am ON am.oid = i.relam
     CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
     LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+    LEFT JOIN pg_opclass oc ON oc.oid = ix.indclass[(x.ordinality - 1)::int]
     WHERE n.nspname = $1
       AND NOT ix.indisprimary
       AND NOT EXISTS (
@@ -156,6 +158,7 @@ export async function introspectLiveSchema(executor: { query: QueryFn }, schema 
       isUnique: r.is_unique as boolean,
       method: r.method as string,
       definition: r.definition as string,
+      defaultOpclasses: (r.default_opclasses as string[] | null) ?? [],
       isValid: r.is_valid as boolean,
     })),
     checks: checkRows.map(r => ({ name: r.name as string, tableName: r.table_name as string })),

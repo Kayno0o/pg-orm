@@ -331,6 +331,31 @@ describe('sameDefault', () => {
   test('a char default matches its bpchar cast', () => {
     expect(sameDefault('\'ab\'', '\'ab\'::bpchar', 'char(3)')).toBe(true)
   })
+
+  test('a literal matches the spelling Postgres prints its type in', () => {
+    expect(sameDefault('\'09:00\'', '\'09:00:00\'::time without time zone', 'time')).toBe(true)
+    expect(sameDefault('\'09:00+02\'', '\'09:00:00+02\'::time with time zone', 'timetz')).toBe(true)
+    expect(sameDefault('\'1 hour\'', '\'01:00:00\'::interval', 'interval')).toBe(true)
+    expect(sameDefault('\'10.0.0.1/32\'', '\'10.0.0.1\'::inet', 'inet')).toBe(true)
+    expect(sameDefault('\'08-00-2b-01-02-03\'', '\'08:00:2b:01:02:03\'::macaddr', 'macaddr')).toBe(true)
+    expect(sameDefault('\'1.5\'', '\'$1.50\'::money', 'money')).toBe(true)
+    expect(sameDefault('\'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11\'', '\'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11\'::uuid', 'uuid')).toBe(true)
+    expect(sameDefault('1e+21', '\'1e+21\'::double precision', 'float8')).toBe(true)
+    expect(sameDefault('now() + interval \'1 day\'', '(now() + \'1 day\'::interval)', 'timestamptz')).toBe(true)
+  })
+
+  test('another value of those types stays different', () => {
+    expect(sameDefault('\'09:00\'', '\'09:30:00\'::time without time zone', 'time')).toBe(false)
+    expect(sameDefault('\'09:00+02\'', '\'09:00:00+01\'::time with time zone', 'timetz')).toBe(false)
+    expect(sameDefault('\'2 hours\'', '\'01:00:00\'::interval', 'interval')).toBe(false)
+    expect(sameDefault('\'10.0.0.1/24\'', '\'10.0.0.1\'::inet', 'inet')).toBe(false)
+    expect(sameDefault('\'08-00-2b-01-02-03\'', '\'08:00:2b:01:02:04\'::macaddr', 'macaddr')).toBe(false)
+  })
+
+  test('integers past 2^53 are compared exactly', () => {
+    expect(sameDefault('9007199254740993', '9007199254740992', 'int8')).toBe(false)
+    expect(sameDefault('9007199254740993', '9007199254740993', 'int8')).toBe(true)
+  })
 })
 
 describe('names read back from the live database', () => {

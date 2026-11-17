@@ -149,6 +149,7 @@ export function generateDownSql(ops: MigrationOp[], opts?: DownSqlOptions): stri
 
       return opts?.comments && sql !== '' && !sql.startsWith(IRREVERSIBLE_MARKER) ? `${sqlComment(`Revert: ${op.description}`)}\n${sql}` : sql
     })
-    .filter(Boolean)
+    // An enum replacement is several ops sharing one description: its reason is given once.
+    .filter((sql, i, all) => sql !== '' && !(sql.startsWith(IRREVERSIBLE_MARKER) && sql === all[i - 1]))
     .join(opts?.comments ? '\n\n' : '\n')
 }

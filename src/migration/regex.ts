@@ -12,14 +12,22 @@ export const TYPE_QUALIFIER_RE = /^[^(]*\./
 export const TYPE_MODIFIER_RE = /\(\d+(?:,\d+)?\)/g
 export const ARRAY_SUFFIX_RE = /\[\]$/
 export const SERIAL_TYPE_RE = /^(?:small|big)?serial[248]?$/i
-
 // The parts of a default expression: a quoted literal is kept verbatim, the rest loses its spacing, its case and its casts (`''::text`, `::character varying(10)[]`).
 export const DEFAULT_LITERAL_RE = /('(?:[^']|'')*')/
 export const DEFAULT_CAST_RE = /::(?:"[^"]*"|[a-z_][\w.]*)(?:\([\d,]*\))?(?:\[\d*\])*/g
 export const WHITESPACE_RE = /\s+/g
 // A quoted plain number (`'0.00'`): Postgres reflects a numeric column's default back unquoted, so both sides drop the quotes before comparing.
-export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?)'$/
-export const PLAIN_NUMBER_RE = /^-?\d+(?:\.\d+)?$/
+export const QUOTED_NUMBER_RE = /^'(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)'$/
+export const PLAIN_NUMBER_RE = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/
+export const WHOLE_NUMBER_RE = /^-?\d+$/
+// A type word written before a literal (`interval '1 day'`), which Postgres prints back as a cast after it.
+export const TYPED_LITERAL_PREFIX_RE = /\b(?:interval|date|time|timetz|timestamp|timestamptz|inet|macaddr|uuid|json|jsonb|money)$/
+// A time of day with its optional zone, and an interval's `<n> <unit>` and `hh:mm:ss` parts.
+export const TIME_OF_DAY_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?\s*(z|[+-]\d{2}(?::?\d{2})?)?$/i
+export const INTERVAL_PART_RE = /([+-]?\d+(?:\.\d+)?)\s*([a-z]+)|([+-]?)(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?/gi
+export const HOST_MASK_RE = /\/(?:32|128)$/
+export const MAC_SEPARATOR_RE = /[:.-]/g
+export const MONEY_NOISE_RE = /[$,\s]/g
 export const LONE_LITERAL_RE = /^'((?:[^']|'')*)'$/
 
 // A timestamp as Postgres prints it (`2024-01-01 10:00:00+00`) or as toISOString() writes it (`2024-01-01T10:00:00.000Z`).

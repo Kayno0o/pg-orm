@@ -61,6 +61,8 @@ export interface LiveIndex {
   isUnique: boolean
   method: string
   definition: string
+  /** The default operator classes its keys use, which `definition` leaves unnamed. */
+  defaultOpclasses?: string[]
   /** False for an index whose build failed or is still running (`CREATE INDEX CONCURRENTLY`), which serves no query. */
   isValid?: boolean
 }

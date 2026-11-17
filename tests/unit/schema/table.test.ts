@@ -32,6 +32,31 @@ describe('defineTable', () => {
     expect(table.primaryKey).toBe('a,b')
   })
 
+  it('refuses a nullable identity column, which Postgres keeps NOT NULL', () => {
+    expect(() => defineTable('idn', t => ({ n: t.int4().identity().nullable() }))).toThrow('identity')
+    expect(() => defineTable('idn', t => ({ n: t.int4().nullable().identity() }))).toThrow('identity')
+    expect(defineTable('idn', t => ({ n: t.int4().identity() })).columns.n).toBeDefined()
+  })
+
+  it('records a repeated modifier once, the last default winning', () => {
+    const table = defineTable('rep', t => ({ id: t.int4().primaryKey().primaryKey(), n: t.int4().default(1).default(2), s: t.text().unique().unique() }))
+    const count = (column: 'id' | 'n' | 's', type: string) => table.columns[column].constraints.filter(c => c.type === type).length
+
+    expect(count('id', 'primary_key')).toBe(1)
+    expect(count('n', 'default')).toBe(1)
+    expect(table.columns.n.constraints.find(c => c.type === 'default')?.value).toBe('2')
+    expect(count('s', 'unique')).toBe(1)
+  })
+
+  it('refuses an index or a unique over a column the table does not have', () => {
+    const base = () => defineTable('unk', t => ({ id: t.serial().primaryKey(), a: t.text() }))
+
+    expect(() => base().withIndexes([{ columns: ['a', 'missing'] }])).toThrow('missing')
+    expect(() => base().withIndexes([{ columns: ['a'], include: ['gone'] }])).toThrow('gone')
+    expect(() => base().withUnique(['a', 'nope'])).toThrow('nope')
+    expect(base().withIndexes([{ columns: ['a'] }]).indexes).toHaveLength(1)
+  })
+
   it('returns null when no primary key', () => {
     const table = defineTable('test', t => ({
       name: t.text(),

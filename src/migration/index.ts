@@ -63,8 +63,8 @@ export async function applyMigration(executor: Executable, sql: string): Promise
   const { inside, outside } = splitOutsideTransaction(sql)
 
   try {
-    // A SQLite rebuild drops a table, which with foreign keys on would delete the rows pointing at it.
-    if (executor.migrate && dialectOf(executor) === 'sqlite')
+    // A Database runs it as sync does: in a transaction resolving names in its configured schema, and on SQLite with foreign keys off, since a rebuild drops a table whose referencing rows they would delete.
+    if (executor.migrate)
       await executor.migrate(query => query(inside, []))
     else
       await executor.query(inside, [])

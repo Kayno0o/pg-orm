@@ -6,7 +6,7 @@ import { collectEnumRequirements, diffEnums } from './diff/enums'
 import { diffExtensions } from './diff/extensions'
 import { diffForeignKeys } from './diff/foreign-keys'
 import { diffIndexes } from './diff/indexes'
-import { renameTables } from './diff/renames'
+import { renameIndexedColumns, renameTables } from './diff/renames'
 import { diffTables } from './diff/tables'
 
 /**
@@ -20,7 +20,9 @@ export function diffSchema(
   liveBefore: LiveSchema,
   desired: ReadonlyMap<string, AnyTableDef>,
 ): MigrationOp[] {
-  const { ops: renameOps, live } = renameTables(liveBefore, desired)
+  const { ops: tableRenames, live: liveRenamed } = renameTables(liveBefore, desired)
+  const { ops: indexRenames, live } = renameIndexedColumns(liveRenamed, desired)
+  const renameOps = [...tableRenames, ...indexRenames]
   const droppedTables = new Set(live.tables.map(t => t.name).filter(n => !desired.has(n)))
   const enumOps = diffEnums(collectEnumRequirements(desired), live.enums, live.tables, desired)
   const fkOps = diffForeignKeys(desired, live.foreignKeys ?? [], live.tables)

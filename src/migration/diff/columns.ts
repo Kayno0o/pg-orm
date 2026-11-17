@@ -3,6 +3,7 @@ import type { LiveColumn, LiveTable, MigrationOp } from '../types'
 import { toSQLDefault } from '../../schema/column-default'
 import { getColumnMeta } from '../../schema/column-meta'
 import {
+  alterableTypeSql,
   buildAddColumnSql,
   buildAddPrimaryKeySql,
   buildAddUniqueConstraintSql,
@@ -15,12 +16,12 @@ import {
   buildDropExpressionSql,
   buildDropNotNullSql,
   buildRenameColumnSql,
+  buildSerialSequenceSqls,
   buildSetDefaultSql,
   buildSetExpressionSql,
   buildSetNotNullSql,
   columnTypeSql,
   identitySql,
-  normalizeExpression,
   normalizeType,
   primaryKeyName,
   sameDefault,
@@ -28,6 +29,7 @@ import {
   uniqueName,
   usingClause,
 } from '../ddl'
+import { sameExpression } from '../expression'
 import { SERIAL_TYPE_RE } from '../regex'
 import { columnEntries } from '../types'
 
@@ -40,6 +42,7 @@ export function diffTableColumns(
   const ops: MigrationOp[] = []
   const renameMap = new Map<string, string>()
   const processedColumns = new Set<string>()
+  const singleUniques = new Map((tableDef.uniques ?? []).filter(u => u.columns.length === 1).map(u => [u.columns[0]!, uniqueName(tableName, u)]))
 
   for (const [colName, colDef] of columnEntries(tableDef.columns)) {
     const { renamedFrom } = getColumnMeta(colDef)
@@ -66,7 +69,7 @@ export function diffTableColumns(
         })
         processedColumns.add(renamedFrom)
 
-        ops.push(...diffColumn(tableName, colName, colDef, renamedLiveCol))
+        ops.push(...diffColumn(tableName, colName, colDef, renamedLiveCol, singleUniques.get(colName)))
 
         continue
       }
@@ -76,7 +79,7 @@ export function diffTableColumns(
       continue
     }
 
-    ops.push(...diffColumn(tableName, colName, colDef, liveCol))
+    ops.push(...diffColumn(tableName, colName, colDef, liveCol, singleUniques.get(colName)))
     processedColumns.add(colName)
   }
 
@@ -105,7 +108,9 @@ export function diffTableColumns(
 // A UNIQUE over several columns is matched by name: one gone or over other columns is dropped before the columns change, a new one added after. Only the ones this ORM would have named are dropped, as with CHECKs: one made by hand under another name is left alone.
 function diffUniques(tableName: string, tableDef: AnyTableDef, liveTable: LiveTable): { before: MigrationOp[], after: MigrationOp[] } {
   const desired = new Map((tableDef.uniques ?? []).map(u => [uniqueName(tableName, u), u]))
-  const owned = (liveTable.uniques ?? []).filter(u => desired.has(u.name) || u.name === uniqueName(tableName, { columns: u.columns }))
+  // A one-column UNIQUE is filed on its column when read back: it counts here when the definitions declare it.
+  const singles = liveTable.columns.filter(c => c.isUnique && c.uniqueConstraint !== undefined && desired.has(c.uniqueConstraint)).map(c => ({ name: c.uniqueConstraint!, columns: [c.name] }))
+  const owned = [...liveTable.uniques ?? [], ...singles].filter(u => desired.has(u.name) || u.name === uniqueName(tableName, { columns: u.columns }))
   const live = new Map(owned.map(u => [u.name, u]))
   const same = (name: string) => desired.get(name)?.columns.join() === live.get(name)?.columns.join()
   const before: MigrationOp[] = [...live.keys()].filter(name => !same(name)).map(name => ({
@@ -250,7 +255,7 @@ export function diffColumnType(
     type: 'alter_column',
     table: tableName,
     column: colName,
-    sql: buildAlterColumnTypeSql(tableName, colName, columnTypeSql(ctx.colDef), usingClause(colName, ctx.liveType, ctx.desiredType, columnTypeSql(ctx.colDef))),
+    sql: buildAlterColumnTypeSql(tableName, colName, alterableTypeSql(ctx.colDef), usingClause(colName, ctx.liveType, ctx.desiredType, alterableTypeSql(ctx.colDef))),
     destructive: true,
     description: `Change type of "${colName}" in "${tableName}" from ${ctx.liveType} to ${ctx.desiredType}`,
   }]
@@ -261,6 +266,7 @@ export function diffColumn(
   colName: string,
   colDef: AnyColumnDef,
   liveCol: LiveColumn,
+  tableUnique?: string,
 ): MigrationOp[] {
   const desiredExpr = colDef.constraints.find((c: ColumnConstraint) => c.type === 'generated')?.value
 
@@ -293,7 +299,7 @@ export function diffColumn(
       description: `Make "${colName}" in "${tableName}" a plain column, keeping its values`,
     })
   }
-  else if (desiredExpr !== undefined && normalizeExpression(desiredExpr) !== normalizeExpression(liveCol.generationExpression)) {
+  else if (desiredExpr !== undefined && !sameExpression(desiredExpr, liveCol.generationExpression)) {
     ops.push({
       type: 'alter_column',
       table: tableName,
@@ -324,8 +330,20 @@ export function diffColumn(
     ops.push(...diffColumnType(tableName, colName, { colDef, desiredType, liveType }))
 
   const desiredUnique = colDef.constraints.some((c: ColumnConstraint) => c.type === 'unique')
+  // A one-column UNIQUE the table declares is added and dropped with the table's other UNIQUEs, under its own name.
+  const tableOwned = tableUnique !== undefined && !desiredUnique
 
-  if (desiredUnique && !liveCol.isUnique && !liveCol.isPrimaryKey) {
+  if (tableOwned && liveCol.isUnique && !liveCol.isPrimaryKey && liveCol.uniqueConstraint !== tableUnique) {
+    ops.push({
+      type: 'drop_constraint',
+      table: tableName,
+      column: colName,
+      sql: buildDropConstraintSql(tableName, liveCol.uniqueConstraint ?? uniqueConstraintName(tableName, colName)),
+      destructive: true,
+      description: `Drop UNIQUE constraint on "${colName}" in "${tableName}"`,
+    })
+  }
+  else if (!tableOwned && desiredUnique && !liveCol.isUnique && !liveCol.isPrimaryKey) {
     ops.push({
       type: 'add_constraint',
       table: tableName,
@@ -335,7 +353,7 @@ export function diffColumn(
       description: `Add UNIQUE constraint on "${colName}" in "${tableName}"`,
     })
   }
-  else if (!desiredUnique && liveCol.isUnique && !liveCol.isPrimaryKey) {
+  else if (!tableOwned && !desiredUnique && liveCol.isUnique && !liveCol.isPrimaryKey) {
     ops.push({
       type: 'drop_constraint',
       table: tableName,
@@ -373,7 +391,7 @@ export function diffColumn(
 
   const desiredIdentity = colDef.constraints.find((c: ColumnConstraint) => c.type === 'identity')?.value as 'always' | 'by default' | undefined
 
-  if ((!liveCol.isPrimaryKey || dropsDefault) && desiredExpr === undefined && desiredIdentity === undefined) {
+  if (desiredExpr === undefined && desiredIdentity === undefined) {
     const desiredDefault = colDef.constraints.find((c: ColumnConstraint) => c.type === 'default')?.value ?? null
     const liveDefault = dropsDefault ? null : liveCol.defaultValue
 
@@ -383,6 +401,7 @@ export function diffColumn(
         table: tableName,
         column: colName,
         sql: buildDropDefaultSql(tableName, colName),
+        down: buildSetDefaultSql(tableName, colName, liveDefault),
         destructive: false,
         description: `Drop default from "${colName}" in "${tableName}"`,
       })
@@ -393,6 +412,7 @@ export function diffColumn(
         table: tableName,
         column: colName,
         sql: buildSetDefaultSql(tableName, colName, desiredDefault),
+        down: liveDefault === null ? buildDropDefaultSql(tableName, colName) : buildSetDefaultSql(tableName, colName, liveDefault),
         destructive: false,
         description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
       })
@@ -401,6 +421,7 @@ export function diffColumn(
 
   return [
     ...ops,
+    ...diffSerial(tableName, colName, colDef, liveCol, retyped),
     ...diffIdentity(tableName, colName, desiredIdentity, liveCol),
     ...diffComment(tableName, colName, getColumnMeta(colDef).comment, liveCol.comment),
   ]
@@ -428,6 +449,23 @@ function diffIdentity(tableName: string, colName: string, desired: 'always' | 'b
     // The identity's own sequence, found by its internal dependency: a former serial's sequence stays owned by the column too.
     op(`SELECT setval(d.objid::regclass, (SELECT COALESCE(MAX("${colName}"), 0) + 1 FROM "${tableName}"), false) FROM pg_depend d JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid WHERE d.refobjid = '"${tableName}"'::regclass AND a.attname = '${colName}' AND d.deptype = 'i' AND d.classid = 'pg_class'::regclass`, `Start the identity of "${colName}" in "${tableName}" past its values`),
   ]
+}
+
+// A column made a serial gets the sequence Postgres would have made for it; one already a serial keeps its sequence, widened with its type.
+function diffSerial(tableName: string, colName: string, colDef: AnyColumnDef, liveCol: LiveColumn, retyped: boolean): MigrationOp[] {
+  if (!SERIAL_TYPE_RE.test(colDef.pgType) || liveCol.identity)
+    return []
+
+  const op = (sql: string, description: string): MigrationOp => ({ type: 'alter_column', table: tableName, column: colName, sql, destructive: false, description })
+
+  if (!liveCol.defaultValue?.startsWith('nextval(')) {
+    const steps = ['Create the sequence of', 'Default to the sequence of', 'Start the sequence of']
+
+    return buildSerialSequenceSqls(tableName, colName, colDef).map((sql, i) => op(sql, `${steps[i]} "${colName}" in "${tableName}"${i === 2 ? ' past its values' : ''}`))
+  }
+
+  // The sequence is found through its column, as Postgres prints its name differently by search path.
+  return retyped ? [op(`DO $$ BEGIN EXECUTE format('ALTER SEQUENCE %s AS ${alterableTypeSql(colDef)}', pg_get_serial_sequence('"${tableName}"', '${colName}')); END $$`, `Give the sequence of "${colName}" in "${tableName}" its new type`)] : []
 }
 
 // A serial column's default is the `nextval()` of the sequence Postgres made for it, which the schema never spells out.

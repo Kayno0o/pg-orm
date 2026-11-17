@@ -37,7 +37,7 @@ export function traitColumns(table: AnyTableDef): ReadonlySet<string> {
 
 /**
  * Columns a client may be allowed to write: everything except the primary key,
- * DB-generated columns, and trait-managed columns. Pass `exclude` for extra
+ * DB-generated columns (GENERATED ALWAYS identities included), and trait-managed columns. Pass `exclude` for extra
  * app-managed columns.
  */
 export function writableColumns(table: AnyTableDef, opts: { exclude?: Iterable<string> } = {}): string[] {
@@ -50,7 +50,7 @@ export function writableColumns(table: AnyTableDef, opts: { exclude?: Iterable<s
     if (name === table.primaryKey || managed.has(name))
       return false
 
-    return !table.columns[name]!.constraints.some((c: ColumnConstraint) => c.type === 'primary_key' || c.type === 'generated')
+    return !table.columns[name]!.constraints.some((c: ColumnConstraint) => c.type === 'primary_key' || c.type === 'generated' || (c.type === 'identity' && c.value === 'always'))
   })
 }
 

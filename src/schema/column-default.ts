@@ -36,6 +36,10 @@ export function toSQLDefault(value: unknown, pgType: string): string {
   if (value === null || value === undefined)
     return 'NULL'
 
+  // A json column takes any value as its JSON text, an array and a string included.
+  if (pgType === 'json' || pgType === 'jsonb')
+    return `'${escapeLiteralBody(JSON.stringify(value))}'::${pgType}`
+
   if (typeof value === 'number')
     return finiteNumber(value)
 

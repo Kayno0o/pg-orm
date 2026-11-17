@@ -38,6 +38,23 @@ describe('softDelete trait', () => {
   })
 })
 
+describe('trait columns', () => {
+  it('keeps the index a trait column asks for', () => {
+    const tag: Trait = { columns: t => ({ tag: t.text().nullable().index({ method: 'hash' }) }) }
+    const table = defineTable('test', t => ({ id: t.serial().primaryKey() })).withTrait(tag)
+
+    expect(table.indexes).toEqual([{ columns: ['tag'], unique: false, method: 'hash', where: undefined }])
+  })
+
+  it('refuses a trait adding a column the table already has', () => {
+    const table = defineTable('test', t => ({ id: t.serial().primaryKey(), deletedAt: t.text().unique() }))
+
+    expect(() => table.withTrait(softDelete())).toThrow('already has')
+    expect(table.columns.deletedAt.pgType).toBe('text')
+    expect(table.meta._traitColumns).toBeUndefined()
+  })
+})
+
 describe('optimisticLock trait', () => {
   it('adds version column', () => {
     const table = defineTable('test', t => ({ id: t.serial().primaryKey() }))
