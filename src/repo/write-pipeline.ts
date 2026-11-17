@@ -677,7 +677,7 @@ export class WritePipeline<
 
   // The row an upsert updates is updated like any other: the columns `beforeUpdate` hooks set (timestamps), taken from the incoming row, and the version bump apply to it, and only while the scopes not `lifted` hold for it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
   private _conflictUpdate(update: UpsertUpdate<TColumns> | undefined, hookedColumns: string[], lifted: string[]): ConflictUpdate<TColumns> {
-    const given: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update.length ? update : undefined } : update ?? {}
+    const given: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update } : update ?? {}
     const guards = resolveScopes(this._runtime.table).filter(scope => scope.name !== SOFT_DELETE_SCOPE && !lifted.includes(scope.name))
     const spec: ConflictUpdate<TColumns> = guards.length === 0
       ? given
