@@ -809,6 +809,8 @@ A read-only access mode is enforced on both dialects (`query_only` on SQLite). A
 
 A savepoint is opened on the client of the body that opens it: `tx.savepoint()` called from inside a savepoint of `tx` would wait for that savepoint to end, so it throws `ValidationError`. A `db.withSignal` abort ends a retry's backoff wait at once, with `AbortError`, as it does a `copyFrom` whose source stalled. Invalid `retry` options, on the database or a transaction, throw `ValidationError` before anything runs, as does an unknown isolation level or access mode.
 
+A COMMIT the server refuses (a serialization failure, a deferred constraint) fires `onRollback` with the typed error. A COMMIT whose connection is lost raises `ConnectionError` with `commitOutcome: 'unknown'` and fires neither `onCommit` nor `onRollback`: the commit may have landed, and a compensation could undo committed data. Check the database before retrying such a transaction.
+
 A query issued through `db` rather than `tx` from inside the body runs outside the transaction on Postgres, on another connection, but inside it on SQLite, which has one connection: go through `tx` or `repo.using(tx)`.
 
 ## Pagination
@@ -1108,7 +1110,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `TransactionAbortedError` | 25P02 | Statement sent to a transaction an earlier failure aborted |
 | `InvalidQueryError` | 42xxx | Syntax error, unknown table or column, missing privilege (`code`) |
 | `AuthenticationError` | 28xxx | Credentials refused, never retried |
-| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it |
+| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it. `commitOutcome: 'unknown'` when it was lost during COMMIT |
 | `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
 | `AbortError` | - | The signal bound by `db.withSignal` aborted; `cause` is its reason, never retried |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |

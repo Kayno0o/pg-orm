@@ -3,7 +3,7 @@ import type { Dialect } from '../dialect'
 import type { ExecutorHooks } from './base-executor'
 import type { TransactionOptions } from './transaction'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { DeadlockError, OrmError, SerializationError, ValidationError, wrapPgError } from '../errors/index'
+import { ConnectionError, DeadlockError, OrmError, SerializationError, ValidationError, wrapPgError } from '../errors/index'
 import { querySignalStorage, sleepUnlessAborted, throwIfAborted } from './abort'
 import { asDriver } from './adapter'
 import { queryContextStorage, reportCallbackError } from './base-executor'
@@ -100,7 +100,10 @@ export class TransactionRunner {
         }
       }
 
-      if (outcome.tx)
+      // The commit may have landed, so a compensation could undo committed data: neither callback runs.
+      const commitUnknown = error instanceof ConnectionError && error.commitOutcome === 'unknown'
+
+      if (outcome.tx && !commitUnknown)
         await this._fireTxCallbacks('onRollback', outcome.tx._onRollbackCallbacks, error)
 
       throw error
@@ -148,9 +151,12 @@ export class TransactionRunner {
     }
     catch (caught) {
       // The body's own errors pass through untouched; a driver failure on BEGIN, SET TRANSACTION or COMMIT (a deferred constraint) gets the same typed mapping as any query.
-      const error = phase === 'body' || caught instanceof OrmError
+      let error = phase === 'body' || caught instanceof OrmError
         ? caught
         : wrapPgError(caught, phase === 'begin' ? 'BEGIN' : 'COMMIT', [])
+
+      if (phase === 'commit' && error instanceof ConnectionError)
+        error = new ConnectionError(error.message, 'COMMIT', [], error.cause, 'unknown')
 
       return { ok: false, error, tx: txRef }
     }

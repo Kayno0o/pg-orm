@@ -93,9 +93,12 @@ export class QueryError extends OrmError {
 
 /** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection closed or timed out). Indicates network or server issues; a read hitting one can be retried. */
 export class ConnectionError extends QueryError {
-  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown) {
+  /** `'unknown'` when the connection was lost during a transaction's COMMIT: the commit may or may not have landed, and neither `onCommit` nor `onRollback` ran. */
+  readonly commitOutcome?: 'unknown'
+  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown, commitOutcome?: 'unknown') {
     super(message, query, params, cause)
     this.name = 'ConnectionError'
+    this.commitOutcome = commitOutcome
   }
 }
 
