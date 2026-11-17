@@ -117,8 +117,8 @@ export class Database extends BaseExecutor {
     return this._connection.copyIn(sqlStr, chunks)
   }
 
-  override copyOut(sqlStr: string): ReadableStream<Uint8Array> {
-    return this._connection.copyOut(sqlStr)
+  override copyOut(sqlStr: string, params: unknown[]): ReadableStream<Uint8Array> {
+    return this._connection.copyOut(sqlStr, params)
   }
 
   get schema(): string {

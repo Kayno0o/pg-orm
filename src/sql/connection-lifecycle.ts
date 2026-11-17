@@ -65,11 +65,11 @@ export class ConnectionLifecycle extends BaseExecutor {
   }
 
   // An export is in flight for the drain from the call until its stream ends, fails or is cancelled.
-  override copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+  override copyOut(sqlStr: string, params: unknown[]): ReadableStream<Uint8Array> {
     this._admit()
 
     try {
-      return super.copyOut(sqlStr, () => this._drain.exit())
+      return super.copyOut(sqlStr, params, () => this._drain.exit())
     }
     catch (err) {
       this._drain.exit()

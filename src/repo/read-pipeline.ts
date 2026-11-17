@@ -19,7 +19,6 @@ import { dialectOf, requirePostgres } from '../dialect'
 import { NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { columnBaseType, tableMeta } from '../schema/inspect'
-import { inlineParams } from '../sql/copy'
 import { quote } from '../sql/utils'
 import { isPlainObject } from '../utils/collection'
 import { createMapperFactory } from './_mapper'
@@ -552,7 +551,7 @@ export class ReadPipeline<
 
     const { sql, params } = builder.toSQL(this._dialect)
 
-    return this._executor.copyOut(`COPY (${inlineParams(sql, params)}) TO STDOUT WITH (FORMAT csv, HEADER ${opts.header !== false})`)
+    return this._executor.copyOut(`COPY (${sql}) TO STDOUT WITH (FORMAT csv, HEADER ${opts.header !== false})`, params)
   }
 
   stream(

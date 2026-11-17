@@ -4,6 +4,7 @@ import type { ParamRedactor } from '../errors/index'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { redactedParams, withParamRedactor } from '../errors/index'
 import { copyIn, copyOut, unsafeQuery } from './adapter'
+import { inlineParams } from './copy'
 
 /**
  * Async-local storage for query context. `Database.withContext(ctx, fn)` runs
@@ -84,8 +85,8 @@ export interface Executable {
   atomic?: <T>(fn: (exec: Executable) => Promise<T>) => Promise<T>
   /** Runs a `COPY ... FROM STDIN` statement fed with `chunks`, resolving to the rows loaded. Postgres only. */
   copyIn?: (sql: string, chunks: AsyncIterable<string>) => Promise<number>
-  /** Runs a `COPY ... TO STDOUT` statement, streaming its output. Postgres only. */
-  copyOut?: (sql: string) => ReadableStream<Uint8Array>
+  /** Runs a `COPY ... TO STDOUT` statement, streaming its output, its `$n` placeholders sent inlined since COPY takes no bind parameter. Postgres only. */
+  copyOut?: (sql: string, params: unknown[]) => ReadableStream<Uint8Array>
 }
 
 /** @internal */
@@ -148,13 +149,13 @@ export abstract class BaseExecutor implements Executable {
     return this._observed(sqlStr, [], () => copyIn(this.sql, sqlStr, chunks))
   }
 
-  // Reported to the query hooks once the stream ends, its duration covering the whole read.
-  copyOut(sqlStr: string, onEnd?: () => void): ReadableStream<Uint8Array> {
+  // Reported to the query hooks once the stream ends, its duration covering the whole read; the hooks get the parameterised text, so the values go through the same scrubbing as any query's.
+  copyOut(sqlStr: string, params: unknown[], onEnd?: () => void): ReadableStream<Uint8Array> {
     const start = performance.now()
 
-    return copyOut(this.sql, sqlStr, (...failure) => {
+    return copyOut(this.sql, inlineParams(sqlStr, params), (...failure) => {
       onEnd?.()
-      this._report(sqlStr, [], performance.now() - start, ...failure)
+      this._report(sqlStr, params, performance.now() - start, ...failure)
     })
   }
 

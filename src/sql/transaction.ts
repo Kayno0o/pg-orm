@@ -97,10 +97,10 @@ export class TransactionClient extends BaseExecutor {
     return super.copyIn(sqlStr, chunks)
   }
 
-  override copyOut(sqlStr: string): ReadableStream<Uint8Array> {
+  override copyOut(sqlStr: string, params: unknown[]): ReadableStream<Uint8Array> {
     this._assertOpen()
 
-    return super.copyOut(sqlStr)
+    return super.copyOut(sqlStr, params)
   }
 
   private _assertOpen(): void {

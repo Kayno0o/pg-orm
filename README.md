@@ -617,7 +617,7 @@ return new Response(csv, { headers: { 'content-type': 'text/csv' } })
 ```
 
 - `where` takes both WHERE forms, `pick` the columns and their order (every column by default), `header: false` drops the column names line, and `withTrashed` includes the rows a `softDelete` table hides.
-- COPY takes no bind parameters, so the WHERE values are written into the statement as escaped `E'...'` literals.
+- COPY takes no bind parameters, so the WHERE values are written into the statement as escaped `E'...'` literals. The query hooks still get the `$n` statement and its params, scrubbed like any query's, but the server sees the literals, so its own statement log (`log_statement`, `pg_stat_activity`) does too.
 - Postgres only: SQLite throws `DialectError`, and it needs Bun 1.4.4 or later. It skips virtuals and hooks. A failing statement errors the stream with its typed error, and `db.withSignal` cancels it with `AbortError`.
 
 ## Traits

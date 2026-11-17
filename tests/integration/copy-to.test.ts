@@ -118,6 +118,24 @@ describe('repo.stream.copyTo', () => {
     expect(() => other.repo(exported).stream.copyTo()).toThrow(ConnectionError)
   })
 
+  it('reports the parameterised statement and its params to the query hooks, not the inlined values', async () => {
+    const events: { sql: string, params: unknown[] }[] = []
+    const other = createTestDb({ tables: [exported], onQuery: e => events.push(e) })
+
+    try {
+      const csv = await new Response(other.repo(exported).stream.copyTo({ where: { label: 'it\'s' }, pick: ['n'], header: false })).text()
+
+      expect(csv).toBe('1\n')
+      expect(events).toHaveLength(1)
+      expect(events[0]!.sql).toStartWith('COPY (')
+      expect(events[0]!.sql).not.toContain('it\'\'s')
+      expect(events[0]!.params).toHaveLength(1)
+    }
+    finally {
+      await other.close()
+    }
+  })
+
   it('is refused on SQLite', async () => {
     const sqlite = new Database({ url: 'sqlite://:memory:', tables: [exported] })
 
