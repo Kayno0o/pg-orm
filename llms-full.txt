@@ -537,7 +537,7 @@ await repo.write.updateById(1, { name: 'Bob' })
 // One statement, a different value per row (reorders, tallies, sync diffs). Rows may write different columns.
 await repo.write.updateManyById([{ id: 1, position: 0 }, { id: 2, position: 1, title: 'Renamed' }])
 
-// Delete: a write refuses a missing WHERE, so clearing a table is its own op
+// Delete: a write refuses a missing WHERE, or one every row passes (an empty keep-list in notIn('id', keep)), so clearing a table is its own op
 await repo.write.deleteById(1)
 await repo.write.deleteMany({ createdAt: { lt: cutoff } })
 await repo.write.deleteAll()

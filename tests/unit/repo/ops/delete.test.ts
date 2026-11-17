@@ -80,3 +80,17 @@ describe('WritePipeline restore', () => {
     expect(exec.lastQuery!.sql).toMatch(/"deletedAt" IS NOT NULL/)
   })
 })
+
+describe('WritePipeline writes whose WHERE folds to TRUE', () => {
+  it('refuses them before any query, on a scoped table too', async () => {
+    const { exec, pipeline } = setup(soft)
+    const always = (e: any) => e.notIn('id', [])
+
+    await expect(pipeline.deleteMany(always, { pk: true })).rejects.toThrow(/needs a WHERE that filters/)
+    await expect(pipeline.deleteMany({ id: { notIn: [] } }, { pk: true })).rejects.toThrow(/needs a WHERE that filters/)
+    await expect(pipeline.deleteOne(e => e.or(e.and(), e.eq('id', 1)))).rejects.toThrow(/needs a WHERE that filters/)
+    await expect(pipeline.forceDelete(e => e.not(e.or()), { pk: true })).rejects.toThrow(/needs a WHERE that filters/)
+    await expect(pipeline.updateMany({ name: 'x' }, always, { pk: true })).rejects.toThrow(/needs a WHERE that filters/)
+    expect(exec.queries).toHaveLength(0)
+  })
+})

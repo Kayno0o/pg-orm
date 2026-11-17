@@ -118,24 +118,46 @@ export type ExprOp
 
 export type ExprTape = ExprOp[]
 
-// The position after the AND at `pos` when it holds for every row, an AND of nothing or only of such ANDs, else -1.
-function vacuousEnd(tape: ExprTape, pos: number): number {
+// The truth value of the condition at `pos` whatever the row, from the constants the tape prints (an empty AND, OR or IN list) and the logic over them; null when a row's values decide it.
+// Only logical ops have children on the tape, so any other op is one entry. FALSE absorbs an AND and TRUE an OR even beside a NULL, as in SQL.
+function foldConstant(tape: ExprTape, pos: number): { value: boolean | null, next: number } {
   const op = tape[pos]
 
-  if (op?.op !== OP_AND)
-    return -1
+  if (!op)
+    return { value: true, next: pos + 1 }
 
-  let cursor = pos + 1
+  if (op.op === OP_AND || op.op === OP_OR) {
+    const absorbing = op.op === OP_OR
+    let value: boolean | null = !absorbing
+    let cursor = pos + 1
 
-  for (let i = 0; i < op.count && cursor >= 0; i++)
-    cursor = vacuousEnd(tape, cursor)
+    for (let i = 0; i < op.count; i++) {
+      const part = foldConstant(tape, cursor)
 
-  return cursor
+      cursor = part.next
+
+      if (value !== absorbing && part.value !== !absorbing)
+        value = part.value
+    }
+
+    return { value, next: cursor }
+  }
+
+  if (op.op === OP_NOT) {
+    const inner = foldConstant(tape, pos + 1)
+
+    return { value: inner.value === null ? null : !inner.value, next: inner.next }
+  }
+
+  if ((op.op === OP_IN || op.op === OP_NOT_IN) && op.vals.length === 0)
+    return { value: op.op === OP_NOT_IN, next: pos + 1 }
+
+  return { value: null, next: pos + 1 }
 }
 
-/** Whether `tape` prints as a WHERE every row passes: no condition, or ANDs of nothing such as a filter list that came out empty. */
+/** Whether `tape` prints as a WHERE every row passes: no condition, or one folding to TRUE, such as a filter list that came out empty or a `notIn` of nothing. */
 export function holdsForEveryRow(tape: ExprTape): boolean {
-  return tape.length === 0 || vacuousEnd(tape, 0) >= 0
+  return foldConstant(tape, 0).value === true
 }
 
 export interface SubqueryRef {

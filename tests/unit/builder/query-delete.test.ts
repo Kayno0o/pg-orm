@@ -59,4 +59,26 @@ describe('DeleteBuilder', () => {
     expect(() => del().where(e => e.and(e.and())).toSQL()).toThrow(ValidationError)
     expect(del().where(e => e.and(e.and(), e.eq('id', 1))).toSQL().sql).toBe('DELETE FROM "users" WHERE (TRUE AND "id" = $1)')
   })
+
+  it('throws on any WHERE folding to TRUE: an empty notIn, an OR holding a TRUE, a NOT of FALSE', () => {
+    const always = [
+      del().where(e => e.notIn('id', [])),
+      del().where({ id: { notIn: [] } }),
+      del().where(e => e.or(e.and(), e.eq('id', 1))),
+      del().where(e => e.not(e.or())),
+      del().where(e => e.not(e.in('id', []))),
+      del().where(e => e.and(e.or(e.eq('name', 'a'), e.notIn('id', [])), e.not(e.in('id', [])))),
+    ]
+
+    for (const builder of always)
+      expect(() => builder.toSQL()).toThrow(/every row passes/)
+
+    expect(del().where(e => e.notIn('id', [])).allRows().toSQL().sql).toBe('DELETE FROM "users" WHERE TRUE')
+  })
+
+  it('keeps a WHERE folding to FALSE, or one a row decides', () => {
+    expect(del().where(e => e.in('id', [])).toSQL().sql).toBe('DELETE FROM "users" WHERE FALSE')
+    expect(del().where(e => e.and(e.notIn('id', []), e.eq('id', 1))).toSQL().sql).toBe('DELETE FROM "users" WHERE (TRUE AND "id" = $1)')
+    expect(del().where(e => e.or(e.or(), e.eq('id', 1))).toSQL().sql).toBe('DELETE FROM "users" WHERE (FALSE OR "id" = $1)')
+  })
 })
