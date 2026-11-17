@@ -5,7 +5,7 @@ import type { SyncOptions } from '../migration/sync'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, TableDef } from '../types/index'
 import type { DbConfig } from './config'
 import type { TransactionClient, TransactionOptions } from './transaction'
-import { DEFAULT_BATCH_CHUNK_SIZE, DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
+import { DEFAULT_MAX_INCLUDE_DEPTH } from '../constants'
 import { dialectOfUrl, sqliteFilename } from '../dialect'
 import { clearMapperCache } from '../mapper/index'
 import { Repository } from '../repo/index'
@@ -51,7 +51,7 @@ export class Database extends BaseExecutor {
   private _rawRunner: RawRunner
   private _tables: Map<string, AnyTableDef>
   private _maxIncludeDepth: number
-  private _batchChunkSize: number
+  private _batchChunkSize?: number
   private _defaultLimit?: number
   private _maxPageSize?: number
   private _migrations?: MigrationRunner
@@ -97,7 +97,7 @@ export class Database extends BaseExecutor {
 
     this._onCallbackError = config.onCallbackError
     this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
-    this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
+    this._batchChunkSize = config.batchChunkSize
     this._defaultLimit = config.defaultLimit
     this._maxPageSize = config.maxPageSize
 

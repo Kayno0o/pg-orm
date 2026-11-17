@@ -83,7 +83,7 @@ export class Repository<
     this._exec = config.executor
     this._tableRegistry = config.tableRegistry
     this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
-    this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE
+    this._batchChunkSize = config.batchChunkSize ?? DEFAULT_BATCH_CHUNK_SIZE[dialectOf(this._exec)]
     this._defaultLimit = config.defaultLimit
     this._maxPageSize = config.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE
 

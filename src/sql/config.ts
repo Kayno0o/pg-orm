@@ -41,7 +41,7 @@ export interface DbConfig {
   schema?: string | undefined
   /** Maximum depth for nested `.include()` relation loading (default: 5) */
   maxIncludeDepth?: number | undefined
-  /** Rows per IN (...) chunk in batched relation loading (default: 5000) */
+  /** Parent keys per statement in batched relation loading (default: 50000 on Postgres, 5000 on SQLite) */
   batchChunkSize?: number | undefined
   /** `statement_timeout` in milliseconds, set on every connection of the pool: plain queries and transactions alike. */
   statementTimeout?: number | undefined

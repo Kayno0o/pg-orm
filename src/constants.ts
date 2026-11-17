@@ -3,8 +3,8 @@
 /** Max nesting depth for .include() relation chains. Configurable: DbConfig.maxIncludeDepth. */
 export const DEFAULT_MAX_INCLUDE_DEPTH = 5
 
-/** Rows per IN (...) chunk in batched relation loading. Sized below PG's 65535 param limit. Configurable: DbConfig.batchChunkSize. */
-export const DEFAULT_BATCH_CHUNK_SIZE = 5000
+/** Parent keys per statement in batched relation loading. Both dialects bind the key list as one parameter (a Postgres array, a SQLite JSON array), so a chunk only bounds one statement's size; SQLite binds a list of dates value by value, under its parameter cap. Configurable: DbConfig.batchChunkSize. */
+export const DEFAULT_BATCH_CHUNK_SIZE = { postgres: 50_000, sqlite: 5000 } as const
 
 /** Largest `perPage` / `take` paginate() and paginateCursor() accept. Configurable: DbConfig.maxPageSize. */
 export const DEFAULT_MAX_PAGE_SIZE = 1000

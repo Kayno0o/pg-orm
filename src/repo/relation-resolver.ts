@@ -51,15 +51,59 @@ interface ChildRows {
 const THROUGH_ALIAS = '__pgorm_through'
 const THROUGH_PARENT = '__pgorm_parent'
 
+type Rows = Record<string, unknown>[]
+
+// Without a pivot every row is its own: the chunks laid end to end are the rows.
+function endToEnd(matched: Rows[]): (rows: Rows) => Rows[] {
+  return (rows) => {
+    let at = 0
+
+    return matched.map((chunk) => {
+      at += chunk.length
+
+      return rows.slice(at - chunk.length, at)
+    })
+  }
+}
+
+// Through a pivot a target linked to several parents comes once per link: it is kept once, each chunk listing it where it matched, with the parent key of each link.
+function dedupeThrough(matched: Rows[], column: string): { raw: Rows, parents: unknown[][], chunksOf: (rows: Rows) => Rows[] } {
+  const raw: Rows = []
+  const seen = new Map<unknown, number>()
+  const parents: unknown[][] = []
+  const positions = matched.map((chunk) => {
+    const linked: unknown[] = []
+
+    parents.push(linked)
+
+    return chunk.map((row) => {
+      linked.push(relationKey(row[THROUGH_PARENT]))
+      delete row[THROUGH_PARENT]
+
+      const key = relationKey(row[column])
+      const at = seen.get(key)
+
+      if (at !== undefined)
+        return at
+
+      seen.set(key, raw.length)
+      raw.push(row)
+
+      return raw.length - 1
+    })
+  })
+
+  return { raw, parents, chunksOf: rows => positions.map(chunk => chunk.map(at => rows[at]!)) }
+}
+
 /**
  * Batched relation loading — single query per relation, all relations in parallel.
  * Nested includes are handled via callback composition: each load method extracts
  * nested includes from the callback's builder state and recursively loads them
  * through child resolvers.
  *
- * Chunking lives inside this class via `#runChunked` — IDs are split into chunks
- * sized by `batchChunkSize` so the IN list never overflows the bind-parameter
- * limit. The same loop serves every relation strategy.
+ * Chunking lives inside this class via `_runChunked` — IDs are split into chunks
+ * sized by `batchChunkSize`, bounding one statement's size. The same loop serves every relation strategy.
  */
 export class RelationResolver {
   constructor(
@@ -219,32 +263,7 @@ export class RelationResolver {
 
       return query.toSQL(dialectOf(this.executor))
     })
-    const raw: Record<string, unknown>[] = []
-    const seen = new Map<unknown, number>()
-    const parents: unknown[][] = []
-    const positions = matched.map((chunk) => {
-      const linked: unknown[] = []
-
-      parents.push(linked)
-
-      return chunk.map((row) => {
-        if (through) {
-          linked.push(relationKey(row[THROUGH_PARENT]))
-          delete row[THROUGH_PARENT]
-        }
-
-        const key = through ? relationKey(row[column]) : row
-        const at = seen.get(key)
-
-        if (at !== undefined)
-          return at
-
-        seen.set(key, raw.length)
-        raw.push(row)
-
-        return raw.length - 1
-      })
-    })
+    const { raw, parents, chunksOf } = through ? dedupeThrough(matched, column) : { raw: matched.length === 1 ? matched[0]! : matched.flat(), parents: [], chunksOf: endToEnd(matched) }
 
     if (state.limitPer) {
       for (const row of raw)
@@ -253,7 +272,7 @@ export class RelationResolver {
 
     const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, { builder: filtered }) : raw
 
-    return { rows, chunks: positions.map(chunk => chunk.map(at => rows[at]!)), nestedIncludes, slice, parents }
+    return { rows, chunks: chunksOf(rows), nestedIncludes, slice, parents }
   }
 
   private async _loadBelongsTo(
