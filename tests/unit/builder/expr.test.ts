@@ -119,14 +119,15 @@ describe('ExprBuilder - IN/NOT IN', () => {
     expect(assembleExpr(e.notIn('status', ['a', 'b']), 0, undefined, 'sqlite')).toEqual({ sql: '"status" NOT IN ($1, $2)', params: ['a', 'b'] })
   })
 
-  it('binds a long SQLite list of numbers, strings and bigints as one JSON array, a shorter or mixed one value by value', () => {
+  it('binds a SQLite list of 50 numbers, strings and bigints or more as one JSON array, a shorter or mixed one value by value', () => {
     const keys = [...Array.from({ length: 999 }, (_, i) => i), 'k', 2n ** 60n]
     const long = assembleExpr(e.in('id', keys), 0, undefined, 'sqlite')
 
     expect(long.sql).toBe('"id" IN (SELECT "value" FROM json_each($1))')
     expect(JSON.parse(long.params[0] as string)).toEqual([...keys.slice(0, 1000), '1152921504606846976'])
     expect(assembleExpr(e.notIn('id', keys), 0, undefined, 'sqlite').sql).toBe('"id" NOT IN (SELECT "value" FROM json_each($1))')
-    expect(assembleExpr(e.in('id', keys.slice(2)), 0, undefined, 'sqlite').params).toHaveLength(999)
+    expect(assembleExpr(e.in('id', keys.slice(0, 49)), 0, undefined, 'sqlite').params).toHaveLength(49)
+    expect(assembleExpr(e.in('id', keys.slice(0, 50)), 0, undefined, 'sqlite').params).toHaveLength(1)
     expect(assembleExpr(e.in('at', [...keys, new Date(0)]), 0, undefined, 'sqlite').params).toHaveLength(1002)
   })
 
