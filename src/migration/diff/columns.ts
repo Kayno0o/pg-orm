@@ -22,7 +22,6 @@ import {
   buildSetNotNullSql,
   columnTypeSql,
   identitySql,
-  normalizeExpression,
   normalizeType,
   primaryKeyName,
   sameDefault,
@@ -30,6 +29,7 @@ import {
   uniqueName,
   usingClause,
 } from '../ddl'
+import { sameExpression } from '../expression'
 import { SERIAL_TYPE_RE } from '../regex'
 import { columnEntries } from '../types'
 
@@ -295,7 +295,7 @@ export function diffColumn(
       description: `Make "${colName}" in "${tableName}" a plain column, keeping its values`,
     })
   }
-  else if (desiredExpr !== undefined && normalizeExpression(desiredExpr) !== normalizeExpression(liveCol.generationExpression)) {
+  else if (desiredExpr !== undefined && !sameExpression(desiredExpr, liveCol.generationExpression)) {
     ops.push({
       type: 'alter_column',
       table: tableName,

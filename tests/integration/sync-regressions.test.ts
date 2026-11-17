@@ -102,4 +102,29 @@ describe('indexes', () => {
   })
 })
 
+describe('expressions that differ only in grouping', () => {
+  const grouped = (where: string, expr: string) => defineTable('grp', t => ({
+    id: t.serial().primaryKey(),
+    a: t.int4(),
+    b: t.int4(),
+    c: t.int4(),
+    total: t.int4().generated(expr),
+  })).withIndexes([{ columns: ['a'], unique: true, name: 'grp_a_unique', where }])
+
+  it('syncs a changed grouping and leaves what Postgres merely reprints', async () => {
+    const v1 = grouped('(a = 1 OR b = 2) AND c = 3', '(a + b) * c')
+
+    await sync([v1])
+
+    expect((await sync([v1])).ops).toEqual([])
+
+    const v2 = grouped('a = 1 OR (b = 2 AND c = 3)', 'a + (b * c)')
+    const ops = (await sync([v2], true)).ops
+
+    expect(ops.map(o => o.type).sort()).toEqual(['alter_column', 'create_index', 'drop_index'])
+    expect(await admin.raw(`SELECT pg_get_indexdef('${q('grp_a_unique')}'::regclass) AS def`)).toEqual([{ def: expect.stringContaining('((a = 1) OR ((b = 2) AND (c = 3)))') }])
+    expect((await sync([v2])).ops).toEqual([])
+  })
+})
+
 // END
