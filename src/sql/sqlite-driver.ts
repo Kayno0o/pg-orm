@@ -19,11 +19,12 @@ const STATEMENT_CACHE_MAX = 500
 const STATEMENT_CACHE_MAX_LENGTH = 8192
 
 const MEMORY_FILENAMES = new Set([':memory:', ''])
+const READ_ONLY_RE = /\bREAD ONLY\b/
 
 /** The surface the executors drive, the one `asDriver` reads off a Bun `SQL` instance. */
 interface SqliteHandle {
   unsafe: (sql: string, params: unknown[]) => Promise<unknown[]>
-  begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
+  begin: <T>(optionsOrFn: string | ((tx: InstanceType<typeof SQL>) => Promise<T>), fn?: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   close: (opts?: { timeout?: number }) => Promise<void>
 }
@@ -120,11 +121,15 @@ export class SqliteDriver implements SqliteHandle {
     return this._exclusive(async () => this._waitBusy(() => this._run(sql, params)))
   }
 
-  async begin<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
+  // `options` are the transaction modes Postgres would take on BEGIN: a read-only one begins DEFERRED, leaving the file's write lock to other processes.
+  async begin<T>(optionsOrFn: string | ((tx: InstanceType<typeof SQL>) => Promise<T>), maybeFn?: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
     if (this._inTransaction())
       throw new DialectError('A transaction opened from inside another one (independent: true)', 'sqlite')
 
-    return this._exclusive(() => this._transaction(fn))
+    const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn!
+    const readOnly = typeof optionsOrFn === 'string' && READ_ONLY_RE.test(optionsOrFn)
+
+    return this._exclusive(() => this._transaction(fn, readOnly ? 'DEFERRED' : 'IMMEDIATE'))
   }
 
   async savepoint<T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
@@ -197,9 +202,9 @@ export class SqliteDriver implements SqliteHandle {
     this._closed = true
   }
 
-  private async _transaction<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>): Promise<T> {
-    // IMMEDIATE takes the write lock up front: a deferred transaction that reads, then writes, fails with SQLITE_BUSY when another process wrote in between, which no busy timeout can wait out.
-    await this._waitBusy(() => this._run('BEGIN IMMEDIATE', []))
+  private async _transaction<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>, mode: 'IMMEDIATE' | 'DEFERRED' = 'IMMEDIATE'): Promise<T> {
+    // IMMEDIATE takes the write lock up front: a deferred transaction that reads, then writes, fails with SQLITE_BUSY when another process wrote in between, which no busy timeout can wait out. Only a read-only one, which never writes, begins DEFERRED.
+    await this._waitBusy(() => this._run(`BEGIN ${mode}`, []))
 
     const scope = { open: true }
 

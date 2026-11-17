@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'bun:test'
+import { Database, defineTable } from '../../../src/index'
 
 const index = join(import.meta.dir, '../../../src/index')
 
@@ -28,6 +29,35 @@ it('processes opening, syncing and writing one file wait for each other instead 
     expect(results).toEqual(runs.map(() => ({ code: 0, err: '' })))
   }
   finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+it('a read-only transaction leaves the file writable by another connection while it runs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pgorm-shared-'))
+  const url = `sqlite://${join(dir, 'shared.sqlite')}`
+  const things = defineTable('things', t => ({ id: t.text().primaryKey() }))
+  const reader = new Database({ url, tables: [things] })
+  const writer = new Database({ url, tables: [things] })
+
+  try {
+    await reader.sync()
+
+    const seen = await reader.transaction({ accessMode: 'read only' }, async (tx) => {
+      const before = await reader.repo(things).using(tx).read.count()
+      const start = performance.now()
+
+      await writer.repo(things).write.insertOne({ id: 'a' })
+
+      return { before, waitedMs: performance.now() - start }
+    })
+
+    expect(seen.before).toBe(0)
+    expect(seen.waitedMs).toBeLessThan(1000)
+  }
+  finally {
+    await reader.close()
+    await writer.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })

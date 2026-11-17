@@ -115,6 +115,14 @@ describe('Transactions', () => {
     })
   })
 
+  it('runs at the isolation level and access mode it asked for', async () => {
+    for (const [isolation, accessMode] of [['serializable', 'read only'], ['repeatable read', 'read write'], ['read committed', undefined]] as const) {
+      const [row] = await db.transaction({ isolation, accessMode }, async tx => tx.query('SELECT current_setting(\'transaction_isolation\') AS iso, current_setting(\'transaction_read_only\') AS ro', []))
+
+      expect(row).toEqual({ iso: isolation, ro: accessMode === 'read only' ? 'on' : 'off' })
+    }
+  })
+
   it('rejects invalid isolation level', async () => {
     expect(
       // @ts-expect-error check invalid value

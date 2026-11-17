@@ -6,7 +6,7 @@ import { TransactionRunner } from '../../../src/sql/transaction-runner'
 
 interface FakeDriver {
   unsafe: (sql: string, params: unknown[]) => Promise<unknown[]>
-  begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
+  begin: <T>(optionsOrFn: string | ((tx: InstanceType<typeof SQL>) => Promise<T>), fn?: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   close: (opts?: { timeout?: number }) => Promise<void>
 }
@@ -18,7 +18,12 @@ async function emptyClose(): Promise<void> {
 function makeSqlFake(beginImpl?: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>): InstanceType<typeof SQL> {
   const fake: FakeDriver = {
     unsafe: async () => [],
-    begin: beginImpl ?? (async fn => fn({} as InstanceType<typeof SQL>)),
+    // The transaction modes a runner passes first are BEGIN's business, not the fake's.
+    begin: async (optionsOrFn, fn) => {
+      const body = typeof optionsOrFn === 'function' ? optionsOrFn : fn!
+
+      return beginImpl ? beginImpl(body) : body({} as InstanceType<typeof SQL>)
+    },
     savepoint: async fn => fn({} as InstanceType<typeof SQL>),
     close: emptyClose,
   }

@@ -10,7 +10,7 @@ import { queryContextStorage, reportCallbackError } from './base-executor'
 import { validateRetry } from './config'
 import { computeBackoff } from './retry'
 import { TransactionClient } from './transaction'
-import { applyIsolation, isolationStatement } from './tx-sql'
+import { applySqliteAccessMode, isolationStatement, transactionModes } from './tx-sql'
 
 export type TransactionHooks = ExecutorHooks
 
@@ -121,8 +121,11 @@ export class TransactionRunner {
     let phase = 'begin' as 'begin' | 'body' | 'commit'
 
     try {
-      const result = await asDriver(this.sql).begin<T>(async sqlTx => runInContext(async () => {
-        await applyIsolation(sqlTx, opts ?? {}, this.dialect)
+      // Postgres takes the isolation level and access mode on BEGIN itself, saving the round trip of a SET TRANSACTION; SQLite begins a read-only one DEFERRED.
+      const modes = transactionModes(opts ?? {})
+      const body = async (sqlTx: InstanceType<typeof SQL>): Promise<T> => runInContext(async () => {
+        if (this.dialect === 'sqlite')
+          await applySqliteAccessMode(sqlTx, opts ?? {})
 
         const tx = this._client(sqlTx)
 
@@ -147,12 +150,14 @@ export class TransactionRunner {
         phase = 'commit'
 
         return out
-      }))
+      })
+      const driver = asDriver(this.sql)
+      const result = await (modes ? driver.begin<T>(modes, body) : driver.begin<T>(body))
 
       return { ok: true, result, tx: txRef! }
     }
     catch (caught) {
-      // The body's own errors pass through untouched; a driver failure on BEGIN, SET TRANSACTION or COMMIT (a deferred constraint) gets the same typed mapping as any query.
+      // The body's own errors pass through untouched; a driver failure on BEGIN or COMMIT (a deferred constraint) gets the same typed mapping as any query.
       let error = phase === 'body' || caught instanceof OrmError
         ? caught
         : wrapPgError(caught, phase === 'begin' ? 'BEGIN' : 'COMMIT', [])

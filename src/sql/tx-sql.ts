@@ -1,5 +1,4 @@
 import type { SQL } from 'bun'
-import type { Dialect } from '../dialect'
 import { ValidationError } from '../errors/index'
 import { asDriver } from './adapter'
 
@@ -57,22 +56,16 @@ export function isolationStatement(opts: { isolation?: string, accessMode?: stri
   return modes.length ? `SET TRANSACTION ${modes.join(' ')}` : undefined
 }
 
-/**
- * Apply the isolation and access mode the options ask for at the start of a transaction.
- * A SQLite transaction is serializable whatever was asked, which every weaker level is satisfied by, so only a read-only access mode is applied there, as `query_only`, which the caller turns off before the commit.
- */
-export async function applyIsolation(
-  sqlTx: InstanceType<typeof SQL>,
-  opts: { isolation?: string, accessMode?: string },
-  dialect: Dialect,
-): Promise<void> {
-  const stmt = isolationStatement(opts)
+/** The transaction modes of `isolationStatement`, as `BEGIN` takes them, undefined when the options set none. */
+export function transactionModes(opts: { isolation?: string, accessMode?: string }): string | undefined {
+  return isolationStatement(opts)?.slice('SET TRANSACTION '.length)
+}
 
-  if (dialect === 'sqlite') {
-    if (opts.accessMode === 'read only')
-      await asDriver(sqlTx).unsafe('PRAGMA query_only = ON', [])
-  }
-  else if (stmt) {
-    await asDriver(sqlTx).unsafe(stmt, [])
-  }
+/**
+ * Apply a read-only access mode at the start of a SQLite transaction, as `query_only`, which the caller turns off before the commit.
+ * A SQLite transaction is serializable whatever was asked, which every weaker level is satisfied by; Postgres gets its modes on `BEGIN` (`transactionModes`).
+ */
+export async function applySqliteAccessMode(sqlTx: InstanceType<typeof SQL>, opts: { accessMode?: string }): Promise<void> {
+  if (opts.accessMode === 'read only')
+    await asDriver(sqlTx).unsafe('PRAGMA query_only = ON', [])
 }

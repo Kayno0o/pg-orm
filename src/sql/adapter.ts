@@ -17,7 +17,7 @@ type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => 
  */
 export interface BunSqlDriver {
   unsafe: (sqlStr: string, params: unknown[]) => DriverQuery
-  begin: <T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
+  begin: (<T>(fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>) & (<T>(options: string, fn: (tx: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>)
   savepoint: <T>(fn: (sp: InstanceType<typeof SQL>) => Promise<T>) => Promise<T>
   close: (opts?: { timeout?: number }) => Promise<void>
   /** One pooled connection held until `release()`, for session state such as a search_path or an advisory lock. */
