@@ -1,6 +1,7 @@
 import type { ExprTape } from '../../../src/builder/expr'
 import { describe, expect, it } from 'bun:test'
 import { assembleExpr, createExprBuilder } from '../../../src/builder/expr'
+import { ValidationError } from '../../../src/errors/index'
 
 const e = createExprBuilder<any>()
 
@@ -315,6 +316,36 @@ describe('ExprBuilder - Scalar subquery', () => {
     const result = sql(e.scalar(subquery))
 
     expect(result.sql).toBe('(SELECT count(*) FROM "posts")')
+  })
+
+  it('scalar prints as the value of a comparison and a coalesce instead of binding', () => {
+    const subquery = { toSQL: (offset: number) => ({ sql: `SELECT max("n") FROM "posts" WHERE "k" = $${offset + 1}`, params: ['k'] }) }
+    const cmp = sql(e.gt('n', e.scalar(subquery)))
+
+    expect(cmp.sql).toBe('"n" > (SELECT max("n") FROM "posts" WHERE "k" = $1)')
+    expect(cmp.params).toEqual(['k'])
+    expect(sql(e.eq('n', e.coalesce('m', e.scalar(subquery)))).sql).toBe('"n" = COALESCE("m", (SELECT max("n") FROM "posts" WHERE "k" = $1))')
+  })
+})
+
+describe('ExprBuilder - Refused inputs', () => {
+  const subquery = { toSQL: (_offset: number) => ({ sql: 'SELECT 1', params: [] }) }
+
+  it('inSubquery refuses an empty column list', () => {
+    expect(() => e.inSubquery([], subquery)).toThrow(ValidationError)
+    expect(() => e.notInSubquery([], subquery)).toThrow(ValidationError)
+  })
+
+  it('and and or refuse a value that is not an expression', () => {
+    expect(() => e.and(false as unknown as ExprTape)).toThrow(ValidationError)
+    expect(() => e.or(undefined as unknown as ExprTape)).toThrow(ValidationError)
+  })
+
+  it('an undefined inside an in list, arrayOverlap or raw params is refused', () => {
+    expect(() => e.in('id', [1, undefined])).toThrow(ValidationError)
+    expect(() => e.notIn('id', [undefined])).toThrow(ValidationError)
+    expect(() => e.arrayOverlap('tags', ['a', undefined])).toThrow(ValidationError)
+    expect(() => e.raw('"id" = ?', undefined)).toThrow(ValidationError)
   })
 })
 

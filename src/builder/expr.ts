@@ -115,7 +115,7 @@ export interface ExprBuilder<TColumns extends AnyColumns, TRelations extends Any
   // Subquery
   exists: (subquery: SubqueryRef) => ExprTape
   notExists: (subquery: SubqueryRef) => ExprTape
-  scalar: (subquery: SubqueryRef) => ExprTape
+  scalar: (subquery: SubqueryRef) => TypedExpr<unknown>
   /** `col IN (SELECT ...)`, or a row of columns against a subquery selecting as many. */
   inSubquery: <K extends keyof TColumns & string>(cols: K | K[], subquery: SubqueryRef) => ExprTape
   notInSubquery: <K extends keyof TColumns & string>(cols: K | K[], subquery: SubqueryRef) => ExprTape
@@ -223,6 +223,37 @@ function operand<T>(op: string, col: unknown, val: T): T {
   return val
 }
 
+// The same refusal for each element of a list, which binds as NULL as well.
+function elements<T>(op: string, col: unknown, vals: T[]): T[] {
+  if (!Array.isArray(vals))
+    throw new ValidationError(`${op}(): the values compared with ${describeCol(col)} must be an array.`, op, { field: typeof col === 'string' ? col : undefined, value: vals })
+
+  if (vals.includes(undefined as T))
+    throw new ValidationError(`${op}(): a value compared with ${describeCol(col)} is undefined. Use isNull() to match NULL.`, op, { field: typeof col === 'string' ? col : undefined })
+
+  return vals
+}
+
+// A subquery's columns: an empty list would print `() IN (...)`.
+function subqueryCols(op: string, cols: unknown): unknown[] {
+  const list = Array.isArray(cols) ? cols : [cols]
+
+  if (list.length === 0)
+    throw new ValidationError(`${op}(): name at least one column to compare with the subquery.`, op)
+
+  return list
+}
+
+// An operand of and()/or() is an expression; a bare `false` or `undefined` would be spread into nothing and the group would silently hold.
+function conditions(op: string, exprs: unknown[]): ExprTape[] {
+  for (const expr of exprs) {
+    if (!Array.isArray(expr))
+      throw new ValidationError(`${op}(): every argument must be an expression, got ${expr === null ? 'null' : typeof expr}.`, op, { value: expr })
+  }
+
+  return exprs as ExprTape[]
+}
+
 function pattern(op: string, col: unknown, val: unknown): string {
   if (typeof val !== 'string')
     throw new ValidationError(`${op}(): the pattern matched against ${describeCol(col)} must be a string, got ${val === null ? 'null' : typeof val}.`, op, { field: typeof col === 'string' ? col : undefined, value: val })
@@ -270,14 +301,16 @@ function bitDistance(col: string | ExprTape, bits: string, metric: VectorMetric)
 
 // Singleton expression builder — stateless, so one instance serves all callers
 const _singletonExprBuilder: ExprBuilder<any> = {
-  and(...exprs) {
+  and(...args) {
+    const exprs = conditions('and', args)
     const tape: ExprTape = [{ op: OP_AND, count: exprs.length }]
 
     for (const e of exprs) tape.push(...e)
 
     return tape
   },
-  or(...exprs) {
+  or(...args) {
+    const exprs = conditions('or', args)
     const tape: ExprTape = [{ op: OP_OR, count: exprs.length }]
 
     for (const e of exprs) tape.push(...e)
@@ -294,8 +327,8 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   gte: (col, val) => [{ op: OP_GTE, col, val: operand('gte', col, val) }],
   lt: (col, val) => [{ op: OP_LT, col, val: operand('lt', col, val) }],
   lte: (col, val) => [{ op: OP_LTE, col, val: operand('lte', col, val) }],
-  in: (col, vals) => [{ op: OP_IN, col, vals: operand('in', col, vals) }],
-  notIn: (col, vals) => [{ op: OP_NOT_IN, col, vals: operand('notIn', col, vals) }],
+  in: (col, vals) => [{ op: OP_IN, col, vals: elements('in', col, operand('in', col, vals)) }],
+  notIn: (col, vals) => [{ op: OP_NOT_IN, col, vals: elements('notIn', col, operand('notIn', col, vals)) }],
 
   isNull: col => [{ op: OP_IS_NULL, col }],
   isNotNull: col => [{ op: OP_IS_NOT_NULL, col }],
@@ -312,9 +345,9 @@ const _singletonExprBuilder: ExprBuilder<any> = {
 
   exists: subquery => [{ op: OP_EXISTS, subquery }],
   notExists: subquery => [{ op: OP_NOT_EXISTS, subquery }],
-  scalar: subquery => [{ op: OP_SCALAR, subquery }],
-  inSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: Array.isArray(cols) ? cols : [cols], subquery }],
-  notInSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: Array.isArray(cols) ? cols : [cols], subquery, negate: true }],
+  scalar: subquery => sqlValue([{ op: OP_SCALAR, subquery }]),
+  inSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: subqueryCols('inSubquery', cols) as string[], subquery }],
+  notInSubquery: (cols, subquery) => [{ op: OP_IN_SUBQUERY, cols: subqueryCols('notInSubquery', cols) as string[], subquery, negate: true }],
 
   has: (relation, where, scopes) => [{ op: OP_HAS, relation, negate: false, where, scopes }],
   doesntHave: (relation, where, scopes) => [{ op: OP_HAS, relation, negate: true, where, scopes }],
@@ -322,7 +355,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   coalesce: (col, fallback) => sqlValue([{ op: OP_COALESCE, col, fallback }]),
   caseWhen: (whens, otherwise) => sqlValue([{ op: OP_CASE, whens, otherwise }]),
 
-  raw: (sql, ...params) => [{ op: OP_RAW, sql, params }],
+  raw: (sql, ...params) => [{ op: OP_RAW, sql, params: elements('raw', 'e.raw() params', params) }],
 
   jsonbPath: (col, path) => [{ op: OP_JSONB_PATH, col, path }],
   jsonbSubscript: (col, ...path) => [{ op: OP_JSONB_SUBSCRIPT, col, path }],
@@ -352,7 +385,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   iContains: (col, substr) => [{ op: OP_ILIKE, col, pattern: `%${escapeLikePattern('iContains', col, substr)}%` }],
 
   arrayContains: (col, val) => [{ op: OP_ARRAY_CONTAINS, col: col as string | ExprTape, val }],
-  arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals }],
+  arrayOverlap: (col, vals) => [{ op: OP_ARRAY_OVERLAP, col: col as string | ExprTape, vals: elements('arrayOverlap', col, vals) }],
 
   // Aggregate functions — return raw SQL strings (cast to AggResult for type-level branding)
   sum: col => `CAST(SUM(${qualifyCol(col)}) AS double precision)` as AggResult<number | null>,
