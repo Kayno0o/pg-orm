@@ -111,7 +111,7 @@ describe('buildTableRuntime.runAfter', () => {
   it('is a no-op when no hooks are registered', async () => {
     const rt = buildTableRuntime(makePlain())
 
-    await expect(rt.runAfter('afterInsert', [], ctx)).resolves.toBeUndefined()
+    await expect(rt.runAfter('afterInsert', [], ctx)).resolves.toEqual([])
   })
 
   it('wraps a throwing after-hook in AfterHookError', async () => {
