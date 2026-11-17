@@ -91,11 +91,14 @@ export class QueryError extends OrmError {
   }
 }
 
-/** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection closed or timed out). Indicates network or server issues; a read hitting one can be retried. */
+/** Connection error (PG codes 08xxx, 57P01-57P03, and bun:sql's connection refused, failed, closed or timed out, or TLS not established). Indicates network or server issues; a read hitting one can be retried. */
 export class ConnectionError extends QueryError {
-  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown) {
+  /** `'unknown'` when the connection was lost during a transaction's COMMIT: the commit may or may not have landed, and neither `onCommit` nor `onRollback` ran. */
+  readonly commitOutcome?: 'unknown'
+  constructor(message: string, query = '', params: unknown[] = [], cause?: unknown, commitOutcome?: 'unknown') {
     super(message, query, params, cause)
     this.name = 'ConnectionError'
+    this.commitOutcome = commitOutcome
   }
 }
 
@@ -444,7 +447,16 @@ export function sanitizePgErrorMessage(message: string): string {
 // Driver error fields that name what failed without holding a value: `detail`, `hint`, `where` and `internalQuery` can quote the row.
 const SAFE_DRIVER_FIELDS = ['code', 'errno', 'severity', 'schema', 'schema_name', 'table', 'table_name', 'column', 'column_name', 'dataType', 'constraint', 'constraint_name', 'routine'] as const
 
-const BUN_CONNECTION_CODES = new Set(['ERR_POSTGRES_CONNECTION_CLOSED', 'ERR_POSTGRES_CONNECTION_TIMEOUT', 'ERR_POSTGRES_IDLE_TIMEOUT', 'ERR_POSTGRES_LIFETIME_TIMEOUT'])
+const BUN_CONNECTION_CODES = new Set([
+  'ERR_POSTGRES_CONNECTION_CLOSED',
+  'ERR_POSTGRES_CONNECTION_TIMEOUT',
+  'ERR_POSTGRES_CONNECTION_REFUSED',
+  'ERR_POSTGRES_CONNECTION_FAILED',
+  'ERR_POSTGRES_IDLE_TIMEOUT',
+  'ERR_POSTGRES_LIFETIME_TIMEOUT',
+  'ERR_POSTGRES_TLS_NOT_AVAILABLE',
+  'ERR_POSTGRES_TLS_UPGRADE_FAILED',
+])
 
 const DELETE_RE = /^\s*DELETE\b/i
 const NOT_NULL_COLUMN_RE = /^null value in column "((?:[^"]|"")+)"/
@@ -479,7 +491,8 @@ function redactedCause(err: Error): Error {
 // PG error codes: 23505 = unique_violation, 23503 = foreign_key_violation,
 // 23502 = not_null_violation, 23514 = check_violation
 // SQLite's `SQLITE_*` codes map onto the same classes.
-export function wrapPgError(err: unknown, query: string, params: unknown[]): OrmError {
+// `uniqueName` is the constraint a SQLite UNIQUE failure broke when the caller looked it up: SQLite does not name it.
+export function wrapPgError(err: unknown, query: string, params: unknown[], uniqueName?: string): OrmError {
   if (!(err instanceof Error))
     return new OrmError(String(err), err)
 
@@ -499,7 +512,7 @@ export function wrapPgError(err: unknown, query: string, params: unknown[]): Orm
   const cause = redactedCause(err)
 
   if (pgErr.code?.startsWith('SQLITE_'))
-    return wrapSqliteError(pgErr.code, pgErr.message, cause, query, params)
+    return wrapSqliteError(pgErr.code, pgErr.message, cause, query, params, uniqueName)
 
   const code = pgErr.errno ?? pgErr.code
   const constraint = pgErr.constraint_name ?? pgErr.constraint ?? ''
@@ -566,11 +579,14 @@ function textField(value: unknown): string {
 // SQLite names the failing columns as `table.column`, comma separated, after the colon of its constraint message.
 const SQLITE_COLUMNS_RE = /constraint failed: (.+)$/
 const SQLITE_COLUMN_SEPARATOR = ', '
+// A unique index over an expression has no column to name: SQLite names the index instead, `index 'name'`.
+const SQLITE_INDEX_RE = /^index '((?:[^']|'')+)'$/
 
 // SQLite names neither the constraint of a UNIQUE or PRIMARY KEY violation nor the table of a foreign key one: the names given are the ones Postgres gives the same constraint created by pg-orm's DDL, so code testing `err.constraint` holds on both.
-function wrapSqliteError(code: string, message: string, err: Error, query: string, params: unknown[]): OrmError {
+function wrapSqliteError(code: string, message: string, err: Error, query: string, params: unknown[], uniqueName?: string): OrmError {
   const named = message.match(SQLITE_COLUMNS_RE)?.[1] ?? ''
-  const columns = named.split(SQLITE_COLUMN_SEPARATOR).map(part => part.split('.'))
+  const index = named.match(SQLITE_INDEX_RE)?.[1]
+  const columns = index === undefined ? named.split(SQLITE_COLUMN_SEPARATOR).map(part => part.split('.')) : []
   const table = columns[0]?.[0] ?? ''
   const columnNames = columns.map(([, col]) => col ?? '')
   const column = columnNames.join(', ')
@@ -580,7 +596,10 @@ function wrapSqliteError(code: string, message: string, err: Error, query: strin
     case 'SQLITE_CONSTRAINT_PRIMARYKEY':
       return new UniqueError(message, query, params, { constraint: `${table}_pkey`, table, column }, err)
     case 'SQLITE_CONSTRAINT_UNIQUE':
-      return new UniqueError(message, query, params, { constraint: `${table}_${columnNames.join('_')}_key`, table, column }, err)
+      if (index !== undefined)
+        return new UniqueError(message, query, params, { constraint: index.replaceAll('\'\'', '\''), table: target }, err)
+
+      return new UniqueError(message, query, params, { constraint: uniqueName ?? `${table}_${columnNames.join('_')}_key`, table, column }, err)
     case 'SQLITE_CONSTRAINT_FOREIGNKEY':
       // SQLite names no table: a DELETE broke a reference to the rows it removed, any other write a reference it holds.
       return DELETE_RE.test(query)

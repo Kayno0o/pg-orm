@@ -33,6 +33,8 @@ export class TransactionClient extends BaseExecutor {
   /** @internal */ _settled = false
   /** @internal */ _nest?: <T>(fn: (tx: TransactionClient) => Promise<T>) => Promise<T>
   /** @internal */ _parent?: TransactionClient
+  /** @internal Resolves once the savepoints open on this client have ended; `undefined` when none is. */
+  _beforeStatement?: () => Promise<void> | undefined
 
   constructor(sqlTx: InstanceType<typeof SQL>, hooks: ExecutorHooks = {}, dialect: Dialect = 'postgres') {
     super()
@@ -83,12 +85,14 @@ export class TransactionClient extends BaseExecutor {
 
   override async query(sqlStr: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     this._assertOpen()
+    await this._beforeStatement?.()
 
     return super.query(sqlStr, params)
   }
 
   override async copyIn(sqlStr: string, chunks: AsyncIterable<string>): Promise<number> {
     this._assertOpen()
+    await this._beforeStatement?.()
 
     return super.copyIn(sqlStr, chunks)
   }

@@ -196,12 +196,32 @@ function toBytes(value: unknown): unknown {
   return typeof value === 'string' ? Buffer.from(value.slice(2), 'hex') : value
 }
 
+const EXPONENT_FORM_RE = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/
+
+// SQLite stores a numeric as a number, which JS prints as `1e-10` or `1e+21` past its plain-decimal range: Postgres never answers in that form.
+function numericText(value: unknown): string {
+  const text = String(value)
+  const parts = EXPONENT_FORM_RE.exec(text)
+
+  if (!parts)
+    return text
+
+  const [, sign, whole, fraction = '', exponent] = parts
+  const digits = whole! + fraction
+  const point = whole!.length + Number(exponent)
+
+  if (point <= 0)
+    return `${sign}0.${'0'.repeat(-point)}${digits}`
+
+  return `${sign}${point >= digits.length ? digits + '0'.repeat(point - digits.length) : `${digits.slice(0, point)}.${digits.slice(point)}`}`
+}
+
 /** How a column's non-null value is coerced; the compiled mapper body calls these as `h.<name>`. */
 const coercions = {
   bigint: toBigInt,
   bool: (v: unknown): unknown => Boolean(v),
   date: toDate,
-  numeric: (v: unknown): unknown => String(v),
+  numeric: numericText,
   sqliteJson: (v: unknown): unknown => typeof v === 'string' ? parseJsonText(v) : v,
   bigintArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toBigInt),
   dateArray: (v: unknown): unknown => deepMap(typeof v === 'string' ? parseJsonText(v) : v, toDate),
@@ -226,9 +246,6 @@ function sqliteCoercion(pgType: string): Coercion | undefined {
   if (DATE_TYPES.has(pgType.replace(TIME_PRECISION_RE, '')))
     return 'date'
 
-  if (pgType.startsWith('numeric'))
-    return 'numeric'
-
   if (pgType.endsWith('[]')) {
     const element = pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')
 
@@ -238,7 +255,7 @@ function sqliteCoercion(pgType: string): Coercion | undefined {
     return DATE_TYPES.has(element) ? 'dateArray' : 'sqliteJson'
   }
 
-  return undefined
+  return pgType.startsWith('numeric') ? 'numeric' : undefined
 }
 
 function coercionFor(pgType: string, dialect: Dialect, enumName?: string): Coercion | undefined {
@@ -382,8 +399,10 @@ export function getOrCompileMapper<TColumns extends AnyColumns>(
   omit?: string[],
   computed?: readonly ComputedField[],
   dialect: Dialect = 'postgres',
+  // The table's `_version`: a trait applied later adds columns to the same object, which the cache must not answer with the old shape.
+  version = 0,
 ): RowMapper<Record<string, unknown>> {
-  const key = `${dialect}:${tableName}#${columnsId(columns)}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? computed.map(field => typeof field === 'string' ? field : field.join(':')).sort().join(',') : ''}`
+  const key = `${dialect}:${tableName}#${columnsId(columns)}.${version}:${pick ? [...pick].sort().join(',') : '*'}:${omit ? [...omit].sort().join(',') : ''}:${computed?.length ? computed.map(field => typeof field === 'string' ? field : field.join(':')).sort().join(',') : ''}`
   const cached = _mapperCache.get(key)
 
   if (cached !== undefined) {

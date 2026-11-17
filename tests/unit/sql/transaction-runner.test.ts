@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import { describe, expect, it } from 'bun:test'
-import { OrmError, UniqueError, ValidationError } from '../../../src/errors/index'
+import { ConnectionError, OrmError, SerializationError, UniqueError, ValidationError } from '../../../src/errors/index'
 import { queryContextStorage } from '../../../src/sql/base-executor'
 import { TransactionRunner } from '../../../src/sql/transaction-runner'
 
@@ -170,6 +170,69 @@ describe('TransactionRunner', () => {
     })
 
     expect(txContext).toEqual({ traceId: 't-1' })
+  })
+
+  describe('a COMMIT that fails', () => {
+    // A begin whose body ran, then COMMIT rejects with `commitError`.
+    function runnerFailingCommit(commitError: Error): TransactionRunner {
+      return new TransactionRunner(makeSqlFake(async (fn) => {
+        await fn({} as InstanceType<typeof SQL>)
+
+        throw commitError
+      }), {})
+    }
+
+    it('with a lost connection fires neither callback and says the outcome is unknown', async () => {
+      const fired: string[] = []
+      const runner = runnerFailingCommit(Object.assign(new Error('connection closed'), { errno: '08006' }))
+      let caught: unknown
+
+      try {
+        await runner.run(async (tx) => {
+          tx.onCommit(() => {
+            fired.push('commit')
+          })
+          tx.onRollback(() => {
+            fired.push('rollback')
+          })
+        })
+      }
+      catch (err) {
+        caught = err
+      }
+
+      expect(caught).toBeInstanceOf(ConnectionError)
+      expect((caught as ConnectionError).commitOutcome).toBe('unknown')
+      expect(fired).toEqual([])
+    })
+
+    it('refused by the server still fires onRollback', async () => {
+      const fired: string[] = []
+      const runner = runnerFailingCommit(Object.assign(new Error('could not serialize'), { errno: '40001' }))
+      let caught: unknown
+
+      try {
+        await runner.run(async (tx) => {
+          tx.onRollback(() => {
+            fired.push('rollback')
+          })
+        })
+      }
+      catch (err) {
+        caught = err
+      }
+
+      expect(caught).toBeInstanceOf(SerializationError)
+      expect(fired).toEqual(['rollback'])
+    })
+
+    it('leaves a connection error from the body without the outcome marker', async () => {
+      const runner = new TransactionRunner(makeSqlFake(), {})
+
+      await expect(runner.run(async () => {
+        throw new ConnectionError('lost')
+      })).rejects.toMatchObject({ commitOutcome: undefined })
+    })
   })
 
   describe('a nested call', () => {

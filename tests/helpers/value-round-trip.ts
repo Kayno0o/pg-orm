@@ -10,6 +10,8 @@ export const valuesTable = defineTable('value_round_trip', t => ({
   big: t.array(t.int8()).nullable(),
   doc: t.jsonb().nullable(),
   n: t.int4().nullable(),
+  amounts: t.array(t.numeric(10, 2)).nullable(),
+  amount: t.numeric(30, 10).nullable(),
 }))
 
 /** The round-trip cases, run against `db()` once its table exists. */
@@ -29,6 +31,19 @@ export function valueRoundTripCases(db: () => Database): void {
     const row = { times: [new Date(0), new Date('2024-02-29T12:34:56.789Z')], docs: [{ a: 1 }, { b: 'x"y' }], big: [1n, 9007199254740993n] }
 
     expect(await roundTrip(row)).toMatchObject(row)
+  })
+
+  it('numeric array elements read back as strings', async () => {
+    expect((await roundTrip({ amounts: ['1.50', '2.00'] })).amounts).toEqual(['1.50', '2.00'])
+  })
+
+  it('a numeric reads back in plain decimal form, never with an exponent', async () => {
+    expect((await roundTrip({ amount: '-0.0000000001' })).amount).toBe('-0.0000000001')
+  })
+
+  it('a bigint inside a json value is written as its decimal string', async () => {
+    expect((await roundTrip({ doc: { big: 12345678901234567890n, list: [1n] } })).doc).toEqual({ big: '12345678901234567890', list: ['1'] })
+    expect((await roundTrip({ doc: 7n })).doc).toBe('7')
   })
 
   it('JSON string, boolean and number scalars round-trip unchanged', async () => {

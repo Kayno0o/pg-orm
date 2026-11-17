@@ -128,4 +128,53 @@ describe('sqlite transactions', () => {
     expect(events.find(e => e.sql.startsWith('INSERT'))?.context).toEqual({ requestId: 'r1' })
     await db.close()
   })
+
+  it('a nested transaction\'s context merges into the outer one, its own keys winning', async () => {
+    const events: QueryEvent[] = []
+    const db = await memoryDb(e => void events.push(e))
+
+    await db.transaction({ context: { requestId: 'r1', step: 'outer' } }, async (tx) => {
+      await db.transaction({ context: { step: 'nested' } }, async (nested) => {
+        await nested.query('INSERT INTO t VALUES (1)', [])
+      })
+      await tx.query('INSERT INTO t VALUES (2)', [])
+    })
+
+    expect(events.filter(e => e.sql.startsWith('INSERT')).map(e => e.context)).toEqual([{ requestId: 'r1', step: 'nested' }, { requestId: 'r1', step: 'outer' }])
+    await db.close()
+  })
+
+  it('a statement on the outer client waits for a running savepoint, so its rollback leaves the outer write', async () => {
+    const db = await memoryDb()
+
+    await db.transaction(async (tx) => {
+      const [failing] = await Promise.allSettled([
+        tx.savepoint(async (sp) => {
+          await sp.query('INSERT INTO t VALUES (1)', [])
+          await Bun.sleep(20)
+
+          throw new Error('savepoint fails')
+        }),
+        tx.query('INSERT INTO t VALUES (2)', []),
+      ])
+
+      expect(failing.status).toBe('rejected')
+    })
+
+    expect(await db.raw('SELECT v FROM t')).toEqual([{ v: 2 }])
+    await db.close()
+  })
+
+  it('the outer client still reaches its own transaction from inside a savepoint body', async () => {
+    const db = await memoryDb()
+
+    await db.transaction(async (tx) => {
+      await tx.savepoint(async () => {
+        await tx.query('INSERT INTO t VALUES (1)', [])
+      })
+    })
+
+    expect(await count(db)).toBe(1)
+    await db.close()
+  })
 })

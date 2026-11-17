@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'bun:test'
-import { applyMigration, Database, defineTable, DestructiveOpError, DialectError, generateMigration, getMigrationHistory, getMigrationStatus, MigrationError, testDatabase } from '../../../src/index'
+import { applyMigration, Database, defineTable, DestructiveOpError, DialectError, generateMigration, getMigrationHistory, getMigrationStatus, MigrationError, testDatabase, timestamps } from '../../../src/index'
 
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-sqlite-sync-'))
 const opened: Database[] = []
@@ -332,5 +332,22 @@ describe('testDatabase on SQLite', () => {
     finally {
       rmSync(migrationsDir, { recursive: true, force: true })
     }
+  })
+
+  it('reads the columns a trait applied after the first read adds, without invalidating a cache', async () => {
+    const grown = defineTable('grown', t => ({ id: t.serial().primaryKey(), big: t.int8().nullable() }))
+    const open = file()
+    const db = open([grown])
+
+    await db.sync()
+    await db.repo(grown).write.insertOne({ big: 1n })
+    await db.repo(grown).read.findMany()
+
+    grown.withTrait(timestamps())
+    await db.sync()
+
+    const [row] = await db.repo(grown).read.findMany()
+
+    expect(Object.keys(row!)).toEqual(['id', 'big', 'createdAt', 'updatedAt'])
   })
 })

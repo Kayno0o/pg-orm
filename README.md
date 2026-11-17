@@ -794,6 +794,7 @@ await db.transaction(async (tx) => {
   throw new Error('undoes the list too')
 })
 // { independent: true } opens a separate transaction on its own connection instead.
+// A joined call's `context` merges into the outer transaction's, its own keys winning.
 
 // With isolation level
 await db.transaction(
@@ -807,7 +808,9 @@ await db.transaction({ isolation: 'serializable', retry: { maxRetries: 3 } }, as
 
 A read-only access mode is enforced on both dialects (`query_only` on SQLite). A transaction client is dead once its transaction settles: a query on it throws `ValidationError`, and a `db.transaction()` started by work that outlived the body (a timer) opens its own transaction instead of joining the finished one.
 
-A savepoint is opened on the client of the body that opens it: `tx.savepoint()` called from inside a savepoint of `tx` would wait for that savepoint to end, so it throws `ValidationError`. A `db.withSignal` abort ends a retry's backoff wait at once, with `AbortError`, as it does a `copyFrom` whose source stalled. Invalid `retry` options, on the database or a transaction, throw `ValidationError` before anything runs, as does an unknown isolation level or access mode.
+A savepoint is opened on the client of the body that opens it: `tx.savepoint()` called from inside a savepoint of `tx` would wait for that savepoint to end, so it throws `ValidationError`. A statement on `tx` issued while one of its savepoints is open waits for the savepoint to end, so the savepoint's rollback never undoes it. A `db.withSignal` abort ends a retry's backoff wait at once, with `AbortError`, as it does a `copyFrom` whose source stalled. Invalid `retry` options, on the database or a transaction, throw `ValidationError` before anything runs, as does an unknown isolation level or access mode.
+
+A COMMIT the server refuses (a serialization failure, a deferred constraint) fires `onRollback` with the typed error. A COMMIT whose connection is lost raises `ConnectionError` with `commitOutcome: 'unknown'` and fires neither `onCommit` nor `onRollback`: the commit may have landed, and a compensation could undo committed data. Check the database before retrying such a transaction.
 
 A query issued through `db` rather than `tx` from inside the body runs outside the transaction on Postgres, on another connection, but inside it on SQLite, which has one connection: go through `tx` or `repo.using(tx)`.
 
@@ -1067,7 +1070,7 @@ await db.sync()
 
 The file and its directory are created on first use, in WAL mode, with foreign keys enforced. `db.dialect` says which one a database speaks.
 
-**Storage.** Integers, serials and booleans are `INTEGER` (a boolean reads back as `true`/`false`), floats `REAL`, `numeric` `NUMERIC`, `bytea` `BLOB`, and everything else `TEXT`: a date is its ISO string, which sorts and compares in time order, and a json or array column its JSON text. An enum is `TEXT` with a CHECK on its values. A single serial or integer primary key is the rowid, `AUTOINCREMENT` for a serial so a deleted id is never handed out again. `int8` keeps its precision past 2^53. `now()` and `gen_random_uuid()` defaults become their SQLite equivalents.
+**Storage.** Integers, serials and booleans are `INTEGER` (a boolean reads back as `true`/`false`), floats `REAL`, `numeric` `NUMERIC`, `bytea` `BLOB`, and everything else `TEXT`: a date is its ISO string, which sorts and compares in time order, and a json or array column its JSON text. An enum is `TEXT` with a CHECK on its values. A single serial or integer primary key is the rowid, `AUTOINCREMENT` for a serial so a deleted id is never handed out again. `int8` keeps its precision past 2^53. A `numeric` is stored as a number, so it reads back as plain decimal text (never `1e-10`) but without the trailing zeros its scale gave it. `now()` and `gen_random_uuid()` defaults become their SQLite equivalents.
 
 **Migrations.** `sync()`, `generateMigration()`, `applyMigration()`, `rollback()` and `testDatabase()` work as they do on Postgres. A rename or a new column is made with `ALTER TABLE` where SQLite allows it; any other change (a type, a constraint, a default, a dropped column) rebuilds the table, the way SQLite documents it: a new table is created, the rows copied over, the old one dropped and the new one renamed, with foreign keys off for the duration and checked before the commit. Its declared indexes are recreated with it; an index, trigger or view made by hand on that table is not, and a view reading it makes the rebuild fail and roll back. A table created by other means than `sync()` is rebuilt once on the first `sync()`, its DDL spelled differently. `testDatabase()` copies a template file next to the app's database.
 
@@ -1079,7 +1082,7 @@ The file and its directory are created on first use, in WAL mode, with foreign k
 - Row locks (`forUpdate()`, `skipLocked()`, `noWait()`, `lockOf()`, ...) are dropped, SQLite locking the whole database for a write. Isolation levels are checked and then ignored: every transaction is serializable. A `read only` access mode is enforced through `query_only`.
 - A query issued through `db` (`db.raw()`, `db.repo(t)`) from inside a transaction body runs in that transaction, where Postgres runs it on another connection that sees none of the body's uncommitted writes. Code meant for both dialects goes through `tx` or `repo.using(tx)`.
 - An independent transaction (`{ independent: true }`) cannot be opened from inside another one.
-- Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique index by its columns too. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
+- Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique constraint or unique index by its own name, which a failure looks up in the schema. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
 - A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
 - Not supported, each throwing `DialectError`: `vector`, `halfvec`, `sparsevec` and their distances, `hnsw` and `ivfflat` indexes, `vectorSearch()`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, and a serial column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
@@ -1108,7 +1111,7 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `TransactionAbortedError` | 25P02 | Statement sent to a transaction an earlier failure aborted |
 | `InvalidQueryError` | 42xxx | Syntax error, unknown table or column, missing privilege (`code`) |
 | `AuthenticationError` | 28xxx | Credentials refused, never retried |
-| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection timeouts | Connection lost, server shutting down or starting; a read retries it |
+| `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection refused, failed, closed, timed out, or TLS not established | Connection lost or refused, server shutting down or starting; a read retries it. `commitOutcome: 'unknown'` when it was lost during COMMIT |
 | `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
 | `AbortError` | - | The signal bound by `db.withSignal` aborted; `cause` is its reason, never retried |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |
