@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { defineTable, softDelete } from '../../../../src/index'
+import { isJsonParam } from '../../../../src/sql/json-param'
 import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
@@ -30,6 +31,26 @@ describe('WritePipeline deleteMany', () => {
     await pipeline.deleteMany(e => e.eq('id', 1), { pk: true })
 
     expect(exec.lastQuery!.sql).toMatch(/DELETE FROM "users"/)
+  })
+})
+
+describe('WritePipeline hook-set json values', () => {
+  const docs = defineTable('docs', t => ({
+    id: t.serial().primaryKey(),
+    meta: t.jsonb().nullable(),
+  })).withTrait(softDelete())
+
+  docs.hook('beforeUpdate', row => ({ ...row, meta: ['a'] }))
+
+  it('marks them on a soft delete and a restore, as on an update', async () => {
+    const { exec, pipeline } = setup(docs)
+
+    exec.preset([])
+    await pipeline.deleteMany(e => e.eq('id', 1))
+    expect(exec.lastQuery!.params.some(isJsonParam)).toBe(true)
+
+    await pipeline.restore(e => e.eq('id', 1))
+    expect(exec.lastQuery!.params.some(isJsonParam)).toBe(true)
   })
 })
 

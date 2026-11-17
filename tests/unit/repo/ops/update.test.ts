@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { NotFoundError, StaleRecordError, ValidationError } from '../../../../src/errors/index'
-import { defineTable, optimisticLock } from '../../../../src/index'
+import { defineTable, optimisticLock, timestamps } from '../../../../src/index'
 import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
@@ -109,6 +109,24 @@ describe('WritePipeline updateWithLock', () => {
     const row = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3)
 
     expect(row).toEqual({ id: 1, name: 'X', version: 4 })
+  })
+})
+
+describe('WritePipeline update hooks', () => {
+  const stamped = defineTable('stamped', t => ({
+    id: t.serial().primaryKey(),
+    n: t.int4().notNull(),
+  })).withTrait(timestamps())
+
+  it('leaves the caller\'s patch untouched, a frozen one included', async () => {
+    const { exec, pipeline } = setup(stamped)
+    const patch = Object.freeze({ n: 2 })
+
+    exec.preset([{ id: 1, n: 2 }])
+    await pipeline.updateById(patch, e => e.eq('id', 1))
+
+    expect(patch).toEqual({ n: 2 })
+    expect(exec.lastQuery!.sql).toMatch(/"updatedAt" = /)
   })
 })
 

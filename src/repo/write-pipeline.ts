@@ -309,7 +309,7 @@ export class WritePipeline<
 
   async updateMany(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     const filter = this._requireWhere(where, 'updateMany')
-    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', set, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
+    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', { ...set }, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = new UpdateBuilderCtor<TColumns>(this._runtime.table)
       .set(s)
       .where(filter)
@@ -546,7 +546,7 @@ export class WritePipeline<
     const softSet = force ? null : this._runtime.behavior.softDeleteSet<TColumns>()
     const lifted = liftedScopes(opts)
     const builder = softSet
-      ? this._runtime.behavior.rewriteDelete(await this._runtime.runBefore('beforeUpdate', softSet, this._hooks), where, lifted)
+      ? this._runtime.behavior.rewriteDelete(this._normalizeValues(await this._runtime.runBefore('beforeUpdate', softSet, this._hooks) as Record<string, unknown>) as typeof softSet, where, lifted)
       : this._hardDelete(where, force ? [...lifted, SOFT_DELETE_SCOPE] : lifted)
 
     return this._execute({
@@ -777,7 +777,7 @@ export class WritePipeline<
       )
     }
 
-    const s = await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks)
+    const s = this._normalizeValues(await this._runtime.runBefore('beforeUpdate', { [sdCol]: null } as InferUpdate<TColumns>, this._hooks) as Record<string, unknown>) as InferUpdate<TColumns>
     const builder = this._runtime.behavior.buildRestoreUpdate(s, where && this._resolved(compileWhere<TColumns>(where, this._runtime.table.columns)), liftedScopes(opts))
 
     return this._execute({
