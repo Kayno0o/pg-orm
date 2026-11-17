@@ -54,10 +54,13 @@ describe.each(dialects)('offset reads with no order on %s', (_name, open) => {
     expect(page.total).toBe(4)
   })
 
-  it('pages a read grouped by an expression', async () => {
-    const page = await db.repo(rows).read.paginate({ page: 1, perPage: 10, withTotal: false }, q => q.groupByExpr(e => e.coalesce('grp', 0)).aggregate(e => ({ c: e.countCol() })))
+  it('pages a read grouped by an expression, its total counting the groups', async () => {
+    const page = await db.repo(rows).read.paginate({ page: 1, perPage: 10 }, q => q.groupByExpr(e => e.coalesce('grp', 0)).aggregate(e => ({ c: e.countCol() })))
+    const picked = await db.repo(rows).read.paginate({ page: 1, perPage: 10 }, q => q.pick().computed(e => e.countCol(), 'c').groupByExpr(e => e.coalesce('grp', 0)))
 
     expect(page.data.map(r => r.c).sort()).toEqual([1, 3, 3, 3])
+    expect(page.total).toBe(4)
+    expect(picked.total).toBe(4)
   })
 
   it('pages a DISTINCT read of picked columns', async () => {

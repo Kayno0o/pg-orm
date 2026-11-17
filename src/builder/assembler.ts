@@ -381,13 +381,16 @@ function printSelect(sb: SqlBuilder, state: BuilderState): void {
   }
 
   // A grouped or distinct query has fewer result rows than matched rows, so its count wraps the query instead of replacing its column list.
-  const wrapCount = state.op === 'count' && (state.groupBy.length > 0 || state.distinct || state.distinctOn.length > 0)
+  const grouped = state.groupBy.length > 0 || (state.groupByExprs?.length ?? 0) > 0
+  const wrapCount = state.op === 'count' && (grouped || state.distinct || state.distinctOn.length > 0)
 
   if (wrapCount)
     sb.push(`SELECT ${countColumn(sb)} FROM (`)
 
-  // The wrapped query lists its group columns: Postgres refuses a * that is not grouped.
-  const inner = wrapCount && !state.columns && state.groupBy.length > 0 ? { ...state, columns: [...state.groupBy] } : state
+  // The wrapped query lists its group columns, or a constant when it groups by expressions alone: Postgres refuses a * that is not grouped.
+  const inner = wrapCount && !state.columns && grouped
+    ? { ...state, columns: [...state.groupBy], computedColumns: state.groupBy.length > 0 || state.computedColumns.length > 0 ? state.computedColumns : [{ expr: '1', alias: '__group' }] }
+    : state
 
   printSelectHead(sb, inner, state.op === 'count' && !wrapCount)
   printFrom(sb, state)
