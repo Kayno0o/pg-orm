@@ -1,8 +1,8 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { ValidationError } from '../../src/index'
+import { defineTable, ValidationError } from '../../src/index'
 import { createTestDb, truncateAll } from '../helpers/db'
-import { bigItemsTable, documentsTable, usersTable, versionedItemsTable } from '../helpers/fixtures'
+import { allTables, bigItemsTable, documentsTable, usersTable, versionedItemsTable } from '../helpers/fixtures'
 
 let db: Database
 let statements = 0
@@ -120,5 +120,34 @@ describe('updateManyById', () => {
     // @ts-expect-error not a column
     await expect(repo.updateManyById([{ id: a!, nope: 1 }])).rejects.toBeInstanceOf(ValidationError)
     expect(statements).toBe(0)
+  })
+})
+
+// A mixed-case enum name is quoted in the DDL, so the bulk update's casts must quote it too.
+const crew = defineTable('umbi_crew', t => ({
+  id: t.serial().primaryKey(),
+  role: t.enum('UmbiRole', ['pilot', 'gunner']),
+  roles: t.array(t.enum('UmbiRole', ['pilot', 'gunner'])),
+}))
+
+describe('updateManyById on a mixed-case enum', () => {
+  it('casts to the quoted enum type, alone and in an array', async () => {
+    const crewDb = createTestDb({ tables: [...allTables, crew] })
+
+    try {
+      await crewDb.sync({ allowDestructive: true })
+      const [a, b] = await crewDb.repo(crew).write.insertMany([{ role: 'pilot', roles: [] }, { role: 'pilot', roles: [] }], { pk: true })
+
+      await crewDb.repo(crew).write.updateManyById([{ id: a!, role: 'gunner' }, { id: b!, roles: ['gunner', 'pilot'] }])
+
+      const rows = await crewDb.repo(crew).read.findMany(q => q.orderBy('id'))
+
+      expect(rows.map(r => [r.role, r.roles])).toEqual([['gunner', []], ['pilot', ['gunner', 'pilot']]])
+    }
+    finally {
+      await crewDb.raw('DROP TABLE IF EXISTS "umbi_crew"')
+      await crewDb.raw('DROP TYPE IF EXISTS "UmbiRole"')
+      await crewDb.close()
+    }
   })
 })

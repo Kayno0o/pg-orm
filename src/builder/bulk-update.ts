@@ -2,6 +2,8 @@ import type { Dialect } from '../dialect'
 import type { AnyColumns } from '../types/index'
 import type { ExprTape } from './_tape'
 import { ValidationError } from '../errors/index'
+import { typeSql } from '../schema/column-default'
+import { getColumnMeta } from '../schema/column-meta'
 import { quote } from '../sql/utils'
 import { assembleExpr } from './_tape'
 import { validateValues } from './state'
@@ -149,8 +151,8 @@ export class BulkUpdateBuilder {
   }
 
   private _castType(column: string): string {
-    const pgType = this.columns[column]!.pgType
+    const def = this.columns[column]!
 
-    return SERIAL_CASTS[pgType] ?? pgType
+    return SERIAL_CASTS[def.pgType] ?? typeSql(def.pgType, getColumnMeta(def).enumName)
   }
 }
