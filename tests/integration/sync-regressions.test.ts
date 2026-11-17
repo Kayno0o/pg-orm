@@ -54,4 +54,36 @@ describe('json defaults', () => {
   })
 })
 
+describe('defaults Postgres respells', () => {
+  it('finds nothing to change once a default is created, however Postgres prints it back', async () => {
+    const table = defineTable('respelled', t => ({
+      id: t.serial().primaryKey(),
+      at: t.time().default('09:00'),
+      zoned: t.timetz().default('09:00+02'),
+      span: t.interval().default('1 hour'),
+      span2: t.interval().default('1 year 2 mons 3 days 04:05:06'),
+      addr: t.inet().default('10.0.0.1/32'),
+      mac: t.macaddr().default('08-00-2b-01-02-03'),
+      cash: t.money().default('1.5'),
+      ref: t.uuid().default('A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'),
+      big: t.float8().default(1e21),
+      due: t.timestamptz().defaultRaw('now() + interval \'1 day\''),
+    }))
+
+    await sync([table])
+
+    expect((await sync([table])).ops.map(o => o.sql)).toEqual([])
+  })
+
+  it('syncs a default changed to another value of the same type', async () => {
+    const v1 = defineTable('respelled2', t => ({ id: t.serial().primaryKey(), at: t.time().default('09:00'), mac: t.macaddr().default('08:00:2b:01:02:03'), span: t.interval().default('1 hour') }))
+    const v2 = defineTable('respelled2', t => ({ id: t.serial().primaryKey(), at: t.time().default('09:30'), mac: t.macaddr().default('08:00:2b:01:02:04'), span: t.interval().default('2 hours') }))
+
+    await sync([v1])
+
+    expect((await sync([v2])).ops).toHaveLength(3)
+    expect((await sync([v2])).ops).toEqual([])
+  })
+})
+
 // END

@@ -5,7 +5,7 @@ import { getColumnMeta } from '../schema/column-meta'
 import { escapeLiteralBody, quote } from '../sql/utils'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
-import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, LONE_LITERAL_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, STRING_LITERAL_SPLIT_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, WHITESPACE_RE } from './regex'
+import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, HOST_MASK_RE, INTERVAL_PART_RE, LONE_LITERAL_RE, MAC_SEPARATOR_RE, MONEY_NOISE_RE, PLAIN_NUMBER_RE, PREDICATE_CAST_RE, PREDICATE_NOISE_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, STRING_LITERAL_SPLIT_RE, TIME_OF_DAY_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, TYPED_LITERAL_PREFIX_RE, WHITESPACE_RE, WHOLE_NUMBER_RE } from './regex'
 
 // Postgres truncates a longer identifier, which then never reads back as the name it was created under.
 const MAX_IDENTIFIER_BYTES = 63
@@ -133,7 +133,14 @@ export function normalizeType(pgType: string): string {
 export function normalizeDefault(pgDefault: string): string {
   const joined = pgDefault
     .split(DEFAULT_LITERAL_RE)
-    .map((part, i) => i % 2 === 1 ? part : part.replace(WHITESPACE_RE, '').toLowerCase().replace(DEFAULT_CAST_RE, ''))
+    .map((part, i, parts) => {
+      if (i % 2 === 1)
+        return part
+
+      const bare = part.replace(WHITESPACE_RE, '').toLowerCase().replace(DEFAULT_CAST_RE, '')
+
+      return i + 1 < parts.length ? bare.replace(TYPED_LITERAL_PREFIX_RE, '') : bare
+    })
     .join('')
 
   return unwrapParens(joined).replace(QUOTED_NUMBER_RE, '$1')
@@ -184,15 +191,16 @@ export function sameDefault(desired: string, live: string, pgType: string): bool
     return true
 
   if (PLAIN_NUMBER_RE.test(a) && PLAIN_NUMBER_RE.test(b))
-    return Number(a) === Number(b)
+    return WHOLE_NUMBER_RE.test(a) && WHOLE_NUMBER_RE.test(b) ? BigInt(a) === BigInt(b) : Number(a) === Number(b)
 
-  const desiredBody = LONE_LITERAL_RE.exec(a)?.[1]
-  const liveBody = LONE_LITERAL_RE.exec(b)?.[1]
+  // A quoted number was unquoted by normalizeDefault, which a money or a numeric literal compares as text again.
+  const desiredBody = LONE_LITERAL_RE.exec(PLAIN_NUMBER_RE.test(a) ? `'${a}'` : a)?.[1]
+  const liveBody = LONE_LITERAL_RE.exec(PLAIN_NUMBER_RE.test(b) ? `'${b}'` : b)?.[1]
 
   if (desiredBody === undefined || liveBody === undefined)
     return false
 
-  return sameLiteral(desiredBody.replaceAll('\'\'', '\''), liveBody.replaceAll('\'\'', '\''), normalizeType(pgType))
+  return sameLiteral(desiredBody.replaceAll('\'\'', '\''), liveBody.replaceAll('\'\'', '\''), normalizeType(pgType).replace(TYPE_MODIFIER_RE, ''))
 }
 
 function sameLiteral(desired: string, live: string, type: string): boolean {
@@ -205,6 +213,27 @@ function sameLiteral(desired: string, live: string, type: string): boolean {
     }
     case 'date':
       return desired.slice(0, 10) === live.slice(0, 10)
+    case 'time without time zone':
+    case 'time with time zone': {
+      const zoned = type.includes('with time')
+      const key = timeKey(desired, zoned)
+
+      return key !== undefined && key === timeKey(live, zoned)
+    }
+    case 'interval': {
+      const key = intervalKey(desired)
+
+      return key !== undefined && key === intervalKey(live)
+    }
+    // Postgres prints a host address without its /32 or /128 mask.
+    case 'inet':
+      return desired.toLowerCase().replace(HOST_MASK_RE, '') === live.toLowerCase().replace(HOST_MASK_RE, '')
+    case 'macaddr':
+      return desired.toLowerCase().replace(MAC_SEPARATOR_RE, '') === live.toLowerCase().replace(MAC_SEPARATOR_RE, '')
+    case 'money':
+      return Number(desired.replace(MONEY_NOISE_RE, '')) === Number(live.replace(MONEY_NOISE_RE, ''))
+    case 'uuid':
+      return desired.toLowerCase() === live.toLowerCase()
     case 'timestamp with time zone':
       return sameInstant(desired, live, false)
     case 'timestamp without time zone':
@@ -212,6 +241,78 @@ function sameLiteral(desired: string, live: string, type: string): boolean {
     default:
       return false
   }
+}
+
+// A time of day as seconds and zone offset in minutes, a zone ignored for a time without one; undefined when it does not parse.
+function timeKey(text: string, zoned: boolean): string | undefined {
+  const match = TIME_OF_DAY_RE.exec(text.trim())
+
+  if (!match)
+    return undefined
+
+  const [, hours = '0', minutes = '0', seconds = '0', zone] = match
+  let offset = 0
+
+  if (zoned && zone && zone.toLowerCase() !== 'z') {
+    const digits = zone.slice(1).replace(':', '')
+
+    offset = (zone.startsWith('-') ? -1 : 1) * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2) || 0))
+  }
+
+  return `${Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds)}|${offset}`
+}
+
+// Months, days and seconds an interval adds up to, as Postgres keeps them apart; undefined when a unit is unknown.
+function intervalKey(text: string): string | undefined {
+  let months = 0
+  let days = 0
+  let seconds = 0
+
+  for (const [, amount, unit, sign, hours, minutes, secs] of text.matchAll(INTERVAL_PART_RE)) {
+    if (unit !== undefined) {
+      const scale = INTERVAL_UNITS[unit.toLowerCase()]
+
+      if (scale === undefined)
+        return undefined
+
+      months += Number(amount) * scale[0]
+      days += Number(amount) * scale[1]
+      seconds += Number(amount) * scale[2]
+    }
+    else {
+      seconds += (sign === '-' ? -1 : 1) * (Number(hours) * 3600 + Number(minutes) * 60 + Number(secs ?? 0))
+    }
+  }
+
+  return `${months}|${days}|${seconds}`
+}
+
+// Months, days and seconds in one of each unit an interval is written with.
+const INTERVAL_UNITS: Record<string, [number, number, number] | undefined> = {
+  year: [12, 0, 0],
+  years: [12, 0, 0],
+  yr: [12, 0, 0],
+  yrs: [12, 0, 0],
+  mon: [1, 0, 0],
+  mons: [1, 0, 0],
+  month: [1, 0, 0],
+  months: [1, 0, 0],
+  week: [0, 7, 0],
+  weeks: [0, 7, 0],
+  day: [0, 1, 0],
+  days: [0, 1, 0],
+  hour: [0, 0, 3600],
+  hours: [0, 0, 3600],
+  hr: [0, 0, 3600],
+  hrs: [0, 0, 3600],
+  minute: [0, 0, 60],
+  minutes: [0, 0, 60],
+  min: [0, 0, 60],
+  mins: [0, 0, 60],
+  second: [0, 0, 1],
+  seconds: [0, 0, 1],
+  sec: [0, 0, 1],
+  secs: [0, 0, 1],
 }
 
 function canonicalJson(text: string): string | undefined {

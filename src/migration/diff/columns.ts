@@ -439,8 +439,11 @@ function diffSerial(tableName: string, colName: string, colDef: AnyColumnDef, li
     return []
 
   const op = (sql: string, description: string): MigrationOp => ({ type: 'alter_column', table: tableName, column: colName, sql, destructive: false, description })
+
   if (!liveCol.defaultValue?.startsWith('nextval(')) {
-    return buildSerialSequenceSqls(tableName, colName, colDef).map((sql, i) => op(sql, ['Create the sequence', 'Default to the sequence', 'Start the sequence past the values'][i]! + ` of "${colName}" in "${tableName}"`))
+    const steps = ['Create the sequence of', 'Default to the sequence of', 'Start the sequence of']
+
+    return buildSerialSequenceSqls(tableName, colName, colDef).map((sql, i) => op(sql, `${steps[i]} "${colName}" in "${tableName}"${i === 2 ? ' past its values' : ''}`))
   }
 
   // The sequence is found through its column, as Postgres prints its name differently by search path.
