@@ -262,7 +262,7 @@ export class TransactionRunner {
         const inner = this._client(sqlSp)
 
         inner._parent = outer
-        inner._context = opts?.context ?? outer._context
+        inner._context = opts?.context ? { ...outer._context, ...opts.context } : outer._context
         tx = inner
         phase = 'body'
 

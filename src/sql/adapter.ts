@@ -1,9 +1,10 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
-import { AbortError, OrmError, wrapPgError } from '../errors/index'
+import { AbortError, OrmError, UniqueError, wrapPgError } from '../errors/index'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
 import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
 import { bigintAsString, byteaHex, isJsonParam } from './json-param'
+import { sqliteUniqueName } from './sqlite-constraint'
 
 /** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */
 type DriverQuery = Promise<unknown[]> & { cancel?: () => void, writable?: () => WritableStream<string>, readable?: () => ReadableStream<Uint8Array> }
@@ -66,12 +67,36 @@ function quoteElement(text: string): string {
   return `"${text.replace(BACKSLASH_RE, '\\\\').replace(DOUBLE_QUOTE_RE, '\\"')}"`
 }
 
+// JSON has no bigint: one is written as its decimal string, as on SQLite. A value holding none goes to the driver untouched.
+function jsonValue(value: unknown): unknown {
+  if (typeof value === 'boolean' || typeof value === 'number')
+    return { toJSON: () => value }
+
+  if (typeof value === 'bigint')
+    return { toJSON: () => value.toString() }
+
+  return hasBigint(value) ? { toJSON: () => JSON.parse(JSON.stringify(value, bigintAsString)) } : value
+}
+
+// `seen` keeps a self-referencing value from looping: the driver reports it as the circular structure it is.
+function hasBigint(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value === 'bigint')
+    return true
+
+  if (typeof value !== 'object' || value === null || seen.has(value))
+    return false
+
+  seen.add(value)
+
+  return Object.values(value).some(item => hasBigint(item, seen))
+}
+
 export function serializeParams(params: unknown[]): unknown[] {
   return params.map((p) => {
     // A json/jsonb value goes to the driver as it is: bun encodes objects, arrays and strings to JSON itself, and anything done to it here would be encoded a second time.
     // A bare boolean or number bun binds with its own type, which a json column refuses, so one goes in as an object encoding to it.
     if (isJsonParam(p))
-      return typeof p.value === 'boolean' || typeof p.value === 'number' ? { toJSON: () => p.value } : p.value
+      return jsonValue(p.value)
 
     return Array.isArray(p) ? serializePgArray(p) : p
   })
@@ -133,8 +158,20 @@ export async function unsafeQuery(
     if (signal?.aborted && isCancellation(err))
       throw new AbortError(sqlStr, params, signal.reason)
 
-    throw err instanceof OrmError ? err : wrapPgError(err, sqlStr, params)
+    throw err instanceof OrmError ? err : await wrapQueryError(sql, err, sqlStr, params, dialect)
   }
+}
+
+// SQLite's UNIQUE failure names its columns but not the constraint, which the schema holds: it is looked up so the error names it as Postgres would.
+async function wrapQueryError(sql: InstanceType<typeof SQL>, err: unknown, sqlStr: string, params: unknown[], dialect: Dialect): Promise<OrmError> {
+  const wrapped = wrapPgError(err, sqlStr, params)
+
+  if (dialect !== 'sqlite' || !(wrapped instanceof UniqueError) || !wrapped.column)
+    return wrapped
+
+  const name = await sqliteUniqueName((statement, bound) => asDriver(sql).unsafe(statement, bound), wrapped.table, wrapped.column.split(', '))
+
+  return name ? wrapPgError(err, sqlStr, params, name) : wrapped
 }
 
 async function untilAborted(query: DriverQuery, signal: AbortSignal): Promise<unknown[]> {

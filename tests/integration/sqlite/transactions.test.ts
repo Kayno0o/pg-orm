@@ -129,6 +129,21 @@ describe('sqlite transactions', () => {
     await db.close()
   })
 
+  it('a nested transaction\'s context merges into the outer one, its own keys winning', async () => {
+    const events: QueryEvent[] = []
+    const db = await memoryDb(e => void events.push(e))
+
+    await db.transaction({ context: { requestId: 'r1', step: 'outer' } }, async (tx) => {
+      await db.transaction({ context: { step: 'nested' } }, async (nested) => {
+        await nested.query('INSERT INTO t VALUES (1)', [])
+      })
+      await tx.query('INSERT INTO t VALUES (2)', [])
+    })
+
+    expect(events.filter(e => e.sql.startsWith('INSERT')).map(e => e.context)).toEqual([{ requestId: 'r1', step: 'nested' }, { requestId: 'r1', step: 'outer' }])
+    await db.close()
+  })
+
   it('a statement on the outer client waits for a running savepoint, so its rollback leaves the outer write', async () => {
     const db = await memoryDb()
 

@@ -247,4 +247,30 @@ describe('getOrCompileMapper cache key', () => {
     expect(second).not.toBe(first)
     expect(second({ id: 2, label: { a: 1 } })).toEqual({ id: 2, label: { a: 1 } })
   })
+
+  it('does not share a mapper across versions of one columns object a trait added columns to', () => {
+    clearMapperCache()
+
+    const cols = makeCols({ id: 'int4', big: 'int8' })
+    const before = getOrCompileMapper('grown', cols, undefined, undefined, undefined, 'postgres', 0)
+
+    Object.assign(cols, makeCols({ createdAt: 'timestamptz' }))
+
+    const after = getOrCompileMapper('grown', cols, undefined, undefined, undefined, 'postgres', 1)
+
+    expect(before({ id: 1, big: '2', createdAt: new Date(0) })).toEqual({ id: 1, big: 2n })
+    expect(after({ id: 1, big: '2', createdAt: new Date(0) })).toEqual({ id: 1, big: 2n, createdAt: new Date(0) })
+  })
+})
+
+describe('mapper numeric coercion on SQLite', () => {
+  it('reads a number SQLite stored in exponent form as plain decimal text', () => {
+    const mapper = compileMapper(makeCols({ amount: 'numeric(30,10)' }), undefined, undefined, undefined, 'sqlite')
+
+    expect(mapper({ amount: -1e-10 }).amount).toBe('-0.0000000001')
+    expect(mapper({ amount: 1e21 }).amount).toBe('1000000000000000000000')
+    expect(mapper({ amount: 1.5e-7 }).amount).toBe('0.00000015')
+    expect(mapper({ amount: 12.5 }).amount).toBe('12.5')
+    expect(mapper({ amount: '3.10' }).amount).toBe('3.10')
+  })
 })
