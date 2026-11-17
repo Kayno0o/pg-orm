@@ -401,6 +401,7 @@ export function diffColumn(
         table: tableName,
         column: colName,
         sql: buildDropDefaultSql(tableName, colName),
+        down: buildSetDefaultSql(tableName, colName, liveDefault),
         destructive: false,
         description: `Drop default from "${colName}" in "${tableName}"`,
       })
@@ -411,6 +412,7 @@ export function diffColumn(
         table: tableName,
         column: colName,
         sql: buildSetDefaultSql(tableName, colName, desiredDefault),
+        down: liveDefault === null ? buildDropDefaultSql(tableName, colName) : buildSetDefaultSql(tableName, colName, liveDefault),
         destructive: false,
         description: `Set default of "${colName}" in "${tableName}" to ${desiredDefault}`,
       })

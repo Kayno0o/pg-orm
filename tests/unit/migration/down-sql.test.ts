@@ -1,7 +1,9 @@
 import type { MigrationOp } from '../../../src/migration/types'
 import { describe, expect, it } from 'bun:test'
 import { ValidationError } from '../../../src/errors/index'
+import { defineTable } from '../../../src/index'
 import { fkConstraintName } from '../../../src/migration/ddl'
+import { diffSchema } from '../../../src/migration/index'
 import { generateDownSql, generateReverseOp } from '../../../src/migration/reverse'
 
 function op(partial: Partial<MigrationOp> & Pick<MigrationOp, 'type' | 'sql' | 'description'>): MigrationOp {
@@ -185,6 +187,26 @@ describe('generateDownSql', () => {
     ], { comments: true })
 
     expect(out).toBe('-- Cannot reverse: Replace enum "e" without values: a DROP TABLE users;\n\n-- Revert: Create table "users"\nDROP TABLE IF EXISTS "users";')
+  })
+
+  it('names the reason of an enum replacement once, however many statements it takes', () => {
+    const replacement = op({ type: 'alter_enum_remove', sql: '', description: 'Replace enum "e" without values: a', destructive: true })
+
+    expect(generateDownSql([replacement, replacement, replacement])).toBe('-- Cannot reverse: Replace enum "e" without values: a')
+  })
+
+  it('reverses a set or dropped default by setting the live one back, or dropping it', () => {
+    const live = (defaultValue: string | null) => ({ name: 'n', dataType: 'text', isNullable: false, defaultValue, isPrimaryKey: false, isUnique: false, isGenerated: false })
+    const down = (liveDefault: string | null, desired: string | null) => {
+      const table = defineTable('t', t => ({ id: t.int4().primaryKey(), n: desired === null ? t.text().notNull() : t.text().notNull().defaultRaw(desired) }))
+      const ops = diffSchema({ tables: [{ name: 't', columns: [{ ...live(null), name: 'id', dataType: 'integer', isPrimaryKey: true }, live(liveDefault)] }], enums: [] }, new Map([['t', table]]))
+
+      return generateDownSql(ops)
+    }
+
+    expect(down('\'a\'::text', '\'b\'')).toBe('ALTER TABLE "t" ALTER COLUMN "n" SET DEFAULT \'a\'::text;')
+    expect(down(null, '\'b\'')).toBe('ALTER TABLE "t" ALTER COLUMN "n" DROP DEFAULT;')
+    expect(down('\'a\'::text', null)).toBe('ALTER TABLE "t" ALTER COLUMN "n" SET DEFAULT \'a\'::text;')
   })
 
   describe('identifier validation (defense-in-depth)', () => {
