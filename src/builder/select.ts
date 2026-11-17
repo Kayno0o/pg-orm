@@ -103,6 +103,8 @@ export class SelectBuilder<
   /**
    * Add a computed column built from the safe `ExprBuilder` aggregate API.
    * Example: `.computed(e => e.countCol(), 'total')`
+   *
+   * @trusted An aggregate is SQL text branded at the type level only: a plain string cast to `AggResult` is printed as is.
    */
   computed<TAlias extends string, T>(
     fn: (e: ExprBuilder<TColumns & TJoined>) => AggResult<T> | TypedExpr<T>,

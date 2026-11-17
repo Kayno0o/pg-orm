@@ -1319,6 +1319,7 @@ input. They are explicitly marked `@trusted` in JSDoc:
 | `update().setRaw(col, sql)` | the value a column is set to |
 | `u.raw(sql, ...params)` in an upsert `set` callback | the value the conflict update writes (`?` params bound) |
 | `db.raw(sql, params)` / tagged template | full query body |
+| `q.computed(fn, alias)`, `q.aggregate(fn)` | the callback's aggregate (`e.sum`, `e.countCol`...) as SQL text: an `AggResult` is a string branded at the type level only, so a plain string cast to it is printed as is |
 
 Validation errors (invalid identifiers, non-finite numbers, unsafe delimiters,
 injection-shaped raw fragments) throw `ValidationError extends OrmError`.
