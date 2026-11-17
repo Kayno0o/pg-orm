@@ -63,6 +63,16 @@ export class ColumnBuilder<
     return this as unknown as T
   }
 
+  // A modifier a column holds once: calling it again replaces the first, so the DDL prints it once.
+  private _setOnce(constraint: ColumnConstraint): void {
+    const at = this._constraints.findIndex(c => c.type === constraint.type)
+
+    if (at < 0)
+      this._constraints.push(constraint)
+    else
+      this._constraints[at] = constraint
+  }
+
   /** Mark column as NOT NULL, which it is unless `.nullable()` says otherwise. Required for insert unless it has a default. */
   notNull(): ColumnBuilder<TType, NotNullable, TDefault, TPrimary, TGenerated> {
     if (!this._constraints.some(c => c.type === 'not_null'))
@@ -81,7 +91,7 @@ export class ColumnBuilder<
 
   /** Set a DEFAULT value using a native JS value. Auto-converts to SQL. */
   default(value: TType): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'default', value: toSQLDefault(value, typeSql(this._pgType, this._enumName)) })
+    this._setOnce({ type: 'default', value: toSQLDefault(value, typeSql(this._pgType, this._enumName)) })
     this._defaultLiteral = { value }
 
     return this._narrow()
@@ -94,7 +104,7 @@ export class ColumnBuilder<
    * Pass only developer-authored SQL — never user input. See README "Security model".
    */
   defaultRaw(sql: string): ColumnBuilder<TType, TNullable, HasDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'default', value: sql })
+    this._setOnce({ type: 'default', value: sql })
     this._defaultLiteral = undefined
 
     return this._narrow()
@@ -121,14 +131,14 @@ export class ColumnBuilder<
 
   /** Mark as primary key. Implies NOT NULL; required on insert unless the column has a default (`serial`, `.defaultRaw('gen_random_uuid()')`). */
   primaryKey(): ColumnBuilder<TType, TNullable, TDefault, IsPrimaryKey, TGenerated> {
-    this._constraints.push({ type: 'primary_key' })
+    this._setOnce({ type: 'primary_key' })
 
     return this._narrow()
   }
 
   /** Add a UNIQUE constraint on this column. */
   unique(): ColumnBuilder<TType, TNullable, TDefault, TPrimary, TGenerated> {
-    this._constraints.push({ type: 'unique' })
+    this._setOnce({ type: 'unique' })
 
     return this._narrow()
   }

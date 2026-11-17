@@ -188,8 +188,10 @@ export function defineTable(
         if (idx.name !== undefined)
           validateIdentifier(idx.name, 'index')
 
-        for (const col of [...idx.columns, ...idx.desc ?? [], ...idx.include ?? [], ...Object.keys(idx.opclass ?? {})])
+        for (const col of [...idx.columns, ...idx.desc ?? [], ...idx.include ?? [], ...Object.keys(idx.opclass ?? {})]) {
           validateIdentifier(col, 'index column')
+          requireColumn(col, `index "${idx.name ?? idx.columns.join('_')}"`)
+        }
 
         for (const opclass of Object.values(idx.opclass ?? {}))
           validateIdentifier(opclass, 'index operator class')
@@ -210,8 +212,10 @@ export function defineTable(
     },
 
     withUnique(columns: string[], name?: string) {
-      for (const col of columns)
+      for (const col of columns) {
         validateIdentifier(col, 'unique column')
+        requireColumn(col, `unique constraint (${columns.join(', ')})`)
+      }
 
       if (name !== undefined)
         validateIdentifier(name, 'unique constraint')
@@ -251,6 +255,12 @@ export function defineTable(
 
       return table
     },
+  }
+
+  // An index or a unique over a column the table lacks would only fail at sync, as SQL naming a column Postgres does not know.
+  function requireColumn(column: string, subject: string): void {
+    if (!Object.hasOwn(columns, column))
+      throw new ValidationError(`The ${subject} names column "${column}", which table "${name}" does not have.`, 'column', { field: column })
   }
 
   // Invalidates repositories cached against this table def (see Database.repo).
