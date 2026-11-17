@@ -355,6 +355,8 @@ export class WritePipeline<
       }
     }
 
+    this._runtime.requireKey(`${op}()`)
+
     const first = live(new SelectBuilderCtor<TColumns>(table)
       .pick(...pkColumns as (keyof TColumns & string)[])
       .where(where)
@@ -438,6 +440,8 @@ export class WritePipeline<
   private async _keyedRows(rows: Record<string, unknown>[], op: string, prepareSet: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>): Promise<BulkUpdateRow[]> {
     const { pkColumns, table } = this._runtime
     const seen = new Set<string>()
+
+    this._runtime.requireKey(`${op}()`)
     const prepared: BulkUpdateRow[] = []
 
     for (const row of rows) {
@@ -769,6 +773,10 @@ export class WritePipeline<
     opts?: WriteReturnOptions
   }): Promise<TResult> {
     const { pkColumns, table } = this._runtime
+
+    if (args.opts?.pk)
+      this._runtime.requireKey('{ pk: true }')
+
     // After-write hooks get the whole mapped row, as afterSelect does, so a hooked table returns every column even when the caller only wants keys or nothing.
     const hooked = hasHooks(table, args.afterEvent) || args.inserted !== undefined
     const whole = !args.opts?.pk || hooked

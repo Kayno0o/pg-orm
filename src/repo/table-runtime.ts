@@ -17,8 +17,10 @@ type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
 export interface TableRuntime {
   readonly table: AnyTableDef
   readonly primaryKey: string
-  /** The primary key split into its columns: one entry, or one per part of a composite key. */
+  /** The primary key split into its columns: one entry, one per part of a composite key, or none for a table with neither a primary key nor an `id` column. */
   readonly pkColumns: readonly string[]
+  /** Throws a ValidationError when the table has no primary key, naming what needed one: `requireKey('updateOne()')`. */
+  requireKey: (what: string) => void
 
   // Trait behavior surface
   readonly behavior: TableBehavior
@@ -39,7 +41,13 @@ export interface TableRuntime {
 export function buildTableRuntime(table: AnyTableDef): TableRuntime {
   const primaryKey = table.primaryKey ?? DEFAULT_PRIMARY_KEY
   const behavior = buildTableBehavior(table)
-  const pkColumns = primaryKey.split(',').map(col => col.trim())
+  const keyless = table.primaryKey == null && !(DEFAULT_PRIMARY_KEY in table.columns)
+  const pkColumns = keyless ? [] : primaryKey.split(',').map(col => col.trim())
+
+  function requireKey(what: string): void {
+    if (keyless)
+      throw new ValidationError(`Table "${table.name}" has no primary key, which ${what} needs.`, 'primaryKey')
+  }
 
   // Pre-compute virtual entries once — table.virtuals is frozen at schema
   // declaration, so re-defining a table produces a new runtime and there is
@@ -130,6 +138,8 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
   }
 
   function pkWhere(id: unknown): WhereObject<AnyColumns> {
+    requireKey('reaching a row by key')
+
     if (pkColumns.length === 1)
       return { [pkColumns[0]!]: assertKeyValue(id, table.name, pkColumns[0]!, 'primaryKey') }
 
@@ -164,6 +174,7 @@ export function buildTableRuntime(table: AnyTableDef): TableRuntime {
     table,
     primaryKey,
     pkColumns,
+    requireKey,
     behavior,
     pkWhere,
     runBefore,

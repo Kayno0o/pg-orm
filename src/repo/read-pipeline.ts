@@ -459,6 +459,9 @@ export class ReadPipeline<
   // The ordering columns: the primary key (led by `column` when it is part of it), or `column` then the key.
   private _cursorKeys(column: string | undefined): { keys: string[], byKey: boolean } {
     const { pkColumns, table } = this._runtime
+
+    this._runtime.requireKey('paginateCursor()')
+
     const byKey = column === undefined || pkColumns.includes(column)
     const keys = byKey ? [...column ? [column] : [], ...pkColumns.filter(c => c !== column)] : [column, ...pkColumns]
     const nullable = keys.find(k => !table.columns[k]?.constraints.some((c: ColumnConstraint) => c.type === 'not_null' || c.type === 'primary_key'))
@@ -517,12 +520,18 @@ export class ReadPipeline<
     }
   }
 
-  // OFFSET pages are only disjoint over a total order, so an unordered read walks the primary key.
+  // OFFSET pages are only disjoint over a total order, so an unordered read walks what makes its rows unique: the group columns of a grouped read, the picked columns of a DISTINCT one, else the primary key.
+  // A table without a key stays unordered, and so do groupByExpr groups: their bound parameters would not match the GROUP BY's.
   private _orderByKeyIfUnordered(builder: SelectBuilder<TColumns, TRelations, any>): void {
-    if (builder.getState().orderBy.length > 0)
+    const { orderBy, groupBy, groupByExprs, distinct, distinctOn, columns } = builder.getState()
+
+    if (orderBy.length > 0)
       return
 
-    for (const col of this._runtime.pkColumns)
+    const grouped = groupBy.length > 0 || (groupByExprs?.length ?? 0) > 0
+    const keys = grouped ? groupBy : distinct && columns ? columns : [...distinctOn, ...this._runtime.pkColumns]
+
+    for (const col of keys)
       builder.orderBy(col as keyof TColumns & string)
   }
 
