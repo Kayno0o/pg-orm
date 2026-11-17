@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { defineTable } from '../../src/index'
+import { applyMigration, defineTable, generateMigration } from '../../src/index'
 import { syncSchemaHarness } from '../helpers/schema-sync'
 
 const SCHEMA = 'pgorm_sync_regress'
-const { admin, sync } = syncSchemaHarness(SCHEMA)
+const { admin, at, sync } = syncSchemaHarness(SCHEMA)
 
 const q = (table: string) => `"${SCHEMA}"."${table}"`
 
@@ -226,6 +226,28 @@ describe('primary key defaults', () => {
     await sync([table])
 
     expect((await sync([table])).ops).toEqual([])
+  })
+})
+
+describe('applyMigration', () => {
+  it('runs in the configured schema, as sync does', async () => {
+    const table = defineTable('am', t => ({ id: t.serial().primaryKey() }))
+
+    // The table must not land in `public`, whose copy would outlive the schema reset.
+    await admin.raw('DROP TABLE IF EXISTS public.am')
+
+    try {
+      await at([table], async (db) => {
+        const file = await generateMigration(db, db.getTablesRegistry(), { schema: SCHEMA })
+
+        await applyMigration(db, file!.up)
+      })
+
+      expect(await admin.raw(`SELECT table_schema FROM information_schema.tables WHERE table_name = 'am'`)).toEqual([{ table_schema: SCHEMA }])
+    }
+    finally {
+      await admin.raw('DROP TABLE IF EXISTS public.am')
+    }
   })
 })
 
