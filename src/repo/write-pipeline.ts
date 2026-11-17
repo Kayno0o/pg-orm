@@ -807,9 +807,9 @@ export class WritePipeline<
     return args.project(rows)
   }
 
-  // A write that touched no row fires no after-write hook.
+  // A write that touched no row fires no after-write hook, and a chunked one with no hook listening keeps no rows for it.
   private async _runAfterWrite(event: 'afterInsert' | 'afterUpdate' | 'afterDelete', rows: Record<string, unknown>[]): Promise<void> {
-    if (rows.length === 0)
+    if (rows.length === 0 || !hasHooks(this._runtime.table, event))
       return
 
     if (this._deferredAfter)
