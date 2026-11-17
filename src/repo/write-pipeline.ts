@@ -71,6 +71,12 @@ function assertCopyRow(row: Record<string, unknown>, columns: string[], expected
     throw new ValidationError(`copyFrom rows must all set the columns the first one sets (${columns.join(', ')}): one leaves ${columns.filter(c => row[c] === undefined).join(', ')} unset`, 'copyFrom')
 }
 
+// A single-row write reports whether it changed a row by reading it back, so `returning: false` would make it misreport.
+function requireReturning(op: string, opts?: WriteReturnOptions): void {
+  if (opts?.returning === false)
+    throw new ValidationError(`${op}() reads back the row it writes, so it does not take returning: false (the many-row writes do).`, op, { field: 'returning' })
+}
+
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
 
@@ -178,6 +184,8 @@ export class WritePipeline<
   // --- Insert ---
 
   async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('insertOne', opts)
+
     const v = this._normalizeValues(await this._runtime.runBefore('beforeInsert', values, this._hooks) as Record<string, unknown>) as InferInsert<TColumns>
 
     return this._execute({
@@ -318,6 +326,8 @@ export class WritePipeline<
   }
 
   async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('updateOne', opts)
+
     const single = this._singleRow('updateOne', this._requireWhere(where, 'updateOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this.updateMany(set, single.where, opts)
 
@@ -326,6 +336,8 @@ export class WritePipeline<
 
   /** Update the row a primary key names: the key bounds the statement, so it needs no `_singleRow`. */
   async updateById(set: InferUpdate<TColumns>, key: Where<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('updateById', opts)
+
     const rows = await this.updateMany(set, key, opts)
 
     return rows[0] ?? null
@@ -376,6 +388,8 @@ export class WritePipeline<
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+    requireReturning('updateWithLock', opts)
+
     const lockCol = this._runtime.behavior.getOptimisticLockColumn()
 
     if (!lockCol) {
@@ -486,6 +500,8 @@ export class WritePipeline<
   }
 
   async deleteOne(where: Where<TColumns>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('deleteOne', opts)
+
     const single = this._singleRow('deleteOne', this._requireWhere(where, 'deleteOne'), liftedScopes(opts), opts?.onMany)
     const rows = await this._delete(single.where, false, opts)
 
@@ -494,6 +510,8 @@ export class WritePipeline<
 
   /** Delete the row a primary key names: the key bounds the statement, so it needs no `_singleRow`. */
   async deleteById(key: Where<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('deleteById', opts)
+
     const rows = await this.deleteMany(key, opts)
 
     return rows[0] ?? null
@@ -631,6 +649,8 @@ export class WritePipeline<
     update?: UpsertUpdate<TColumns>,
     opts?: ScopedWriteOptions,
   ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    requireReturning('upsertOne', opts)
+
     const rows = await this.upsertMany([values], conflictTarget, update, opts)
 
     return rows[0] ?? null

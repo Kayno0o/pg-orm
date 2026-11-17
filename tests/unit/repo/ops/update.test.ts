@@ -111,3 +111,26 @@ describe('WritePipeline updateWithLock', () => {
     expect(row).toEqual({ id: 1, name: 'X', version: 4 })
   })
 })
+
+describe('WritePipeline single-row writes', () => {
+  const noReturning = { returning: false } as never
+
+  it('refuse returning: false before sending a statement', async () => {
+    const { exec, pipeline } = setup(versioned)
+    const where = (e: any) => e.eq('id', 1)
+    const writes = {
+      insertOne: () => pipeline.insertOne({ name: 'X' }, noReturning),
+      updateOne: () => pipeline.updateOne({ name: 'X' }, where, noReturning),
+      updateById: () => pipeline.updateById({ name: 'X' }, where, noReturning),
+      updateWithLock: () => pipeline.updateWithLock({ name: 'X' }, where, 3, noReturning),
+      deleteOne: () => pipeline.deleteOne(where, noReturning),
+      deleteById: () => pipeline.deleteById(where, noReturning),
+      upsertOne: () => pipeline.upsertOne({ id: 1, name: 'X' }, ['id'], undefined, noReturning),
+    }
+
+    for (const [op, run] of Object.entries(writes))
+      await expect(run(), op).rejects.toBeInstanceOf(ValidationError)
+
+    expect(exec.queries).toHaveLength(0)
+  })
+})
