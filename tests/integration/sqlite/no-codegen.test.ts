@@ -12,5 +12,6 @@ describe('with code generation from strings disallowed', () => {
     expect(err).toBe('')
     expect(code).toBe(0)
     expect(out.trim()).toBe(await mapEveryCoercion())
+    expect(out).toContain('amounts: [ "1.50", "2" ]')
   })
 })

@@ -220,9 +220,6 @@ function sqliteCoercion(pgType: string): Coercion | undefined {
   if (DATE_TYPES.has(pgType.replace(TIME_PRECISION_RE, '')))
     return 'date'
 
-  if (pgType.startsWith('numeric'))
-    return 'numeric'
-
   if (pgType.endsWith('[]')) {
     const element = pgType.replace(ARRAY_SUFFIX_RE, '').replace(TIME_PRECISION_RE, '')
 
@@ -232,7 +229,7 @@ function sqliteCoercion(pgType: string): Coercion | undefined {
     return DATE_TYPES.has(element) ? 'dateArray' : 'sqliteJson'
   }
 
-  return undefined
+  return pgType.startsWith('numeric') ? 'numeric' : undefined
 }
 
 function coercionFor(pgType: string, dialect: Dialect): Coercion | undefined {
