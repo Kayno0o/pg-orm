@@ -79,6 +79,14 @@ export function writableColumns(table: AnyTableDef, opts: { exclude?: Iterable<s
   })
 }
 
+/** @internal The column `name` of `table`, refusing with `ValidationError` a key that is not one: an own key only, so `constructor` or `__proto__` never resolves on the prototype. */
+export function columnOf(table: { readonly name: string, readonly columns: AnyColumns }, name: string, op: string): AnyColumnDef {
+  if (!Object.hasOwn(table.columns, name))
+    throw new ValidationError(`"${table.name}" has no column "${name}"`, op, { field: name })
+
+  return table.columns[name]!
+}
+
 /** Whether `name` is one of the table's columns, narrowing a runtime string for `pick`, `orderBy` or `groupBy`: `if (isColumn(repo.table, sort)) q.orderBy(sort)`. */
 export function isColumn<TColumns extends AnyColumns>(table: { readonly columns: TColumns }, name: string): name is keyof TColumns & string {
   return Object.hasOwn(table.columns, name)

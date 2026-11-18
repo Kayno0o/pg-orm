@@ -19,12 +19,14 @@ import { MultipleRowsError, NotFoundError, OrmError, StaleRecordError, Validatio
 import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
+import { columnOf } from '../schema/inspect'
 import { copyField } from '../sql/copy'
+import { chunks } from '../utils/collection'
 import { quote } from '../utils/quote'
 import { createMapperFactory } from './_mapper'
 import { resolveRelationFilters, scopeResolver } from './relation-filter'
 import { liftedScopes, resolveScopes } from './table-behavior'
-import { assertKeyValue, columnOf, isKeyValue } from './table-runtime'
+import { assertKeyValue, isKeyValue } from './table-runtime'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
@@ -281,8 +283,8 @@ export class WritePipeline<
 
       pipeline._deferredAfter = deferred
 
-      for (let i = 0; i < rows.length; i += size)
-        out.push(...await write(pipeline, rows.slice(i, i + size)))
+      for (const chunk of chunks(rows, size))
+        out.push(...await write(pipeline, chunk))
 
       for (const [event, written] of deferred)
         await this._runtime.runAfter(event, written, hooks)
@@ -649,10 +651,10 @@ export class WritePipeline<
 
     const existing = new Set<string>()
 
-    for (let i = 0; i < conflicting.length; i += SQLITE_OR_TERMS) {
+    for (const chunk of chunks(conflicting, SQLITE_OR_TERMS)) {
       const present = new SelectBuilderCtor<TColumns>(table)
         .pick(...target as (keyof TColumns & string)[])
-        .where(e => e.or(...conflicting.slice(i, i + SQLITE_OR_TERMS).map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
+        .where(e => e.or(...chunk.map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
       const { sql, params } = present.toSQL(dialectOf(this._executor))
 
       for (const row of await this._executor.query(sql, params))

@@ -9,7 +9,7 @@ import { selectedColumns } from '../builder/state'
 import { dialectOf } from '../dialect'
 import { ValidationError } from '../errors/index'
 import { primaryKeys, singleKey } from '../schema/inspect'
-import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
+import { chunks, collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
 import { quote } from '../utils/quote'
 import { resolveRelationFilters, scopeResolver } from './relation-filter'
 import { resolveScopes } from './table-behavior'
@@ -161,8 +161,8 @@ export class RelationResolver {
   ): Promise<Record<string, unknown>[][]> {
     const results: Record<string, unknown>[][] = []
 
-    for (let i = 0; i < ids.length; i += this.batchChunkSize) {
-      const { sql, params } = buildSql(ids.length <= this.batchChunkSize ? ids : ids.slice(i, i + this.batchChunkSize))
+    for (const chunk of chunks(ids, this.batchChunkSize)) {
+      const { sql, params } = buildSql(chunk)
 
       results.push(await this.executor.query(sql, params))
     }

@@ -958,9 +958,9 @@ describe('Security: alias and column arguments are validated', () => {
   })
 
   it('a bulk update refuses a setRaw, filter or returning column the table lacks', () => {
-    expect(() => bulk().setRaw(evil, '1')).toThrow('is not a column of "sec_items"')
+    expect(() => bulk().setRaw(evil, '1')).toThrow('"sec_items" has no column')
     expect(() => bulk().andWhere(createExprBuilder().isNull(evil)).toSQL()).toThrow(`Unknown column "${evil}"`)
-    expect(() => bulk().returning('id', evil)).toThrow('is not a column of "sec_items"')
+    expect(() => bulk().returning('id', evil)).toThrow('"sec_items" has no column')
     expect(bulk().setRaw('n', '"n" + 1').returning('id').toSQL().sql).toContain('RETURNING "sec_items"."id"')
   })
 })

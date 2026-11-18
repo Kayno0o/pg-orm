@@ -2,6 +2,7 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } fr
 import { ValidationError } from '../errors/index'
 import { typeSql } from '../schema/column-default'
 import { getColumnMeta } from '../schema/column-meta'
+import { isPlainObject } from '../utils/collection'
 import { escapeLiteralBody, quote } from '../utils/quote'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
@@ -319,10 +320,6 @@ function canonicalJson(text: string): string | undefined {
   catch {
     return undefined
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function sameInstant(desired: string, live: string, ignoreZone: boolean): boolean {

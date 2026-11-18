@@ -4,6 +4,7 @@ import type { ExprTape } from './_tape'
 import { ValidationError } from '../errors/index'
 import { typeSql } from '../schema/column-default'
 import { getColumnMeta } from '../schema/column-meta'
+import { columnOf } from '../schema/inspect'
 import { quote } from '../utils/quote'
 import { assembleExpr } from './_tape'
 import { validateValues } from './state'
@@ -144,8 +145,7 @@ export class BulkUpdateBuilder {
   }
 
   private _column(column: string, op: string): string {
-    if (!Object.hasOwn(this.columns, column))
-      throw new ValidationError(`${op}: "${column}" is not a column of "${this.table}".`, op, { field: column })
+    columnOf({ name: this.table, columns: this.columns }, column, op)
 
     return column
   }

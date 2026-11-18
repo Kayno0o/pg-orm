@@ -2,6 +2,7 @@ import type { AnyColumnDef, AnyColumns, AnyRelations, IsNullable } from '../type
 import type { ExprBuilder, ExprOp, ExprTape } from './expr'
 import type { BuilderState } from './state'
 import { ValidationError } from '../errors/index'
+import { columnOf } from '../schema/inspect'
 import { isPlainObject } from '../utils/collection'
 import { createExprBuilder, OP_AND } from './expr'
 import { isScalarColumn } from './state'
@@ -237,8 +238,7 @@ function compile<TColumns extends AnyColumns>(conds: OptionalWhere<TColumns>[], 
  * `condition` is what the object form takes for a column: a value, an array, null or an operator map. A name the table does not have throws `ValidationError`.
  */
 export function whereColumn<TColumns extends AnyColumns>(table: { readonly name: string, readonly columns: TColumns }, column: string, condition: unknown): WhereObject<TColumns> {
-  if (!Object.hasOwn(table.columns, column))
-    throw new ValidationError(`"${table.name}" has no column "${column}"`, 'whereColumn', { field: column })
+  columnOf(table, column, 'whereColumn')
 
   return { [column]: condition } as WhereObject<TColumns>
 }

@@ -59,3 +59,9 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 
   return proto === Object.prototype || proto === null
 }
+
+/** `items` cut into runs of `size` at most, in order: the array itself when it fits in one, nothing when it is empty. */
+export function* chunks<T>(items: T[], size: number): Generator<T[]> {
+  for (let i = 0; i < items.length; i += size)
+    yield items.length <= size ? items : items.slice(i, i + size)
+}
