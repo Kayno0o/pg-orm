@@ -280,14 +280,12 @@ class Parser {
       return { op: word, args: [...typeof left === 'object' && left.op === word ? left.args : [left], ...typeof right === 'object' && right.op === word ? right.args : [right]] }
     }
 
-    if (COMPARISON_PRECEDENCE < minPrecedence)
-      return undefined
+    if (word === 'is' || word === 'not' || word === 'in' || word === 'between' || word === 'like' || word === 'ilike') {
+      if (COMPARISON_PRECEDENCE < minPrecedence)
+        return undefined
 
-    if (word === 'is')
-      return this.isTest(left)
-
-    if (word === 'not' || word === 'in' || word === 'between' || word === 'like' || word === 'ilike')
-      return this.membership(left)
+      return word === 'is' ? this.isTest(left) : this.membership(left)
+    }
 
     const op = token.kind === 'op' ? token.text : word && COMPARISONS.has(word) ? word : undefined
 

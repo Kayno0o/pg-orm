@@ -2,10 +2,18 @@ import { describe, expect, test } from 'bun:test'
 import { sameExpression } from '../../../src/migration/expression'
 
 describe('sameExpression', () => {
+  test('arithmetic on the right of a comparison binds tighter, as Postgres prints it', () => {
+    expect(sameExpression('qty > price * 2', '(qty > (price * 2))')).toBe(true)
+    expect(sameExpression('a > b + 1', '(a > (b + 1))')).toBe(true)
+    expect(sameExpression('total >= subtotal - discount', '(total >= (subtotal - discount))')).toBe(true)
+    expect(sameExpression('n BETWEEN a + 1 AND b * 2', '((n >= (a + 1)) AND (n <= (b * 2)))')).toBe(true)
+  })
+
   test('a different grouping is a different expression', () => {
     expect(sameExpression('(a = 1 OR b = 2) AND c = 3', 'a = 1 OR (b = 2 AND c = 3)')).toBe(false)
     expect(sameExpression('NOT (a AND b)', 'NOT a AND b')).toBe(false)
     expect(sameExpression('(a + b) * c', 'a + (b * c)')).toBe(false)
+    expect(sameExpression('qty > price * 2', '((qty > price) * 2)')).toBe(false)
     expect(sameExpression('a - (b - c)', '(a - b) - c')).toBe(false)
   })
 
