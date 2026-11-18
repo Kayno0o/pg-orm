@@ -502,6 +502,9 @@ await repo.read.findById(1, q => q.where({ tenantId }))  // the callback's where
 await repo.read.findByIdOrThrow(1)      // throws NotFoundError instead of returning null
 await repo.read.existsById(1)
 await repo.read.existsById(1, { withTrashed: true })
+// The object-WHERE finds and the by-id finds take the same scope options as count; a select callback has withoutScope()/withTrashed() on its builder
+await repo.read.findById(1, { withTrashed: true })
+await repo.read.findOne({ email }, { withoutScopes: ['tenant'] })
 await repo.read.findById({ userId: 1, groupId: 2 })
 
 // Soft-delete tables: count/exists/paginate skip trashed rows unless asked
@@ -690,7 +693,7 @@ await db.repo(projects).write.deleteMany({ archived: true }, { withoutScopes: ['
 await db.repo(owners).read.findMany(q => q.withCount('projects', { withoutScopes: ['active'] }))
 ```
 
-- `withTrashed` is `withoutScope('softDelete')`. Reads, `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
+- `withTrashed` is `withoutScope('softDelete')`. Reads (`findMany`, `findOne*` and `findById*` with an object WHERE or a key), `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
 - `withoutScopes` must be an array of names and `withTrashed` a boolean, or the call throws a `ValidationError`: options spread from a parsed request cannot lift a scope with `'tenant'` or `'false'`.
 - A scope reading a context value that is not there fails the call: `e.eq('tenantId', undefined)` throws a `ValidationError`, so a query run outside `withContext` cannot read every tenant.
 - An upsert guards only its update: a conflicting row a scope leaves out is not updated and not returned. Inserts are not filtered, so set the tenant column on the rows you write (a `beforeInsert` hook reading the same context does it once).

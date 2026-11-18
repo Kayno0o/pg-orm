@@ -65,7 +65,7 @@ export interface ReadPipelineContext {
   tableRegistry?: ReadonlyMap<string, AnyTableDef>
 }
 
-export interface SelectOptions {
+export interface SelectOptions extends ScopeOptions {
   defaultLimit?: number
 }
 
@@ -205,7 +205,7 @@ export class ReadPipeline<
   }
 
   async findMany(arg?: FindArg<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
-    const { rows } = await this._select(asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)), opts)
+    const { rows } = await this._select(asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)).withoutScope(...liftedScopes(opts)), opts)
 
     return rows
   }
@@ -270,15 +270,15 @@ export class ReadPipeline<
     return this._executor.atomic ? this._executor.atomic(run) : run(this._executor)
   }
 
-  async findOne(arg?: FindArg<TColumns, TRelations>): Promise<any | null> {
+  async findOne(arg?: FindArg<TColumns, TRelations>, opts?: ScopeOptions): Promise<any | null> {
     const cb = asSelectCb(arg)
-    const rows = await this.findMany(q => cb(q).limit(1))
+    const rows = await this.findMany(q => cb(q).limit(1), opts)
 
     return rows[0] ?? null
   }
 
-  async findOneOrThrow(arg?: FindArg<TColumns, TRelations>): Promise<unknown> {
-    const row = await this.findOne(arg)
+  async findOneOrThrow(arg?: FindArg<TColumns, TRelations>, opts?: ScopeOptions): Promise<unknown> {
+    const row = await this.findOne(arg, opts)
 
     if (row === null)
       throw new NotFoundError(this._runtime.table.name)
@@ -286,14 +286,17 @@ export class ReadPipeline<
     return row
   }
 
-  async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
+  /** What the by-id finds take after the key: a select callback, or the scopes to lift. */
+  async findById(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any | null> {
     const where = this._runtime.pkWhere(id) as Where<TColumns>
+    const cb = typeof shape === 'function' ? shape : undefined
+    const opts = typeof shape === 'function' ? undefined : shape
 
-    return this.findOne(q => (cb ? cb(q) : q).andWhere(where) as SelectBuilder<TColumns, TRelations, any>)
+    return this.findOne(q => (cb ? cb(q) : q).andWhere(where) as SelectBuilder<TColumns, TRelations, any>, opts)
   }
 
-  async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
-    const row = await this.findById(id, cb)
+  async findByIdOrThrow(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any> {
+    const row = await this.findById(id, shape)
 
     if (row === null)
       throw new NotFoundError(this._runtime.table.name)
