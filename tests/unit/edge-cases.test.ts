@@ -128,8 +128,14 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
       const repo = new Repository({ table: postsTable, executor: mock })
 
-      await expect(repo.write.upsertOne({ id: 1, title: 'x' }, ['id'], ['title'] as never)).rejects.toThrow(ValidationError)
-      await expect(repo.write.upsertMany([{ id: 1, title: 'x' }], ['id'], { set: { title: 'y' } } as never)).rejects.toThrow(ValidationError)
+      const set = { set: { title: 'y' } }
+
+      // @ts-expect-error the pre-9.0 update list is no options object
+      await expect(repo.write.upsertOne({ id: 1, title: 'x' }, ['id'], ['title'])).rejects.toThrow(ValidationError)
+      // @ts-expect-error nor is a { set } held in a variable
+      await expect(repo.write.upsertMany([{ id: 1, title: 'x' }], ['id'], set)).rejects.toThrow(ValidationError)
+      // @ts-expect-error nor a { set } literal
+      await expect(repo.write.upsertMany([{ id: 1, title: 'x' }], ['id'], { set: { title: 'y' } })).rejects.toThrow(ValidationError)
       expect(mock.queries).toHaveLength(0)
     })
 
