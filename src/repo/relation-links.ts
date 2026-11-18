@@ -5,6 +5,7 @@ import type { Repository } from './index'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { NotFoundError, ValidationError } from '../errors/index'
 import { hasTrait } from '../schema/inspect'
+import { bigintAsString } from '../sql/json-param'
 import { relationKey } from '../utils/collection'
 import { assertKeyValue } from './table-runtime'
 
@@ -88,7 +89,7 @@ export class RelationLinks {
       const detached = extra.length > 0 ? await this._detach(repo, through, parentId, extra) : []
       const missing = new Map([...wanted].filter(([key]) => !current.has(key)))
 
-      return { attached: await this._attach(repo, through, parentId, missing), detached }
+      return { attached: await this._attach(repo, through, parentId, missing, current), detached }
     })
   }
 
@@ -174,11 +175,12 @@ export class RelationLinks {
   }
 
   // A link a soft-delete pivot trashed is restored rather than inserted again, so a unique (from, to) index still holds; the target's pivot columns are written onto it.
-  private async _attach(repo: PivotRepo, through: Through, parentId: unknown, wanted: Wanted): Promise<unknown[]> {
+  // `live` is the parent's links when the caller read them already, as sync does.
+  private async _attach(repo: PivotRepo, through: Through, parentId: unknown, wanted: Wanted, live?: Map<unknown, unknown>): Promise<unknown[]> {
     if (wanted.size === 0)
       return []
 
-    const live = await this._linked(repo, through, parentId, [...wanted.values()].map(target => target.id))
+    live ??= await this._linked(repo, through, parentId, [...wanted.values()].map(target => target.id))
     const missing = [...wanted].filter(([key]) => !live.has(key))
     const restored = new Set<unknown>()
 
@@ -188,10 +190,21 @@ export class RelationLinks {
       for (const row of rows)
         restored.add(relationKey(row[through.to]))
 
+      // One update per distinct set of pivot values, all its targets at once: a sync given one `pivot` for every target writes them in a single statement.
+      const bySet = new Map<string, { values: Row, ids: unknown[] }>()
+
       for (const [key, target] of missing) {
-        if (restored.has(key) && Object.keys(target.values).length > 0)
-          await repo.write.updateMany(target.values, { [through.from]: parentId, [through.to]: target.id })
+        if (!restored.has(key) || Object.keys(target.values).length === 0)
+          continue
+
+        const set = JSON.stringify(target.values, bigintAsString)
+        const group = bySet.get(set) ?? bySet.set(set, { values: target.values, ids: [] }).get(set)!
+
+        group.ids.push(target.id)
       }
+
+      for (const { values, ids } of bySet.values())
+        await repo.write.updateMany(values, { [through.from]: parentId, [through.to]: ids })
     }
 
     const inserted = missing.filter(([key]) => !restored.has(key))

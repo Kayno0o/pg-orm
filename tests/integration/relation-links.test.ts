@@ -131,6 +131,16 @@ describe.each(dialects)('hasManyThrough links on %s', (_name, open) => {
     expect(await pivotRows()).toEqual([expect.objectContaining({ roleId: r1, grantedBy: 3, deletedAt: null })])
   })
 
+  it('syncs back trashed links, each with its own pivot columns or the shared ones', async () => {
+    const write = db.repo(users).write
+
+    await write.attach(user, 'roles', [r1, r2, r3])
+    await write.sync(user, 'roles', [])
+
+    expect(await write.sync(user, 'roles', [r1, { id: r2, pivot: { grantedBy: 7 } }, r3], { pivot: { grantedBy: 5 } })).toEqual({ attached: [r1, r2, r3], detached: [] })
+    expect((await pivotRows()).map(row => [row.roleId, row.grantedBy, row.deletedAt])).toEqual([[r1, 5, null], [r2, 7, null], [r3, 5, null]])
+  })
+
   it('syncs to exactly the targets given, reporting what changed', async () => {
     const write = db.repo(users).write
 
