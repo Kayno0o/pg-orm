@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createExprBuilder, defineTable, embedding, optimisticLock, OrmError, softDelete, timestamps, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 // The docker-compose image ships pgvector; a Postgres without it skips these.
 const probe = createTestDb({ tables: [] })

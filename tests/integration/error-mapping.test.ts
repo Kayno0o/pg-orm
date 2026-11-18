@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { AuthenticationError, ConnectionError, ExclusionError, ForeignKeyError, InvalidQueryError, NotNullError, TimeoutError, TransactionAbortedError, UniqueError } from '../../src/index'
-import { createTestDb, TEST_URL } from '../helpers/db'
+import { createTestDb, TEST_URL, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 let db: Database
 

@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { Database, defineTable, InsertBuilder, SelectBuilder } from '../../src/index'
-import { createTestDb, serverVersion } from '../helpers/db'
+import { createTestDb, serverVersion, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const items = defineTable('bg_items', t => ({
   id: t.serial().primaryKey(),

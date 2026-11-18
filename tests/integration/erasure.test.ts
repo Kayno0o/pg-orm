@@ -1,7 +1,9 @@
 import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable, softDelete, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const notes = defineTable('er_notes', t => ({
   id: t.serial().primaryKey(),

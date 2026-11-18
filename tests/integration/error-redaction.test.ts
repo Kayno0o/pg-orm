@@ -1,8 +1,10 @@
 import type { Database, QueryErrorEvent, QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { UniqueError } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 // Verifies that the default config (no explicit `redactParams`, no
 // REDACT_QUERY_LOGS env var) does NOT leak sensitive values into the wrapped

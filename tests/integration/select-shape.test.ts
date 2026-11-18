@@ -1,8 +1,10 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { rawExpr } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 let db: Database
 const queries: string[] = []

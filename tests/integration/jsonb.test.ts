@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { documentsTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 let db: Database
 

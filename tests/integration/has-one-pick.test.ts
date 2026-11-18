@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const owners = defineTable('hop_owners', t => ({
   id: t.serial().primaryKey(),

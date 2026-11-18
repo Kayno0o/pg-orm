@@ -1,8 +1,10 @@
 import type { Database } from '../../src/index'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { allTables } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 const grants = defineTable('pis_grants', t => ({ id: t.serial().primaryKey(), user_id: t.int4(), kind: t.text(), resource_id: t.int4().nullable() })).withIndexes([
   { columns: ['user_id', 'kind', 'resource_id'], unique: true, where: '"resource_id" IS NOT NULL' },

@@ -1,7 +1,9 @@
 import type { Database, QueryEvent } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 function inClauseQueryCount(events: QueryEvent[]): number {
   return events.filter(e => (/ = ANY\(/i).test(e.sql)).length

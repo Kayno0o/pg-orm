@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 // One pooled connection, so the query after a migration runs on the connection the migration had.
 const db = createTestDb({ statementTimeout: 100, idleInTransactionTimeout: 100, pool: { max: 1 } })

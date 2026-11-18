@@ -1,8 +1,10 @@
 import type { AnyTableDef, Database } from '../../src/index'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { CheckError, defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { allTables } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 const opened: Database[] = []
 
