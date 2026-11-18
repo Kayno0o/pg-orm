@@ -1,33 +1,32 @@
 import type { VectorMetric } from '../builder/_tape'
 import type { TypedExpr, VectorType, VectorValue } from '../builder/expr'
-import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereFn, WhereInput } from '../builder/query'
-import type { BuilderState, IncludeEntry, RelationAggregateFn } from '../builder/state'
+import type { OptionalWhere, OptionalWhereObject, SelectBuilder, WhereInput } from '../builder/query'
+import type { BuilderState, IncludeEntry } from '../builder/state'
 import type { Dialect } from '../dialect'
 import type { RowMapper } from '../mapper/index'
 import type { Executable } from '../sql/executor'
-import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferPrimaryKey, InferSelect, PrimaryKeyColumn, ScopeOptions, WithVirtuals } from '../types/index'
+import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, ScopeOptions, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
+import type { PageLimits, PaginateCursorOptions, PaginateCursorResult, SelectCb } from './pagination'
 import type { RelationProcessor, RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
-import { OP_EXISTS, OP_SCALAR } from '../builder/_tape'
+import { OP_SCALAR } from '../builder/_tape'
 import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder as SelectBuilderCtor } from '../builder/query'
-import { aggregateMethod, selectedColumns } from '../builder/state'
+import { selectedColumns } from '../builder/state'
 import { vectorSearchSettings } from '../builder/vector-search'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
 import { messageValue, NotFoundError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { columnBaseType, tableMeta } from '../schema/inspect'
-import { isPlainObject } from '../utils/collection'
-import { quote } from '../utils/quote'
 import { createMapperFactory } from './_mapper'
-import { relationSubquery, resolveRelationFilters } from './relation-filter'
+import { checkPageSize, paginateCursor } from './pagination'
+import { resolveRelationAggregates, resolveRelationFilters } from './relation-filter'
 import { liftedScopes } from './table-behavior'
-import { buildTableRuntime, isKeyValue } from './table-runtime'
+import { buildTableRuntime } from './table-runtime'
 
-// The column types whose sum and average read back as a float8 number.
-const FLOAT_RESULT_TYPES = new Set(['int2', 'int4', 'serial', 'float4', 'float8'])
+export type { CursorOf, PageLimits, PaginateCursorOptions, PaginateCursorResult } from './pagination'
 
 // The column a page carries its total in.
 const PAGE_TOTAL = '__pgorm_total'
@@ -39,7 +38,6 @@ interface ChildTable {
   mappers: MapperFactory
 }
 
-type SelectCb<TC extends AnyColumns, TR extends AnyRelations, TResult = any> = (q: SelectBuilder<TC, TR>) => SelectBuilder<TC, TR, TResult, any, any>
 type Where<TC extends AnyColumns> = WhereInput<TC>
 /** What a find takes: a select callback, or a WHERE object (falsy for no filter). */
 type FindArg<TC extends AnyColumns, TR extends AnyRelations> = SelectCb<TC, TR> | OptionalWhereObject<TC>
@@ -67,19 +65,6 @@ export interface ReadPipelineContext {
 
 export interface SelectOptions extends ScopeOptions {
   defaultLimit?: number
-}
-
-/** The page size a public paginate call may ask; a stream paging internally passes none. */
-export interface PageLimits {
-  maxPageSize?: number
-}
-
-function checkPageSize(op: string, name: string, size: number, limits?: PageLimits): void {
-  if (!Number.isInteger(size) || size < 1)
-    throw new ValidationError(`${op}() requires ${name} >= 1, got ${messageValue(size)}`, op, { value: size })
-
-  if (limits?.maxPageSize !== undefined && size > limits.maxPageSize)
-    throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${messageValue(size)}`, op, { value: size })
 }
 
 /** What `nearest()` takes: how many rows, an optional filter and distance cap, the metric, and the vector column when the table has no `embedding()` trait naming it. */
@@ -125,31 +110,11 @@ export interface PaginateResult<TColumns extends AnyColumns, TVirtuals extends A
   totalPages: number
 }
 
-/** Where a cursor page resumes: the primary key when ordering by it, else the column's value and the key that breaks its ties. */
-export type CursorOf<TColumns extends AnyColumns, K extends keyof TColumns & string>
-  = [K] extends [PrimaryKeyColumn<TColumns>]
-    ? InferPrimaryKey<TColumns>
-    : { value: InferSelect<TColumns>[K], key: InferPrimaryKey<TColumns> }
-
-export interface PaginateCursorOptions<TColumns extends AnyColumns, K extends keyof TColumns & string> extends ScopeOptions {
-  take: number
-  /** The column to order by, the primary key by default. Ties are broken by the primary key; a nullable column is refused. */
-  column?: K
-  cursor?: CursorOf<TColumns, K> | null
-  direction?: 'forward' | 'backward'
-  where?: OptionalWhere<TColumns>
-}
-
 export interface StreamCursorOptions<TColumns extends AnyColumns> extends ScopeOptions {
   chunkSize?: number
   column?: keyof TColumns & string
   direction?: 'forward' | 'backward'
   where?: OptionalWhere<TColumns>
-}
-
-export interface PaginateCursorResult<TRow, TCursor> {
-  data: TRow[]
-  nextCursor: TCursor | null
 }
 
 const STREAM_OFFSET_NOTICE = 'stream.offset'
@@ -159,8 +124,6 @@ export interface StreamOffsetOptions extends ScopeOptions {
   /** `false` silences the warning that `stream.offset()` may skip or repeat rows and costs quadratic time; it is given once per `Database` otherwise. */
   warn?: boolean
 }
-
-const TIMESTAMP_TYPES = new Set(['timestamp', 'timestamptz'])
 
 /**
  * Deep module owning the full read-result lifecycle for a single table:
@@ -417,115 +380,8 @@ export class ReadPipeline<
     return { data, total, page, perPage, totalPages: Math.ceil(total / perPage), hasNext: page * perPage < total }
   }
 
-  // Keyset paging on (column, primary key): a row-value comparison resumes after the cursor, so tied values are neither skipped nor repeated. A backward page is read descending, its cursor taken from the last row read, then reversed.
   async paginateCursor(opts: PaginateCursorOptions<TColumns, any>, cb?: SelectCb<TColumns, TRelations>, limits?: PageLimits): Promise<PaginateCursorResult<any, unknown>> {
-    const { take, cursor, direction = 'forward', where } = opts
-    const { keys, byKey } = this._cursorKeys(opts.column)
-    const isForward = direction === 'forward'
-
-    checkPageSize('paginateCursor', 'take', take, limits)
-
-    const data = await this.findMany((q) => {
-      const b = cb ? cb(q) : q
-      const state = b.getState()
-
-      if (state.orderBy.length > 0 || state.limit != null || state.offset != null)
-        throw new ValidationError('paginateCursor(): the callback must not set orderBy, limit or offset, which the cursor owns.', 'paginateCursor')
-
-      this._prepare(b)
-
-      const picked = selectedColumns(state)
-
-      if (picked && keys.some(k => !picked.includes(k)))
-        throw new ValidationError(`paginateCursor(): the callback's pick() or omit() leaves out a cursor column (${keys.join(', ')}).`, 'paginateCursor')
-
-      b.andWhere(where).limit(take + 1).withoutScope(...liftedScopes(opts))
-
-      for (const key of keys)
-        b.orderBy(key, isForward ? 'asc' : 'desc')
-
-      if (cursor != null)
-        b.andWhere(this._afterCursor(keys, this._cursorValues(cursor, keys, byKey), isForward, state.withoutScopes))
-
-      return b
-    })
-
-    const hasMore = data.length > take
-
-    if (hasMore)
-      data.pop()
-
-    const boundary = data.at(-1) as Record<string, unknown> | undefined
-    const nextCursor = hasMore && boundary ? this._cursorOf(boundary, keys, byKey) : null
-
-    if (!isForward)
-      data.reverse()
-
-    return { data, nextCursor }
-  }
-
-  // The ordering columns: the primary key (led by `column` when it is part of it), or `column` then the key.
-  private _cursorKeys(column: string | undefined): { keys: string[], byKey: boolean } {
-    const { pkColumns, table } = this._runtime
-
-    this._runtime.requireKey('paginateCursor()')
-
-    const byKey = column === undefined || pkColumns.includes(column)
-    const keys = byKey ? [...column ? [column] : [], ...pkColumns.filter(c => c !== column)] : [column, ...pkColumns]
-    const nullable = keys.find(k => !table.columns[k]?.constraints.some((c: ColumnConstraint) => c.type === 'not_null' || c.type === 'primary_key'))
-
-    if (nullable !== undefined)
-      throw new ValidationError(`paginateCursor(): "${table.name}"."${nullable}" is nullable, and a cursor cannot order past its NULLs.`, 'paginateCursor', { field: nullable })
-
-    return { keys, byKey }
-  }
-
-  private _cursorOf(row: Record<string, unknown>, keys: string[], byKey: boolean): unknown {
-    const { pkColumns } = this._runtime
-    const pk = pkColumns.length === 1 ? row[pkColumns[0]!] : Object.fromEntries(pkColumns.map(c => [c, row[c]]))
-
-    return byKey ? pk : { value: row[keys[0]!], key: pk }
-  }
-
-  // A cursor is opaque but comes back from a client: one that is not the shape this table's pages return would bind `undefined` or match nothing.
-  private _cursorValues(cursor: unknown, keys: string[], byKey: boolean): unknown[] {
-    const { pkColumns, table } = this._runtime
-    const parts = byKey ? cursor : isPlainObject(cursor) ? cursor.key : undefined
-    const pk = (col: string): unknown => pkColumns.length === 1 ? parts : isPlainObject(parts) ? parts[col] : undefined
-    const values = keys.map(k => pkColumns.includes(k) ? pk(k) : isPlainObject(cursor) ? cursor.value : undefined)
-
-    if (!values.every(isKeyValue))
-      throw new ValidationError(`paginateCursor(): the cursor is not one a page of "${table.name}" ordered by ${keys.join(', ')} returns.`, 'paginateCursor')
-
-    return values
-  }
-
-  private _afterCursor(keys: string[], values: unknown[], isForward: boolean, lifted: string[]): WhereFn<TColumns> {
-    const op = isForward ? '>' : '<'
-
-    if (keys.length === 1)
-      return e => isForward ? e.gt(keys[0]! as keyof TColumns & string, values[0] as never) : e.lt(keys[0]! as keyof TColumns & string, values[0] as never)
-
-    const { pkColumns, table } = this._runtime
-    const [column, ...rest] = keys as [keyof TColumns & string, ...string[]]
-
-    if (!TIMESTAMP_TYPES.has(columnBaseType(table.columns[column]!).base) || pkColumns.includes(column))
-      return e => e.raw(`(${keys.map(quote).join(', ')}) ${op} (${keys.map(() => '?').join(', ')})`, ...values)
-
-    // A Date holds milliseconds where Postgres keeps microseconds, so the boundary row's own value is read back by its key, through the scopes the page reads with; the carried one stands in when that row is gone or hidden.
-    const boundaryRow = new SelectBuilderCtor<TColumns>(table).pick(column).where(this._runtime.pkWhere(pkColumns.length === 1 ? values[1] : Object.fromEntries(pkColumns.map((c, i) => [c, values[i + 1]]))) as Where<TColumns>).withoutScope(...lifted)
-
-    this._prepare(boundaryRow)
-
-    // The row comparison `(column, key) > (boundary, key value)`, spelled out so the boundary can be a subquery; the planner then seeks on `column >= boundary` and filters the ties, slower only over long runs of equal values.
-    return (e) => {
-      const boundary = e.coalesce(e.scalar(boundaryRow), values[0] as never)
-      const afterKey = e.raw(`(${rest.map(quote).join(', ')}) ${op} (${rest.map(() => '?').join(', ')})`, ...values.slice(1))
-
-      return isForward
-        ? e.and(e.gte(column, boundary), e.or(e.gt(column, boundary), afterKey))
-        : e.and(e.lte(column, boundary), e.or(e.lt(column, boundary), afterKey))
-    }
+    return paginateCursor({ runtime: this._runtime, findMany: cursorCb => this.findMany(cursorCb), prepare: builder => this._prepare(builder) }, opts, cb, limits)
   }
 
   // OFFSET pages are only disjoint over a total order, so an unordered read walks what makes its rows unique: the group columns of a grouped read, the picked columns of a DISTINCT one, else the primary key.
@@ -738,61 +594,7 @@ export class ReadPipeline<
     state.whereTape &&= resolveRelationFilters(state.whereTape, this._runtime.table, state.alias ?? this._runtime.table.name, this._tableRegistry)
   }
 
-  // Each relation aggregate becomes a correlated subquery column; it needs the registry for the related table and its scopes, which the builder does not have.
   private _resolveAggregates(builder: SelectBuilder<any, any, any>): void {
-    const state = builder.getState()
-    const { table } = this._runtime
-
-    for (const { fn, relation, column, alias, where, withoutScopes } of state.relationAggregates.splice(0)) {
-      const caller = aggregateMethod(fn)
-      const rel = (table.relations as AnyRelations)[relation]
-
-      if (fn !== 'exists' && (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough')))
-        throw new ValidationError(`${caller}(): "${relation}" is not a hasMany or hasManyThrough relation of "${table.name}".`, caller, { field: relation })
-
-      const { query, target, alias: child } = relationSubquery({ table, relation, outer: state.alias ?? table.name, registry: this._tableRegistry, caller, where, lifted: withoutScopes, depth: 0 })
-
-      if (fn === 'exists') {
-        state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_EXISTS, subquery: query.asExists() }], pgType: 'bool' })
-
-        continue
-      }
-
-      const { expr, pgType } = this._aggregateExpr(fn, relation, column, target, child)
-      const sub = query.getState()
-
-      sub.columns = []
-      sub.computedColumns = [{ expr, alias: 'value' }]
-      state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_SCALAR, subquery: query }], pgType })
-    }
-  }
-
-  // An aggregate's SELECT list and the type its value reads back as. Postgres sums an int4 to an int8 and averages integers to a numeric, both returned as strings, so a float or integer column's sum and average are cast to float8.
-  private _aggregateExpr(fn: Exclude<RelationAggregateFn, 'exists'>, relation: string, column: string | undefined, target: AnyTableDef, child: string): { expr: string, pgType?: string } {
-    const postgres = this._dialect === 'postgres'
-
-    if (fn === 'count')
-      return { expr: `count(*)${postgres ? '::int' : ''}` }
-
-    const caller = aggregateMethod(fn)
-    const col = column === undefined ? undefined : (target.columns as AnyColumns)[column]
-
-    if (!col)
-      throw new ValidationError(`${caller}("${relation}", "${column}"): "${target.name}" has no column "${column}".`, caller, { field: column })
-
-    const ref = `${quote(child)}.${quote(column!)}`
-
-    if (fn === 'min' || fn === 'max')
-      return { expr: `${fn}(${ref})`, pgType: col.pgType }
-
-    const { base } = columnBaseType(col)
-
-    if (FLOAT_RESULT_TYPES.has(base))
-      return { expr: `${fn}(${ref})${postgres ? '::float8' : ''}`, pgType: 'float8' }
-
-    if (base === 'numeric' || base === 'int8' || base === 'bigserial')
-      return { expr: `${fn}(${ref})`, pgType: fn === 'sum' && base !== 'numeric' ? 'int8' : 'numeric' }
-
-    throw new ValidationError(`${caller}("${relation}", "${column}"): "${column}" is a ${col.pgType} column, which ${caller} cannot read.`, caller, { field: column })
+    resolveRelationAggregates(builder, this._runtime.table, this._tableRegistry, this._dialect)
   }
 }

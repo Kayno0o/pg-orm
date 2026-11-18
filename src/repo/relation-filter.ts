@@ -1,12 +1,15 @@
 import type { ExprOp, ExprTape } from '../builder/_tape'
-import type { AnyRelations, AnyTableDef } from '../types/index'
+import type { RelationAggregateFn } from '../builder/state'
+import type { Dialect } from '../dialect'
+import type { AnyColumns, AnyRelations, AnyTableDef } from '../types/index'
 import type { ScopeResolver } from './table-behavior'
-import { OP_EXISTS, OP_HAS, OP_NOT_EXISTS } from '../builder/_tape'
+import { OP_EXISTS, OP_HAS, OP_NOT_EXISTS, OP_SCALAR } from '../builder/_tape'
 import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder } from '../builder/query'
-
+import { aggregateMethod } from '../builder/state'
 import { ValidationError } from '../errors/index'
-import { singleKey } from '../schema/inspect'
+import { columnBaseType, singleKey } from '../schema/inspect'
+import { quote } from '../utils/quote'
 import { liftedScopes, resolveScopes } from './table-behavior'
 
 type Registry = ReadonlyMap<string, AnyTableDef> | undefined
@@ -103,4 +106,64 @@ export function resolveRelationFilters(tape: ExprTape, table: AnyTableDef, outer
 
     return { op: op.negate ? OP_NOT_EXISTS : OP_EXISTS, subquery: query.asExists() }
   })
+}
+
+// The column types whose sum and average read back as a float8 number.
+const FLOAT_RESULT_TYPES = new Set(['int2', 'int4', 'serial', 'float4', 'float8'])
+
+/** Turns each relation aggregate on the builder (`withCount`, `withSum`...) into a correlated subquery column; the builder lacks the registry for the related table and its scopes. */
+export function resolveRelationAggregates(builder: SelectBuilder<any, any, any>, table: AnyTableDef, registry: Registry, dialect: Dialect): void {
+  const state = builder.getState()
+
+  for (const { fn, relation, column, alias, where, withoutScopes } of state.relationAggregates.splice(0)) {
+    const caller = aggregateMethod(fn)
+    const rel = (table.relations as AnyRelations)[relation]
+
+    if (fn !== 'exists' && (!rel || (rel.type !== 'hasMany' && rel.type !== 'hasManyThrough')))
+      throw new ValidationError(`${caller}(): "${relation}" is not a hasMany or hasManyThrough relation of "${table.name}".`, caller, { field: relation })
+
+    const { query, target, alias: child } = relationSubquery({ table, relation, outer: state.alias ?? table.name, registry, caller, where, lifted: withoutScopes, depth: 0 })
+
+    if (fn === 'exists') {
+      state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_EXISTS, subquery: query.asExists() }], pgType: 'bool' })
+
+      continue
+    }
+
+    const { expr, pgType } = aggregateExpr(fn, relation, column, target, child, dialect)
+    const sub = query.getState()
+
+    sub.columns = []
+    sub.computedColumns = [{ expr, alias: 'value' }]
+    state.computedColumns.push({ expr: '', alias, tape: [{ op: OP_SCALAR, subquery: query }], pgType })
+  }
+}
+
+// An aggregate's SELECT list and the type its value reads back as. Postgres sums an int4 to an int8 and averages integers to a numeric, both returned as strings, so a float or integer column's sum and average are cast to float8.
+function aggregateExpr(fn: Exclude<RelationAggregateFn, 'exists'>, relation: string, column: string | undefined, target: AnyTableDef, child: string, dialect: Dialect): { expr: string, pgType?: string } {
+  const postgres = dialect === 'postgres'
+
+  if (fn === 'count')
+    return { expr: `count(*)${postgres ? '::int' : ''}` }
+
+  const caller = aggregateMethod(fn)
+  const col = column === undefined ? undefined : (target.columns as AnyColumns)[column]
+
+  if (!col)
+    throw new ValidationError(`${caller}("${relation}", "${column}"): "${target.name}" has no column "${column}".`, caller, { field: column })
+
+  const ref = `${quote(child)}.${quote(column!)}`
+
+  if (fn === 'min' || fn === 'max')
+    return { expr: `${fn}(${ref})`, pgType: col.pgType }
+
+  const { base } = columnBaseType(col)
+
+  if (FLOAT_RESULT_TYPES.has(base))
+    return { expr: `${fn}(${ref})${postgres ? '::float8' : ''}`, pgType: 'float8' }
+
+  if (base === 'numeric' || base === 'int8' || base === 'bigserial')
+    return { expr: `${fn}(${ref})`, pgType: fn === 'sum' && base !== 'numeric' ? 'int8' : 'numeric' }
+
+  throw new ValidationError(`${caller}("${relation}", "${column}"): "${column}" is a ${col.pgType} column, which ${caller} cannot read.`, caller, { field: column })
 }
