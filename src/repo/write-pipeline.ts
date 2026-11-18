@@ -195,7 +195,7 @@ export class WritePipeline<
     requirePostgres(dialectOf(this._executor), 'copyFrom')
 
     if (!this._executor.copyIn)
-      throw new OrmError('copyFrom needs an executor that runs COPY')
+      throw new ValidationError('copyFrom needs an executor that runs COPY', 'copyFrom')
 
     const iterator = Symbol.asyncIterator in rows ? rows[Symbol.asyncIterator]() : rows[Symbol.iterator]()
     const first = await iterator.next()

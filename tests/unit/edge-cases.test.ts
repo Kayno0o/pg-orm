@@ -1,7 +1,26 @@
+import type { AnyTableDef } from '../../src/index'
 import { describe, expect, it } from 'bun:test'
-import { OrmError, Repository } from '../../src/index'
+import { defineTable, embedding, OrmError, Repository, softDelete, ValidationError } from '../../src/index'
 import { postsTable, usersTable } from '../helpers/fixtures'
 import { MockExecutor } from '../helpers/mock-executor'
+
+describe('caller mistakes', () => {
+  it('throw ValidationError: a missing trait, a repeated trait or scope, a wrong embedding column, a nested include past the limit, an executor without COPY', async () => {
+    const plain = () => defineTable('cm', t => ({ id: t.serial().primaryKey(), body: t.text(), vec: t.vector(3) }))
+    const repo = () => new Repository({ table: postsTable, executor: new MockExecutor() })
+    const deep = new MockExecutor()
+
+    deep.preset([{ id: 1, authorId: 1 }])
+    deep.preset([{ id: 1 }])
+
+    expect(() => plain().withTrait({ name: 'tagged' }).withTrait({ name: 'tagged' })).toThrow(ValidationError)
+    expect(() => plain().withTrait({ name: 'other', scopes: { softDelete: e => e.isNull('id') } }).withTrait(softDelete())).toThrow(ValidationError)
+    expect(() => plain().withTrait(embedding({ column: 'vec', source: row => row.body, embed: async () => [] }))).toThrow(ValidationError)
+    await expect(repo().write.restore(e => e.eq('id', 1), { pk: true })).rejects.toThrow(ValidationError)
+    await expect(repo().write.copyFrom([{ title: 'x' }])).rejects.toThrow(ValidationError)
+    await expect(new Repository<typeof postsTable.columns, typeof postsTable.relations>({ table: postsTable, executor: deep, maxIncludeDepth: 0, tableRegistry: new Map<string, AnyTableDef>([['posts', postsTable], ['users', usersTable]]) }).read.findMany(q => q.include('author', usersTable, a => a.include('posts')))).rejects.toThrow(ValidationError)
+  })
+})
 
 describe('Edge Cases — Unit', () => {
   // --- 1.1 restore() ---

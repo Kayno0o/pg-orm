@@ -7,7 +7,7 @@ import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { compileWhere, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { liftedScopes } from '../builder/scope-options'
 import { SOFT_DELETE_SCOPE } from '../constants'
-import { OrmError } from '../errors/index'
+import { ValidationError } from '../errors/index'
 import { tableMeta, tableScopes } from '../schema/inspect'
 import { queryContextStorage } from '../sql/base-executor'
 import { quote } from '../sql/utils'
@@ -146,9 +146,7 @@ export function buildTableBehavior(table: AnyTableDef, resolve?: ScopeResolver):
     lifted: string[],
   ): UpdateBuilder<TColumns> {
     if (softDeleteColumn === null) {
-      throw new OrmError(
-        `restore() requires softDelete trait on table "${table.name}"`,
-      )
+      throw new ValidationError(`restore() requires softDelete trait on table "${table.name}"`, 'restore')
     }
 
     const builder = new UpdateBuilderCtor<TColumns>(table)

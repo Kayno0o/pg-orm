@@ -50,10 +50,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
     const applied = (meta[APPLIED_TRAITS_KEY] ??= new Set<string>()) as Set<string>
 
     if (applied.has(trait.name)) {
-      throw new OrmError(
-        `Trait "${trait.name}" already applied to table "${table.name}". `
-        + `Traits are not idempotent — apply each trait at most once per table.`,
-      )
+      throw new ValidationError(`Trait "${trait.name}" is already applied to table "${table.name}": apply each trait at most once per table.`, 'trait')
     }
 
     applied.add(trait.name)
@@ -100,7 +97,7 @@ export function applyTrait(table: AnyTableDef, trait: Trait<any>): void {
 
     for (const name in trait.scopes) {
       if (Object.hasOwn(scopes, name))
-        throw new OrmError(`Scope "${name}" is already declared on table "${table.name}".`)
+        throw new ValidationError(`Scope "${name}" is already declared on table "${table.name}".`, 'scope', { field: name })
 
       scopes[name] = trait.scopes[name]!
     }
@@ -212,7 +209,7 @@ export function embedding<TColumns extends AnyColumns, C extends keyof TColumns 
       const vector = (table.columns as AnyColumns)[column]
 
       if (!vector || !EMBEDDING_TYPES.has(columnBaseType(vector).base) || vector.constraints.some(c => c.type === 'not_null'))
-        throw new OrmError(`embedding(): "${table.name}"."${column}" must be a nullable vector or halfvec column, filled after the row is written.`)
+        throw new ValidationError(`embedding(): "${table.name}"."${column}" must be a nullable vector or halfvec column, filled after the row is written.`, 'embedding', { field: column })
 
       const fill = async (rows: Record<string, unknown>[] | undefined, ctx: HookContext): Promise<void> => {
         const stale = (rows ?? []).map(row => ({ row, text: source(row as InferSelect<TColumns>) })).map(entry => ({ ...entry, hash: sourceHash(entry.text, hashKey) })).filter(({ row, hash }) => row[hashColumn] !== hash)

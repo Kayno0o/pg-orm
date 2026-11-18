@@ -7,7 +7,7 @@ import { SelectBuilder } from '../builder/query'
 import { selectedColumns } from '../builder/state'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { dialectOf } from '../dialect'
-import { OrmError, ValidationError } from '../errors/index'
+import { ValidationError } from '../errors/index'
 import { quote } from '../sql/utils'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
 import { resolveRelationFilters, scopeResolver } from './relation-filter'
@@ -122,9 +122,7 @@ export class RelationResolver {
     depth = 0,
   ): Promise<any[]> {
     if (depth > this.maxIncludeDepth) {
-      throw new OrmError(
-        `Maximum include depth of ${this.maxIncludeDepth} exceeded. Increase maxIncludeDepth to nest includes deeper.`,
-      )
+      throw new ValidationError(`Maximum include depth of ${this.maxIncludeDepth} exceeded. Increase maxIncludeDepth to nest includes deeper.`, 'include')
     }
 
     const relations = this.table.relations ?? {}

@@ -16,7 +16,7 @@ import { aggregateMethod, selectedColumns } from '../builder/state'
 import { vectorSearchSettings } from '../builder/vector-search'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
-import { messageValue, NotFoundError, OrmError, ValidationError } from '../errors/index'
+import { messageValue, NotFoundError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { columnBaseType, tableMeta } from '../schema/inspect'
 import { quote } from '../sql/utils'
@@ -538,7 +538,7 @@ export class ReadPipeline<
     requirePostgres(this._dialect, 'copyTo')
 
     if (!this._executor.copyOut)
-      throw new OrmError('copyTo needs an executor that runs COPY')
+      throw new ValidationError('copyTo needs an executor that runs COPY', 'copyTo')
 
     const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(opts.where)
 
