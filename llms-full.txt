@@ -268,19 +268,22 @@ const postsWithAll = await PostRepo.read.findMany(q =>
   q.include('author').include('comments'),
 )
 
-// Relation filtering: the target table, then a callback shaping its rows (where, orderBy, pick, computed, nested include)
+// Relation filtering: a callback shaping the related rows (where, orderBy, pick, computed, nested include), typed from the relation's table
 const usersWithPublished = await UserRepo.read.findMany(q =>
-  q.include('posts', posts, sq => sq.where({ published: true })),
+  q.include('posts', sq => sq.where({ published: true })),
 )
 
+// Naming the target table types the callback from it instead: what a nested include needs when the relation's thunk returns a column-only definition; a table that is not the relation's target throws ValidationError
+const withComments = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.include('comments')))
+
 // A callback limit and offset apply per parent: each user's three latest posts
-const latest = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.orderBy('createdAt', 'desc').limit(3)))
+const latest = await UserRepo.read.findMany(q => q.include('posts', sq => sq.orderBy('createdAt', 'desc').limit(3)))
 
 // A self reference nests like any other relation
 const chain = await EmployeeRepo.read.findMany(q => q.include('manager', employees, m => m.include('manager')))
 
 // A soft-delete target's trashed rows are left out, on every relation type, unless asked
-const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', posts, sq => sq.withTrashed()))
+const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', sq => sq.withTrashed()))
 ```
 
 A callback limit is cut per parent with `ROW_NUMBER()` in the query, except on `hasManyThrough`, which reads every matching target and cuts in memory. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key. Every table a relation reads, a `hasManyThrough` pivot included, must be in the database's `tables`: an `include` or `withCount` on one that is not throws a `ValidationError` naming it, as its soft delete, hooks and column types would be unknown. A soft-deleted pivot row links nothing unless the include's callback calls `withTrashed()`.

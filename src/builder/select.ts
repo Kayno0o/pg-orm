@@ -436,14 +436,21 @@ export class SelectBuilder<
    * `hasMany`/`hasManyThrough` use `WHERE fk = ANY($1)` batching (one extra query),
    * never N+1 per-row subqueries.
    *
-   * Two forms:
-   * - `.include('posts')` — simple include
-   * - `.include('posts', postsTable, pq => pq.where(...).include(...))` — typed
-   *   callback for filtering child rows and nesting further `.include`s.
+   * `.include('posts')`, or `.include('posts', q => q.where(...).include(...))` to filter, shape and nest the related rows, the callback typed from the relation's table.
+   * `.include('posts', posts, q => ...)` types the callback from `posts` instead, for a relation declared by name or one whose thunk returns a column-only definition; `posts` must be the relation's target.
    */
   include<K extends keyof TRelations & string>(
     relation: K,
   ): SelectBuilder<TColumns, TRelations, TResult & { [P in K]: InferRelationResult<TRelations[P]> }, TGroup, TJoined>
+  include<K extends keyof TRelations & string, TChildResult>(
+    relation: K,
+    callback: (q: SelectBuilder<RelationTarget<TRelations[K]>['columns'], RelationTarget<TRelations[K]>['relations'], InferSelect<RelationTarget<TRelations[K]>['columns']>>) => SelectBuilder<RelationTarget<TRelations[K]>['columns'], RelationTarget<TRelations[K]>['relations'], TChildResult, any, any>,
+  ): SelectBuilder<TColumns, TRelations, TResult & {
+    [P in K]: TRelations[P] extends RelationDef<'hasMany', any, any> ? TChildResult[]
+      : TRelations[P] extends RelationDef<'hasManyThrough', any, any> ? TChildResult[]
+        : TRelations[P] extends RelationDef<infer _K, any, infer N> ? N extends true ? TChildResult | null : TChildResult
+          : TChildResult
+  }, TGroup, TJoined>
   include<K extends keyof TRelations & string, TTable extends AnyTableDef, TChildResult>(
     relation: K,
     table: TTable,
@@ -454,12 +461,11 @@ export class SelectBuilder<
         : TRelations[P] extends RelationDef<infer _K, any, infer N> ? N extends true ? TChildResult | null : TChildResult
           : TChildResult
   }, TGroup, TJoined>
-  include(
-    relation: string,
-    _table?: AnyTableDef,
-    callback?: IncludeCallback,
-  ): SelectBuilder<TColumns, TRelations, any> {
-    this._state.includes.push({ relation, strategy: 'batch', callback })
+  include(relation: string, tableOrCallback?: AnyTableDef | IncludeCallback, callback?: IncludeCallback): SelectBuilder<TColumns, TRelations, any> {
+    if (typeof tableOrCallback === 'function')
+      this._state.includes.push({ relation, callback: tableOrCallback })
+    else
+      this._state.includes.push({ relation, table: tableOrCallback, callback })
 
     return this as never
   }

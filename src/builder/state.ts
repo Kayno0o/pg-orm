@@ -74,7 +74,8 @@ export type IncludeCallback = (q: SelectBuilder<any, any, any>) => SelectBuilder
 
 export interface IncludeEntry {
   relation: string
-  strategy: 'batch'
+  // The table `include(relation, table, cb)` typed its callback from, checked against the relation's target.
+  table?: { readonly name: string }
   callback?: IncludeCallback
 }
 

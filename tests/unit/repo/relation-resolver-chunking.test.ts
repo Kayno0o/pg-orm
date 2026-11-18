@@ -27,7 +27,7 @@ const childrenTable = defineTable('children', t => ({
 
 const registry = new Map<string, AnyTableDef>([['parents', parentsTable], ['children', childrenTable]])
 
-const includes = [{ relation: 'children' as const, strategy: 'batch' as const, callback: undefined }]
+const includes = [{ relation: 'children' as const, callback: undefined }]
 
 function makeResolver(exec: MockExecutor, chunkSize: number): RelationResolver {
   return new RelationResolver(parentsTable, exec, 5, chunkSize, registry)
@@ -41,7 +41,7 @@ describe('RelationResolver chunking', () => {
   test('an unknown relation throws rather than being skipped', async () => {
     const r = makeResolver(new MockExecutor(), 10)
 
-    expect(r.loadIncludes(parents(1), [{ relation: 'childs', strategy: 'batch', callback: undefined }])).rejects.toThrow('"parents" has no relation "childs"')
+    expect(r.loadIncludes(parents(1), [{ relation: 'childs', callback: undefined }])).rejects.toThrow('"parents" has no relation "childs"')
   })
 
   test('empty parent rows → executor never called', async () => {

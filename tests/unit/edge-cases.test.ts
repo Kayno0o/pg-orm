@@ -4,6 +4,22 @@ import { defineTable, embedding, OrmError, Repository, softDelete, ValidationErr
 import { postsTable, usersTable } from '../helpers/fixtures'
 import { MockExecutor } from '../helpers/mock-executor'
 
+describe('include(relation, callback)', () => {
+  it('types the callback from the relation\'s table and runs it on the related rows', async () => {
+    const mock = new MockExecutor()
+
+    mock.preset([{ id: 1, authorId: 7 }])
+    mock.preset([{ id: 7, name: 'Ada' }])
+    // @ts-expect-error title is a posts column, not a users one
+    void new Repository<typeof postsTable.columns, typeof postsTable.relations>({ table: postsTable, executor: new MockExecutor() }).read.select().include('author', a => a.where({ title: 'x' }))
+
+    const [post] = await new Repository<typeof postsTable.columns, typeof postsTable.relations>({ table: postsTable, executor: mock, tableRegistry: new Map<string, AnyTableDef>([['users', usersTable]]) }).read.findMany(q => q.include('author', a => a.where({ name: 'Ada' })))
+
+    expect(mock.queries[1]!.sql).toContain('"name" = $')
+    expect(post!.author).toMatchObject({ name: 'Ada' })
+  })
+})
+
 describe('caller mistakes', () => {
   it('throw ValidationError: a missing trait, a repeated trait or scope, a wrong embedding column, a nested include past the limit, an executor without COPY', async () => {
     const plain = () => defineTable('cm', t => ({ id: t.serial().primaryKey(), body: t.text(), vec: t.vector(3) }))
@@ -18,6 +34,7 @@ describe('caller mistakes', () => {
     expect(() => plain().withTrait(embedding({ column: 'vec', source: row => row.body, embed: async () => [] }))).toThrow(ValidationError)
     await expect(repo().write.restore(e => e.eq('id', 1), { pk: true })).rejects.toThrow(ValidationError)
     await expect(repo().write.copyFrom([{ title: 'x' }])).rejects.toThrow(ValidationError)
+    await expect(new Repository<typeof postsTable.columns, typeof postsTable.relations>({ table: postsTable, executor: new MockExecutor() }).read.findMany(q => q.include('author', postsTable, a => a))).rejects.toThrow(ValidationError)
     await expect(new Repository<typeof postsTable.columns, typeof postsTable.relations>({ table: postsTable, executor: deep, maxIncludeDepth: 0, tableRegistry: new Map<string, AnyTableDef>([['posts', postsTable], ['users', usersTable]]) }).read.findMany(q => q.include('author', usersTable, a => a.include('posts')))).rejects.toThrow(ValidationError)
   })
 })

@@ -134,6 +134,9 @@ export class RelationResolver {
       if (!rel)
         throw new ValidationError(`include(): "${this.table.name}" has no relation "${inc.relation}"`, 'include', { value: inc.relation })
 
+      if (inc.table && inc.table.name !== rel.targetTable)
+        throw new ValidationError(`include("${inc.relation}"): the relation reaches "${rel.targetTable}", not the "${inc.table.name}" table given to type its callback.`, 'include', { field: inc.relation })
+
       const target = this._table(rel.targetTable, inc.relation)
       const pivot = rel.type === 'hasManyThrough' && rel.throughTable ? this._table(rel.throughTable, inc.relation) : undefined
 
