@@ -20,6 +20,8 @@ class SqlBuilder {
   // The table's own columns and the select's output aliases, when known: a bare name outside them is refused.
   columns?: ReadonlySet<string>
   outputs?: ReadonlySet<string>
+  // The table's json and jsonb columns, when known.
+  jsonColumns?: ReadonlySet<string>
 
   constructor(readonly dialect: Dialect, paramOffset: number) {
     this.pidx = paramOffset + 1
@@ -53,7 +55,7 @@ class SqlBuilder {
 
   /** Splice an expression tape into the running SQL stream, bumping param state. `columns: null` checks no name, for a clause naming other tables' columns or aliases. */
   inlineExpr(tape: ExprTape, qualifier?: string, columns: ReadonlySet<string> | null = this.columns ?? null): string {
-    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect, columns ?? undefined)
+    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect, columns ?? undefined, columns ? this.jsonColumns : undefined)
 
     this.params.push(...result.params)
     this.pidx += result.params.length
@@ -721,6 +723,7 @@ export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres'
   if (checked) {
     sb.columns = scope === columnSets.get(checked) ? scope : new Set([...checked, ...scope])
     sb.outputs = new Set(state.computedColumns.map(c => c.alias))
+    sb.jsonColumns = state.jsonColumns
   }
 
   enclosing.push(scope)

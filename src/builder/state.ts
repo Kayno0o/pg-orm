@@ -89,6 +89,8 @@ export interface BuilderState {
   tableColumns?: readonly string[]
   // The columns no plain object is a value of, so the object WHERE form refuses an object on them that names no operator.
   scalarColumns?: ReadonlySet<string>
+  // The json and jsonb columns, whose compared values are bound as JSON.
+  jsonColumns?: ReadonlySet<string>
   // An include's join column: limit and offset then apply per value of it, through ROW_NUMBER(), rather than to the whole batch.
   limitPer?: string
   computedColumns: ComputedColumn[]
@@ -268,8 +270,12 @@ export function scalarColumnsOf(columns: object): ReadonlySet<string> {
   return names
 }
 
+function jsonColumnsOf(columns: object): ReadonlySet<string> {
+  return new Set(Object.entries(columns as Record<string, { pgType?: unknown }>).filter(([, col]) => col.pgType === 'json' || col.pgType === 'jsonb').map(([name]) => name))
+}
+
 // Keyed on the version too: a trait adds its columns to the same object.
-const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[], scalarColumns: ReadonlySet<string> }>()
+const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[], scalarColumns: ReadonlySet<string>, jsonColumns: ReadonlySet<string> }>()
 
 /** The state for a builder on `table`, knowing its columns when given its definition. */
 export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
@@ -279,11 +285,11 @@ export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
   let cached = columnLists.get(table.columns)
 
   if (!cached || cached.version !== table._version) {
-    cached = { version: table._version, columns: Object.keys(table.columns), scalarColumns: scalarColumnsOf(table.columns) }
+    cached = { version: table._version, columns: Object.keys(table.columns), scalarColumns: scalarColumnsOf(table.columns), jsonColumns: jsonColumnsOf(table.columns) }
     columnLists.set(table.columns, cached)
   }
 
-  return { ...createState(op, table.name), tableColumns: cached.columns, scalarColumns: cached.scalarColumns }
+  return { ...createState(op, table.name), tableColumns: cached.columns, scalarColumns: cached.scalarColumns, jsonColumns: cached.jsonColumns }
 }
 
 export function cloneState(s: BuilderState): BuilderState {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { InsertBuilder, SelectBuilder, UpdateBuilder } from '../../../src/builder/query'
 import { DialectError, ValidationError } from '../../../src/errors/index'
-import { compileWhere, defineTable } from '../../../src/index'
+import { compileWhere, defineTable, jsonParam } from '../../../src/index'
 
 const items = defineTable('re_items', t => ({
   id: t.serial().primaryKey(),
@@ -22,7 +22,7 @@ describe('an object WHERE value naming no operator', () => {
   })
 
   it('still compares a json column for equality', () => {
-    expect(select().where({ prefs: { theme: 'dark' } }).toSQL().params).toEqual([{ theme: 'dark' }])
+    expect(select().where({ prefs: { theme: 'dark' } }).toSQL().params).toEqual([jsonParam({ theme: 'dark' })])
   })
 })
 

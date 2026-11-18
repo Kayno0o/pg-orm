@@ -416,6 +416,8 @@ q.where(e => e.inSubquery('authorId', db.repo(authors).read.select().pick('id').
 // JSONB
 q.where(e => e.jsonbPath('metadata', '$.tags[*] ? (@ == "important")'))
 q.where(e => e.jsonbContains('metadata', { tags: ['important'] }))  // @>
+q.where(e => e.eq(e.jsonbSubscript('metadata', 'author', 'name'), 'Ada'))  // a nested key, compared with the value stored there; both dialects
+q.where(e => e.eq('metadata', ['a', 'b']))  // a json column takes an array, string, number or object as the stored value
 
 // Full-text search
 q.where(e => e.tsMatch('searchVector', e.tsQuery('english', 'hello world')))

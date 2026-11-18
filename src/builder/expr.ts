@@ -358,7 +358,14 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   raw: (sql, ...params) => [{ op: OP_RAW, sql, params: elements('raw', 'e.raw() params', params) }],
 
   jsonbPath: (col, path) => [{ op: OP_JSONB_PATH, col, path }],
-  jsonbSubscript: (col, ...path) => [{ op: OP_JSONB_SUBSCRIPT, col, path }],
+  jsonbSubscript: (col, ...path) => {
+    const inner = typeof col === 'string' ? undefined : col[0]
+
+    // A subscript of a subscript is one longer path, so SQLite's last-step `->>` never feeds another step.
+    return inner?.op === OP_JSONB_SUBSCRIPT && col.length === 1
+      ? [{ op: OP_JSONB_SUBSCRIPT, col: inner.col, path: [...inner.path, ...path] }]
+      : [{ op: OP_JSONB_SUBSCRIPT, col, path }]
+  },
   jsonbContains: (col, value) => [{ op: OP_JSONB_CONTAINS, col, val: value }],
 
   tsMatch: (col, query) => [{ op: OP_TS_MATCH, col, query }],

@@ -73,7 +73,7 @@ describe('builders on edge inputs', () => {
 
   it('jsonbSubscript says whether each step is a key or an index on Postgres', () => {
     expect(select().where(e => e.isNull(e.jsonbSubscript('j', 'a', 0))).toSQL().sql).toContain('(("j" -> $1::text) -> $2::int)')
-    expect(select().where(e => e.isNull(e.jsonbSubscript('j', 'a', 0))).toSQL('sqlite').sql).toContain('(("j" -> $1) -> $2)')
+    expect(select().where(e => e.isNull(e.jsonbSubscript('j', 'a', 0))).toSQL('sqlite').sql).toContain('(("j" -> $1) ->> $2)')
   })
 
   it('orderBy refuses a direction or nulls position outside its keywords, and prints the keyword, never the input', () => {
