@@ -2,7 +2,7 @@
 
 # @kaynooo/pg-orm
 
-Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/api/sql). Zero-overhead phantom types, JIT-compiled row mappers, and a tape-based expression compiler.
+Lightweight, type-safe ORM for Bun, on PostgreSQL through [`bun:sql`](https://bun.sh/docs/api/sql) or SQLite through `bun:sqlite`. Zero-overhead phantom types, JIT-compiled row mappers, and a tape-based expression compiler.
 
 ## Features
 
@@ -17,7 +17,7 @@ Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/a
 - **Transactions** — full support with savepoints, isolation levels, and statement timeouts
 - **Streaming** — async iterator with chunked fetching
 - **SQLite** - the same schema, repositories and `sync()` on a SQLite file, from a `sqlite://` URL
-- **Minimal dependencies** — 1 runtime dependency (`@kaynooo/utils`)
+- **No runtime dependencies** - only Bun's own `bun:sql` and `bun:sqlite`
 
 ## Install
 
@@ -991,6 +991,8 @@ const migration = await generateMigration(db, db.getTablesRegistry())
 
 `db.sync({ ignoreTables: ['legacy', /^tmp_/] })` neither creates, changes nor drops the tables named or matched.
 
+Migration SQL of your own runs through `db.migrate(query => ...)`, in one transaction in the configured schema with no statement timeout, or `db.migrateOutside(query => ...)` for what a transaction refuses, such as `CREATE INDEX CONCURRENTLY`, on one connection holding the migration lock. `query(sql, params)` resolves to the rows.
+
 ### CLI
 
 `pg-orm` reads `pg-orm.config.ts` from the current directory: `export default defineConfig({ db, migrationsDir?, ignoreTables? })`.
@@ -1095,7 +1097,7 @@ The file and its directory are created on first use, in WAL mode with `synchrono
 - Constraint errors map onto the same classes, named as Postgres would name them (`users_email_key`, `users_pkey`), a unique constraint or unique index by its own name, which a failure looks up in the schema. A `ForeignKeyError` names neither its table nor its constraint, which SQLite does not report.
 - `db.sql` is not a Bun SQL tag: use `db.raw()`.
 - A `numeric` value is stored as a number: it reads back without trailing zeros (`19.9` for `19.90`), and rounded past 15 significant digits.
-- Not supported, each throwing `DialectError`: `vector`, `halfvec`, `sparsevec` and their distances, `hnsw` and `ivfflat` indexes, `vectorSearch()`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, and a serial column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
+- Not supported, each throwing `DialectError`: `vector`, `halfvec`, `sparsevec` and their distances, `hnsw` and `ivfflat` indexes, `vectorSearch()`, `tsvector` and full-text search, `jsonbPath()`, `.pattern()` (SQLite has no regular expressions), `distinctOn()`, `jsonbContains()`, `DELETE ... USING`, `merge()`, `explain({ analyze })`, `statementTimeout`, `idleInTransactionTimeout`, `getPoolStats()`, `jsonAgg()`, `jsonbAgg()`, `arrayAgg()`, `onConflict(...).doSelect()`, `ignoreNulls` on a window function, `copyFrom()` and `copyTo()`, an insert built outside a repository whose rows leave out different columns, an index with operator classes, storage parameters or included columns (any other method is built as a B-tree), and a serial or identity column that is not the single primary key. Raw SQL fragments may name Postgres functions SQLite does not have.
 
 ## Raw SQL
 
@@ -1123,10 +1125,19 @@ All errors extend `OrmError`. The ORM maps PostgreSQL error codes to typed error
 | `AuthenticationError` | 28xxx | Credentials refused, never retried |
 | `ConnectionError` | 08xxx, 57P01-57P03, bun:sql connection refused, failed, closed, timed out, or TLS not established | Connection lost or refused, server shutting down or starting; a read retries it. `commitOutcome: 'unknown'` when it was lost during COMMIT |
 | `TimeoutError` | 57014, 55P03 | Statement or lock timeout, told apart by `code` |
+| `DeadlockError` | 40P01 | Deadlock detected; retryable |
+| `SerializationError` | 40001 | Serialization failure, mostly under `serializable`; retryable. On SQLite, another process held the file for more than 5 seconds |
+| `ResourceError` | 53xxx | The server ran out of connections, memory or disk (`code`) |
+| `DataError` | 22xxx | A value the column type refuses: bad text representation, out of range, division by zero (`code`) |
 | `AbortError` | - | The signal bound by `db.withSignal` aborted; `cause` is its reason, never retried |
 | `StaleRecordError` | — | `updateWithLock` found the row at another version |
 | `NotFoundError` | - | `findOneOrThrow`/`findByIdOrThrow` found nothing, or `updateWithLock` matched no row |
 | `MultipleRowsError` | - | `updateOne`/`deleteOne` with `onMany: 'throw'` matched several rows; nothing changed |
+| `ValidationError` | - | A caller mistake caught before any SQL is sent: a bad option, an unsafe identifier, a WHERE matching every row (`field`, `value`) |
+| `DialectError` | - | A Postgres-only feature called on SQLite, before any SQL is sent (`feature`, `dialect`) |
+| `BeforeHookError` | - | A before-hook threw; nothing was written (`table`, `hook`, `committed: false`) |
+| `AfterHookError` | - | An after-hook threw once the write had run; it is not rolled back (`table`, `hook`, `committed: true`) |
+| `MigrationError` | - | `sync()` or a migration failed (`phase`: `diff`, `apply` or `validate`) |
 | `DestructiveOpError` | — | Blocked destructive migration |
 
 ```ts
@@ -1141,7 +1152,7 @@ try {
 }
 ```
 
-Every error a query raises is a `QueryError` carrying its `query`, `params` and `table` (the one the database named, else the one the statement targets).
+Every error a query raises is a `QueryError` carrying its `query`, `params` and `table` (the one the database named, else the one the statement targets). The constraint errors extend `ConstraintError`, which adds `constraint`, and `DestructiveOpError` extends `MigrationError`. `isRetryable(err)` is true for a `DeadlockError` or a `SerializationError`, the two a retry with backoff can clear.
 
 `QueryError` redaction is **safe-by-default**: with no `redactParams` configured, the
 positional params on a `QueryError` are replaced with `'[REDACTED]'` placeholders so
@@ -1185,6 +1196,12 @@ const db = new Database({
   // TLS
   tls: true,
 
+  // Bun's named prepared statements (on by default); turn off behind a PgBouncer in transaction mode
+  prepare: true,
+
+  // SQLite only, refused on Postgres: 'full' syncs every commit, at about 50 times the cost of the default 'normal'
+  sqlite: { synchronous: 'normal' },
+
   // Tables (for auto-migration and relation registry)
   tables: [users, posts],
 
@@ -1204,6 +1221,14 @@ const db = new Database({
   // Largest perPage (paginate) and take (paginateCursor): a larger one throws ValidationError. Default 1000, `Infinity` lifts it; stream chunk sizes are not capped.
   maxPageSize: 1000,
 
+  // Deepest nesting of include() (default 5), and parent keys per statement of a batched include (default 50000 on Postgres, 5000 on SQLite)
+  maxIncludeDepth: 5,
+  batchChunkSize: 50000,
+
+  // Retry a statement outside a transaction: deadlocks and serialization failures, and a SELECT after a dropped connection. Off by default.
+  // `writes: true` also retries a write after a drop, which can apply it twice when it had committed before the reply was lost.
+  retry: { maxRetries: 3, baseDelayMs: 100, maxDelayMs: 5000 },
+
   // Reported as application_name on the PG connection — shows up in pg_stat_activity
   // and PG logs for filtering and incident attribution.
   application_name: 'my-service',
@@ -1218,6 +1243,11 @@ const db = new Database({
   onQuery: (event) => console.log(event.sql, event.durationMs),
   onSlowQuery: (event) => console.warn(`Slow query: ${event.durationMs}ms`),
   slowQueryThreshold: 1000,
+  onError: (event) => log.error(event.error, event.sql),
+  onPingError: (error) => log.warn('database unreachable', error),
+
+  // Scrubs the params of a QueryError and of every hook event. Without it each value becomes '[REDACTED]'; `p => p` keeps them.
+  redactParams: (params) => params.map(p => (typeof p === 'string' && p.includes('@') ? '[email]' : p)),
 
   // Receives what cannot be rethrown: a failing onCommit/onRollback callback,
   // a stream safety warning, a shutdown close, a throwing query hook (kind 'queryHook').
@@ -1227,6 +1257,18 @@ const db = new Database({
 
 // Health check
 const ok = await db.ping()
+
+// The query plan of a builder: EXPLAIN (FORMAT JSON) on Postgres, EXPLAIN QUERY PLAN rows on SQLite
+const { sql, params, plan } = await db.explain(repo.read.select().where({ status: 'active' }), { analyze: true })
+
+// A transaction, or a savepoint of the running one when called from inside its body
+await db.atomic(async tx => { ... })
+
+// The tables the database was given, keyed by name
+db.getTablesRegistry()
+
+// Drop the compiled row mappers and the memoized repositories, e.g. after redefining a table in a test
+db.invalidateCache()
 
 // Format a QueryEvent yourself — same renderer the `debug` flag uses
 import { formatQuery } from '@kaynooo/pg-orm'

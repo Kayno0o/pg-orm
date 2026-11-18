@@ -2,7 +2,7 @@
   "name": "@kaynooo/pg-orm",
   "type": "module",
   "version": "8.1.4",
-  "description": "Lightweight ORM for Bun SQL with PostgreSQL support",
+  "description": "Lightweight, type-safe ORM for Bun on PostgreSQL or SQLite",
   "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,7 @@
     "orm",
     "bun",
     "postgresql",
+    "sqlite",
     "sql",
     "database"
   ],

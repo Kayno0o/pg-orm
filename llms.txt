@@ -1,6 +1,6 @@
 # @kaynooo/pg-orm
 
-> Lightweight, type-safe PostgreSQL ORM built on [`bun:sql`](https://bun.sh/docs/api/sql). Zero-overhead phantom types, JIT-compiled row mappers, and a tape-based expression compiler.
+> Lightweight, type-safe ORM for Bun, on PostgreSQL through [`bun:sql`](https://bun.sh/docs/api/sql) or SQLite through `bun:sqlite`. Zero-overhead phantom types, JIT-compiled row mappers, and a tape-based expression compiler.
 
 Bun only. The whole reference is `llms-full.txt`, shipped beside this file in the package (`node_modules/@kaynooo/pg-orm/llms-full.txt`): read it instead of guessing an API, a column type or an option.
 
