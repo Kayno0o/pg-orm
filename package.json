@@ -44,7 +44,7 @@
     "bun": ">=1.4.4"
   },
   "scripts": {
-    "build": "rm -rf ./dist && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --production && tsc --project tsconfig.build.json",
+    "build": "rm -rf ./dist && bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target bun --production --splitting && tsc --project tsconfig.build.json",
     "dev": "bun --watch ./src/index.ts",
     "test": "bun test --timeout 30000",
     "test:coverage": "rm -rf coverage coverage-report && bun run test && genhtml -o coverage -c ./assets/gcov.css ./coverage/lcov.info >/dev/null",
