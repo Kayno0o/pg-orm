@@ -1,7 +1,11 @@
-import type { Database } from '../../src/index'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { defineTable, softDelete, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { Database, defineTable, softDelete, ValidationError } from '../../src/index'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const listsBase = defineTable('wc_lists', t => ({ id: t.serial().primaryKey(), title: t.text() }))
 const items = defineTable('wc_items', t => ({ id: t.serial().primaryKey(), list_id: t.int4(), done: t.boolean().default(false) }))
@@ -14,23 +18,17 @@ const lists = listsBase.withRelations(r => ({
   owner: r.belongsTo(() => labels, 'id'),
 }))
 
+const tables = [lists, items, labels, listLabels]
+const dir = mkdtempSync(join(tmpdir(), 'pg-orm-with-count-'))
 let db: Database
 let statements = 0
 
-beforeAll(async () => {
-  db = createTestDb({ tables: [lists, items, labels, listLabels], onQuery: () => {
-    statements++
-  } })
-  await db.sync({ allowDestructive: true })
-})
+afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-beforeEach(async () => {
-  await db.raw('TRUNCATE "wc_lists", "wc_items", "wc_labels", "wc_list_labels" RESTART IDENTITY')
-})
-
-afterAll(async () => {
-  await db.close({ timeout: 5000 })
-})
+const dialects: [string, (onQuery: () => void) => Database][] = [
+  ['postgres', onQuery => createTestDb({ tables, onQuery })],
+  ['sqlite', onQuery => new Database({ url: `sqlite://${join(dir, 'with-count.db')}`, tables, onQuery })],
+]
 
 async function seed() {
   const [a, b] = await db.repo(lists).write.insertMany([{ title: 'a' }, { title: 'b' }], { pk: true })
@@ -49,7 +47,23 @@ async function seed() {
   return { a: a!, b: b! }
 }
 
-describe('withCount', () => {
+describe.each(dialects)('withCount on %s', (_name, open) => {
+  beforeAll(async () => {
+    db = open(() => {
+      statements++
+    })
+    await db.sync({ allowDestructive: true })
+  })
+
+  beforeEach(async () => {
+    for (const table of ['wc_list_labels', 'wc_labels', 'wc_items', 'wc_lists'])
+      await db.raw(`DELETE FROM "${table}"`)
+  })
+
+  afterAll(async () => {
+    await db.close()
+  })
+
   it('adds each row\'s number of live children in the same query', async () => {
     const { a, b } = await seed()
 

@@ -1,25 +1,40 @@
-import type { Database } from '../../src/index'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { ValidationError } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { Database, ValidationError } from '../../src/index'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { tagsTable, usersTable } from '../helpers/fixtures'
 
-let db: Database
+await useFileDatabase()
 
-beforeAll(async () => {
-  db = createTestDb()
-  await db.sync({ allowDestructive: true })
-})
+const tables = [tagsTable, usersTable]
+const dir = mkdtempSync(join(tmpdir(), 'pg-orm-delete-all-'))
 
-afterEach(async () => {
-  await truncateAll(db)
-})
+afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-afterAll(async () => {
-  await db.close({ timeout: 5000 })
-})
+const dialects: [string, () => Database][] = [
+  ['postgres', () => createTestDb({ tables })],
+  ['sqlite', () => new Database({ url: `sqlite://${join(dir, 'delete-all.db')}`, tables })],
+]
 
-describe('deleteAll', () => {
+describe.each(dialects)('deleteAll on %s', (_name, open) => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = open()
+    await db.sync({ allowDestructive: true })
+  })
+
+  afterEach(async () => {
+    await db.raw('DELETE FROM "users"')
+    await db.raw('DELETE FROM "tags"')
+  })
+
+  afterAll(async () => {
+    await db.close()
+  })
+
   it('deletes every row of a plain table', async () => {
     const ids = await db.repo(tagsTable).write.insertMany([{ name: 'a' }, { name: 'b' }], { pk: true })
 
@@ -36,10 +51,8 @@ describe('deleteAll', () => {
     expect(await db.repo(usersTable).read.count()).toBe(0)
     expect(await db.repo(usersTable).read.count(undefined, { withTrashed: true })).toBe(2)
   })
-})
 
-describe('A write without a WHERE', () => {
-  it('is refused rather than reaching every row', async () => {
+  it('refuses a write without a WHERE rather than reaching every row', async () => {
     await db.repo(tagsTable).write.insertOne({ name: 'kept' }, { pk: true })
     const write = db.repo(tagsTable).write
     const missing = undefined as never
