@@ -4,8 +4,9 @@ import type { ScopeResolver } from './table-behavior'
 import { OP_EXISTS, OP_HAS, OP_NOT_EXISTS } from '../builder/_tape'
 import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder } from '../builder/query'
-import { DEFAULT_PRIMARY_KEY } from '../constants'
+
 import { ValidationError } from '../errors/index'
+import { singleKey } from '../schema/inspect'
 import { liftedScopes, resolveScopes } from './table-behavior'
 
 type Registry = ReadonlyMap<string, AnyTableDef> | undefined
@@ -41,15 +42,6 @@ function registered(input: RelationSubqueryInput, name: string): AnyTableDef {
   return table
 }
 
-function singleKey(input: RelationSubqueryInput, table: AnyTableDef): string {
-  const pk = table.primaryKey ?? DEFAULT_PRIMARY_KEY
-
-  if (pk.includes(','))
-    throw new ValidationError(`${input.caller}("${input.relation}"): "${table.name}" has a composite primary key (${pk}), which a relation cannot join on.`, input.caller, { field: input.relation })
-
-  return pk
-}
-
 /**
  * A SELECT over the relation's rows correlated with the outer row, selecting nothing yet. The target is aliased per nesting depth, so a self-relation still reaches the outer row by its table name.
  * A hasManyThrough joins its pivot; the target's and the pivot's scopes apply unless lifted, and `where` is ANDed on, its own relation filters resolved one level deeper.
@@ -71,18 +63,18 @@ export function relationSubquery(input: RelationSubqueryInput): RelationSubquery
   state.scopes = resolveScopes(target, alias, scopeResolver(target, input.registry, depth + 1))
 
   if (rel.type === 'belongsTo') {
-    link = e.eq(`${alias}.${singleKey(input, target)}`, e.ref(`${outer}.${rel.foreignKey}`))
+    link = e.eq(`${alias}.${singleKey(target, input.caller, input.relation)}`, e.ref(`${outer}.${rel.foreignKey}`))
   }
   else if (rel.type === 'hasManyThrough') {
     const pivot = registered(input, rel.throughTable!)
     const via = `${alias}_pivot`
 
-    query.join(pivot.name, via, j => j.eq(`${alias}.${singleKey(input, target)}`, j.ref(`${via}.${rel.throughTo!}`)))
+    query.join(pivot.name, via, j => j.eq(`${alias}.${singleKey(target, input.caller, input.relation)}`, j.ref(`${via}.${rel.throughTo!}`)))
     state.scopes.push(...resolveScopes(pivot, via, scopeResolver(pivot, input.registry, depth + 1)))
-    link = e.eq(`${via}.${rel.throughFrom!}`, e.ref(`${outer}.${singleKey(input, table)}`))
+    link = e.eq(`${via}.${rel.throughFrom!}`, e.ref(`${outer}.${singleKey(table, input.caller, input.relation)}`))
   }
   else {
-    link = e.eq(`${alias}.${rel.foreignKey}`, e.ref(`${outer}.${singleKey(input, table)}`))
+    link = e.eq(`${alias}.${rel.foreignKey}`, e.ref(`${outer}.${singleKey(table, input.caller, input.relation)}`))
   }
 
   const where = input.where && resolveRelationFilters(input.where, target, alias, input.registry, depth + 1)

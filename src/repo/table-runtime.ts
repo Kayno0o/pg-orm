@@ -1,9 +1,10 @@
 import type { WhereObject } from '../builder/query'
 import type { AnyColumns, AnyTableDef, HookContext, HookEvent } from '../types/index'
 import type { TableBehavior } from './table-behavior'
-import { DEFAULT_PRIMARY_KEY } from '../constants'
+
 import { AfterHookError, BeforeHookError, OrmError, ValidationError } from '../errors/index'
 import { hasHooks, runHooksAsync } from '../hooks/index'
+import { primaryKeys } from '../schema/inspect'
 import { scopeResolver } from './relation-filter'
 import { buildTableBehavior } from './table-behavior'
 
@@ -17,7 +18,6 @@ type VirtualEntry = [string, { compute: (r: unknown) => unknown }]
  */
 export interface TableRuntime {
   readonly table: AnyTableDef
-  readonly primaryKey: string
   /** The primary key split into its columns: one entry, one per part of a composite key, or none for a table with neither a primary key nor an `id` column. */
   readonly pkColumns: readonly string[]
   /** Throws a ValidationError when the table has no primary key, naming what needed one: `requireKey('updateOne()')`. */
@@ -41,13 +41,13 @@ export interface TableRuntime {
 
 /** Build the consolidated runtime for a single table. */
 export function buildTableRuntime(table: AnyTableDef, registry?: ReadonlyMap<string, AnyTableDef>): TableRuntime {
-  const primaryKey = table.primaryKey ?? DEFAULT_PRIMARY_KEY
   const behavior = buildTableBehavior(table, scopeResolver(table, registry))
-  const keyless = table.primaryKey == null && !(DEFAULT_PRIMARY_KEY in table.columns)
-  const pkColumns = keyless ? [] : primaryKey.split(',').map(col => col.trim())
+  const pkColumns = primaryKeys(table)
+  // A composite key names no one column a virtual's error can quote.
+  const primaryKey = pkColumns.length === 1 ? pkColumns[0]! : undefined
 
   function requireKey(what: string): void {
-    if (keyless)
+    if (pkColumns.length === 0)
       throw new ValidationError(`Table "${table.name}" has no primary key, which ${what} needs.`, 'primaryKey')
   }
 
@@ -110,7 +110,7 @@ export function buildTableRuntime(table: AnyTableDef, registry?: ReadonlyMap<str
           value = virt.compute(this)
         }
         catch (err) {
-          const pkValue = this[primaryKey]
+          const pkValue = primaryKey === undefined ? undefined : this[primaryKey]
           const rowRef = pkValue !== undefined
             ? `row ${table.name}.${primaryKey}=${formatPkValue(pkValue)}`
             : `row in table "${table.name}"`
@@ -174,7 +174,6 @@ export function buildTableRuntime(table: AnyTableDef, registry?: ReadonlyMap<str
 
   return Object.freeze({
     table,
-    primaryKey,
     pkColumns,
     requireKey,
     behavior,

@@ -2,9 +2,9 @@ import type { Executable } from '../sql/executor'
 import type { TransactionClient } from '../sql/transaction'
 import type { AnyRelationDef, AnyRelations, AnyTableDef, HookContext } from '../types/index'
 import type { Repository } from './index'
-import { DEFAULT_PRIMARY_KEY } from '../constants'
+
 import { NotFoundError, ValidationError } from '../errors/index'
-import { hasTrait } from '../schema/inspect'
+import { hasTrait, singleKey } from '../schema/inspect'
 import { relationKey } from '../utils/collection'
 import { bigintAsString } from '../utils/json-param'
 import { assertKeyValue } from './table-runtime'
@@ -102,9 +102,9 @@ export class RelationLinks {
     const pivot = this._registered(method, relation, rel.throughTable!)
     const target = this._registered(method, relation, rel.targetTable)
 
-    assertKeyValue(parentId, this.table.name, this._singleKey(method, relation, this.table), method)
+    assertKeyValue(parentId, this.table.name, singleKey(this.table, method, relation), method)
 
-    return { method, relation, pivot, target, targetKey: this._singleKey(method, relation, target), from: rel.throughFrom!, to: rel.throughTo! }
+    return { method, relation, pivot, target, targetKey: singleKey(target, method, relation), from: rel.throughFrom!, to: rel.throughTo! }
   }
 
   private _registered(method: string, relation: string, name: string): AnyTableDef {
@@ -114,15 +114,6 @@ export class RelationLinks {
       throw new ValidationError(`${method}("${relation}"): "${name}" is not in the database's tables: list it in config.tables.`, method, { field: relation })
 
     return table
-  }
-
-  private _singleKey(method: string, relation: string, table: AnyTableDef): string {
-    const pk = table.primaryKey ?? DEFAULT_PRIMARY_KEY
-
-    if (pk.includes(','))
-      throw new ValidationError(`${method}("${relation}"): "${table.name}" has a composite primary key (${pk}), which a relation cannot join on.`, method, { field: relation })
-
-    return pk
   }
 
   // The checks and writes share one transaction through the executor's `atomic`, so a failure part-way leaves no partial links.

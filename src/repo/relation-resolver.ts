@@ -5,9 +5,10 @@ import type { AnyRelationDef, AnyTableDef } from '../types/index'
 import { PARTITION_RANK } from '../builder/assembler'
 import { SelectBuilder } from '../builder/query'
 import { selectedColumns } from '../builder/state'
-import { DEFAULT_PRIMARY_KEY } from '../constants'
+
 import { dialectOf } from '../dialect'
 import { ValidationError } from '../errors/index'
+import { primaryKeys, singleKey } from '../schema/inspect'
 import { collectParentIds, groupBy, indexBy, relationKey } from '../utils/collection'
 import { quote } from '../utils/quote'
 import { resolveRelationFilters, scopeResolver } from './relation-filter'
@@ -179,20 +180,6 @@ export class RelationResolver {
     return table
   }
 
-  private _primaryKey(table: AnyTableDef, relation: string): string {
-    const pk = table.primaryKey ?? DEFAULT_PRIMARY_KEY
-
-    if (pk.includes(',')) {
-      throw new ValidationError(
-        `include("${relation}"): "${table.name}" has a composite primary key (${pk}), which a relation cannot join on.`,
-        'include',
-        { field: relation },
-      )
-    }
-
-    return pk
-  }
-
   // A parent row without its join column would match nothing and silently give every parent an empty relation.
   private _requireParentKey(parentRows: Record<string, unknown>[], key: string, relation: string): void {
     if (parentRows.length > 0 && !(key in parentRows[0]!)) {
@@ -284,7 +271,7 @@ export class RelationResolver {
       return
     }
 
-    const targetPk = this._primaryKey(targetTable, inc.relation)
+    const targetPk = singleKey(targetTable, 'include', inc.relation)
     const { rows, nestedIncludes } = await this._childQuery(targetTable, targetPk, parentIds, inc, processor)
     const indexed = indexBy(rows, targetPk)
 
@@ -303,7 +290,7 @@ export class RelationResolver {
     depth: number,
     processor?: RelationProcessor,
   ): Promise<void> {
-    const sourcePk = this._primaryKey(this.table, inc.relation)
+    const sourcePk = singleKey(this.table, 'include', inc.relation)
     const targetFk = rel.foreignKey
     const isMany = rel.type === 'hasMany'
 
@@ -328,8 +315,8 @@ export class RelationResolver {
           const b = inc.callback ? inc.callback(q) : q
 
           if (b.getState().orderBy.length === 0) {
-            for (const col of (target.primaryKey ?? DEFAULT_PRIMARY_KEY).split(','))
-              b.orderBy(col.trim())
+            for (const col of primaryKeys(target))
+              b.orderBy(col)
           }
 
           return b
@@ -366,8 +353,8 @@ export class RelationResolver {
     processor?: RelationProcessor,
   ): Promise<void> {
     const relationName = inc.relation
-    const sourcePk = this._primaryKey(this.table, relationName)
-    const targetPk = this._primaryKey(targetTable, relationName)
+    const sourcePk = singleKey(this.table, 'include', relationName)
+    const targetPk = singleKey(targetTable, 'include', relationName)
     const from = rel.throughFrom!
     const to = rel.throughTo!
 

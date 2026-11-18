@@ -284,7 +284,7 @@ const chain = await EmployeeRepo.read.findMany(q => q.include('manager', employe
 const withTrashedPosts = await UserRepo.read.findMany(q => q.include('posts', sq => sq.withTrashed()))
 ```
 
-A callback limit is cut per parent with `ROW_NUMBER()` in the query, on every relation type. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key. Every table a relation reads, a `hasManyThrough` pivot included, must be in the database's `tables`: an `include` or `withCount` on one that is not throws a `ValidationError` naming it, as its soft delete, hooks and column types would be unknown. A soft-deleted pivot row links nothing unless the include's callback calls `withTrashed()`.
+A callback limit is cut per parent with `ROW_NUMBER()` in the query, on every relation type. The join columns must stay selected: a `pick()` or `omit()` leaving out the parent's key or the child's foreign key throws a `ValidationError`, as does a relation on a table with a composite primary key or none. `stream.offset()` loads includes on each chunk. A `hasOne` matching several rows takes the first in the order its callback sets, else the one with the lowest primary key. Every table a relation reads, a `hasManyThrough` pivot included, must be in the database's `tables`: an `include` or `withCount` on one that is not throws a `ValidationError` naming it, as its soft delete, hooks and column types would be unknown. A soft-deleted pivot row links nothing unless the include's callback calls `withTrashed()`.
 
 `withCount` adds each row's number of related rows as a column of the same query, instead of loading them. It counts `hasMany` and `hasManyThrough` relations, skips soft-deleted rows, and those linked through a soft-deleted pivot row, unless given `withTrashed: true`, and takes an alias and a filter typed against the target's columns (typed only for thunk relations):
 
@@ -710,7 +710,7 @@ Table and column metadata, typed — for generic code that derives request schem
 UIs or CRUD routes from a table definition instead of restating its shape.
 
 ```ts
-import { columnBaseType, hasTrait, isTableDef, tableMeta, tableScopes, traitColumns, writableColumns } from '@kaynooo/pg-orm'
+import { columnBaseType, hasTrait, isTableDef, primaryKeys, tableMeta, tableScopes, traitColumns, writableColumns } from '@kaynooo/pg-orm'
 
 Object.values(await import('./schema')).filter(isTableDef) // the tables among a module's exports
 
@@ -719,6 +719,7 @@ hasTrait(users, 'softDelete')         // true; works for custom traits by their 
 Object.keys(tableScopes(users))       // ['softDelete'], the scopes by name
 
 traitColumns(users)                   // every column any trait added, custom traits included
+primaryKeys(users)                    // ['id']: the declared key columns, else an `id` column, else []
 writableColumns(users)                // all columns except the pk, generated and trait-managed ones
 writableColumns(users, { exclude: ['ownerId'] })
 

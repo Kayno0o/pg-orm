@@ -1,11 +1,11 @@
 import type { ColumnTypes } from '../schema/column-types'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnDef, HasDefault, HookContext, IndexDef, InferSelect, IsNullable, NoDefault, NotGenerated, NotNullable, NotPrimaryKey, Scope, VirtualDef } from '../types/index'
-import { DEFAULT_PRIMARY_KEY, SOFT_DELETE_SCOPE } from '../constants'
+import { SOFT_DELETE_SCOPE } from '../constants'
 import { OrmError, ValidationError } from '../errors/index'
 import { columnIndexDef } from '../schema/column-index'
 import { createColumnTypes } from '../schema/column-types'
 import { ColumnBuilder } from '../schema/columns'
-import { columnBaseType } from '../schema/inspect'
+import { columnBaseType, primaryKeys } from '../schema/inspect'
 import { validateIdentifier } from '../schema/validate'
 
 /**
@@ -222,7 +222,7 @@ export function embedding<TColumns extends AnyColumns, C extends keyof TColumns 
         if (vectors.length !== stale.length)
           throw new OrmError(`embedding(): embed() returned ${vectors.length} vectors for ${stale.length} texts.`)
 
-        const pk = (table.primaryKey ?? DEFAULT_PRIMARY_KEY).split(',')
+        const pk = primaryKeys(table)
         const updates = stale.map(({ row, hash }, i) => {
           row[column] = Array.from(vectors[i]!)
           row[hashColumn] = hash

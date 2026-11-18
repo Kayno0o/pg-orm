@@ -38,7 +38,14 @@ const pairs = defineTable('ie_pairs', t => ({
   people: r.hasMany(() => peopleDef, 'managerId'),
 }))
 
-const tables = [people, groupsDef, membershipsDef, pairs]
+const labels = defineTable('ie_labels', t => ({
+  text: t.text(),
+  managerId: t.bigint().nullable(),
+})).withRelations(r => ({
+  people: r.hasMany(() => peopleDef, 'managerId'),
+}))
+
+const tables = [people, groupsDef, membershipsDef, pairs, labels]
 const dir = mkdtempSync(join(tmpdir(), 'pg-orm-include-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -62,7 +69,7 @@ describe.each(dialects)('include() on %s', (_name, open) => {
   })
 
   beforeEach(async () => {
-    for (const table of ['ie_memberships', 'ie_groups', 'ie_people', 'ie_pairs'])
+    for (const table of ['ie_memberships', 'ie_groups', 'ie_people', 'ie_pairs', 'ie_labels'])
       await db.raw(`DELETE FROM "${table}"`)
 
     boss = await db.repo(people).write.insertOne({ name: 'Boss', managerId: null }, { pk: true })
@@ -187,5 +194,12 @@ describe.each(dialects)('include() on %s', (_name, open) => {
     await db.repo(pairs).write.insertOne({ a: 1, b: 2 }, { pk: true })
 
     await expect(db.repo(pairs).read.findMany(q => q.include('people'))).rejects.toThrow('composite primary key')
+  })
+
+  it('throws a ValidationError on a parent with no primary key', async () => {
+    await db.repo(labels).write.insertMany([{ text: 'x', managerId: null }], { returning: false })
+
+    await expect(db.repo(labels).read.findMany(q => q.include('people'))).rejects.toThrow(ValidationError)
+    await expect(db.repo(labels).read.findMany(q => q.withCount('people'))).rejects.toThrow('has no primary key')
   })
 })

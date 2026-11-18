@@ -28,7 +28,7 @@ describe('buildTableRuntime: core fields', () => {
     const rt = buildTableRuntime(makePlain())
 
     expect(rt.table.name).toBe('plain')
-    expect(rt.primaryKey).toBe('id')
+    expect(rt.pkColumns).toEqual(['id'])
   })
 
   it('exposes a frozen behavior object derived from the same table', () => {

@@ -1,4 +1,6 @@
 import type { AnyColumnDef, AnyColumns, AnyTableDef, ColumnConstraint, Scope } from '../types/index'
+import { DEFAULT_PRIMARY_KEY } from '../constants'
+import { ValidationError } from '../errors/index'
 
 const ARRAY_SUFFIX_RE = /(?:\[\])+$/
 const TYPE_MODIFIER_RE = /\(.*\)$/
@@ -11,6 +13,29 @@ export interface TableMeta {
   optimisticLock?: { column: string }
   timestamps?: { createdAt: string, updatedAt: string }
   embedding?: { column: string, hashColumn: string }
+}
+
+/** The table's primary-key columns: the declared ones, else `id` when the table has such a column, else none. */
+export function primaryKeys(table: AnyTableDef): readonly string[] {
+  if (table.primaryKey != null)
+    return table.primaryKey.split(',')
+
+  return DEFAULT_PRIMARY_KEY in table.columns ? [DEFAULT_PRIMARY_KEY] : []
+}
+
+/**
+ * @internal The one primary-key column a relation joins on; a composite or missing key throws `ValidationError` naming the call: `singleKey(table, 'include', 'posts')`.
+ */
+export function singleKey(table: AnyTableDef, caller: string, relation: string): string {
+  const keys = primaryKeys(table)
+
+  if (keys.length !== 1) {
+    const problem = keys.length === 0 ? 'has no primary key' : `has a composite primary key (${keys.join(',')})`
+
+    throw new ValidationError(`${caller}("${relation}"): "${table.name}" ${problem}, which a relation cannot join on.`, caller, { field: relation })
+  }
+
+  return keys[0]!
 }
 
 /** The built-in trait metadata on a table, typed — `table.meta` itself stays `Record<string, unknown>` so custom traits can put anything there. */
@@ -47,7 +72,7 @@ export function writableColumns(table: AnyTableDef, opts: { exclude?: Iterable<s
     managed.add(name)
 
   return Object.keys(table.columns).filter((name) => {
-    if (name === table.primaryKey || managed.has(name))
+    if (managed.has(name))
       return false
 
     return !table.columns[name]!.constraints.some((c: ColumnConstraint) => c.type === 'primary_key' || c.type === 'generated' || (c.type === 'identity' && c.value === 'always'))

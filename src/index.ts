@@ -136,6 +136,7 @@ export {
   columnBaseType,
   hasTrait,
   isColumn,
+  primaryKeys,
   type TableMeta,
   tableMeta,
   tableScopes,

@@ -1,6 +1,6 @@
 import type { Trait } from '../../../src/index'
 import { describe, expect, it } from 'bun:test'
-import { columnBaseType, defineTable, hasTrait, optimisticLock, softDelete, tableMeta, timestamps, traitColumns, writableColumns } from '../../../src/index'
+import { columnBaseType, defineTable, hasTrait, optimisticLock, primaryKeys, softDelete, tableMeta, timestamps, traitColumns, writableColumns } from '../../../src/index'
 
 function orderable(column = 'position'): Trait {
   return {
@@ -84,5 +84,18 @@ describe('columnBaseType', () => {
 
   it('strips every array suffix of a multi-dimensional array', () => {
     expect(columnBaseType({ ...posts.columns.tags!, pgType: 'int4[][]' })).toEqual({ base: 'int4', isArray: true })
+  })
+})
+
+describe('primaryKeys', () => {
+  it('lists the declared key columns, else id when the table has one, else none', () => {
+    const pair = defineTable('pair', t => ({ a: t.int4().primaryKey(), b: t.int4().primaryKey() }))
+    const loose = defineTable('loose', t => ({ id: t.text(), name: t.text() }))
+    const keyless = defineTable('keyless', t => ({ name: t.text() }))
+
+    expect(primaryKeys(bare)).toEqual(['id'])
+    expect(primaryKeys(pair)).toEqual(['a', 'b'])
+    expect(primaryKeys(loose)).toEqual(['id'])
+    expect(primaryKeys(keyless)).toEqual([])
   })
 })
