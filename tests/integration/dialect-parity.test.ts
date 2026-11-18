@@ -99,7 +99,7 @@ describe.each(dialects)('repository operations on %s', (_name, open) => {
       expect(await write.insertMany([{ code: 'a', grp: 'x', n: 1 }, { code: 'b', grp: 'x', n: 2 }], { returning: false })).toBeUndefined()
       expect(await write.updateMany({ n: 7 }, { grp: 'x' }, { returning: false })).toBeUndefined()
       expect((await db.repo(items).read.findMany(q => q.orderBy('code'))).map(row => row.n)).toEqual([7, 7])
-      expect(await write.upsertMany([{ code: 'a', grp: 'x', n: 8 }, { code: 'c', grp: 'y', n: 3 }], ['code'], undefined, { returning: false })).toBeUndefined()
+      expect(await write.upsertMany([{ code: 'a', grp: 'x', n: 8 }, { code: 'c', grp: 'y', n: 3 }], ['code'], { returning: false })).toBeUndefined()
       expect(await write.deleteMany({ grp: 'x' }, { returning: false })).toBeUndefined()
       expect((await db.repo(items).read.findMany(q => q.orderBy('code'))).map(row => [row.code, row.n])).toEqual([['c', 3]])
     })
