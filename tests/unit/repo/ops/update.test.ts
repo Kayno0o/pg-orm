@@ -143,7 +143,7 @@ describe('WritePipeline single-row writes', () => {
       updateWithLock: () => pipeline.updateWithLock({ name: 'X' }, where, 3, noReturning),
       deleteOne: () => pipeline.deleteOne(where, noReturning),
       deleteById: () => pipeline.deleteById(where, noReturning),
-      upsertOne: () => pipeline.upsertOne({ id: 1, name: 'X' }, ['id'], undefined, noReturning),
+      upsertOne: () => pipeline.upsertOne({ id: 1, name: 'X' }, ['id'], noReturning),
     }
 
     for (const [op, run] of Object.entries(writes))

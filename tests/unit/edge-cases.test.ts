@@ -82,7 +82,7 @@ describe('Edge Cases — Unit', () => {
       const mock = new MockExecutor()
       const repo = new Repository({ table: postsTable, executor: mock })
 
-      const result = await repo.write.upsertMany([], ['id'], undefined, { pk: true })
+      const result = await repo.write.upsertMany([], ['id'], { pk: true })
 
       expect(result).toEqual([])
       expect(mock.queries).toHaveLength(0)
@@ -103,7 +103,6 @@ describe('Edge Cases — Unit', () => {
           { title: 'Post 2', body: 'Body 2', authorId: 1 },
         ],
         ['title'],
-        undefined,
         { pk: true },
       )
 
@@ -125,7 +124,6 @@ describe('Edge Cases — Unit', () => {
       await repo.write.upsertMany(
         [{ title: 'Post 1', body: 'Body 1', authorId: 1 }],
         ['title'],
-        undefined,
         { pk: true },
       )
 
@@ -148,8 +146,7 @@ describe('Edge Cases — Unit', () => {
       await repo.write.upsertMany(
         [{ title: 'Post 1', body: 'Updated', authorId: 1 }],
         ['title'],
-        ['body'],
-        { pk: true },
+        { update: ['body'], pk: true },
       )
 
       const sql = mock.queries[0]!.sql

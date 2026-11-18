@@ -5,7 +5,7 @@ import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, RelationDef, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { LinkOptions, LinkTarget, SyncResult } from './relation-links'
 import type { TableRuntime } from './table-runtime'
-import type { FindOrCreateOptions, UpsertUpdate } from './write-pipeline'
+import type { FindOrCreateOptions, UpsertOptions } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder } from '../builder/query'
 import { RelationLinks } from './relation-links'
 import { WritePipeline } from './write-pipeline'
@@ -136,23 +136,23 @@ export class WriteSuite<
   }
 
   /**
-   * Insert rows, updating each one that conflicts on `conflictTarget`. `update` lists the columns to copy from the incoming row (default: all of them), or is a `ConflictUpdate`:
+   * Insert rows, updating each one that conflicts on `conflictTarget`. `opts.update` lists the columns to copy from the incoming row (default: all of them), or is a `ConflictUpdate`:
    * `set` computes columns from the existing row (`u => ({ visits: u.add(u.existing('visits'), 1) })`) and `where` guards the update, a row it skips being left out of the result.
    */
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update: UpsertUpdate<TColumns> | undefined, opts: ScopedWriteOptions & Unreturned): Promise<void>
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update: UpsertUpdate<TColumns> | undefined, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
-  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
-    return unreturned(opts, await this._pipeline.upsertMany(values, conflictTarget, update, opts))
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], opts: UpsertOptions<TColumns> & Unreturned): Promise<void>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], opts?: UpsertOptions<TColumns> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], opts: UpsertOptions<TColumns> & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async upsertMany(values: InferInsert<TColumns>[], conflictTarget: (keyof TColumns & string)[], opts?: UpsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+    return unreturned(opts, await this._pipeline.upsertMany(values, conflictTarget, opts))
   }
 
-  /** Single-row `upsertMany`. With a `where` guard it returns `null` when the guard skipped the update. */
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts: SingleRowWrite<ScopedWriteOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UnguardedUpsert<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: UnguardedUpsert<TColumns> | undefined, opts: SingleRowWrite<ScopedWriteOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
-    return this._pipeline.upsertOne(values, conflictTarget, update, opts)
+  /** Single-row `upsertMany`. With a `where` guard in `opts.update` it returns `null` when the guard skipped the update. */
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: SingleRowWrite<ScopedWriteOptions> & { update: GuardedUpsert<TColumns>, pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: SingleRowWrite<ScopedWriteOptions> & { update: GuardedUpsert<TColumns>, pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: SingleRowWrite<ScopedWriteOptions> & { update?: UnguardedUpsert<TColumns>, pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts: SingleRowWrite<ScopedWriteOptions> & { update?: UnguardedUpsert<TColumns>, pk: true }): Promise<InferPrimaryKey<TColumns>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: SingleRowWrite<UpsertOptions<TColumns>>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+    return this._pipeline.upsertOne(values, conflictTarget, opts)
   }
 
   /** The row holding `values`' conflict key, inserted when missing; `created` says which. A trashed row is restored. A row another scope hides throws, unless `withoutScopes` lifts that scope. */

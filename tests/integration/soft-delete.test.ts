@@ -325,7 +325,7 @@ describe('Upserts on a soft-deleted row', () => {
   it('upsertMany restores every trashed row it updates', async () => {
     const id = await trashed()
 
-    expect(await db.repo(usersTable).write.upsertMany([{ name: 'New', email: 'back@test.com' }], ['email'], undefined, { pk: true })).toEqual([id])
+    expect(await db.repo(usersTable).write.upsertMany([{ name: 'New', email: 'back@test.com' }], ['email'], { pk: true })).toEqual([id])
     expect((await db.repo(usersTable).read.findById(id))?.name).toBe('New')
   })
 

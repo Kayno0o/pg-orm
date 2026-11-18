@@ -65,7 +65,7 @@ describe('upsert and findOrCreate hooks', () => {
   it('run beforeUpdate on each upsert row, the updated row taking what it set', async () => {
     await db.repo(tags).write.insertMany([{ name: 'a', slug: '' }, { name: 'b', slug: '' }])
 
-    const rows = await db.repo(tags).write.upsertMany([{ name: 'a', slug: '' }, { name: 'b', slug: '' }], ['name'], ['slug'])
+    const rows = await db.repo(tags).write.upsertMany([{ name: 'a', slug: '' }, { name: 'b', slug: '' }], ['name'], { update: ['slug'] })
 
     expect(rows.map(row => row.touchedBy)).toEqual(['update of a', 'update of b'])
   })

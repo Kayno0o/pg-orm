@@ -129,7 +129,7 @@ describe.skipIf(!available?.n)('the embedding trait and nearest()', () => {
     await seed()
     calls.length = 0
 
-    await db.repo(docs).write.upsertMany([{ slug: 'c', title: 'cats', body: 'meow' }, { slug: 'x', title: 'dogs', body: 'woof' }], ['slug'], ['title', 'body'])
+    await db.repo(docs).write.upsertMany([{ slug: 'c', title: 'cats', body: 'meow' }, { slug: 'x', title: 'dogs', body: 'woof' }], ['slug'], { update: ['title', 'body'] })
 
     expect(calls).toEqual([['dogs\nwoof']])
   })

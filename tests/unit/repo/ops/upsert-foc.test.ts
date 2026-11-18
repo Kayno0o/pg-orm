@@ -12,7 +12,7 @@ describe('WritePipeline upsertMany', () => {
   it('short-circuits on empty values without issuing a query', async () => {
     const { exec, pipeline } = setup(users)
 
-    const result = await pipeline.upsertMany([], ['email'], undefined, { pk: true })
+    const result = await pipeline.upsertMany([], ['email'], { pk: true })
 
     expect(result).toEqual([])
     expect(exec.queries).toHaveLength(0)
@@ -22,7 +22,7 @@ describe('WritePipeline upsertMany', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const ids = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { pk: true })
+    const ids = await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], { pk: true })
 
     expect(ids).toEqual([1])
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -46,12 +46,34 @@ describe('WritePipeline upsert update list', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], [], { pk: true })
+    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], { update: [], pk: true })
     expect(exec.lastQuery!.sql).not.toMatch(/"name" = EXCLUDED/)
 
     exec.preset([{ id: 1 }])
-    await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], [], { pk: true })
+    await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], { update: [], pk: true })
     expect(exec.lastQuery!.sql).not.toMatch(/"name" = EXCLUDED/)
+  })
+})
+
+describe('WritePipeline upsert options', () => {
+  it('takes the update beside the other options, on one row and on many', async () => {
+    const { exec, pipeline } = setup(users)
+
+    exec.preset([{ id: 1 }])
+    expect(await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], { update: ['name'], pk: true })).toEqual([1])
+    expect(exec.lastQuery!.sql).toMatch(/DO UPDATE SET "name" = EXCLUDED\."name" RETURNING "id"/)
+
+    exec.preset([{ id: 1 }])
+    expect(await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], { update: ['name'], pk: true })).toBe(1)
+    expect(exec.lastQuery!.sql).toMatch(/DO UPDATE SET "name" = EXCLUDED\."name" RETURNING "id"/)
+  })
+
+  it('takes options alone, with no placeholder for the update', async () => {
+    const { exec, pipeline } = setup(users)
+
+    exec.preset([{ id: 1 }])
+    await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], { pk: true })
+    expect(exec.lastQuery!.sql).toMatch(/RETURNING "id"/)
   })
 })
 
@@ -60,7 +82,7 @@ describe('WritePipeline upsertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    const id = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], undefined, { pk: true })
+    const id = await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], { pk: true })
 
     expect(id).toBe(1)
     expect(exec.lastQuery!.sql).toMatch(/INSERT INTO "users"/)
@@ -82,7 +104,7 @@ describe('WritePipeline upsertOne', () => {
     const { exec, pipeline } = setup(users)
 
     exec.preset([{ id: 1 }])
-    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], ['name'], { pk: true })
+    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], { update: ['name'], pk: true })
 
     expect(exec.lastQuery!.sql).toMatch(/DO UPDATE SET "name" = EXCLUDED\."name"/)
     expect(exec.lastQuery!.sql).not.toMatch(/"email" = EXCLUDED/)
@@ -94,8 +116,8 @@ describe('WritePipeline upsertOne', () => {
 
     one.exec.preset([{ id: 1 }])
     many.exec.preset([{ id: 1 }])
-    await one.pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], undefined, { pk: true })
-    await many.pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], undefined, { pk: true })
+    await one.pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], { pk: true })
+    await many.pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], { pk: true })
 
     expect(one.exec.lastQuery!.sql).toBe(many.exec.lastQuery!.sql)
     expect(one.exec.lastQuery!.params).toEqual(many.exec.lastQuery!.params)

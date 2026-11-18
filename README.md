@@ -562,18 +562,20 @@ await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
 await repo.write.upsertMany([{ ... }, { ... }], ['key'])
 
 // ...restricting which columns the conflicting row gets updated with
-await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], ['value'])
+await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], { update: ['value'] })
 
 // ...computing columns from the existing row: `u.existing(col)`, `u.excluded(col)`, `u.add`, `u.sub`, `u.coalesce`, `u.raw`
 await repo.write.upsertOne({ uuid, name, sessions: 1, firstSeen: now }, ['uuid'], {
-  set: u => ({
-    sessions: u.add(u.existing('sessions'), 1),
-    firstSeen: u.coalesce(u.existing('firstSeen'), u.excluded('firstSeen')),
-  }),
+  update: {
+    set: u => ({
+      sessions: u.add(u.existing('sessions'), 1),
+      firstSeen: u.coalesce(u.existing('firstSeen'), u.excluded('firstSeen')),
+    }),
+  },
 })
 
 // ...only when a guard holds (bare columns name the existing row); `null` when it skipped the update
-const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { where: { value: '' } })
+const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { update: { where: { value: '' } } })
 
 // Insert if missing, return the existing row otherwise - never overwrites; `created` says which
 const { row: alice, created } = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
@@ -860,12 +862,14 @@ Which op fits which write. Each one is a single statement or a transaction, so t
 const { row: tag, created } = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'])
 ```
 
-**Insert or update**: `upsertOne` copies the incoming columns on conflict; `set` computes from the existing row instead, `where` skips the update (and returns `null`).
+**Insert or update**: `upsertOne` copies the incoming columns on conflict. The third argument is one options object: `update` is a column list or `{ columns, set, where }` (`set` computes from the existing row, `where` skips the update and returns `null`), next to `pk`, `returning` and `withoutScopes`.
 
 ```ts
 await StatRepo.write.upsertOne({ userId, day, visits: 1 }, ['userId', 'day'], {
-  columns: [],
-  set: u => ({ visits: u.add(u.existing('visits'), 1) }),
+  update: {
+    columns: [],
+    set: u => ({ visits: u.add(u.existing('visits'), 1) }),
+  },
 })
 ```
 

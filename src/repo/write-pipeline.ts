@@ -77,6 +77,11 @@ export type FindOrCreateOptions = Pick<ScopedWriteOptions, 'withoutScopes'>
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
 
+/** What an upsert takes after its conflict target: the `update` to run on a conflict, and the options every scoped write takes. */
+export interface UpsertOptions<TColumns extends AnyColumns> extends ScopedWriteOptions {
+  update?: UpsertUpdate<TColumns>
+}
+
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
   returning: (...cols: string[]) => this
@@ -590,8 +595,7 @@ export class WritePipeline<
   async upsertMany(
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
-    update?: UpsertUpdate<TColumns>,
-    opts?: ScopedWriteOptions,
+    opts?: UpsertOptions<TColumns>,
   ): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
@@ -600,7 +604,7 @@ export class WritePipeline<
     const inserted = await this._runtime.runBeforeMany('beforeUpsert', await this._runtime.runBeforeMany('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>[]
     const { rows: hooked, columns } = await this._updateHookedRows(inserted)
     const v = hooked.map(row => this._normalizeValues(row)) as InferInsert<TColumns>[]
-    const conflict = this._conflictUpdate(update, columns, liftedScopes(opts))
+    const conflict = this._conflictUpdate(opts?.update, columns, liftedScopes(opts))
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
       const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
@@ -661,12 +665,11 @@ export class WritePipeline<
   async upsertOne(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
-    update?: UpsertUpdate<TColumns>,
-    opts?: ScopedWriteOptions,
+    opts?: UpsertOptions<TColumns>,
   ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     requireReturning('upsertOne', opts)
 
-    const rows = await this.upsertMany([values], conflictTarget, update, opts)
+    const rows = await this.upsertMany([values], conflictTarget, opts)
 
     return rows[0] ?? null
   }

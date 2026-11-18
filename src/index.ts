@@ -124,7 +124,7 @@ export {
 } from './repo/read-pipeline'
 
 export type { LinkOptions, LinkTarget, SyncResult } from './repo/relation-links'
-export { type FindOrCreateOptions, type UpsertUpdate } from './repo/write-pipeline'
+export { type FindOrCreateOptions, type UpsertOptions, type UpsertUpdate } from './repo/write-pipeline'
 
 export { type ColumnTypes } from './schema/column-types'
 
