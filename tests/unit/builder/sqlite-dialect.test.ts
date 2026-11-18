@@ -38,11 +38,11 @@ describe('SQL for SQLite', () => {
     expect(select().forUpdate().toSQL('sqlite').sql).toBe('SELECT * FROM "users"')
   })
 
-  it('wraps each operand of a set operation, its params numbered in order', () => {
-    const { sql, params } = SetOperationBuilder.union(select().where(e => e.eq('id', 1)), select().where(e => e.eq('id', 2))).limit(3).offset(1).toSQL('sqlite')
+  it('leaves a plain operand of a set operation bare and wraps one with its own LIMIT, params numbered in order', () => {
+    const { sql, params } = SetOperationBuilder.union(select().where(e => e.eq('id', 1)), select().where(e => e.eq('id', 2)).limit(5)).limit(3).offset(1).toSQL('sqlite')
 
-    expect(sql).toBe('SELECT * FROM (SELECT * FROM "users" WHERE "id" = $1) UNION SELECT * FROM (SELECT * FROM "users" WHERE "id" = $2) LIMIT $3 OFFSET $4')
-    expect(params).toEqual([1, 2, 3, 1])
+    expect(sql).toBe('SELECT * FROM "users" WHERE "id" = $1 UNION SELECT * FROM (SELECT * FROM "users" WHERE "id" = $2 LIMIT $3) LIMIT $4 OFFSET $5')
+    expect(params).toEqual([1, 2, 5, 3, 1])
   })
 
   it('explains with EXPLAIN QUERY PLAN', () => {

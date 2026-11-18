@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { NotFoundError, StaleRecordError, ValidationError } from '../../../../src/errors/index'
-import { defineTable, optimisticLock } from '../../../../src/index'
+import { defineTable, optimisticLock, timestamps } from '../../../../src/index'
 import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({
@@ -109,5 +109,46 @@ describe('WritePipeline updateWithLock', () => {
     const row = await pipeline.updateWithLock({ name: 'X' }, e => e.eq('id', 1), 3)
 
     expect(row).toEqual({ id: 1, name: 'X', version: 4 })
+  })
+})
+
+describe('WritePipeline update hooks', () => {
+  const stamped = defineTable('stamped', t => ({
+    id: t.serial().primaryKey(),
+    n: t.int4().notNull(),
+  })).withTrait(timestamps())
+
+  it('leaves the caller\'s patch untouched, a frozen one included', async () => {
+    const { exec, pipeline } = setup(stamped)
+    const patch = Object.freeze({ n: 2 })
+
+    exec.preset([{ id: 1, n: 2 }])
+    await pipeline.updateById(patch, e => e.eq('id', 1))
+
+    expect(patch).toEqual({ n: 2 })
+    expect(exec.lastQuery!.sql).toMatch(/"updatedAt" = /)
+  })
+})
+
+describe('WritePipeline single-row writes', () => {
+  const noReturning = { returning: false } as never
+
+  it('refuse returning: false before sending a statement', async () => {
+    const { exec, pipeline } = setup(versioned)
+    const where = (e: any) => e.eq('id', 1)
+    const writes = {
+      insertOne: () => pipeline.insertOne({ name: 'X' }, noReturning),
+      updateOne: () => pipeline.updateOne({ name: 'X' }, where, noReturning),
+      updateById: () => pipeline.updateById({ name: 'X' }, where, noReturning),
+      updateWithLock: () => pipeline.updateWithLock({ name: 'X' }, where, 3, noReturning),
+      deleteOne: () => pipeline.deleteOne(where, noReturning),
+      deleteById: () => pipeline.deleteById(where, noReturning),
+      upsertOne: () => pipeline.upsertOne({ id: 1, name: 'X' }, ['id'], undefined, noReturning),
+    }
+
+    for (const [op, run] of Object.entries(writes))
+      await expect(run(), op).rejects.toBeInstanceOf(ValidationError)
+
+    expect(exec.queries).toHaveLength(0)
   })
 })

@@ -91,6 +91,8 @@ export interface BuilderState {
   tableColumns?: readonly string[]
   // The table's column definitions, so the object WHERE form refuses an object naming no operator on a column no plain object is a value of.
   columnDefs?: object
+  // The json and jsonb columns, whose compared values are bound as JSON.
+  jsonColumns?: ReadonlySet<string>
   // An include's join column: limit and offset then apply per value of it, through ROW_NUMBER(), rather than to the whole batch.
   limitPer?: string
   computedColumns: ComputedColumn[]
@@ -265,8 +267,12 @@ export function isScalarColumn(columns: object, name: string): boolean {
   return typeof pgType === 'string' && !OBJECT_TYPES.has(pgType)
 }
 
+function jsonColumnsOf(columns: object): ReadonlySet<string> {
+  return new Set(Object.entries(columns as Record<string, { pgType?: unknown }>).filter(([, col]) => col.pgType === 'json' || col.pgType === 'jsonb').map(([name]) => name))
+}
+
 // Keyed on the version too: a trait adds its columns to the same object.
-const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[] }>()
+const columnLists = new WeakMap<object, { version: number | undefined, columns: readonly string[], jsonColumns: ReadonlySet<string> }>()
 
 /** The state for a builder on `table`, knowing its columns when given its definition. */
 export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
@@ -276,11 +282,11 @@ export function stateFor(op: QueryOp, table: TableTarget): BuilderState {
   let cached = columnLists.get(table.columns)
 
   if (!cached || cached.version !== table._version) {
-    cached = { version: table._version, columns: Object.keys(table.columns) }
+    cached = { version: table._version, columns: Object.keys(table.columns), jsonColumns: jsonColumnsOf(table.columns) }
     columnLists.set(table.columns, cached)
   }
 
-  return { ...createState(op, table.name), tableColumns: cached.columns, columnDefs: table.columns }
+  return { ...createState(op, table.name), tableColumns: cached.columns, columnDefs: table.columns, jsonColumns: cached.jsonColumns }
 }
 
 export function cloneState(s: BuilderState): BuilderState {

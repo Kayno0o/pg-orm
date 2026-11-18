@@ -13,6 +13,8 @@ import { WritePipeline } from './write-pipeline'
 type Where<TColumns extends AnyColumns, TRelations extends AnyRelations = AnyRelations> = WhereInput<TColumns, TRelations>
 type GuardedUpsert<TColumns extends AnyColumns> = ConflictUpdate<TColumns> & { where: Where<TColumns> }
 interface Unreturned { returning: false }
+// A single-row write reads its row back to tell whether it changed one, so it takes no `returning: false`.
+type SingleRowWrite<O> = Omit<O, 'returning'>
 
 // `returning: false` resolves to nothing, whatever the pipeline read for the after-write hooks.
 function unreturned<T>(opts: WriteReturnOptions | undefined, result: T): T | undefined {
@@ -49,11 +51,11 @@ export class WriteSuite<
   }
 
   /** `skipConflicts` answers `null` when the row clashed with an existing one and was skipped. */
-  async insertOne(values: InferInsert<TColumns>, opts: InsertOptions<TColumns> & { skipConflicts: (keyof TColumns & string)[], pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async insertOne(values: InferInsert<TColumns>, opts: InsertOptions<TColumns> & { skipConflicts: (keyof TColumns & string)[], pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async insertOne(values: InferInsert<TColumns>, opts: SingleRowWrite<InsertOptions<TColumns>> & { skipConflicts: (keyof TColumns & string)[], pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async insertOne(values: InferInsert<TColumns>, opts: SingleRowWrite<InsertOptions<TColumns>> & { skipConflicts: (keyof TColumns & string)[], pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async insertOne(values: InferInsert<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
   async insertOne(values: InferInsert<TColumns>, opts: { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async insertOne(values: InferInsert<TColumns>, opts?: InsertOptions<TColumns>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async insertOne(values: InferInsert<TColumns>, opts?: SingleRowWrite<InsertOptions<TColumns>>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.insertOne(values, opts)
   }
 
@@ -81,16 +83,16 @@ export class WriteSuite<
   }
 
   /** Update the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts: UpdateOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: UpdateOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: SingleRowWrite<UpdateOptions> & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts: SingleRowWrite<UpdateOptions> & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateOne(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, opts?: SingleRowWrite<UpdateOptions> & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateOne(set, where, opts)
   }
 
   /** Update the row with this primary key. A composite key takes an object holding each part. */
-  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async updateById(id: unknown, set: InferUpdate<TColumns>, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: SingleRowWrite<UpdateOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts: SingleRowWrite<UpdateOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async updateById(id: unknown, set: InferUpdate<TColumns>, opts?: SingleRowWrite<UpdateOptions>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.updateById(set, this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
@@ -106,9 +108,9 @@ export class WriteSuite<
     return this._pipeline.patchById(rows)
   }
 
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts: UpdateOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: SingleRowWrite<UpdateOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts: SingleRowWrite<UpdateOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns>>
+  async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns, TRelations>, currentVersion: number, opts?: SingleRowWrite<UpdateOptions>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
     return this._pipeline.updateWithLock(set, where, currentVersion, opts)
   }
 
@@ -120,16 +122,16 @@ export class WriteSuite<
   }
 
   /** Delete the first row the WHERE matches, by primary key; `onMany: 'throw'` throws `MultipleRowsError` instead when several match. */
-  async deleteOne(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async deleteOne(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async deleteOne(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async deleteOne(where: Where<TColumns, TRelations>, opts?: SingleRowWrite<ScopedWriteOptions> & SingleRowOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async deleteOne(where: Where<TColumns, TRelations>, opts: SingleRowWrite<ScopedWriteOptions> & SingleRowOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async deleteOne(where: Where<TColumns, TRelations>, opts?: SingleRowWrite<ScopedWriteOptions> & SingleRowOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.deleteOne(where, opts)
   }
 
   /** Delete the row with this primary key. A composite key takes an object holding each part. */
-  async deleteById(id: unknown, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async deleteById(id: unknown, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async deleteById(id: unknown, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async deleteById(id: unknown, opts?: SingleRowWrite<ScopedWriteOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async deleteById(id: unknown, opts: SingleRowWrite<ScopedWriteOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async deleteById(id: unknown, opts?: SingleRowWrite<ScopedWriteOptions>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.deleteById(this._rt.pkWhere(id) as Where<TColumns>, opts)
   }
 
@@ -145,11 +147,11 @@ export class WriteSuite<
   }
 
   /** Single-row `upsertMany`. With a `where` guard it returns `null` when the guard skipped the update. */
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UnguardedUpsert<TColumns>, opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: UnguardedUpsert<TColumns> | undefined, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>>
-  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: GuardedUpsert<TColumns>, opts: SingleRowWrite<ScopedWriteOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns> | null>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UnguardedUpsert<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions> & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update: UnguardedUpsert<TColumns> | undefined, opts: SingleRowWrite<ScopedWriteOptions> & { pk: true }): Promise<InferPrimaryKey<TColumns>>
+  async upsertOne(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], update?: UpsertUpdate<TColumns>, opts?: SingleRowWrite<ScopedWriteOptions>): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     return this._pipeline.upsertOne(values, conflictTarget, update, opts)
   }
 
@@ -163,6 +165,14 @@ export class WriteSuite<
   async restore(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
   async restore(where: Where<TColumns, TRelations>, opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
     return unreturned(opts, await this._pipeline.restore(where, opts))
+  }
+
+  /** Restore every trashed row. `restore` refuses a WHERE that holds for every row, so restoring them all is spelled out. */
+  async restoreAll(opts: ScopedWriteOptions & Unreturned): Promise<void>
+  async restoreAll(opts?: ScopedWriteOptions & { pk?: false }): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async restoreAll(opts: ScopedWriteOptions & { pk: true }): Promise<InferPrimaryKey<TColumns>[]>
+  async restoreAll(opts?: ScopedWriteOptions): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[] | void> {
+    return unreturned(opts, await this._pipeline.restoreAll(opts))
   }
 
   /** Delete every row, trashing them on a soft-delete table. `deleteMany` refuses a missing WHERE, so clearing a table is spelled out. */

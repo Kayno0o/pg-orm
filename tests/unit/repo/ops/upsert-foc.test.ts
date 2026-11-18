@@ -41,6 +41,20 @@ describe('WritePipeline upsertMany', () => {
   })
 })
 
+describe('WritePipeline upsert update list', () => {
+  it('copies no column from an empty list, on one row and on many', async () => {
+    const { exec, pipeline } = setup(users)
+
+    exec.preset([{ id: 1 }])
+    await pipeline.upsertOne({ email: 'a@x.com', name: 'A' }, ['email'], [], { pk: true })
+    expect(exec.lastQuery!.sql).not.toMatch(/"name" = EXCLUDED/)
+
+    exec.preset([{ id: 1 }])
+    await pipeline.upsertMany([{ email: 'a@x.com', name: 'A' }], ['email'], [], { pk: true })
+    expect(exec.lastQuery!.sql).not.toMatch(/"name" = EXCLUDED/)
+  })
+})
+
 describe('WritePipeline upsertOne', () => {
   it('returns the primary key by default', async () => {
     const { exec, pipeline } = setup(users)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { ValidationError } from '../../../../src/errors/index'
 import { defineTable } from '../../../../src/index'
 import { setupReadPipeline as setup } from './_helpers'
 
@@ -23,6 +24,18 @@ describe('stream pipeline', () => {
 
     expect(collected).toHaveLength(3)
     expect(collected[0]).toEqual({ id: 1, name: 'A' })
+  })
+
+  it('refuses a chunkSize that is not a whole number of 1 or more', async () => {
+    const { exec, pipeline } = setup(users)
+
+    for (const chunkSize of [-1, 0, 1.5, Number.NaN]) {
+      await expect((async () => {
+        for await (const _row of pipeline.stream(undefined, { chunkSize, unsafe: true }));
+      })(), String(chunkSize)).rejects.toBeInstanceOf(ValidationError)
+    }
+
+    expect(exec.queries).toHaveLength(0)
   })
 
   it('reads within the limit and offset its callback set, in chunks', async () => {

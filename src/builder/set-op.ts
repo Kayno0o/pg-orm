@@ -1,5 +1,5 @@
 import type { Dialect } from '../dialect'
-import type { OrderDir, OrderEntry } from './state'
+import type { BuilderState, OrderDir, OrderEntry } from './state'
 import { ValidationError } from '../errors/index'
 import { shiftPlaceholders } from './_placeholders'
 import { formatOrderBy } from './state'
@@ -9,6 +9,14 @@ type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 
 // Rendered when the set operation is, in its dialect.
 interface SetOperand {
   toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
+}
+
+// SQLite takes no parenthesized operand. A plain SELECT goes bare, which a recursive CTE needs to read itself; anything else (its own CTE, ORDER BY, LIMIT, a nested set operation, an unknown shape) is selected from instead.
+function sqliteOperand(operand: SetOperand, sql: string): string {
+  const state = (operand as { getState?: () => BuilderState }).getState?.()
+  const plain = state && state.ctes.length === 0 && state.orderBy.length === 0 && state.limit == null && state.offset == null && !state.lockMode
+
+  return plain ? sql : `SELECT * FROM (${sql})`
 }
 
 export class SetOperationBuilder<_TResult = Record<string, unknown>> {
@@ -131,8 +139,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
       const sql = shiftPlaceholders(op.sql, offset)
 
       allParams.push(...op.params)
-      // SQLite takes no parenthesized operand, but a subquery it selects from.
-      parts.push(dialect === 'sqlite' ? `SELECT * FROM (${sql})` : `(${sql})`)
+      parts.push(dialect === 'sqlite' ? sqliteOperand(this.operands[i]!, sql) : `(${sql})`)
     }
 
     if (this._orderBy.length)

@@ -20,6 +20,8 @@ class SqlBuilder {
   // The table's own columns and the select's output aliases, when known: a bare name outside them is refused.
   columns?: ReadonlySet<string>
   outputs?: ReadonlySet<string>
+  // The table's json and jsonb columns, when known.
+  jsonColumns?: ReadonlySet<string>
 
   constructor(readonly dialect: Dialect, paramOffset: number) {
     this.pidx = paramOffset + 1
@@ -53,7 +55,7 @@ class SqlBuilder {
 
   /** Splice an expression tape into the running SQL stream, bumping param state. `columns: null` checks no name, for a clause naming other tables' columns or aliases. */
   inlineExpr(tape: ExprTape, qualifier?: string, columns: ReadonlySet<string> | null = this.columns ?? null): string {
-    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect, columns ?? undefined)
+    const result = assembleExpr(tape, this.pidx - 1, qualifier, this.dialect, columns ?? undefined, columns ? this.jsonColumns : undefined)
 
     this.params.push(...result.params)
     this.pidx += result.params.length
@@ -170,7 +172,7 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
     copies = incomingColumns(state).filter(k => !conflictSet.has(k))
   }
 
-  const clauses = copies.filter(c => !(c in set)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
+  const clauses = copies.filter(c => !Object.hasOwn(set, c)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
 
   for (const [col, value] of Object.entries(set)) {
     const rendered = isConflictValue(value)
@@ -213,7 +215,14 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
 
   for (const col of state.omitColumns) assertColumn(col, sb.columns)
 
-  const cols: string[] = selectedColumns(state)?.map(col => col.includes('.') ? `${quotePath(col)} AS ${quote(col)}` : sb.column(col, q)) ?? [q ? `${quote(q)}.*` : '*']
+  const cols: string[] = selectedColumns(state)?.map((col) => {
+    if (!col.includes('.'))
+      return sb.column(col, q)
+
+    assertColumn(col, sb.columns)
+
+    return `${quotePath(col)} AS ${quote(col)}`
+  }) ?? [q ? `${quote(q)}.*` : '*']
 
   for (const cc of state.computedColumns) {
     // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
@@ -250,7 +259,10 @@ function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean):
     return
   }
 
-  if (state.distinctOn.length && !state.distinct)
+  if (state.distinct && state.distinctOn.length)
+    throw new ValidationError('distinct() and distinctOn() cannot both apply: one keeps every distinct row, the other the first row per key.', 'distinctOn')
+
+  if (state.distinctOn.length)
     sb.postgresOnly('distinctOn()')
 
   const distinct = state.distinct
@@ -628,6 +640,9 @@ function printMerge(sb: SqlBuilder, state: BuilderState): void {
   if (!source || !state.mergeOn)
     throw new ValidationError('MERGE needs a source and a match condition: call using() and on().', 'MergeBuilder')
 
+  if (state.mergeWhen.length === 0)
+    throw new ValidationError('MERGE needs a WHEN clause: call whenMatched(), whenNotMatched() or one of the delete variants.', 'MergeBuilder')
+
   sb.push(`MERGE INTO ${quote(state.table)}`)
   sb.push(`USING ${quote(source.table)} AS ${quote(source.alias)}`)
   sb.push(`ON ${sb.inlineExpr(state.mergeOn)}`)
@@ -708,6 +723,7 @@ export function assembleQuery(state: BuilderState, dialect: Dialect = 'postgres'
   if (checked) {
     sb.columns = scope === columnSets.get(checked) ? scope : new Set([...checked, ...scope])
     sb.outputs = new Set(state.computedColumns.map(c => c.alias))
+    sb.jsonColumns = state.jsonColumns
   }
 
   enclosing.push(scope)

@@ -87,7 +87,7 @@ export class Repository<
     this._defaultLimit = config.defaultLimit
     this._maxPageSize = config.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE
 
-    this._rt = config.shared?.runtime ?? buildTableRuntime(this._table)
+    this._rt = config.shared?.runtime ?? buildTableRuntime(this._table, this._tableRegistry)
     this._rel = new RelationResolver(this._table, this._exec, this._maxIncludeDepth, this._batchChunkSize, this._tableRegistry)
     this._map = config.shared?.mappers ?? createMapperFactory(this._table, dialectOf(this._exec))
 

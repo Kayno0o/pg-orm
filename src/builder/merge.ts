@@ -1,10 +1,18 @@
 import type { AnyColumns } from '../types/index'
 import type { ExprBuilder, ExprTape } from './expr'
 import type { TableTarget } from './state'
+import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
 import { MutationBuilder } from './base'
 import { createExprBuilder } from './expr'
 import { columnValues, validateValues } from './state'
+
+function requireValues(values: Record<string, unknown>, context: string): void {
+  validateValues(values, context)
+
+  if (Object.keys(values).length === 0)
+    throw new ValidationError(`${context}: name at least one column to write.`, context)
+}
 
 export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   constructor(table: TableTarget) {
@@ -28,7 +36,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenMatched(_action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateValues(values, 'MergeBuilder.whenMatched()')
+    requireValues(values, 'MergeBuilder.whenMatched()')
 
     const builder = createExprBuilder<TColumns>()
 
@@ -55,7 +63,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenNotMatched(_action: 'insert', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateValues(values, 'MergeBuilder.whenNotMatched()')
+    requireValues(values, 'MergeBuilder.whenNotMatched()')
 
     const builder = createExprBuilder<TColumns>()
 
@@ -70,7 +78,7 @@ export class MergeBuilder<TColumns extends AnyColumns> extends MutationBuilder {
   }
 
   whenNotMatchedBySource(_action: 'update', values: Record<string, unknown>, condition?: (e: ExprBuilder<TColumns>) => ExprTape): this {
-    validateValues(values, 'MergeBuilder.whenNotMatchedBySource()')
+    requireValues(values, 'MergeBuilder.whenNotMatchedBySource()')
 
     const builder = createExprBuilder<TColumns>()
 

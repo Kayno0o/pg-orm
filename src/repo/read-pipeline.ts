@@ -586,6 +586,9 @@ export class ReadPipeline<
     this._prepare(finalBuilder)
 
     const chunkSize = opts.chunkSize ?? finalBuilder.getState().streamChunkSize ?? DEFAULT_STREAM_CHUNK_SIZE
+
+    checkPageSize('stream.offset', 'chunkSize', chunkSize)
+
     const mapperFn = this._mapper(finalBuilder)
     // A limit or offset the callback set bounds the whole stream, read in chunks within it.
     const { limit, offset: start } = finalBuilder.getState()
@@ -676,7 +679,7 @@ export class ReadPipeline<
       mapped = mapChunk(mapper, rows)
     }
 
-    await runtime.runAfter('afterSelect', mapped, this._hooks)
+    mapped = await runtime.runAfter('afterSelect', mapped, this._hooks)
 
     mapped = runtime.applyVirtuals(mapped)
 
@@ -699,7 +702,7 @@ export class ReadPipeline<
     if (cached?.table === table && cached.version === table._version)
       return cached
 
-    const child = { table, version: table._version, runtime: buildTableRuntime(table), mappers: createMapperFactory(table, this._dialect) }
+    const child = { table, version: table._version, runtime: buildTableRuntime(table, this._tableRegistry), mappers: createMapperFactory(table, this._dialect) }
 
     this._children.set(tableName, child)
 

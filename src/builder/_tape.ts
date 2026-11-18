@@ -8,7 +8,7 @@ import type { ExprBuilder } from './expr'
 import { SQLITE_JSON_IN_LIST_MIN } from '../constants'
 import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
-import { bigintAsString } from '../sql/json-param'
+import { bigintAsString, jsonParam } from '../sql/json-param'
 import { qualifyCol } from '../sql/utils'
 import { bindRawParams } from './_placeholders'
 
@@ -222,9 +222,19 @@ class ExprAssembler {
 
   // `qualifier` prefixes every bare column with a table name, for a clause where an unqualified column is ambiguous (ON CONFLICT DO UPDATE sees both the existing row and EXCLUDED).
   // `columns` are the table's own, when known: a bare name outside them is refused.
-  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string, private readonly dialect: Dialect = 'postgres', private readonly columns?: ReadonlySet<string>) {
+  // `jsonColumns` are the table's json and jsonb columns: a value compared with one binds as JSON, which a bare array, number or string would not.
+  constructor(tape: ExprTape, paramOffset: number, private readonly qualifier?: string, private readonly dialect: Dialect = 'postgres', private readonly columns?: ReadonlySet<string>, private readonly jsonColumns?: ReadonlySet<string>) {
     this.tape = tape
     this.pidx = paramOffset + 1
+  }
+
+  // A jsonb subscript reads back as jsonb on Postgres; SQLite's `->>` gives the SQL value, which a plain value matches.
+  private holdsJson(col: string | ExprTape): boolean {
+    return typeof col === 'string' ? this.jsonColumns?.has(col) === true : this.dialect === 'postgres' && col[0]?.op === OP_JSONB_SUBSCRIPT
+  }
+
+  private jsonOperand(col: string | ExprTape, val: unknown): unknown {
+    return val === null || isSqlValue(val) || !this.holdsJson(col) ? val : jsonParam(val)
   }
 
   private postgresOnly(feature: string): void {
@@ -329,10 +339,10 @@ class ExprAssembler {
     switch (op.op) {
       case OP_EQ: return op.val === null
         ? { sql: `${colSql} IS NULL`, next: pos + 1 }
-        : { sql: `${colSql} = ${this.operand(op.val)}`, next: pos + 1 }
+        : { sql: `${colSql} = ${this.operand(this.jsonOperand(op.col, op.val))}`, next: pos + 1 }
       case OP_NEQ: return op.val === null
         ? { sql: `${colSql} IS NOT NULL`, next: pos + 1 }
-        : { sql: `${colSql} <> ${this.operand(op.val)}`, next: pos + 1 }
+        : { sql: `${colSql} <> ${this.operand(this.jsonOperand(op.col, op.val))}`, next: pos + 1 }
       case OP_GT: return { sql: `${colSql} > ${this.operand(op.val)}`, next: pos + 1 }
       case OP_GTE: return { sql: `${colSql} >= ${this.operand(op.val)}`, next: pos + 1 }
       case OP_LT: return { sql: `${colSql} < ${this.operand(op.val)}`, next: pos + 1 }
@@ -340,19 +350,20 @@ class ExprAssembler {
       case OP_IN:
       case OP_NOT_IN: {
         const negate = op.op === OP_NOT_IN
+        const vals = this.holdsJson(op.col) ? op.vals.map(v => this.jsonOperand(op.col, v)) : op.vals
 
-        if (op.vals.length === 0)
+        if (vals.length === 0)
           return { sql: negate ? 'TRUE' : 'FALSE', next: pos + 1 }
 
         // On Postgres a list of plain values binds as one array, so the statement reads the same whatever its length and never nears the bind-parameter limit.
-        if (this.dialect === 'postgres' && op.vals.every(isArrayElement))
-          return { sql: `${colSql} ${negate ? '<> ALL' : '= ANY'}(${this.nextParam(op.vals)})`, next: pos + 1 }
+        if (this.dialect === 'postgres' && vals.every(isArrayElement))
+          return { sql: `${colSql} ${negate ? '<> ALL' : '= ANY'}(${this.nextParam(vals)})`, next: pos + 1 }
 
         // SQLite caps a statement's bound parameters (32766 unless built otherwise), so a long list of numbers and strings goes as one JSON array.
-        if (this.dialect === 'sqlite' && op.vals.length >= SQLITE_JSON_IN_LIST_MIN && op.vals.every(isJsonScalar))
-          return { sql: `${colSql} ${negate ? 'NOT IN' : 'IN'} (SELECT "value" FROM json_each(${this.nextParam(JSON.stringify(op.vals, bigintAsString))}))`, next: pos + 1 }
+        if (this.dialect === 'sqlite' && vals.length >= SQLITE_JSON_IN_LIST_MIN && vals.every(isJsonScalar))
+          return { sql: `${colSql} ${negate ? 'NOT IN' : 'IN'} (SELECT "value" FROM json_each(${this.nextParam(JSON.stringify(vals, bigintAsString))}))`, next: pos + 1 }
 
-        const list = op.vals.map(v => this.operand(v))
+        const list = vals.map(v => this.operand(v))
 
         return { sql: `${colSql} ${negate ? 'NOT IN' : 'IN'} (${list.join(', ')})`, next: pos + 1 }
       }
@@ -394,11 +405,12 @@ class ExprAssembler {
       case OP_JSONB_SUBSCRIPT: {
         let colSql = this.walkCol(op.col)
 
-        // Postgres cannot tell a bound key from an index, so each step says which it is.
-        for (const segment of op.path) {
+        // Postgres cannot tell a bound key from an index, so each step says which it is. On SQLite `->` gives JSON text, so the last step uses `->>`, which gives the SQL value a comparison expects.
+        for (const [i, segment] of op.path.entries()) {
           const cast = this.dialect === 'postgres' ? typeof segment === 'number' ? '::int' : '::text' : ''
+          const arrow = this.dialect === 'sqlite' && i === op.path.length - 1 ? '->>' : '->'
 
-          colSql = `(${colSql} -> ${this.nextParam(segment)}${cast})`
+          colSql = `(${colSql} ${arrow} ${this.nextParam(segment)}${cast})`
         }
 
         return { sql: colSql, next: pos + 1 }
@@ -470,8 +482,8 @@ class ExprAssembler {
   }
 }
 
-export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string, dialect: Dialect = 'postgres', columns?: ReadonlySet<string>): AssembledExpr {
-  return new ExprAssembler(tape, paramOffset, qualifier, dialect, columns).assemble()
+export function assembleExpr(tape: ExprTape, paramOffset = 0, qualifier?: string, dialect: Dialect = 'postgres', columns?: ReadonlySet<string>, jsonColumns?: ReadonlySet<string>): AssembledExpr {
+  return new ExprAssembler(tape, paramOffset, qualifier, dialect, columns, jsonColumns).assemble()
 }
 
 /**

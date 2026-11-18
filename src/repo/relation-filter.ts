@@ -1,5 +1,6 @@
 import type { ExprOp, ExprTape } from '../builder/_tape'
 import type { AnyRelations, AnyTableDef } from '../types/index'
+import type { ScopeResolver } from './table-behavior'
 import { OP_EXISTS, OP_HAS, OP_NOT_EXISTS } from '../builder/_tape'
 import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder } from '../builder/query'
@@ -67,7 +68,7 @@ export function relationSubquery(input: RelationSubqueryInput): RelationSubquery
   let link: ExprTape
 
   state.tableColumns = Object.keys(target.columns)
-  state.scopes = resolveScopes(target, alias)
+  state.scopes = resolveScopes(target, alias, scopeResolver(target, input.registry, depth + 1))
 
   if (rel.type === 'belongsTo') {
     link = e.eq(`${alias}.${singleKey(input, target)}`, e.ref(`${outer}.${rel.foreignKey}`))
@@ -77,7 +78,7 @@ export function relationSubquery(input: RelationSubqueryInput): RelationSubquery
     const via = `${alias}_pivot`
 
     query.join(pivot.name, via, j => j.eq(`${alias}.${singleKey(input, target)}`, j.ref(`${via}.${rel.throughTo!}`)))
-    state.scopes.push(...resolveScopes(pivot, via))
+    state.scopes.push(...resolveScopes(pivot, via, scopeResolver(pivot, input.registry, depth + 1)))
     link = e.eq(`${via}.${rel.throughFrom!}`, e.ref(`${outer}.${singleKey(input, table)}`))
   }
   else {
@@ -89,6 +90,11 @@ export function relationSubquery(input: RelationSubqueryInput): RelationSubquery
   state.whereTape = where ? e.and(link, where) : link
 
   return { query, target, alias }
+}
+
+/** The resolver for the scopes of `table`: their relation filters read through `registry`, `depth` levels down. */
+export function scopeResolver(table: AnyTableDef, registry: Registry, depth = 0): ScopeResolver {
+  return (tape, outer) => resolveRelationFilters(tape, table, outer, registry, depth)
 }
 
 /** `tape` with each `has()` and `doesntHave()` made a correlated `EXISTS` on the relation's table, `outer` naming the row of `table` it correlates with. */
