@@ -193,8 +193,10 @@ export function defineTable(
           requireColumn(col, `index "${idx.name ?? idx.columns.join('_')}"`)
         }
 
-        for (const opclass of Object.values(idx.opclass ?? {}))
-          validateIdentifier(opclass, 'index operator class')
+        for (const opclass of Object.values(idx.opclass ?? {})) {
+          if (opclass !== undefined)
+            validateIdentifier(opclass, 'index operator class')
+        }
 
         if (idx.expressions?.length && idx.name === undefined)
           throw new ValidationError(`An index on expressions needs a name: ${idx.expressions.join(', ')}`, 'index', { value: idx.expressions })

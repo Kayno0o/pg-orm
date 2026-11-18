@@ -1,3 +1,4 @@
+import type { AnyTableDef } from '../../../src/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable, ValidationError } from '../../../src/index'
 
@@ -28,7 +29,8 @@ describe('every name and value reaching DDL is validated at definition time', ()
   })
 
   it('rejects a table index name or column that is not an identifier', () => {
-    const table = defineTable('t', t => ({ a: t.text() }))
+    // Widened so the type check lets a hostile column name through to the runtime check.
+    const table: AnyTableDef = defineTable('t', t => ({ a: t.text() }))
 
     expect(() => table.withIndexes([{ name: EVIL, columns: ['a'] }])).toThrow(ValidationError)
     expect(() => table.withIndexes([{ columns: [EVIL] }])).toThrow(ValidationError)
@@ -44,7 +46,7 @@ describe('every name and value reaching DDL is validated at definition time', ()
   })
 
   it('rejects a time precision outside 0 to 6, an unnamed expression index and an operator class or unique column that is not an identifier', () => {
-    const table = defineTable('t', t => ({ a: t.text() }))
+    const table: AnyTableDef = defineTable('t', t => ({ a: t.text() }))
 
     expect(() => defineTable('t', t => ({ a: t.timestamptz(7) }))).toThrow(ValidationError)
     expect(() => defineTable('t', t => ({ a: t.time(-1) }))).toThrow(ValidationError)

@@ -40,7 +40,7 @@ function sameDefinition(desired: string, live: string): boolean {
 
 // Postgres prints no operator class an index leaves at its type's default, so one the definition names as such is left out of the comparison.
 function withoutDefaultOpclasses(idx: IndexDef, defaults: readonly string[]): IndexDef {
-  const opclass = Object.fromEntries(Object.entries(idx.opclass ?? {}).filter(([, name]) => !defaults.includes(name)))
+  const opclass = Object.fromEntries(Object.entries(idx.opclass ?? {}).filter(([, name]) => name !== undefined && !defaults.includes(name)))
 
   return { ...idx, opclass }
 }

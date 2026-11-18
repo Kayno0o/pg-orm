@@ -160,20 +160,21 @@ export interface ColumnIndexOpts {
   with?: IndexParams
 }
 
-export interface IndexDef {
-  readonly columns: string[]
+/** An index over several columns, declared with `withIndexes()`; `C` is the table's column names. */
+export interface IndexDef<C extends string = string> {
+  readonly columns: C[]
   readonly unique?: boolean
   readonly method?: IndexMethod
   readonly where?: string
   readonly name?: string
   /** Columns of `columns` sorted descending. */
-  readonly desc?: string[]
+  readonly desc?: C[]
   /** An operator class per column of `columns` (`text_pattern_ops`, `gin_trgm_ops`). Name only a non-default one: Postgres leaves the default out when it prints the index back. */
-  readonly opclass?: Record<string, string>
+  readonly opclass?: Partial<Record<C, string>>
   /** Expressions indexed after `columns` (`lower(email)`). @trusted Embedded into DDL as is; an index with one needs a `name`. */
   readonly expressions?: string[]
   /** Columns stored in the index without being part of its key (`INCLUDE`). */
-  readonly include?: string[]
+  readonly include?: C[]
   /** Built with `CREATE INDEX CONCURRENTLY` on a table that already exists, so writes go on while it builds: a migration runs it after its transaction commits. Postgres only. */
   readonly concurrently?: boolean
   /** Storage parameters, emitted as `WITH (...)`: `{ m: 16, efConstruction: 64 }` on an `hnsw` index, `{ lists: 100 }` on an `ivfflat` one. */
@@ -241,10 +242,10 @@ export interface TableDef<
   }>
 
   // Add composite or multi-column indexes
-  withIndexes: (indexes: IndexDef[]) => this
+  withIndexes: (indexes: IndexDef<keyof TColumns & string>[]) => this
 
   // Add a UNIQUE constraint over several columns, named `<table>_<columns>_key` unless `name` says otherwise
-  withUnique: (columns: string[], name?: string) => this
+  withUnique: (columns: (keyof TColumns & string)[], name?: string) => this
 
   // Set the table comment
   withComment: (comment: string) => this

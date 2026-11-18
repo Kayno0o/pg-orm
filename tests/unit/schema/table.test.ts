@@ -51,8 +51,11 @@ describe('defineTable', () => {
   it('refuses an index or a unique over a column the table does not have', () => {
     const base = () => defineTable('unk', t => ({ id: t.serial().primaryKey(), a: t.text() }))
 
+    // @ts-expect-error a column the table does not have
     expect(() => base().withIndexes([{ columns: ['a', 'missing'] }])).toThrow('missing')
+    // @ts-expect-error a column the table does not have
     expect(() => base().withIndexes([{ columns: ['a'], include: ['gone'] }])).toThrow('gone')
+    // @ts-expect-error a column the table does not have
     expect(() => base().withUnique(['a', 'nope'])).toThrow('nope')
     expect(base().withIndexes([{ columns: ['a'] }]).indexes).toHaveLength(1)
   })

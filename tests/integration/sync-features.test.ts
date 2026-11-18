@@ -74,7 +74,7 @@ describe('sync() and the schema features', () => {
   })
 
   it('creates expression, descending, operator class and covering indexes that the next sync leaves alone', async () => {
-    const docs = (desc: string[]) => defineTable('docs', t => ({ id: t.serial().primaryKey(), title: t.text(), created: t.timestamptz() })).withIndexes([
+    const docs = (desc: 'created'[]) => defineTable('docs', t => ({ id: t.serial().primaryKey(), title: t.text(), created: t.timestamptz() })).withIndexes([
       { name: 'docs_lower_title', columns: [], expressions: ['lower(title)'] },
       { columns: ['created'], desc, include: ['title'] },
       { columns: ['title'], opclass: { title: 'text_pattern_ops' }, unique: true },
