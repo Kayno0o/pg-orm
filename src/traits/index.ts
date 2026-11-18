@@ -184,12 +184,14 @@ export interface EmbeddingOptions<TColumns extends AnyColumns, C extends string,
   embed: (texts: string[]) => Promise<ArrayLike<number>[]>
   /** The column the trait adds to hold a hash of the text last embedded, `${column}Hash` by default. */
   hashColumn?: H
+  /** A secret keying the stored hash as an HMAC-SHA256, so a short or guessable source (a name, an email) cannot be found back from it by hashing candidates. Unkeyed, the column holds a plain sha256. Changing it re-embeds each row on its next write. */
+  hashKey?: string | Uint8Array
 }
 
 const EMBEDDING_TYPES = new Set(['vector', 'halfvec'])
 
-function sourceHash(text: string): string {
-  return new Bun.CryptoHasher('sha256').update(text).digest('hex')
+function sourceHash(text: string, key: string | Uint8Array | undefined): string {
+  return (key === undefined ? new Bun.CryptoHasher('sha256') : new Bun.CryptoHasher('sha256', key)).update(text).digest('hex')
 }
 
 /**
@@ -197,7 +199,7 @@ function sourceHash(text: string): string {
  * The rows of one write go to `embed` in one call and are written back by key through the write's executor, skipping hooks, scopes and the version bump, so the row the caller got back stays current.
  */
 export function embedding<TColumns extends AnyColumns, C extends keyof TColumns & string, H extends string = `${C}Hash`>(opts: EmbeddingOptions<TColumns, C, H>): Trait<Record<H, ColumnDef<string, IsNullable, NoDefault, NotPrimaryKey, NotGenerated>>, {}, TColumns> {
-  const { column, source, embed } = opts
+  const { column, source, embed, hashKey } = opts
   const hashColumn = opts.hashColumn ?? `${column}Hash`
 
   validateIdentifier(hashColumn, 'embedding hash column')
@@ -213,7 +215,7 @@ export function embedding<TColumns extends AnyColumns, C extends keyof TColumns 
         throw new OrmError(`embedding(): "${table.name}"."${column}" must be a nullable vector or halfvec column, filled after the row is written.`)
 
       const fill = async (rows: Record<string, unknown>[] | undefined, ctx: HookContext): Promise<void> => {
-        const stale = (rows ?? []).map(row => ({ row, text: source(row as InferSelect<TColumns>) })).map(entry => ({ ...entry, hash: sourceHash(entry.text) })).filter(({ row, hash }) => row[hashColumn] !== hash)
+        const stale = (rows ?? []).map(row => ({ row, text: source(row as InferSelect<TColumns>) })).map(entry => ({ ...entry, hash: sourceHash(entry.text, hashKey) })).filter(({ row, hash }) => row[hashColumn] !== hash)
 
         if (stale.length === 0)
           return

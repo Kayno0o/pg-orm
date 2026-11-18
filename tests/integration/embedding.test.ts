@@ -41,6 +41,12 @@ const locked = defineTable('em_locked', t => ({
   embedding: t.vector(3).nullable(),
 })).withTrait(embedding({ column: 'embedding', source: row => `${row.title}\n${row.body}`, embed })).withTrait(optimisticLock()).withTrait(timestamps()).withTrait(softDelete())
 
+const keyed = defineTable('em_keyed', t => ({
+  id: t.serial().primaryKey(),
+  title: t.text(),
+  embedding: t.vector(3).nullable(),
+})).withTrait(embedding({ column: 'embedding', source: row => row.title, embed, hashKey: 'app-secret' }))
+
 const plain = defineTable('em_plain', t => ({
   id: t.serial().primaryKey(),
   vec: t.vector(3),
@@ -61,7 +67,7 @@ describe.skipIf(!available?.n)('the embedding trait and nearest()', () => {
   let db: Database
 
   beforeAll(async () => {
-    db = createTestDb({ tables: [docs, locked, plain] })
+    db = createTestDb({ tables: [docs, locked, keyed, plain] })
     await db.sync({ allowDestructive: true })
   })
 
@@ -70,7 +76,7 @@ describe.skipIf(!available?.n)('the embedding trait and nearest()', () => {
   })
 
   beforeEach(async () => {
-    await db.raw('TRUNCATE "em_docs", "em_locked", "em_plain" RESTART IDENTITY')
+    await db.raw('TRUNCATE "em_docs", "em_locked", "em_keyed", "em_plain" RESTART IDENTITY')
     calls.length = 0
   })
 
@@ -91,6 +97,15 @@ describe.skipIf(!available?.n)('the embedding trait and nearest()', () => {
     expect(rows[0]!.embedding).toEqual([1, 0, 0])
     expect(stored.map(row => row.embedding)).toEqual([[1, 0, 0], [0, 1, 0], [0.9, 0.1, 0], [0, 0, 1]])
     expect(stored.every(row => typeof row.embeddingHash === 'string')).toBe(true)
+  })
+
+  it('stores a keyed HMAC of the source when given a hashKey, and skips an unchanged update', async () => {
+    const [row] = await db.repo(keyed).write.insertMany([{ title: 'ada@example.com' }])
+
+    expect(row!.embeddingHash).toBe(new Bun.CryptoHasher('sha256', 'app-secret').update('ada@example.com').digest('hex'))
+    calls.length = 0
+    await db.repo(keyed).write.updateById(row!.id, { title: 'ada@example.com' })
+    expect(calls).toEqual([])
   })
 
   it('re-embeds on an update only the rows whose source changed', async () => {
