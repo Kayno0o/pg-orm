@@ -529,7 +529,7 @@ const stored = await points.write.insertMany(batch, { skipConflicts: ['deviceId'
 
 // Update — the where takes both forms, and `updateById` spells out the common one
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
-// updateOne/deleteOne change only the first matching row by primary key, however many match
+// updateOne/deleteOne change only the first matching row by primary key, however many match (a WHERE that pins the whole key, or a unique column, by equality skips the picking subquery)
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 })
 // ...or throw MultipleRowsError, changing nothing, when several match
 await repo.write.updateOne({ name: 'Bob' }, { email }, { onMany: 'throw' })
