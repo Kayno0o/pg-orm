@@ -6,7 +6,8 @@ import { qualifyCol, quote, quotePath } from '../utils/quote'
 import { bindRawParams, shiftPlaceholders } from './_placeholders'
 import { assembleExpr, assertColumn, holdsForEveryRow, isSqlValue, OP_AND, OP_RAW } from './_tape'
 import { isConflictValue } from './conflict'
-import { frameClause, isRawSql, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols, selectedColumns } from './state'
+import { frameClause, joinKeyword, joinQualifier, lockKeyword, orderSuffix, quoteCols } from './fragments'
+import { isRawSql, selectedColumns } from './state'
 
 /**
  * Single bottleneck for placeholder counting and parameter accumulation.

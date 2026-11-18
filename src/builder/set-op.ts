@@ -2,7 +2,7 @@ import type { Dialect } from '../dialect'
 import type { BuilderState, OrderDir, OrderEntry } from './state'
 import { messageValue, ValidationError } from '../errors/index'
 import { shiftPlaceholders } from './_placeholders'
-import { formatOrderBy } from './state'
+import { formatOrderBy } from './fragments'
 
 type SetOp = 'UNION' | 'UNION ALL' | 'INTERSECT' | 'INTERSECT ALL' | 'EXCEPT' | 'EXCEPT ALL'
 
