@@ -9,7 +9,7 @@ function merge() {
 
 describe('MergeBuilder', () => {
   it('generates MERGE INTO with USING', () => {
-    const { sql } = merge().using('source', 's').on(e => e.ref('s.id')).toSQL()
+    const { sql } = merge().using('source', 's').on(e => e.ref('s.id')).whenMatchedDelete().toSQL()
 
     expect(sql).toContain('MERGE INTO "target"')
     expect(sql).toContain('USING "source" AS "s"')

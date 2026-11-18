@@ -71,7 +71,7 @@ export class BulkUpdateBuilder {
       return `$${params.length}${cast(column)}`
     }
 
-    const everywhere = setColumns.map(col => this.rows.every(row => col in row.set))
+    const everywhere = setColumns.map(col => this.rows.every(row => Object.hasOwn(row.set, col)))
     const valueNames = [
       ...this.keyColumns.map((_, i) => `k${i}`),
       ...setColumns.flatMap((_, i) => everywhere[i] ? [`c${i}`] : [`c${i}`, `s${i}`]),
@@ -81,7 +81,7 @@ export class BulkUpdateBuilder {
       const cells = this.keyColumns.map(col => bind(row.key[col], col))
 
       for (const [i, col] of setColumns.entries()) {
-        const present = col in row.set
+        const present = Object.hasOwn(row.set, col)
 
         cells.push(present ? bind(row.set[col], col) : `NULL${cast(col)}`)
 

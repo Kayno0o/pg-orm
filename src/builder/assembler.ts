@@ -170,7 +170,7 @@ function printOnConflict(sb: SqlBuilder, state: BuilderState): void {
     copies = incomingColumns(state).filter(k => !conflictSet.has(k))
   }
 
-  const clauses = copies.filter(c => !(c in set)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
+  const clauses = copies.filter(c => !Object.hasOwn(set, c)).map(c => `${quote(c)} = EXCLUDED.${quote(c)}`)
 
   for (const [col, value] of Object.entries(set)) {
     const rendered = isConflictValue(value)
@@ -213,7 +213,14 @@ function printSelectColumns(sb: SqlBuilder, state: BuilderState): string {
 
   for (const col of state.omitColumns) assertColumn(col, sb.columns)
 
-  const cols: string[] = selectedColumns(state)?.map(col => col.includes('.') ? `${quotePath(col)} AS ${quote(col)}` : sb.column(col, q)) ?? [q ? `${quote(q)}.*` : '*']
+  const cols: string[] = selectedColumns(state)?.map((col) => {
+    if (!col.includes('.'))
+      return sb.column(col, q)
+
+    assertColumn(col, sb.columns)
+
+    return `${quotePath(col)} AS ${quote(col)}`
+  }) ?? [q ? `${quote(q)}.*` : '*']
 
   for (const cc of state.computedColumns) {
     // `cc.expr` is interpolated unparameterized. Inputs are constrained at the
@@ -250,7 +257,10 @@ function printSelectHead(sb: SqlBuilder, state: BuilderState, counted: boolean):
     return
   }
 
-  if (state.distinctOn.length && !state.distinct)
+  if (state.distinct && state.distinctOn.length)
+    throw new ValidationError('distinct() and distinctOn() cannot both apply: one keeps every distinct row, the other the first row per key.', 'distinctOn')
+
+  if (state.distinctOn.length)
     sb.postgresOnly('distinctOn()')
 
   const distinct = state.distinct
@@ -627,6 +637,9 @@ function printMerge(sb: SqlBuilder, state: BuilderState): void {
 
   if (!source || !state.mergeOn)
     throw new ValidationError('MERGE needs a source and a match condition: call using() and on().', 'MergeBuilder')
+
+  if (state.mergeWhen.length === 0)
+    throw new ValidationError('MERGE needs a WHEN clause: call whenMatched(), whenNotMatched() or one of the delete variants.', 'MergeBuilder')
 
   sb.push(`MERGE INTO ${quote(state.table)}`)
   sb.push(`USING ${quote(source.table)} AS ${quote(source.alias)}`)

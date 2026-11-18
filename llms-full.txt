@@ -463,8 +463,8 @@ q.aggregate(e => ({
   avgScore: e.avg('score'),
 }))
 
-// GROUP BY + HAVING — takes both WHERE forms; a grouped select always lists its group columns, before or after aggregate()
-q.groupBy('department').having(e => e.gt('count', 5))
+// GROUP BY + HAVING — takes both WHERE forms; a grouped select always lists its group columns, before or after aggregate(). An aggregate in HAVING goes through raw, as an alias is no column there
+q.groupBy('department').having(e => e.raw('COUNT(*) > ?', 5))
 q.groupBy('department').aggregate(e => ({ total: e.countCol() })) // rows: { department, total }
 q.aggregate(e => ({ authors: e.countDistinct('authorId') }))
 
