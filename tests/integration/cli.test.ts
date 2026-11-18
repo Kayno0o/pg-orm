@@ -213,8 +213,10 @@ describe('pg-orm CLI', () => {
     expect(help.out).toStartWith('Usage: pg-orm status')
     expect(help.out).toContain('--check')
     expect(help.out).not.toContain('--dry-run')
-    expect((await cli(dir, ['-h'])).out).toContain('pg-orm 8.')
-    expect((await cli(dir, ['--version'])).out.trim()).toMatch(/^\d+\.\d+\.\d+/)
+    const { version } = await Bun.file(join(SRC, '../package.json')).json() as { version: string }
+
+    expect((await cli(dir, ['-h'])).out).toContain(`pg-orm ${version}`)
+    expect((await cli(dir, ['--version'])).out.trim()).toBe(version)
 
     for (const [args, message] of [
       [['frobnicate'], 'error: pg-orm: no command frobnicate\n  hint: run pg-orm --help for its commands'],
