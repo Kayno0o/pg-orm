@@ -85,10 +85,9 @@ describe('upsert set from the existing row', () => {
   })
 
   it('bumps updatedAt and the version on the updated row, as any update does', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a', updatedAt: early }, { pk: true })
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
-    await Bun.sleep(5)
     await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'b' }, ['uuid'], undefined, { pk: true })
 
     const after = await db.repo(players).read.findByIdOrThrow('p1')
@@ -98,10 +97,9 @@ describe('upsert set from the existing row', () => {
   })
 
   it('findOrCreate still leaves the existing row untouched', async () => {
-    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
+    await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a', updatedAt: early }, { pk: true })
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
-    await Bun.sleep(5)
     await db.repo(players).write.findOrCreate({ uuid: 'p1', name: 'b' }, ['uuid'])
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toEqual(before)

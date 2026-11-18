@@ -42,6 +42,22 @@ export async function dropAllTables(db: Database): Promise<void> {
   await db.raw('DROP TABLE IF EXISTS "post_tags", "comments", "posts", "versioned_items", "tags", "users", "items", "documents", "big_items" CASCADE', [])
 }
 
+/** Resolves once another session of the test database is waiting on a lock, so a test can release the holder knowing the waiter is queued. */
+export async function waitForLockWaiter(db: Database): Promise<void> {
+  const deadline = Date.now() + 5000
+
+  while (Date.now() < deadline) {
+    const waiting = await db.raw('SELECT 1 FROM pg_stat_activity WHERE wait_event_type = \'Lock\' AND datname = current_database() AND pid <> pg_backend_pid()')
+
+    if (waiting.length > 0)
+      return
+
+    await Bun.sleep(5)
+  }
+
+  throw new Error('no session started waiting on a lock within 5 s')
+}
+
 /** The test server's `server_version_num` (190000 for Postgres 19), for a test needing a newer server than the oldest one supported. */
 export async function serverVersion(): Promise<number> {
   const probe = createTestDb({ tables: [] })

@@ -57,17 +57,16 @@ describe('updateManyById', () => {
   })
 
   it('runs beforeUpdate hooks and traits: updatedAt and the optimistic-lock version move', async () => {
-    const [a] = await seedUsers()
-    const before = await db.repo(usersTable).read.findByIdOrThrow(a!)
+    const past = new Date('2020-01-01T00:00:00Z')
+    const a = await db.repo(usersTable).write.insertOne({ name: 'A', email: 'a@test.com', updatedAt: past }, { pk: true })
     const item = await db.repo(versionedItemsTable).write.insertOne({ name: 'v' }, { pk: true })
 
-    await Bun.sleep(5)
-    await db.repo(usersTable).write.updateManyById([{ id: a!, age: 99 }], { pk: true })
+    await db.repo(usersTable).write.updateManyById([{ id: a, age: 99 }], { pk: true })
     const [bumped] = await db.repo(versionedItemsTable).write.updateManyById([{ id: item, value: 5 }])
 
-    const after = await db.repo(usersTable).read.findByIdOrThrow(a!)
+    const after = await db.repo(usersTable).read.findByIdOrThrow(a)
 
-    expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime())
+    expect(after.updatedAt.getTime()).toBeGreaterThan(past.getTime())
     expect([bumped!.value, bumped!.version]).toEqual([5, 2])
   })
 

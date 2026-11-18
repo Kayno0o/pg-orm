@@ -1,7 +1,7 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { MultipleRowsError } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, waitForLockWaiter } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
 
 let db: Database
@@ -274,7 +274,7 @@ describe('CRUD - updateOne', () => {
     // Blocks on the row the first transaction holds, then finds it no longer matches once that commits.
     const second = repo.write.updateOne({ age: 2 }, { age: 0 }, { pk: true })
 
-    await Bun.sleep(100)
+    await waitForLockWaiter(db)
     release()
 
     expect(await first).toBe(id)

@@ -165,30 +165,26 @@ describe('Soft Delete', () => {
 
   it('deleteMany bumps updatedAt like any other update', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
-    const before = await repo.read.findByIdOrThrow(userId)
+    const past = new Date('2020-01-01T00:00:00Z')
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com', updatedAt: past }, { pk: true })
 
-    await Bun.sleep(5)
     await repo.write.deleteById(userId, { pk: true })
 
     const [after] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
 
-    expect(after!.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime())
+    expect(after!.updatedAt.getTime()).toBeGreaterThan(past.getTime())
   })
 
   it('deleteMany leaves an already trashed row untouched', async () => {
     const repo = db.repo(usersTable)
-    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com' }, { pk: true })
+    const past = new Date('2020-01-01T00:00:00Z')
+    const userId = await repo.write.insertOne({ name: 'Alice', email: 'a@test.com', deletedAt: past, updatedAt: past }, { pk: true })
 
-    await repo.write.deleteById(userId, { pk: true })
-    const [first] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
-
-    await Bun.sleep(5)
     const again = await repo.write.deleteMany({ id: userId }, { pk: true })
-    const [second] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
+    const [row] = await repo.read.findMany(q => q.withTrashed().where({ id: userId }))
 
     expect(again).toEqual([])
-    expect(second!.deletedAt).toEqual(first!.deletedAt)
+    expect([row!.deletedAt, row!.updatedAt]).toEqual([past, past])
   })
 })
 

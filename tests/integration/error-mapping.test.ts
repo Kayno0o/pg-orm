@@ -88,7 +88,7 @@ describe('error mapping on Postgres', () => {
       await timeoutDb.close()
     }
 
-    const unreachable = createTestDb({ tables: [], url: 'postgres://test:test@10.255.255.1:5432/x', pool: { connectionTimeout: 1 }, retry: { maxRetries: 0 } })
+    const unreachable = createTestDb({ tables: [], url: 'postgres://test:test@127.0.0.1:1/x', retry: { maxRetries: 0 } })
 
     try {
       expect(await caught(() => unreachable.raw('SELECT * FROM "em_parent"'))).toMatchObject({ name: ConnectionError.name, table: 'em_parent' })
