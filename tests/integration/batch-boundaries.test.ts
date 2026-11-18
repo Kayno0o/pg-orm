@@ -130,9 +130,9 @@ describe('Relation-loader IN-chunking at batchChunkSize boundary', () => {
   })
 })
 
-// --- Default 5000 boundary ---
-// Separate suite so we use the production default and confirm the constant.
-describe('Relation-loader IN-chunking at default 5000 boundary', () => {
+// --- Default Postgres boundary ---
+// Separate suite so we use the production default and confirm the constant: Postgres binds the keys as one array, so 50000 per statement.
+describe('Relation-loader IN-chunking at the default Postgres boundary of 50000', () => {
   let db: Database
   const events: QueryEvent[] = []
 
@@ -152,39 +152,15 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
     await db.close({ timeout: 5000 })
   })
 
-  it('single-chunk at exactly 5000 parents', async () => {
-    const users = Array.from({ length: 5000 }, (_, i) => ({
-      name: `u${i}`,
-      email: `u${i}@5k.test`,
-    }))
-    const userIds = await db.repo(usersTable).write.insertMany(users, { pk: true })
-
-    expect(userIds).toHaveLength(5000)
-
-    const posts = userIds.map((id, i) => ({
-      title: `p${i}`,
-      body: 'b',
-      authorId: id,
-    }))
-
-    await db.repo(postsTable).write.insertMany(posts, { pk: true })
-
-    events.length = 0
-    const result = await db.repo(usersTable).read.findMany(q => q.include('posts'))
-
-    expect(result).toHaveLength(5000)
-
-    const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
-
-    expect(inQueries).toHaveLength(1)
-  }, 60_000)
-
-  it('two-chunk at 5001 parents', async () => {
+  it('single-chunk at 5001 parents, past the SQLite default', async () => {
     const users = Array.from({ length: 5001 }, (_, i) => ({
       name: `u${i}`,
       email: `u${i}@5k.test`,
     }))
     const userIds = await db.repo(usersTable).write.insertMany(users, { pk: true })
+
+    expect(userIds).toHaveLength(5001)
+
     const posts = userIds.map((id, i) => ({
       title: `p${i}`,
       body: 'b',
@@ -197,6 +173,30 @@ describe('Relation-loader IN-chunking at default 5000 boundary', () => {
     const result = await db.repo(usersTable).read.findMany(q => q.include('posts'))
 
     expect(result).toHaveLength(5001)
+
+    const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
+
+    expect(inQueries).toHaveLength(1)
+  }, 60_000)
+
+  it('two-chunk at 50001 parents', async () => {
+    const users = Array.from({ length: 50_001 }, (_, i) => ({
+      name: `u${i}`,
+      email: `u${i}@50k.test`,
+    }))
+    const userIds = await db.repo(usersTable).write.insertMany(users, { pk: true })
+    const posts = userIds.map((id, i) => ({
+      title: `p${i}`,
+      body: 'b',
+      authorId: id,
+    }))
+
+    await db.repo(postsTable).write.insertMany(posts, { pk: true })
+
+    events.length = 0
+    const result = await db.repo(usersTable).read.findMany(q => q.include('posts'))
+
+    expect(result).toHaveLength(50_001)
 
     const inQueries = events.filter(e => (/FROM "posts".* = ANY\(/).test(e.sql))
 
