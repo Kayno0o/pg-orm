@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { PG_ERROR_FIXTURES } from '../helpers/pg-error-shapes'
+
+await useFileDatabase()
 
 // Cross-validates that the unit-test fixtures in `tests/helpers/pg-error-shapes.ts`
 // still match the actual shape bun:sql emits for each PG error code we care

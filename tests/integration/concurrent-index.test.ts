@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { applyMigration, Database, defineTable, generateMigration, MigrationError } from '../../src/index'
 import { applyMigrationFiles } from '../../src/migration/files'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const plain = defineTable('ci_events', t => ({
   id: t.serial().primaryKey(),

@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable, optimisticLock, timestamps } from '../../src/index'
-import { createTestDb, serverVersion } from '../helpers/db'
+import { createTestDb, serverVersion, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const pg19 = await serverVersion() >= 190000
 

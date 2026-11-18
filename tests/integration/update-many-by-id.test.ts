@@ -1,8 +1,10 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable, ValidationError } from '../../src/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { allTables, bigItemsTable, documentsTable, usersTable, versionedItemsTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 let db: Database
 let statements = 0

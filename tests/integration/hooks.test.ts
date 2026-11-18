@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 // Use a separate table with hooks for isolation
 const hookedTable = defineTable('hooked_users', t => ({

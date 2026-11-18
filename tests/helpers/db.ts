@@ -1,8 +1,46 @@
 import type { DbConfig } from '../../src/index'
-import { Database } from '../../src/index'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll } from 'bun:test'
+import { Database, testDatabase } from '../../src/index'
 import { allTables } from './fixtures'
 
 export const TEST_URL = process.env.DATABASE_URL ?? 'postgres://test:test@127.0.0.1:8532/orm_test'
+
+// The database of the file running: `createTestDb` opens it instead of the shared one while a file holds one.
+let fileUrl: string | undefined
+let noMigrations: string | undefined
+let finished: (() => Promise<void>) | undefined
+
+/**
+ * Gives the calling test file a database of its own, copied from an empty template, which `createTestDb` and `withTestDb` open until the file ends.
+ * Await it at the top of the file, so no file shares tables with another or depends on running alone.
+ */
+export async function useFileDatabase(): Promise<void> {
+  noMigrations ??= mkdtempSync(join(tmpdir(), 'pg-orm-no-migrations-'))
+
+  await dropFinished()
+
+  const copy = await testDatabase({ url: TEST_URL, migrationsDir: noMigrations })
+
+  fileUrl = copy.url
+  finished = copy.drop
+  // Dropping here would run before the file's own afterAll hooks, which still use the database.
+  afterAll(() => {
+    fileUrl = undefined
+  })
+}
+
+// A file's database is dropped when the next file asks for its own, or when the process has nothing left to run.
+async function dropFinished(): Promise<void> {
+  const drop = finished
+
+  finished = undefined
+  await drop?.()
+}
+
+process.once('beforeExit', dropFinished)
 
 // CI's system-installed PG occasionally drops idle sockets between tests.
 // Retry transient ConnectionError so the suite is robust without masking real issues.
@@ -10,7 +48,7 @@ const DEFAULT_RETRY: DbConfig['retry'] = { maxRetries: 2, baseDelayMs: 50, maxDe
 
 export function createTestDb(overrides: Partial<DbConfig> = {}): Database {
   return new Database({
-    url: TEST_URL,
+    url: fileUrl ?? TEST_URL,
     tables: allTables,
     retry: DEFAULT_RETRY,
     ...overrides,

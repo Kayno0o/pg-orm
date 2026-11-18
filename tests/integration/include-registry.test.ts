@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable, softDelete, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const teams = defineTable('ir_teams', t => ({
   id: t.serial().primaryKey(),

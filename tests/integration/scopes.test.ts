@@ -1,7 +1,9 @@
 import type { Database, Trait } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable, OrmError, softDelete, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const tenant: Trait = {
   name: 'tenant',

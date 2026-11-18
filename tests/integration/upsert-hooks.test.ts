@@ -1,7 +1,11 @@
-import type { Database } from '../../src/index'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { Database, defineTable } from '../../src/index'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const audit = defineTable('uh_audit', t => ({
   id: t.serial().primaryKey(),
@@ -33,27 +37,38 @@ tags.hook('afterInsert', async (rows, ctx) => {
   await ctx.repo(audit).write.insertMany(rows.map(row => ({ note: `inserted ${row.name}` })), { pk: true })
 })
 
-let db: Database
+const tables = [audit, tags]
+const dir = mkdtempSync(join(tmpdir(), 'pg-orm-upsert-hooks-'))
 
-beforeAll(async () => {
-  db = createTestDb({ tables: [audit, tags] })
-  await db.sync({ allowDestructive: true })
-})
+afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-beforeEach(async () => {
-  await db.raw('TRUNCATE "uh_tags", "uh_audit"')
-  Object.assign(seen, { selected: 0, inFlight: 0, maxInFlight: 0 })
-})
+const dialects: [string, () => Database][] = [
+  ['postgres', () => createTestDb({ tables })],
+  ['sqlite', () => new Database({ url: `sqlite://${join(dir, 'upsert-hooks.db')}`, tables })],
+]
 
-afterAll(async () => {
-  await db.close()
-})
+describe.each(dialects)('upsert and findOrCreate hooks on %s', (dialect, open) => {
+  let db: Database
 
-async function notes(): Promise<string[]> {
-  return (await db.repo(audit).read.findMany(q => q.orderBy('id'))).map(row => row.note)
-}
+  beforeAll(async () => {
+    db = open()
+    await db.sync({ allowDestructive: true })
+  })
 
-describe('upsert and findOrCreate hooks', () => {
+  beforeEach(async () => {
+    await db.raw('DELETE FROM "uh_tags"')
+    await db.raw('DELETE FROM "uh_audit"')
+    Object.assign(seen, { selected: 0, inFlight: 0, maxInFlight: 0 })
+  })
+
+  afterAll(async () => {
+    await db.close()
+  })
+
+  async function notes(): Promise<string[]> {
+    return (await db.repo(audit).read.findMany(q => q.orderBy('id'))).map(row => row.note)
+  }
+
   it('run beforeInsert on the rows an upsert or findOrCreate creates', async () => {
     const [upserted] = await db.repo(tags).write.upsertMany([{ name: 'Hello World', slug: '' }], ['name'])
     const { row: created } = await db.repo(tags).write.findOrCreate({ name: 'Bun SQL', slug: '' }, ['name'])
@@ -85,24 +100,25 @@ describe('upsert and findOrCreate hooks', () => {
 
     expect(seen.maxInFlight).toBe(1)
   })
-})
 
-describe('the hook context', () => {
-  it('queries through the database outside a transaction', async () => {
-    await db.repo(tags).write.insertOne({ name: 'a', slug: '' })
+  describe('the hook context', () => {
+    it('queries through the database outside a transaction', async () => {
+      await db.repo(tags).write.insertOne({ name: 'a', slug: '' })
 
-    expect(await notes()).toEqual(['inserted a'])
-  })
+      expect(await notes()).toEqual(['inserted a'])
+    })
 
-  it('queries through the transaction a write runs in, rolling back with it', async () => {
-    await expect(db.transaction(async (tx) => {
-      await db.repo(tags).using(tx).write.upsertOne({ name: 'a', slug: '' }, ['name'])
-      expect(await db.repo(audit).using(tx).read.count()).toBe(1)
-      expect(await db.repo(audit).read.count()).toBe(0)
+    it('queries through the transaction a write runs in, rolling back with it', async () => {
+      await expect(db.transaction(async (tx) => {
+        await db.repo(tags).using(tx).write.upsertOne({ name: 'a', slug: '' }, ['name'])
+        expect(await db.repo(audit).using(tx).read.count()).toBe(1)
+        // SQLite has one connection, so a read outside the transaction sees inside it.
+        expect(await db.repo(audit).read.count()).toBe(dialect === 'sqlite' ? 1 : 0)
 
-      throw new Error('roll back')
-    })).rejects.toThrow('roll back')
+        throw new Error('roll back')
+      })).rejects.toThrow('roll back')
 
-    expect(await notes()).toEqual([])
+      expect(await notes()).toEqual([])
+    })
   })
 })

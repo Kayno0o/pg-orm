@@ -1,7 +1,9 @@
 import type { Database, QueryError, QueryEvent } from '../../src/index'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { AbortError, defineTable, SerializationError, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const loads = defineTable('tx_edge_loads', t => ({
   id: t.serial().primaryKey(),

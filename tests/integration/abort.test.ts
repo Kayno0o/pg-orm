@@ -2,8 +2,10 @@ import type { QueryEvent } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { AbortError, Database, isRetryable } from '../../src/index'
 import { retryableFor } from '../../src/sql/retry'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { postsTable, usersTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 let db: Database
 const events: QueryEvent[] = []

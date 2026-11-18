@@ -1,8 +1,10 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { DeadlockError } from '../../src/errors/index'
-import { createTestDb, truncateAll } from '../helpers/db'
+import { createTestDb, truncateAll, useFileDatabase } from '../helpers/db'
 import { usersTable } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 let db: Database
 

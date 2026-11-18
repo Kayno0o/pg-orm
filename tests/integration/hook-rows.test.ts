@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { defineTable } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 // After-write hooks are typed as receiving `InferSelect` rows, the same shape afterSelect gets: every column, mapped (bigint as bigint, jsonb parsed).
 const hookRows = defineTable('hook_rows', t => ({

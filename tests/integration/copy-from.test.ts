@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { AbortError, Database, defineTable, DialectError, UniqueError, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const loaded = defineTable('copy_loaded', t => ({
   id: t.serial().primaryKey(),

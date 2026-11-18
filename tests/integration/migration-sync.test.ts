@@ -1,8 +1,10 @@
 import type { AnyTableDef } from '../../src/index'
 import { describe, expect, it } from 'bun:test'
 import { defineTable, DestructiveOpError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { allTables } from '../helpers/fixtures'
+
+await useFileDatabase()
 
 // Bundle fixture tables with extra test tables so sync() doesn't try to drop
 // fixtures other tests created.

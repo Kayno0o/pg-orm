@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, describe } from 'bun:test'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
 import { valueRoundTripCases, valuesTable } from '../helpers/value-round-trip'
+
+await useFileDatabase()
 
 let db: Database
 

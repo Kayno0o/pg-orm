@@ -1,7 +1,9 @@
 import type { Database } from '../../src/index'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { defineTable, ForeignKeyError, ValidationError } from '../../src/index'
-import { createTestDb } from '../helpers/db'
+import { createTestDb, useFileDatabase } from '../helpers/db'
+
+await useFileDatabase()
 
 const pairs = defineTable('pk_pairs', t => ({
   a: t.int4().primaryKey(),
