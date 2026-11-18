@@ -14,8 +14,13 @@ test *args:
   bun run db:down
   exit $status
 
-bench:
-  bash bench.sh
+# targets: pg (needs `bun run db:up`), repo (fake executor), sqlite; default pg
+bench *args:
+  bash bench.sh {{args}}
+
+# repo and sqlite against their committed baselines; `just bench-gate --update` records new ones, `--threshold 40` loosens the limit
+bench-gate *args:
+  bash bench.sh --gate {{args}}
 
 # v0.0.X
 patch: (release "patch")

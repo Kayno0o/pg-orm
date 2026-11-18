@@ -59,6 +59,7 @@
     "circular": "madge --circular --warning ./src/index.ts",
     "duplicates": "jscpd ./src --threshold 2 --min-lines 10",
     "bench": "bash bench.sh",
+    "bench:gate": "bash bench.sh --gate",
     "prepare": "husky"
   },
   "devDependencies": {

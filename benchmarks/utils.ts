@@ -68,6 +68,7 @@ export function max(values: number[]): number {
 // ── Runner ──
 
 const WARMUP_ITERATIONS = 5
+const WARMUP_MS = 300
 const MEASURE_ITERATIONS = 20
 
 // Minimum time (ms) each iteration must run its inner loop.
@@ -99,6 +100,13 @@ export async function runBenchmark(entry: BenchmarkEntry): Promise<BenchmarkResu
   // Warmup
   for (let i = 0; i < WARMUP_ITERATIONS; i++) {
     await entry.fn()
+  }
+
+  // A sub-10 microsecond op is still in the JIT's lower tiers after 5 calls, which made the first suite of a run read up to 2x slow. A fixed-ops entry mutates a finite pool, so it keeps the 5.
+  if (entry.fixedOps === undefined) {
+    const warmupStart = nowNs()
+
+    while (nsToMs(nowNs() - warmupStart) < WARMUP_MS) await entry.fn()
   }
 
   // Use fixed ops for mutating benchmarks, otherwise calibrate
@@ -138,9 +146,9 @@ function getCommitHash(): string {
   }
 }
 
-export function saveResult(result: RunResult): string {
+export function saveResult(result: RunResult, target: string): string {
   mkdirSync(RESULTS_DIR, { recursive: true })
-  const filename = `${result.commit}.json`
+  const filename = `${target}-${result.commit}.json`
   const filepath = join(RESULTS_DIR, filename)
 
   writeFileSync(filepath, JSON.stringify(result, null, 2))
@@ -148,12 +156,12 @@ export function saveResult(result: RunResult): string {
   return filepath
 }
 
-export function loadPreviousResult(currentCommit: string): RunResult | null {
+export function loadPreviousResult(target: string, currentCommit: string): RunResult | null {
   if (!existsSync(RESULTS_DIR))
     return null
 
   const files = readdirSync(RESULTS_DIR)
-    .filter(f => f.endsWith('.json') && !f.startsWith(currentCommit))
+    .filter(f => f.startsWith(`${target}-`) && f.endsWith('.json') && !f.startsWith(`${target}-${currentCommit}`))
     .sort()
 
   if (files.length === 0)
@@ -236,7 +244,12 @@ export function printComparison(current: RunResult, previous: RunResult): void {
 
 // ── Suite helpers ──
 
-export function defineSuite(name: string, benchmarks: BenchmarkEntry[]): { name: string, benchmarks: BenchmarkEntry[] } {
+export interface Suite {
+  name: string
+  benchmarks: BenchmarkEntry[]
+}
+
+export function defineSuite(name: string, benchmarks: BenchmarkEntry[]): Suite {
   return { name, benchmarks }
 }
 
