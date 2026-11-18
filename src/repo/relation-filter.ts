@@ -7,6 +7,7 @@ import { OP_EXISTS, OP_HAS, OP_NOT_EXISTS, OP_SCALAR } from '../builder/_tape'
 import { createExprBuilder } from '../builder/expr'
 import { SelectBuilder } from '../builder/query'
 import { aggregateMethod } from '../builder/state'
+import { MAX_RELATION_FILTER_DEPTH } from '../constants'
 import { ValidationError } from '../errors/index'
 import { columnBaseType, singleKey } from '../schema/inspect'
 import { quote } from '../utils/quote'
@@ -51,6 +52,10 @@ function registered(input: RelationSubqueryInput, name: string): AnyTableDef {
  */
 export function relationSubquery(input: RelationSubqueryInput): RelationSubquery {
   const { table, relation, outer, depth } = input
+
+  if (depth >= MAX_RELATION_FILTER_DEPTH)
+    throw new ValidationError(`${input.caller}("${relation}") on "${table.name}" nests relation filters ${MAX_RELATION_FILTER_DEPTH} levels deep: a scope calling has() on a table whose scope calls has() back never ends.`, input.caller, { field: relation })
+
   const rel = (table.relations as AnyRelations | undefined)?.[relation]
 
   if (!rel)

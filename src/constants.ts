@@ -21,6 +21,9 @@ export const MAX_BIND_PARAMS = { postgres: 65535, sqlite: 32766 } as const
 /** Parameters held back from a multi-row write's chunk for its statement-wide ones (an upsert's set and where). */
 export const STATEMENT_PARAM_RESERVE = 1000
 
+/** Relation filters nested deeper than this throw: two scopes calling `has()` on each other's table would otherwise recurse until the stack overflows. */
+export const MAX_RELATION_FILTER_DEPTH = 16
+
 /** The scope the softDelete trait declares, which `withTrashed` lifts. */
 export const SOFT_DELETE_SCOPE = 'softDelete'
 
