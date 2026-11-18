@@ -1,7 +1,7 @@
 {
   "name": "@kaynooo/pg-orm",
   "type": "module",
-  "version": "8.1.4",
+  "version": "9.0.0",
   "description": "Lightweight, type-safe ORM for Bun on PostgreSQL or SQLite",
   "author": "Kaynooo <https://git.kaynooo.fr/kaynooo>",
   "license": "MIT",
