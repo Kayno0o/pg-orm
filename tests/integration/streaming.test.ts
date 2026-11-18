@@ -78,7 +78,7 @@ describe('Streaming', () => {
 
     const names: string[] = []
 
-    for await (const row of repo.stream.offset({ age: { gt: 25 } }, { unsafe: true }))
+    for await (const row of repo.stream.offset({ age: { gt: 25 } }, { warn: false }))
       names.push(row.name)
 
     expect(names).toEqual(['Alice'])

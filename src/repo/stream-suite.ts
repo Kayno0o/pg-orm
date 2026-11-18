@@ -2,15 +2,10 @@ import type { OptionalWhereObject, SelectBuilder } from '../builder/query'
 import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferVirtuals, WithVirtuals } from '../types/index'
 import type { MapperFactory } from './_mapper'
-import type { CopyToOptions, StreamCursorOptions } from './read-pipeline'
+import type { CopyToOptions, StreamCursorOptions, StreamOffsetOptions } from './read-pipeline'
 import type { RelationResolver } from './relation-resolver'
 import type { TableRuntime } from './table-runtime'
 import { ReadPipeline } from './read-pipeline'
-
-interface StreamOffsetOptions {
-  chunkSize?: number
-  unsafe?: boolean
-}
 
 /** Stream coordinator: `offset` (LIMIT/OFFSET chunks) and `cursor` (keyset). */
 export class StreamSuite<

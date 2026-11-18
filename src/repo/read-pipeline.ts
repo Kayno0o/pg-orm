@@ -152,7 +152,13 @@ export interface PaginateCursorResult<TRow, TCursor> {
   nextCursor: TCursor | null
 }
 
-let _streamWarned = false
+const STREAM_OFFSET_NOTICE = 'stream.offset'
+
+export interface StreamOffsetOptions extends ScopeOptions {
+  chunkSize?: number
+  /** `false` silences the warning that `stream.offset()` may skip or repeat rows and costs quadratic time; it is given once per `Database` otherwise. */
+  warn?: boolean
+}
 
 const TIMESTAMP_TYPES = new Set(['timestamp', 'timestamptz'])
 
@@ -556,21 +562,23 @@ export class ReadPipeline<
 
   stream(
     arg?: FindArg<TColumns, TRelations>,
-    opts: { chunkSize?: number, unsafe?: boolean } = {},
+    opts: StreamOffsetOptions = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     return this._stream(asSelectCb(arg), opts)
   }
 
   private async* _stream(
     cb: SelectCb<TColumns, TRelations>,
-    opts: { chunkSize?: number, unsafe?: boolean },
+    opts: StreamOffsetOptions,
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    if (!opts.unsafe && !_streamWarned) {
-      _streamWarned = true
+    const exec = this._executor as { _notices?: Set<string>, _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
+
+    // The set is shared by a Database and its transactions, so the warning comes once per Database; an executor without one warns each time.
+    if (opts.warn !== false && (!exec._notices || !exec._notices.has(STREAM_OFFSET_NOTICE))) {
+      exec._notices?.add(STREAM_OFFSET_NOTICE)
       const msg = '[pg-orm] stream.offset() uses LIMIT/OFFSET chunking: rows may be skipped or duplicated if data changes during iteration, and each chunk rescans the rows before it, so a large table costs quadratic time. '
         + 'Use stream.cursor() for large or changing tables, or a REPEATABLE READ transaction for correctness. '
-        + 'Pass { unsafe: true } to suppress this warning.'
-      const exec = this._executor as { _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
+        + 'Pass { warn: false } to suppress this warning.'
 
       if (exec._onCallbackError)
         exec._onCallbackError({ kind: 'streamWarning', error: new Error(msg) })
@@ -578,7 +586,7 @@ export class ReadPipeline<
         console.warn(msg)
     }
 
-    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
+    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)).withoutScope(...liftedScopes(opts))
 
     this._orderByKeyIfUnordered(finalBuilder)
 

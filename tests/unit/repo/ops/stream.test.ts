@@ -18,7 +18,7 @@ describe('stream pipeline', () => {
 
     const collected: { id: number, name: string }[] = []
 
-    for await (const row of pipeline.stream(undefined, { chunkSize: 2, unsafe: true })) {
+    for await (const row of pipeline.stream(undefined, { chunkSize: 2, warn: false })) {
       collected.push(row as { id: number, name: string })
     }
 
@@ -31,7 +31,7 @@ describe('stream pipeline', () => {
 
     for (const chunkSize of [-1, 0, 1.5, Number.NaN]) {
       await expect((async () => {
-        for await (const _row of pipeline.stream(undefined, { chunkSize, unsafe: true }));
+        for await (const _row of pipeline.stream(undefined, { chunkSize, warn: false }));
       })(), String(chunkSize)).rejects.toBeInstanceOf(ValidationError)
     }
 
@@ -46,7 +46,7 @@ describe('stream pipeline', () => {
 
     const collected: unknown[] = []
 
-    for await (const row of pipeline.stream(q => q.limit(3).offset(1), { chunkSize: 2, unsafe: true }))
+    for await (const row of pipeline.stream(q => q.limit(3).offset(1), { chunkSize: 2, warn: false }))
       collected.push(row)
 
     expect(collected).toHaveLength(3)
@@ -60,11 +60,84 @@ describe('stream pipeline', () => {
 
     const collected: unknown[] = []
 
-    for await (const row of pipeline.stream(undefined, { chunkSize: 2, unsafe: true }))
+    for await (const row of pipeline.stream(undefined, { chunkSize: 2, warn: false }))
       collected.push(row)
 
     expect(collected).toHaveLength(1)
     expect(exec.queries).toHaveLength(1)
+  })
+})
+
+describe('stream.offset scopes', () => {
+  const scoped = defineTable('docs', t => ({
+    id: t.serial().primaryKey(),
+    tenant: t.text().notNull(),
+  })).withScope('tenant', e => e.eq('tenant', 'acme'))
+
+  async function drain(stream: AsyncGenerator<unknown>): Promise<void> {
+    for await (const _row of stream);
+  }
+
+  it('carries the scopes and lifts one by name, in the options', async () => {
+    const { exec, pipeline } = setup(scoped)
+
+    await drain(pipeline.stream(undefined, { warn: false }))
+    expect(exec.lastQuery!.sql).toContain('"tenant" = $')
+
+    await drain(pipeline.stream({ id: 1 }, { warn: false, withoutScopes: ['tenant'] }))
+    expect(exec.lastQuery!.sql).not.toContain('"tenant"')
+  })
+})
+
+describe('stream.offset warning', () => {
+  interface Notice { kind: string, error: Error }
+
+  function listening(exec: object): Notice[] {
+    const notices: Notice[] = []
+
+    Object.assign(exec, { _onCallbackError: (event: Notice) => notices.push(event) })
+
+    return notices
+  }
+
+  async function drain(stream: AsyncGenerator<unknown>): Promise<void> {
+    for await (const _row of stream);
+  }
+
+  it('warns once per database, however many repositories stream', async () => {
+    const first = setup(users)
+    const second = setup(users)
+    const notices = listening(first.exec)
+    const shared = new Set<string>()
+
+    Object.assign(first.exec, { _notices: shared })
+    Object.assign(second.exec, { _notices: shared, _onCallbackError: (event: Notice) => notices.push(event) })
+
+    await drain(first.pipeline.stream())
+    await drain(second.pipeline.stream())
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.error.message).toContain('warn: false')
+  })
+
+  it('warns again for a second database', async () => {
+    const first = setup(users)
+    const second = setup(users)
+    const notices = listening(first.exec)
+
+    Object.assign(first.exec, { _notices: new Set<string>() })
+    Object.assign(second.exec, { _notices: new Set<string>(), _onCallbackError: (event: Notice) => notices.push(event) })
+
+    await drain(first.pipeline.stream())
+    await drain(second.pipeline.stream())
+    expect(notices).toHaveLength(2)
+  })
+
+  it('stays silent with warn: false', async () => {
+    const { exec, pipeline } = setup(users)
+    const notices = listening(exec)
+
+    await drain(pipeline.stream(undefined, { warn: false }))
+    expect(notices).toHaveLength(0)
   })
 })
 

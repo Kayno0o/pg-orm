@@ -946,7 +946,7 @@ for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
 }
 ```
 
-> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated, and each chunk makes the database skip every row before it, so streaming a large table costs quadratic time. Use `stream.cursor()` for a large or changing table; a `REPEATABLE READ` transaction fixes only the consistency.
+> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated, and each chunk makes the database skip every row before it, so streaming a large table costs quadratic time. Use `stream.cursor()` for a large or changing table; a `REPEATABLE READ` transaction fixes only the consistency. The first `stream.offset()` on a `Database` warns of this (through `onCallbackError` when set, else `console.warn`); `{ warn: false }` silences it. Both streams take `withoutScopes` and `withTrashed` in their options, like `count`.
 
 ## Cancellation
 

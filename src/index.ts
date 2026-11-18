@@ -120,10 +120,11 @@ export {
   type PaginatePage,
   type PaginateResult,
   type StreamCursorOptions,
+  type StreamOffsetOptions,
 } from './repo/read-pipeline'
 
 export type { LinkOptions, LinkTarget, SyncResult } from './repo/relation-links'
-export { type UpsertUpdate } from './repo/write-pipeline'
+export { type FindOrCreateOptions, type UpsertUpdate } from './repo/write-pipeline'
 
 export { type ColumnTypes } from './schema/column-types'
 

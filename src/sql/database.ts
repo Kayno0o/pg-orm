@@ -68,6 +68,7 @@ export class Database extends BaseExecutor {
       onCallbackError: config.onCallbackError,
       slowQueryThreshold: config.slowQueryThreshold,
       redactParams: config.redactParams,
+      notices: new Set<string>(),
     }
 
     this._dialect = dialectOfUrl(config.url)
@@ -96,6 +97,7 @@ export class Database extends BaseExecutor {
     this._rawRunner = new RawRunner((s, p) => this.query(s, p))
 
     this._onCallbackError = config.onCallbackError
+    this._notices = hooks.notices
     this._maxIncludeDepth = config.maxIncludeDepth ?? DEFAULT_MAX_INCLUDE_DEPTH
     this._batchChunkSize = config.batchChunkSize
     this._defaultLimit = config.defaultLimit
