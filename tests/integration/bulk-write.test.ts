@@ -91,8 +91,8 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
   }, 60_000)
 
   it('upsertMany inserts then updates every row', async () => {
-    await db.repo(marks).write.upsertMany(rows(ROWS), ['code'], ['n'], { pk: true })
-    const keys = await db.repo(marks).write.upsertMany(rows(ROWS, 1), ['code'], ['n'], { pk: true })
+    await db.repo(marks).write.upsertMany(rows(ROWS), ['code'], { update: ['n'], pk: true })
+    const keys = await db.repo(marks).write.upsertMany(rows(ROWS, 1), ['code'], { update: ['n'], pk: true })
 
     expect(keys).toHaveLength(ROWS)
     expect(await db.repo(marks).read.count({ n: 1 })).toBe(ROWS)
@@ -154,7 +154,7 @@ describe.each(dialects)('multi-row writes past the parameter limit on %s', (_nam
 
   it('tells inserted from updated rows on a hooked upsert of thousands', async () => {
     await db.repo(marks).write.insertMany(rows(1500), { pk: true })
-    await db.repo(hooked).write.upsertMany(rows(3000, 1), ['code'], ['n'], { pk: true })
+    await db.repo(hooked).write.upsertMany(rows(3000, 1), ['code'], { update: ['n'], pk: true })
 
     expect(fired).toEqual({ afterInsert: 1500, afterUpdate: 1500 })
   }, 60_000)

@@ -65,7 +65,7 @@ export interface ReadPipelineContext {
   tableRegistry?: ReadonlyMap<string, AnyTableDef>
 }
 
-export interface SelectOptions {
+export interface SelectOptions extends ScopeOptions {
   defaultLimit?: number
 }
 
@@ -152,7 +152,13 @@ export interface PaginateCursorResult<TRow, TCursor> {
   nextCursor: TCursor | null
 }
 
-let _streamWarned = false
+const STREAM_OFFSET_NOTICE = 'stream.offset'
+
+export interface StreamOffsetOptions extends ScopeOptions {
+  chunkSize?: number
+  /** `false` silences the warning that `stream.offset()` may skip or repeat rows and costs quadratic time; it is given once per `Database` otherwise. */
+  warn?: boolean
+}
 
 const TIMESTAMP_TYPES = new Set(['timestamp', 'timestamptz'])
 
@@ -199,7 +205,7 @@ export class ReadPipeline<
   }
 
   async findMany(arg?: FindArg<TColumns, TRelations>, opts?: SelectOptions): Promise<any[]> {
-    const { rows } = await this._select(asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)), opts)
+    const { rows } = await this._select(asSelectCb(arg)(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)).withoutScope(...liftedScopes(opts)), opts)
 
     return rows
   }
@@ -264,15 +270,15 @@ export class ReadPipeline<
     return this._executor.atomic ? this._executor.atomic(run) : run(this._executor)
   }
 
-  async findOne(arg?: FindArg<TColumns, TRelations>): Promise<any | null> {
+  async findOne(arg?: FindArg<TColumns, TRelations>, opts?: ScopeOptions): Promise<any | null> {
     const cb = asSelectCb(arg)
-    const rows = await this.findMany(q => cb(q).limit(1))
+    const rows = await this.findMany(q => cb(q).limit(1), opts)
 
     return rows[0] ?? null
   }
 
-  async findOneOrThrow(arg?: FindArg<TColumns, TRelations>): Promise<unknown> {
-    const row = await this.findOne(arg)
+  async findOneOrThrow(arg?: FindArg<TColumns, TRelations>, opts?: ScopeOptions): Promise<unknown> {
+    const row = await this.findOne(arg, opts)
 
     if (row === null)
       throw new NotFoundError(this._runtime.table.name)
@@ -280,14 +286,17 @@ export class ReadPipeline<
     return row
   }
 
-  async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
+  /** What the by-id finds take after the key: a select callback, or the scopes to lift. */
+  async findById(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any | null> {
     const where = this._runtime.pkWhere(id) as Where<TColumns>
+    const cb = typeof shape === 'function' ? shape : undefined
+    const opts = typeof shape === 'function' ? undefined : shape
 
-    return this.findOne(q => (cb ? cb(q) : q).andWhere(where) as SelectBuilder<TColumns, TRelations, any>)
+    return this.findOne(q => (cb ? cb(q) : q).andWhere(where) as SelectBuilder<TColumns, TRelations, any>, opts)
   }
 
-  async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
-    const row = await this.findById(id, cb)
+  async findByIdOrThrow(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any> {
+    const row = await this.findById(id, shape)
 
     if (row === null)
       throw new NotFoundError(this._runtime.table.name)
@@ -556,21 +565,23 @@ export class ReadPipeline<
 
   stream(
     arg?: FindArg<TColumns, TRelations>,
-    opts: { chunkSize?: number, unsafe?: boolean } = {},
+    opts: StreamOffsetOptions = {},
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
     return this._stream(asSelectCb(arg), opts)
   }
 
   private async* _stream(
     cb: SelectCb<TColumns, TRelations>,
-    opts: { chunkSize?: number, unsafe?: boolean },
+    opts: StreamOffsetOptions,
   ): AsyncGenerator<WithVirtuals<TColumns, TVirtuals>, void, undefined> {
-    if (!opts.unsafe && !_streamWarned) {
-      _streamWarned = true
+    const exec = this._executor as { _notices?: Set<string>, _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
+
+    // The set is shared by a Database and its transactions, so the warning comes once per Database; an executor without one warns each time.
+    if (opts.warn !== false && (!exec._notices || !exec._notices.has(STREAM_OFFSET_NOTICE))) {
+      exec._notices?.add(STREAM_OFFSET_NOTICE)
       const msg = '[pg-orm] stream.offset() uses LIMIT/OFFSET chunking: rows may be skipped or duplicated if data changes during iteration, and each chunk rescans the rows before it, so a large table costs quadratic time. '
         + 'Use stream.cursor() for large or changing tables, or a REPEATABLE READ transaction for correctness. '
-        + 'Pass { unsafe: true } to suppress this warning.'
-      const exec = this._executor as { _onCallbackError?: (event: { kind: 'streamWarning', error: unknown }) => void }
+        + 'Pass { warn: false } to suppress this warning.'
 
       if (exec._onCallbackError)
         exec._onCallbackError({ kind: 'streamWarning', error: new Error(msg) })
@@ -578,7 +589,7 @@ export class ReadPipeline<
         console.warn(msg)
     }
 
-    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table))
+    const finalBuilder = cb(new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)).withoutScope(...liftedScopes(opts))
 
     this._orderByKeyIfUnordered(finalBuilder)
 

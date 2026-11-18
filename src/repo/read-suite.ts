@@ -38,11 +38,11 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
     this._limits = { maxPageSize }
   }
 
-  /** Rows matching a WHERE object, or shaped by a select callback (`pick`, `include`, `orderBy`, a callback WHERE). */
+  /** Rows matching a WHERE object, or shaped by a select callback (`pick`, `include`, `orderBy`, a callback WHERE). The object form takes `ScopeOptions` as `count` does; the callback has `withoutScope()` and `withTrashed()` on its builder. */
   async findMany<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<(TResult & InferVirtuals<TVirtuals>)[]>
-  async findMany(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]>
-  async findMany(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<any[]> {
-    return this._pipeline.findMany(arg, { defaultLimit: this._defaultLimit })
+  async findMany(where?: OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<WithVirtuals<TColumns, TVirtuals>[]>
+  async findMany(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<any[]> {
+    return this._pipeline.findMany(arg, { ...opts, defaultLimit: this._defaultLimit })
   }
 
   /** @internal */
@@ -51,29 +51,29 @@ export class ReadSuite<TColumns extends AnyColumns, TRelations extends AnyRelati
   }
 
   async findOne<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
-  async findOne(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals> | null>
-  async findOne(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<any | null> {
-    return this._pipeline.findOne(arg)
+  async findOne(where?: OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  async findOne(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<any | null> {
+    return this._pipeline.findOne(arg, opts)
   }
 
   async findOneOrThrow<TResult>(cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
-  async findOneOrThrow(where?: OptionalWhereObject<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>>
-  async findOneOrThrow(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>): Promise<unknown> {
-    return this._pipeline.findOneOrThrow(arg)
+  async findOneOrThrow(where?: OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async findOneOrThrow(arg?: SelectCb<TColumns, TRelations> | OptionalWhereObject<TColumns>, opts?: ScopeOptions): Promise<unknown> {
+    return this._pipeline.findOneOrThrow(arg, opts)
   }
 
-  /** Load one row by primary key. A composite key takes an object holding each part. */
-  async findById(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals> | null>
+  /** Load one row by primary key. A composite key takes an object holding each part. After the key goes a select callback, or `ScopeOptions` as `existsById` takes. */
+  async findById(id: unknown, opts?: ScopeOptions): Promise<WithVirtuals<TColumns, TVirtuals> | null>
   async findById<TResult>(id: unknown, cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals> | null>
-  async findById(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any | null> {
-    return this._pipeline.findById(id, cb)
+  async findById(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any | null> {
+    return this._pipeline.findById(id, shape)
   }
 
   /** `findById`, throwing `NotFoundError` instead of returning null. */
-  async findByIdOrThrow(id: unknown): Promise<WithVirtuals<TColumns, TVirtuals>>
+  async findByIdOrThrow(id: unknown, opts?: ScopeOptions): Promise<WithVirtuals<TColumns, TVirtuals>>
   async findByIdOrThrow<TResult>(id: unknown, cb: SelectCb<TColumns, TRelations, TResult>): Promise<TResult & InferVirtuals<TVirtuals>>
-  async findByIdOrThrow(id: unknown, cb?: SelectCb<TColumns, TRelations>): Promise<any> {
-    return this._pipeline.findByIdOrThrow(id, cb)
+  async findByIdOrThrow(id: unknown, shape?: SelectCb<TColumns, TRelations> | ScopeOptions): Promise<any> {
+    return this._pipeline.findByIdOrThrow(id, shape)
   }
 
   async existsById(id: unknown, opts?: ScopeOptions): Promise<boolean> {

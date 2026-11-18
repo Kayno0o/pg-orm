@@ -505,6 +505,9 @@ await repo.read.findById(1, q => q.where({ tenantId }))  // the callback's where
 await repo.read.findByIdOrThrow(1)      // throws NotFoundError instead of returning null
 await repo.read.existsById(1)
 await repo.read.existsById(1, { withTrashed: true })
+// The object-WHERE finds and the by-id finds take the same scope options as count; a select callback has withoutScope()/withTrashed() on its builder
+await repo.read.findById(1, { withTrashed: true })
+await repo.read.findOne({ email }, { withoutScopes: ['tenant'] })
 await repo.read.findById({ userId: 1, groupId: 2 })
 
 // Soft-delete tables: count/exists/paginate skip trashed rows unless asked
@@ -530,7 +533,7 @@ const stored = await points.write.insertMany(batch, { skipConflicts: ['deviceId'
 
 // Update — the where takes both forms, and `updateById` spells out the common one
 await repo.write.updateMany({ status: 'active' }, { role: 'admin' })
-// updateOne/deleteOne change only the first matching row by primary key, however many match
+// updateOne/deleteOne change only the first matching row by primary key, however many match (a WHERE that pins the whole key, or a unique column, by equality skips the picking subquery)
 const updated = await repo.write.updateOne({ name: 'Bob' }, { id: 1 })
 // ...or throw MultipleRowsError, changing nothing, when several match
 await repo.write.updateOne({ name: 'Bob' }, { email }, { onMany: 'throw' })
@@ -562,18 +565,20 @@ await repo.write.upsertOne({ key: 'theme', value: 'dark' }, ['key'])
 await repo.write.upsertMany([{ ... }, { ... }], ['key'])
 
 // ...restricting which columns the conflicting row gets updated with
-await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], ['value'])
+await repo.write.upsertOne({ key: 'theme', value: 'dark', createdBy: 1 }, ['key'], { update: ['value'] })
 
 // ...computing columns from the existing row: `u.existing(col)`, `u.excluded(col)`, `u.add`, `u.sub`, `u.coalesce`, `u.raw`
 await repo.write.upsertOne({ uuid, name, sessions: 1, firstSeen: now }, ['uuid'], {
-  set: u => ({
-    sessions: u.add(u.existing('sessions'), 1),
-    firstSeen: u.coalesce(u.existing('firstSeen'), u.excluded('firstSeen')),
-  }),
+  update: {
+    set: u => ({
+      sessions: u.add(u.existing('sessions'), 1),
+      firstSeen: u.coalesce(u.existing('firstSeen'), u.excluded('firstSeen')),
+    }),
+  },
 })
 
 // ...only when a guard holds (bare columns name the existing row); `null` when it skipped the update
-const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { where: { value: '' } })
+const taken = await repo.write.upsertOne({ key: 'lock', value: token }, ['key'], { update: { where: { value: '' } } })
 
 // Insert if missing, return the existing row otherwise - never overwrites; `created` says which
 const { row: alice, created } = await repo.write.findOrCreate({ email: 'a@test.com', name: 'Alice' }, ['email'])
@@ -586,7 +591,7 @@ const [user] = await db.raw(sql, params)
 `conflictTarget` must be covered by a unique index (a unique column, or a composite
 unique index declared via `withIndexes`), otherwise PostgreSQL rejects the statement.
 
-An upsert that updates is an update: `beforeUpdate` hooks, run on each incoming row (so `timestamps()`'s `updatedAt`), and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`; a live row it only finds runs none. A conflicting row that a scope hides makes it throw an `OrmError` saying so.
+An upsert that updates is an update: `beforeUpdate` hooks, run on each incoming row (so `timestamps()`'s `updatedAt`), and the optimistic-lock version bump apply to the row it updates. `findOrCreate` never touches the existing row, except to restore it: on a `softDelete` table, an upsert or a `findOrCreate` landing on a trashed row clears its `deletedAt` (it takes the incoming row's, null unless given), so neither hands back a row still trashed. `findOrCreate`'s restore is a `restore()`, so it runs the update hooks and reports `created: false`; a live row it only finds runs none. A conflicting row that a scope hides makes it throw an `OrmError` saying so, unless the call lifts that scope: `findOrCreate(values, ['slug'], { withoutScopes: ['tenant'] })`.
 
 An upsert fires `afterInsert` for the rows it inserted and `afterUpdate` for the ones it updated (on SQLite, told apart by reading the conflicting keys first, so a row inserted concurrently in between counts as updated). `findOrCreate` fires `afterInsert` only when it created the row.
 
@@ -693,7 +698,7 @@ await db.repo(projects).write.deleteMany({ archived: true }, { withoutScopes: ['
 await db.repo(owners).read.findMany(q => q.withCount('projects', { withoutScopes: ['active'] }))
 ```
 
-- `withTrashed` is `withoutScope('softDelete')`. Reads, `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
+- `withTrashed` is `withoutScope('softDelete')`. Reads (`findMany`, `findOne*` and `findById*` with an object WHERE or a key), `count`, `exists`, `paginate`, streams and updates take `withoutScopes` in their options, and so do deletes, `restore` and upserts.
 - `withoutScopes` must be an array of names and `withTrashed` a boolean, or the call throws a `ValidationError`: options spread from a parsed request cannot lift a scope with `'tenant'` or `'false'`.
 - A scope reading a context value that is not there fails the call: `e.eq('tenantId', undefined)` throws a `ValidationError`, so a query run outside `withContext` cannot read every tenant.
 - An upsert guards only its update: a conflicting row a scope leaves out is not updated and not returned. Inserts are not filtered, so set the tenant column on the rows you write (a `beforeInsert` hook reading the same context does it once).
@@ -860,12 +865,14 @@ Which op fits which write. Each one is a single statement or a transaction, so t
 const { row: tag, created } = await TagRepo.write.findOrCreate({ slug: 'bun', name: 'Bun' }, ['slug'])
 ```
 
-**Insert or update**: `upsertOne` copies the incoming columns on conflict; `set` computes from the existing row instead, `where` skips the update (and returns `null`).
+**Insert or update**: `upsertOne` copies the incoming columns on conflict. The third argument is one options object: `update` is a column list or `{ columns, set, where }` (`set` computes from the existing row, `where` skips the update and returns `null`), next to `pk`, `returning` and `withoutScopes`.
 
 ```ts
 await StatRepo.write.upsertOne({ userId, day, visits: 1 }, ['userId', 'day'], {
-  columns: [],
-  set: u => ({ visits: u.add(u.existing('visits'), 1) }),
+  update: {
+    columns: [],
+    set: u => ({ visits: u.add(u.existing('visits'), 1) }),
+  },
 })
 ```
 
@@ -949,7 +956,7 @@ for await (const row of repo.stream.cursor({ chunkSize: 500 })) {
 }
 ```
 
-> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated, and each chunk makes the database skip every row before it, so streaming a large table costs quadratic time. Use `stream.cursor()` for a large or changing table; a `REPEATABLE READ` transaction fixes only the consistency.
+> **Note**: `stream.offset()` uses LIMIT/OFFSET chunking internally. If rows are inserted or deleted during iteration, rows may be skipped or duplicated, and each chunk makes the database skip every row before it, so streaming a large table costs quadratic time. Use `stream.cursor()` for a large or changing table; a `REPEATABLE READ` transaction fixes only the consistency. The first `stream.offset()` on a `Database` warns of this (through `onCallbackError` when set, else `console.warn`); `{ warn: false }` silences it. Both streams take `withoutScopes` and `withTrashed` in their options, like `count`.
 
 ## Cancellation
 

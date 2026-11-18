@@ -90,7 +90,6 @@ describe('upsertMany()', () => {
         { name: 'Bob', email: 'b@test.com' },
       ],
       ['email'],
-      undefined,
       { pk: true },
     )
 
@@ -112,7 +111,6 @@ describe('upsertMany()', () => {
         { name: 'Bob', email: 'b@test.com' },
       ],
       ['email'],
-      undefined,
       { pk: true },
     )
 
@@ -128,7 +126,7 @@ describe('upsertMany()', () => {
   it('returns empty for empty input', async () => {
     const repo = db.repo(usersTable)
 
-    const result = await repo.write.upsertMany([], ['email'], undefined, { pk: true })
+    const result = await repo.write.upsertMany([], ['email'], { pk: true })
 
     expect(result).toEqual([])
   })
@@ -141,8 +139,7 @@ describe('upsertMany()', () => {
     await repo.write.upsertMany(
       [{ name: 'Alice Changed', email: 'a@test.com', age: 99 }],
       ['email'],
-      ['name'],
-      { pk: true },
+      { update: ['name'], pk: true },
     )
 
     const user = await repo.read.findOne(q => q.where(e => e.eq('email', 'a@test.com')))

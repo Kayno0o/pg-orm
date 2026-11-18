@@ -57,7 +57,7 @@ describe('a scope using has()', () => {
     expect((await repo.read.findMany()).map(row => row.title)).toEqual(['A'])
     expect(await repo.read.count()).toBe(1)
     expect(await repo.write.updateMany({ title: 'A2' }, { id: { in: [1, 2] } }, { pk: true })).toEqual([1])
-    expect(await repo.write.upsertMany([{ slug: 'a', title: 'A3' }, { slug: 'b', title: 'B3' }], ['slug'], undefined, { pk: true })).toEqual([1])
+    expect(await repo.write.upsertMany([{ slug: 'a', title: 'A3' }, { slug: 'b', title: 'B3' }], ['slug'], { pk: true })).toEqual([1])
     expect(await repo.write.deleteMany({ id: { in: [1, 2] } }, { pk: true })).toEqual([1])
   })
 })

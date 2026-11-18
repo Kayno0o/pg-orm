@@ -147,7 +147,7 @@ describe('Hooks - upsert and findOrCreate outcome', () => {
 
     await repo.write.insertOne({ id: 1, name: 'a', email: 'a@test.com' }, { pk: true })
     hookLog.length = 0
-    await repo.write.upsertMany([{ id: 1, name: 'a2', email: 'a@test.com' }, { id: 2, name: 'b', email: 'b@test.com' }], ['id'], undefined, { pk: true })
+    await repo.write.upsertMany([{ id: 1, name: 'a2', email: 'a@test.com' }, { id: 2, name: 'b', email: 'b@test.com' }], ['id'], { pk: true })
 
     expect(hookLog.filter(h => h === 'afterInsert')).toHaveLength(1)
     expect(hookLog.filter(h => h === 'afterUpdate')).toHaveLength(1)

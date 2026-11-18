@@ -52,6 +52,8 @@ export interface ExecutorHooks {
   onCallbackError?: (event: CallbackErrorEvent) => void
   slowQueryThreshold?: number
   redactParams?: ParamRedactor
+  /** Notices already given, shared by a Database and its transactions so each is given once. */
+  notices?: Set<string>
 }
 
 /** Route an error nothing can rethrow to `onCallbackError`, or to `console.warn` without one; a throwing channel is warned about too, never rethrown. */
@@ -102,6 +104,7 @@ export abstract class BaseExecutor implements Executable {
   protected _onSlowQuery?: (event: SlowQueryEvent) => void
   protected _onError?: (event: QueryErrorEvent) => void
   /** @internal */ _onCallbackError?: (event: CallbackErrorEvent) => void
+  /** @internal */ _notices?: Set<string>
   protected _slowQueryThreshold = 1000
   protected _redactParams?: ParamRedactor
   protected _context?: Record<string, unknown>
@@ -112,7 +115,7 @@ export abstract class BaseExecutor implements Executable {
 
   /** @internal */
   get hooks(): ExecutorHooks {
-    return { onQuery: this._onQuery, onSlowQuery: this._onSlowQuery, onError: this._onError, onCallbackError: this._onCallbackError, slowQueryThreshold: this._slowQueryThreshold, redactParams: this._redactParams }
+    return { onQuery: this._onQuery, onSlowQuery: this._onSlowQuery, onError: this._onError, onCallbackError: this._onCallbackError, slowQueryThreshold: this._slowQueryThreshold, redactParams: this._redactParams, notices: this._notices }
   }
 
   protected _useHooks(hooks: ExecutorHooks): void {
@@ -121,6 +124,7 @@ export abstract class BaseExecutor implements Executable {
     this._onError = hooks.onError
     this._onCallbackError = hooks.onCallbackError
     this._redactParams = hooks.redactParams
+    this._notices = hooks.notices
 
     if (hooks.slowQueryThreshold != null)
       this._slowQueryThreshold = hooks.slowQueryThreshold

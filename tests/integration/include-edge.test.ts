@@ -87,7 +87,7 @@ describe.each(dialects)('include() on %s', (_name, open) => {
   it('stream.offset() loads includes on streamed rows', async () => {
     const managers: (string | undefined)[] = []
 
-    for await (const row of db.repo(people).stream.offset(q => q.include('manager').orderBy('name'), { chunkSize: 2, unsafe: true }))
+    for await (const row of db.repo(people).stream.offset(q => q.include('manager').orderBy('name'), { chunkSize: 2, warn: false }))
       managers.push(row.manager?.name)
 
     expect(managers).toEqual(['Boss', 'Boss', undefined, 'Ann'])

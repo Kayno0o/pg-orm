@@ -132,7 +132,7 @@ describe.each(dialects)('cursor pagination on %s', (_name, open) => {
   it('stream.offset() returns every row once, in key order when none is given', async () => {
     const streamed: number[] = []
 
-    for await (const row of db.repo(items).stream.offset(undefined, { chunkSize: 3, unsafe: true }))
+    for await (const row of db.repo(items).stream.offset(undefined, { chunkSize: 3, warn: false }))
       streamed.push(row.id)
 
     expect(streamed).toEqual([...ids].sort((a, b) => a - b))

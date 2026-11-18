@@ -75,7 +75,7 @@ describe.each(dialects)('offset reads with no order on %s', (_name, open) => {
   it('streams a grouped read', async () => {
     const seen: number[] = []
 
-    for await (const row of db.repo(rows).stream.offset(q => q.groupBy('grp').aggregate(e => ({ c: e.countCol() })), { chunkSize: 2, unsafe: true }))
+    for await (const row of db.repo(rows).stream.offset(q => q.groupBy('grp').aggregate(e => ({ c: e.countCol() })), { chunkSize: 2, warn: false }))
       seen.push(row.grp)
 
     expect(seen).toEqual([1, 2, 3, 4])
@@ -85,7 +85,7 @@ describe.each(dialects)('offset reads with no order on %s', (_name, open) => {
     const page = await db.repo(log).read.paginate({ page: 1, perPage: 10 })
     const streamed: number[] = []
 
-    for await (const row of db.repo(log).stream.offset(undefined, { chunkSize: 2, unsafe: true }))
+    for await (const row of db.repo(log).stream.offset(undefined, { chunkSize: 2, warn: false }))
       streamed.push(row.at)
 
     expect(page.data.map(r => r.at).sort()).toEqual([1, 2, 3])

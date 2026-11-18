@@ -51,13 +51,15 @@ function closeSession(uuid: string, name: string, seconds: bigint, at: Date) {
     { uuid, name, sessions: 1, observed: seconds, first_seen: at, last_seen: at },
     ['uuid'],
     {
-      set: u => ({
-        sessions: u.add(u.existing('sessions'), 1),
-        observed: u.add(u.existing('observed'), u.excluded('observed')),
-        first_seen: u.coalesce(u.existing('first_seen'), u.excluded('first_seen')),
-      }),
+      update: {
+        set: u => ({
+          sessions: u.add(u.existing('sessions'), 1),
+          observed: u.add(u.existing('observed'), u.excluded('observed')),
+          first_seen: u.coalesce(u.existing('first_seen'), u.excluded('first_seen')),
+        }),
+      },
+      pk: true,
     },
-    { pk: true },
   )
 }
 
@@ -73,14 +75,14 @@ describe('upsert set from the existing row', () => {
 
   it('copies no incoming column with columns: []', async () => {
     await db.repo(players).write.insertOne({ uuid: 'p1', name: 'Kept', sessions: 3 }, { pk: true })
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'Ignored' }, ['uuid'], { columns: [], set: u => ({ sessions: u.sub(u.existing('sessions'), 1) }) }, { pk: true })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'Ignored' }, ['uuid'], { update: { columns: [], set: u => ({ sessions: u.sub(u.existing('sessions'), 1) }) }, pk: true })
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ name: 'Kept', sessions: 2 })
   })
 
   it('writes a plain object or array to a json column as a value', async () => {
     await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a' }, { pk: true })
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { set: () => ({ meta: { tag: 'x' }, list: ['a', 'b'] }) }, { pk: true })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'a' }, ['uuid'], { update: { set: () => ({ meta: { tag: 'x' }, list: ['a', 'b'] }) }, pk: true })
 
     expect(await db.repo(players).read.findByIdOrThrow('p1')).toMatchObject({ meta: { tag: 'x' }, list: ['a', 'b'] })
     expect(await db.raw('SELECT jsonb_typeof("meta") AS meta, jsonb_typeof("list") AS list FROM "uc_players"')).toEqual([{ meta: 'object', list: 'array' }])
@@ -90,7 +92,7 @@ describe('upsert set from the existing row', () => {
     await db.repo(players).write.insertOne({ uuid: 'p1', name: 'a', updatedAt: early }, { pk: true })
     const before = await db.repo(players).read.findByIdOrThrow('p1')
 
-    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'b' }, ['uuid'], undefined, { pk: true })
+    await db.repo(players).write.upsertOne({ uuid: 'p1', name: 'b' }, ['uuid'], { pk: true })
 
     const after = await db.repo(players).read.findByIdOrThrow('p1')
 
@@ -126,11 +128,14 @@ describe('upsert guarded by a where', () => {
   // The artisans-path lease: take the lock when it lapsed or when the caller already holds it.
   function lease(token: string, until: number, now: number) {
     return db.repo(kv).write.upsertOne({ key: 'lock', value: `${token}:${until}` }, ['key'], {
-      where: e => e.or(
-        e.raw('split_part("uc_kv"."value", \':\', 2)::int8 < ?', now),
-        e.startsWith('value', `${token}:`),
-      ),
-    }, { pk: true })
+      update: {
+        where: e => e.or(
+          e.raw('split_part("uc_kv"."value", \':\', 2)::int8 < ?', now),
+          e.startsWith('value', `${token}:`),
+        ),
+      },
+      pk: true,
+    })
   }
 
   it('updates when the guard holds and returns null when it does not', async () => {
@@ -147,8 +152,7 @@ describe('upsert guarded by a where', () => {
     const written = await db.repo(kv).write.upsertMany(
       [{ key: 'k1', value: 'new' }, { key: 'k2', value: 'new' }, { key: 'k3', value: 'new' }],
       ['key'],
-      { where: { value: 'open' } },
-      { pk: true },
+      { update: { where: { value: 'open' } }, pk: true },
     )
 
     expect([...written].sort()).toEqual(['k1', 'k3'])
@@ -158,12 +162,12 @@ describe('upsert guarded by a where', () => {
   it('compares with the incoming row through excluded.<column>, and refuses a name that is not a column', async () => {
     await db.repo(kv).write.insertOne({ key: 'k', value: 'b' }, { pk: true })
 
-    const newer = (value: string) => db.repo(kv).write.upsertOne({ key: 'k', value }, ['key'], { where: e => e.lt('value', e.ref('excluded.value')) }, { pk: true })
+    const newer = (value: string) => db.repo(kv).write.upsertOne({ key: 'k', value }, ['key'], { update: { where: e => e.lt('value', e.ref('excluded.value')) }, pk: true })
 
     expect(await newer('a')).toBeNull()
     expect(await newer('c')).toBe('k')
     expect((await db.repo(kv).read.findByIdOrThrow('k')).value).toBe('c')
-    await expect(db.repo(kv).write.upsertOne({ key: 'k', value: 'd' }, ['key'], { where: e => e.lt('value', e.ref('excluded.nope')) })).rejects.toThrow('Unknown column "excluded.nope"')
+    await expect(db.repo(kv).write.upsertOne({ key: 'k', value: 'd' }, ['key'], { update: { where: e => e.lt('value', e.ref('excluded.nope')) } })).rejects.toThrow('Unknown column "excluded.nope"')
   })
 })
 

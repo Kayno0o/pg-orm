@@ -8,7 +8,7 @@ import type { Executable } from '../sql/executor'
 import type { TransactionClient } from '../sql/transaction'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
-import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_SCALAR } from '../builder/_tape'
+import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_NOT, OP_OR, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
 import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
@@ -24,7 +24,7 @@ import { quote } from '../sql/utils'
 import { createMapperFactory } from './_mapper'
 import { resolveRelationFilters, scopeResolver } from './relation-filter'
 import { liftedScopes, resolveScopes } from './table-behavior'
-import { assertKeyValue, columnOf } from './table-runtime'
+import { assertKeyValue, columnOf, isKeyValue } from './table-runtime'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
@@ -71,8 +71,16 @@ function requireReturning(op: string, opts?: WriteReturnOptions): void {
     throw new ValidationError(`${op}() reads back the row it writes, so it does not take returning: false (the many-row writes do).`, op, { field: 'returning' })
 }
 
+/** What `findOrCreate` takes: the scopes it lifts, by name. It reaches a trashed row anyway, to restore it. */
+export type FindOrCreateOptions = Pick<ScopedWriteOptions, 'withoutScopes'>
+
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
+
+/** What an upsert takes after its conflict target: the `update` to run on a conflict, and the options every scoped write takes. */
+export interface UpsertOptions<TColumns extends AnyColumns> extends ScopedWriteOptions {
+  update?: UpsertUpdate<TColumns>
+}
 
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
@@ -337,6 +345,10 @@ export class WritePipeline<
       return builder
     }
 
+    // At most one row can match, so the statement itself is bounded: no subquery to pick it, no count to tell none from several.
+    if (this._pinsOneRow(where))
+      return { where, noMatch: async () => null }
+
     if (onMany === 'throw') {
       const matches = live(new SelectBuilderCtor<TColumns>(table).count().where(where))
 
@@ -365,6 +377,34 @@ export class WritePipeline<
 
     // `where` is repeated on the statement itself: under READ COMMITTED, a row a concurrent transaction changed is checked again against the outer WHERE only, so the key alone would let two compare-and-set writes both through.
     return { where: () => [{ op: OP_AND, count: 2 }, ...compileWhere<TColumns>(where, this._runtime.table.columns), { op: OP_IN_SUBQUERY, cols: [...pkColumns], subquery: first }], noMatch: async () => null }
+  }
+
+  /**
+   * Whether the WHERE surely holds for one row at most: its top level is a plain conjunction of single conditions, among them an equality to one value on every primary-key column, or on a column that is unique alone.
+   * Anything else (an OR, a NOT, a nested group, an operator, null) answers no, as does a table with no key.
+   */
+  private _pinsOneRow(where: Where<TColumns>): boolean {
+    const { pkColumns, table } = this._runtime
+    const tape = compileWhere<TColumns>(where, table.columns)
+    const conjuncts = tape[0]?.op === OP_AND ? tape.slice(1) : tape
+
+    if (tape[0]?.op === OP_AND && tape[0].count !== conjuncts.length)
+      return false
+
+    const pinned = new Set<string>()
+
+    for (const part of conjuncts) {
+      if (part.op === OP_AND || part.op === OP_OR || part.op === OP_NOT)
+        return false
+
+      if (part.op === OP_EQ && typeof part.col === 'string' && isKeyValue(part.val))
+        pinned.add(part.col)
+    }
+
+    if (pkColumns.length > 0 && pkColumns.every(col => pinned.has(col)))
+      return true
+
+    return [...pinned].some(col => table.columns[col]?.constraints.some((c: ColumnConstraint) => c.type === 'unique') || table.uniques.some(u => u.columns.length === 1 && u.columns[0] === col))
   }
 
   async updateWithLock(set: InferUpdate<TColumns>, where: Where<TColumns>, currentVersion: number, opts?: UpdateOptions): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals>> {
@@ -555,8 +595,7 @@ export class WritePipeline<
   async upsertMany(
     values: InferInsert<TColumns>[],
     conflictTarget: (keyof TColumns & string)[],
-    update?: UpsertUpdate<TColumns>,
-    opts?: ScopedWriteOptions,
+    opts?: UpsertOptions<TColumns>,
   ): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
     if (values.length === 0)
       return []
@@ -565,7 +604,7 @@ export class WritePipeline<
     const inserted = await this._runtime.runBeforeMany('beforeUpsert', await this._runtime.runBeforeMany('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>[]
     const { rows: hooked, columns } = await this._updateHookedRows(inserted)
     const v = hooked.map(row => this._normalizeValues(row)) as InferInsert<TColumns>[]
-    const conflict = this._conflictUpdate(update, columns, liftedScopes(opts))
+    const conflict = this._conflictUpdate(opts?.update, columns, liftedScopes(opts))
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
       const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
@@ -626,12 +665,11 @@ export class WritePipeline<
   async upsertOne(
     values: InferInsert<TColumns>,
     conflictTarget: (keyof TColumns & string)[],
-    update?: UpsertUpdate<TColumns>,
-    opts?: ScopedWriteOptions,
+    opts?: UpsertOptions<TColumns>,
   ): Promise<InferPrimaryKey<TColumns> | WithVirtuals<TColumns, TVirtuals> | null> {
     requireReturning('upsertOne', opts)
 
-    const rows = await this.upsertMany([values], conflictTarget, update, opts)
+    const rows = await this.upsertMany([values], conflictTarget, opts)
 
     return rows[0] ?? null
   }
@@ -697,7 +735,8 @@ export class WritePipeline<
    * The row holding `values`' conflict key, inserted when missing: `created` says which. One statement inserts or does nothing; on a conflict a trashed row is restored (`restore()`, hooks and all), else the live one is read back.
    * A row deleted between those statements sends it round again, a few times at most.
    */
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: FindOrCreateOptions): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+    const lifted = liftedScopes(opts)
     const v = this._normalizeValues(await this._runtime.runBefore('beforeUpsert', await this._runtime.runBefore('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>)
     const { table } = this._runtime
     const key = Object.fromEntries(conflictTarget.map((col) => {
@@ -717,7 +756,7 @@ export class WritePipeline<
       if (created)
         return { row: created, created: true }
 
-      const [found] = await this._select(key)
+      const [found] = await this._select(key, lifted)
 
       if (!found) {
         if (await this._hiddenByScope(key))
@@ -730,7 +769,7 @@ export class WritePipeline<
       const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
       if (trashCol && (found as Record<string, unknown>)[trashCol] != null) {
-        const [restored] = await this.restore(key)
+        const [restored] = await this.restore(key, opts)
 
         if (restored)
           return { row: restored, created: false }
@@ -754,8 +793,8 @@ export class WritePipeline<
   }
 
   // Rows matching `where` and the table's scopes, trashed ones included, mapped and with virtuals like a write's.
-  private async _select(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where).withoutScope(SOFT_DELETE_SCOPE)
+  private async _select(where: Where<TColumns>, lifted: string[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where).withoutScope(SOFT_DELETE_SCOPE, ...lifted)
 
     this._runtime.behavior.prepareSelect(builder)
     const { sql, params } = builder.toSQL(dialectOf(this._executor))

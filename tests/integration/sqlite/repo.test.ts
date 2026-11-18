@@ -179,7 +179,7 @@ describe('SQLite repositories', () => {
     const cursor = await db.repo(shelves).read.paginateCursor({ column: 'id', take: 3, cursor: first.nextCursor })
     const streamed: string[] = []
 
-    for await (const row of db.repo(shelves).stream.offset(q => q.orderBy('id'), { chunkSize: 2, unsafe: true }))
+    for await (const row of db.repo(shelves).stream.offset(q => q.orderBy('id'), { chunkSize: 2, warn: false }))
       streamed.push(row.label)
 
     expect(page.total).toBe(7)
@@ -190,18 +190,18 @@ describe('SQLite repositories', () => {
 
   it('upserts, findOrCreate leaving the existing row untouched', async () => {
     const repo = db.repo(authorsTable)
-    const id = await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'], undefined, { pk: true })
+    const id = await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'], { pk: true })
 
-    expect(await repo.write.upsertOne({ name: 'Ken', rank: 5 }, ['name'], undefined, { pk: true })).toBe(id)
+    expect(await repo.write.upsertOne({ name: 'Ken', rank: 5 }, ['name'], { pk: true })).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
     expect((await repo.write.findOrCreate({ name: 'Ken', rank: 9 }, ['name'])).row.id).toBe(id)
     expect((await repo.read.findByIdOrThrow(id)).rank).toBe(5)
-    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob', rank: 0 }], ['name'], undefined, { pk: true })).toHaveLength(2)
+    expect(await repo.write.upsertMany([{ name: 'Ken', rank: 6 }, { name: 'Rob', rank: 0 }], ['name'], { pk: true })).toHaveLength(2)
     // A row leaving out a copied column would have it reset to its default on conflict.
-    await expect(repo.write.upsertMany([{ name: 'Ken', rank: 7 }, { name: 'Rob' }], ['name'], undefined, { pk: true })).rejects.toThrow(ValidationError)
+    await expect(repo.write.upsertMany([{ name: 'Ken', rank: 7 }, { name: 'Rob' }], ['name'], { pk: true })).rejects.toThrow(ValidationError)
     // A guard reads the incoming row as excluded.<column>.
-    expect(await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'], { where: e => e.lt('rank', e.ref('excluded.rank')) }, { pk: true })).toBeNull()
-    expect(await repo.write.upsertOne({ name: 'Ken', rank: 8 }, ['name'], { where: e => e.lt('rank', e.ref('excluded.rank')) }, { pk: true })).toBe(id)
+    expect(await repo.write.upsertOne({ name: 'Ken', rank: 1 }, ['name'], { update: { where: e => e.lt('rank', e.ref('excluded.rank')) }, pk: true })).toBeNull()
+    expect(await repo.write.upsertOne({ name: 'Ken', rank: 8 }, ['name'], { update: { where: e => e.lt('rank', e.ref('excluded.rank')) }, pk: true })).toBe(id)
   })
 
   it('soft-deletes and restores, and bumps the version of an optimistic lock', async () => {
@@ -281,7 +281,7 @@ describe('SQLite upsert hooks', () => {
 
     await repo.write.insertOne({ key: 'a', n: 1 }, { pk: true })
     counterHooks.length = 0
-    await repo.write.upsertMany([{ key: 'a', n: 2 }, { key: 'b', n: 1 }], ['key'], undefined, { pk: true })
+    await repo.write.upsertMany([{ key: 'a', n: 2 }, { key: 'b', n: 1 }], ['key'], { pk: true })
 
     expect(counterHooks.sort()).toEqual(['insert:b', 'update:a'])
   })
