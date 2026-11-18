@@ -124,6 +124,15 @@ describe('Edge Cases — Unit', () => {
       expect(mock.queries).toHaveLength(0)
     })
 
+    it('refuses the update list or { set, where } where the options go, sending nothing', async () => {
+      const mock = new MockExecutor()
+      const repo = new Repository({ table: postsTable, executor: mock })
+
+      await expect(repo.write.upsertOne({ id: 1, title: 'x' }, ['id'], ['title'] as never)).rejects.toThrow(ValidationError)
+      await expect(repo.write.upsertMany([{ id: 1, title: 'x' }], ['id'], { set: { title: 'y' } } as never)).rejects.toThrow(ValidationError)
+      expect(mock.queries).toHaveLength(0)
+    })
+
     it('generates INSERT ... ON CONFLICT ... DO UPDATE with RETURNING', async () => {
       const mock = new MockExecutor()
 
@@ -190,5 +199,17 @@ describe('Edge Cases — Unit', () => {
       expect(sql).toContain('ON CONFLICT')
       expect(sql).toContain('"body"')
     })
+  })
+})
+
+describe('relation filters in scopes', () => {
+  it('throw ValidationError when two scopes filter on each other through has()', async () => {
+    const left = defineTable('loop_left', t => ({ id: t.serial().primaryKey(), rightId: t.int4() }))
+    const right = defineTable('loop_right', t => ({ id: t.serial().primaryKey(), leftId: t.int4() }))
+    const lefts = left.withRelations(r => ({ rights: r.hasMany(() => right, 'leftId') })).withScope('linked', e => e.has('rights' as never))
+    const rights = right.withRelations(r => ({ lefts: r.hasMany(() => left, 'rightId') })).withScope('linked', e => e.has('lefts' as never))
+    const registry = new Map<string, AnyTableDef>([['loop_left', lefts], ['loop_right', rights]])
+
+    await expect(new Repository({ table: lefts, executor: new MockExecutor(), tableRegistry: registry }).read.count()).rejects.toThrow(ValidationError)
   })
 })

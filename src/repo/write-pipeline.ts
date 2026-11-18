@@ -34,6 +34,14 @@ export type { FindOrCreateOptions, UpsertOptions, UpsertUpdate } from './upsert'
 const FIND_OR_CREATE_ATTEMPTS = 3
 
 // A single-row write reports whether it changed a row by reading it back, so `returning: false` would make it misreport.
+// Before 9.0 the update went third and the options fourth: an old call would otherwise read as no update and overwrite every column on conflict.
+function requireUpsertOptions(opts: unknown): void {
+  const legacy = Array.isArray(opts) || (typeof opts === 'object' && opts !== null && ('set' in opts || 'where' in opts || 'columns' in opts))
+
+  if (legacy || (opts !== undefined && (typeof opts !== 'object' || opts === null)))
+    throw new ValidationError('upsert takes its update inside the options: upsertOne(values, target, { update: [...] }) or { update: { set, where } }', 'upsert', { field: 'update' })
+}
+
 function requireReturning(op: string, opts?: WriteReturnOptions): void {
   if (opts?.returning === false)
     throw new ValidationError(`${op}() reads back the row it writes, so it does not take returning: false (the many-row writes do).`, op, { field: 'returning' })
@@ -509,6 +517,8 @@ export class WritePipeline<
     conflictTarget: (keyof TColumns & string)[],
     opts?: UpsertOptions<TColumns>,
   ): Promise<InferPrimaryKey<TColumns>[] | WithVirtuals<TColumns, TVirtuals>[]> {
+    requireUpsertOptions(opts)
+
     if (values.length === 0)
       return []
 
