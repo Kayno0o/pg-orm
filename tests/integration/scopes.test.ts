@@ -145,6 +145,21 @@ describe('a scope', () => {
     expect((await stored())[ids.C!]!.name).toBe('C')
   })
 
+  it('hides a conflicting row from findOrCreate until the call lifts the scope', async () => {
+    const values = { id: ids.C!, tenantId: 1, ownerId: 1, name: 'again' }
+
+    await asTenant(async () => {
+      const repo = db.repo(projects).write
+
+      await expect(repo.findOrCreate(values, ['id'])).rejects.toThrow(OrmError)
+
+      const { row, created } = await repo.findOrCreate(values, ['id'], { withoutScopes: ['tenant'] })
+
+      expect(created).toBe(false)
+      expect(row.name).toBe('C')
+    })
+  })
+
   it('cannot be declared twice under one name', () => {
     expect(() => defineTable('sc_twice', t => ({ id: t.serial().primaryKey() })).withScope('x', e => e.isNotNull('id')).withScope('x', e => e.isNotNull('id'))).toThrow(OrmError)
   })

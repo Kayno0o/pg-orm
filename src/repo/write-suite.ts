@@ -5,7 +5,7 @@ import type { Executable } from '../sql/executor'
 import type { AnyColumns, AnyRelations, AnyTableDef, AnyVirtuals, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InferUpdateById, InsertOptions, RelationDef, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { LinkOptions, LinkTarget, SyncResult } from './relation-links'
 import type { TableRuntime } from './table-runtime'
-import type { UpsertUpdate } from './write-pipeline'
+import type { FindOrCreateOptions, UpsertUpdate } from './write-pipeline'
 import { DeleteBuilder, InsertBuilder, MergeBuilder, UpdateBuilder } from '../builder/query'
 import { RelationLinks } from './relation-links'
 import { WritePipeline } from './write-pipeline'
@@ -155,9 +155,9 @@ export class WriteSuite<
     return this._pipeline.upsertOne(values, conflictTarget, update, opts)
   }
 
-  /** The row holding `values`' conflict key, inserted when missing; `created` says which. A trashed row is restored. */
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
-    return this._pipeline.findOrCreate(values, conflictTarget)
+  /** The row holding `values`' conflict key, inserted when missing; `created` says which. A trashed row is restored. A row another scope hides throws, unless `withoutScopes` lifts that scope. */
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: FindOrCreateOptions): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+    return this._pipeline.findOrCreate(values, conflictTarget, opts)
   }
 
   async restore(where: Where<TColumns, TRelations>, opts: ScopedWriteOptions & Unreturned): Promise<void>

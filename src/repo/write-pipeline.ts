@@ -71,6 +71,9 @@ function requireReturning(op: string, opts?: WriteReturnOptions): void {
     throw new ValidationError(`${op}() reads back the row it writes, so it does not take returning: false (the many-row writes do).`, op, { field: 'returning' })
 }
 
+/** What `findOrCreate` takes: the scopes it lifts, by name. It reaches a trashed row anyway, to restore it. */
+export type FindOrCreateOptions = Pick<ScopedWriteOptions, 'withoutScopes'>
+
 /** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
 export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
 
@@ -729,7 +732,8 @@ export class WritePipeline<
    * The row holding `values`' conflict key, inserted when missing: `created` says which. One statement inserts or does nothing; on a conflict a trashed row is restored (`restore()`, hooks and all), else the live one is read back.
    * A row deleted between those statements sends it round again, a few times at most.
    */
-  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[]): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+  async findOrCreate(values: InferInsert<TColumns>, conflictTarget: (keyof TColumns & string)[], opts?: FindOrCreateOptions): Promise<{ row: WithVirtuals<TColumns, TVirtuals>, created: boolean }> {
+    const lifted = liftedScopes(opts)
     const v = this._normalizeValues(await this._runtime.runBefore('beforeUpsert', await this._runtime.runBefore('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>)
     const { table } = this._runtime
     const key = Object.fromEntries(conflictTarget.map((col) => {
@@ -749,7 +753,7 @@ export class WritePipeline<
       if (created)
         return { row: created, created: true }
 
-      const [found] = await this._select(key)
+      const [found] = await this._select(key, lifted)
 
       if (!found) {
         if (await this._hiddenByScope(key))
@@ -762,7 +766,7 @@ export class WritePipeline<
       const trashCol = this._runtime.behavior.getSoftDeleteColumn()
 
       if (trashCol && (found as Record<string, unknown>)[trashCol] != null) {
-        const [restored] = await this.restore(key)
+        const [restored] = await this.restore(key, opts)
 
         if (restored)
           return { row: restored, created: false }
@@ -786,8 +790,8 @@ export class WritePipeline<
   }
 
   // Rows matching `where` and the table's scopes, trashed ones included, mapped and with virtuals like a write's.
-  private async _select(where: Where<TColumns>): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
-    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where).withoutScope(SOFT_DELETE_SCOPE)
+  private async _select(where: Where<TColumns>, lifted: string[]): Promise<WithVirtuals<TColumns, TVirtuals>[]> {
+    const builder = new SelectBuilderCtor<TColumns>(this._runtime.table).where(where).withoutScope(SOFT_DELETE_SCOPE, ...lifted)
 
     this._runtime.behavior.prepareSelect(builder)
     const { sql, params } = builder.toSQL(dialectOf(this._executor))

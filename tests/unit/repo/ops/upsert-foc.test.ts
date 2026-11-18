@@ -119,3 +119,34 @@ describe('WritePipeline findOrCreate', () => {
     await expect(pipeline.findOrCreate({ name: 'A' } as never, ['email'])).rejects.toThrow('conflict target')
   })
 })
+
+describe('WritePipeline findOrCreate scopes', () => {
+  const scoped = defineTable('docs', t => ({
+    id: t.serial().primaryKey(),
+    tenant: t.text().notNull(),
+    slug: t.text().notNull(),
+  })).withScope('tenant', e => e.eq('tenant', 'acme'))
+
+  const values = { tenant: 'acme', slug: 'a' }
+
+  it('reads the conflicting row under the scopes, so a hidden one is refused', async () => {
+    const { exec, pipeline } = setup(scoped)
+
+    exec.preset([])
+    exec.preset([])
+    exec.preset([{ count: 1 }])
+    await expect(pipeline.findOrCreate(values, ['slug'])).rejects.toThrow('hidden by a scope')
+    expect(exec.queries[1]!.sql).toContain('"tenant" = $')
+  })
+
+  it('lifts a scope by name, in the read of the existing row', async () => {
+    const { exec, pipeline } = setup(scoped)
+
+    exec.preset([])
+    exec.preset([{ id: 4, tenant: 'other', slug: 'a' }])
+    const result = await pipeline.findOrCreate(values, ['slug'], { withoutScopes: ['tenant'] })
+
+    expect(result).toEqual({ row: { id: 4, tenant: 'other', slug: 'a' }, created: false })
+    expect(exec.queries[1]!.sql).not.toContain('"tenant"')
+  })
+})
