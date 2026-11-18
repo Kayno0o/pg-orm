@@ -42,8 +42,6 @@ interface ChildRows {
   // The rows each chunk of ids matched, in the callback's order: a target linked to parents of several chunks is one row listed in each.
   chunks: Record<string, unknown>[][]
   nestedIncludes: IncludeEntry[]
-  // A callback's offset and limit, left to apply per parent in memory when the query cannot partition by parent.
-  slice?: { offset: number, limit: number | null }
   // With `through`, the parent key each row of `chunks` was linked to.
   parents: unknown[][]
 }
@@ -206,13 +204,12 @@ export class RelationResolver {
     }
   }
 
-  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. `perParent` partitions a callback limit by `column`, otherwise it comes back as `slice`. With `through`, `ids` are parent ids and `column` the target's primary key, a row matched by several chunks processed once.
+  // One query per chunk of ids, shaped by the include's callback. Trashed rows of a soft-delete target stay out unless the callback calls withTrashed(); nested includes are read off the callback's builder state, as they don't affect the SQL. A callback limit is cut per parent in the query, partitioned by `column`, or with `through` by the pivot's parent key. With `through`, `ids` are parent ids and `column` the target's primary key, a row matched by several chunks processed once.
   private async _childQuery(
     table: AnyTableDef,
     column: string,
     ids: unknown[],
     inc: IncludeEntry,
-    perParent: boolean,
     processor?: RelationProcessor,
     through?: Through,
   ): Promise<ChildRows> {
@@ -221,7 +218,6 @@ export class RelationResolver {
     const filtered = inc.callback ? inc.callback(base) : base
     const state = filtered.getState()
     const nestedIncludes = [...state.includes]
-    let slice: ChildRows['slice']
 
     state.includes = []
     state.scopes = resolveScopes(table, undefined, scopeResolver(table, this.tableRegistry))
@@ -237,16 +233,8 @@ export class RelationResolver {
       )
     }
 
-    const limited = state.limit != null || state.offset != null
-
-    if (limited && perParent) {
-      state.limitPer = column
-    }
-    else if (limited) {
-      slice = { offset: state.offset ?? 0, limit: state.limit }
-      state.limit = null
-      state.offset = null
-    }
+    if (state.limit != null || state.offset != null)
+      state.limitPer = through ? `${THROUGH_ALIAS}.${through.from}` : column
 
     const matched = await this._runChunked(ids, (chunk) => {
       const query = filtered.branch()
@@ -273,7 +261,7 @@ export class RelationResolver {
 
     const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, { builder: filtered }) : raw
 
-    return { rows, chunks: chunksOf(rows), nestedIncludes, slice, parents }
+    return { rows, chunks: chunksOf(rows), nestedIncludes, parents }
   }
 
   private async _loadBelongsTo(
@@ -297,7 +285,7 @@ export class RelationResolver {
     }
 
     const targetPk = this._primaryKey(targetTable, inc.relation)
-    const { rows, nestedIncludes } = await this._childQuery(targetTable, targetPk, parentIds, inc, true, processor)
+    const { rows, nestedIncludes } = await this._childQuery(targetTable, targetPk, parentIds, inc, processor)
     const indexed = indexBy(rows, targetPk)
 
     for (const parent of parentRows) {
@@ -347,7 +335,7 @@ export class RelationResolver {
           return b
         },
       }
-    const { rows, nestedIncludes } = await this._childQuery(target, targetFk, parentIds, ordered, true, processor)
+    const { rows, nestedIncludes } = await this._childQuery(target, targetFk, parentIds, ordered, processor)
 
     if (isMany) {
       const grouped = groupBy(rows, targetFk)
@@ -386,9 +374,9 @@ export class RelationResolver {
     this._requireParentKey(parentRows, sourcePk, relationName)
 
     const parentIds = collectParentIds(parentRows, sourcePk)
-    const { rows, chunks, parents, nestedIncludes, slice } = parentIds.length > 0
-      ? await this._childQuery(targetTable, targetPk, parentIds, inc, false, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS, scopeResolver(pivot, this.tableRegistry)) })
-      : { rows: [], chunks: [], parents: [], nestedIncludes: [], slice: undefined }
+    const { rows, chunks, parents, nestedIncludes } = parentIds.length > 0
+      ? await this._childQuery(targetTable, targetPk, parentIds, inc, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS, scopeResolver(pivot, this.tableRegistry)) })
+      : { rows: [], chunks: [], parents: [], nestedIncludes: [] }
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
     for (const [chunk, chunkRows] of chunks.entries()) {
@@ -404,9 +392,7 @@ export class RelationResolver {
     }
 
     for (const parent of parentRows) {
-      const all = grouped.get(relationKey(parent[sourcePk])) ?? []
-
-      parent[relationName] = slice ? all.slice(slice.offset, slice.limit == null ? undefined : slice.offset + slice.limit) : all
+      parent[relationName] = grouped.get(relationKey(parent[sourcePk])) ?? []
     }
 
     await this._loadNested(targetTable, rows, nestedIncludes, depth, processor)

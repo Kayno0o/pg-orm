@@ -128,6 +128,21 @@ describe.each(dialects)('include() on %s', (_name, open) => {
     ])
   })
 
+  it('cuts a hasManyThrough callback limit per parent in the query, not after reading every linked row', async () => {
+    const statements: string[] = []
+    const counted = open({ onQuery: e => void statements.push(e.sql) })
+
+    try {
+      const rows = await counted.repo(people).read.findMany(q => q.include('groups', groupsDef, g => g.orderBy('name').limit(1)).where({ id: [ann, bob] }).orderBy('name'))
+
+      expect(rows.map(r => r.groups.map(g => g.name))).toEqual([['blue'], ['blue']])
+      expect(statements.find(sql => sql.includes('JOIN'))).toContain('ROW_NUMBER() OVER (PARTITION BY')
+    }
+    finally {
+      await counted.close()
+    }
+  })
+
   it('keeps a hasManyThrough callback order and limit when the targets span several chunks', async () => {
     const chunked = open({ batchChunkSize: 1 })
 
