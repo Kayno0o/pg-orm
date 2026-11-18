@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # /dev/tcp probe below is a bash feature, not POSIX sh.
 
-# origin pushes to Forgejo then GitHub, running this hook for each: the suite runs before the first only, so a failure stops the push before either remote takes it.
-if [ "$2" != "$(git remote get-url --push --all "$1" | head -n 1)" ]; then
+# origin pushes to Forgejo then GitHub, running this hook for each, and a failure stops only the URL it ran for: the suite runs before Forgejo, and GitHub takes only what Forgejo already holds.
+first=$(git remote get-url --push --all "$1" | head -n 1)
+if [ "$2" != "$first" ]; then
+  while read -r _local_ref local_sha remote_ref _remote_sha; do
+    case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+    if [ "$(git ls-remote "$first" "$remote_ref" | cut -f1)" != "$local_sha" ]; then
+      echo "$remote_ref is not on $first yet; push there first." >&2
+      exit 1
+    fi
+  done
   exit 0
 fi
 
