@@ -1,6 +1,58 @@
 # Changelog
 
-## Unreleased
+## v9.0.0 - 2026-11-18
+
+### Breaking
+
+- `upsertOne` and `upsertMany` take one options object: `upsertOne(values, target, { update, pk, withoutScopes, returning })`. `update` holds what used to be the third argument (a column list, or `{ columns, set, where }`). The old positional form throws `ValidationError` instead of silently updating every column.
+- Single-row writes (`insertOne`, `updateOne`, `updateById`, `updateWithLock`, `deleteOne`, `deleteById`, `upsertOne`) refuse `returning: false`, at type level and at runtime. Many-row writes still take it.
+- `restore` refuses a missing WHERE or one that always holds, like the other writes. `restoreAll()` restores every trashed row.
+- An update or delete whose WHERE folds to TRUE (an empty `notIn`, an OR holding TRUE, a NOT of FALSE) is refused like an empty AND; `allRows()` stays the way to touch every row.
+- Caller mistakes throw `ValidationError` instead of a plain `OrmError`: restore without `softDelete`, a repeated trait or scope, a wrong embedding column, include depth past the limit, an executor without COPY, by-key operations on a table with no primary key, a relation on a key-less table.
+- `withIndexes` and `withUnique` take only the table's own column names: a typo fails the typecheck, and an unknown column throws `ValidationError` at definition.
+- A trait adding a column the table already declares throws `ValidationError`. `.identity().nullable()` throws at definition.
+- `stream.offset({ unsafe: true })` is now `{ warn: false }`; the warning fires once per `Database`. `StreamOffsetOptions` is exported and takes the scope options.
+- Relation aggregates (`withCount`, `withSum`...) take `withTrashed`, not `withDeleted`.
+- `IncludeEntry.strategy` is gone. `include(relation, cb)` types its callback from the relation.
+- The deprecated `cacheSize` option is gone from `DbConfig`.
+- SQLite opens files with `synchronous = NORMAL`; `sqlite: { synchronous: 'full' }` restores the old durability. A `jsonbSubscript` comparison on SQLite compares the stored SQL value.
+- `TableRuntime.primaryKey` is gone; `primaryKeys(table)` reads a table's key.
+
+### Added
+
+- Postgres 19: `onConflict(...).doSelect()` (ON CONFLICT DO SELECT, with an optional lock), `ignoreNulls` on window value functions.
+- Window functions `lead`, `lag`, `firstValue`, `lastValue`, `nthValue`, and window frames (`rows`, `range`, `groups`).
+- `findMany`, `findOne*` and `findById*` take the scope options `count` takes; `findOrCreate` takes `withoutScopes`.
+- `embedding()` takes a `hashKey` to store an HMAC of the source instead of a plain sha256.
+- `primaryKeys(table)` in the schema introspection helpers.
+- A COMMIT lost with its connection raises `ConnectionError` with `commitOutcome: 'unknown'` and fires neither `onCommit` nor `onRollback`.
+- A refused Postgres connection is a `ConnectionError`, and a read retries it.
+
+### Fixed
+
+- `paginate` and `stream.offset` page grouped and DISTINCT reads by what makes a row unique.
+- `count` and the `paginate` total of a `groupByExpr` read count its groups.
+- A `hasManyThrough` include links rows by key, so an `afterSelect` hook dropping a row shifts no other; its limit is applied per parent in SQL.
+- Rows an `afterSelect` hook returns replace the result.
+- Scopes may use `has()`; scopes filtering on each other through `has()` throw `ValidationError` instead of overflowing the stack.
+- A cursor's boundary row is read through the page's scopes.
+- An outer write made while a savepoint runs survives the savepoint's rollback.
+- JSON equality binds as JSON; json and vector values are encoded for their column by the statement builders; `copyFrom` writes a vector from a `number[]` or `Float32Array`.
+- Several windows print as one WINDOW clause.
+- Enum arrays read back as arrays on Postgres; `updateManyById` casts to a mixed-case enum by its quoted name; numeric arrays read back on SQLite.
+- `sync()`: index renames follow column renames, defaults Postgres respells and json defaults sync once, foreign keys drop before their column, a one-column `withUnique` and an index naming its default operator class sync once, citext gets its extension, widening to a serial syncs its sequence, `applyMigration` runs in the configured schema, arithmetic right of a comparison parses as Postgres groups it.
+- Security: the PG error sanitiser runs in linear time; scope options of the wrong type throw instead of lifting a scope; a transaction option named after an `Object.prototype` key is refused; hook errors and `ValidationError` messages quote no caller value in production or with redaction on; `copyTo` reports its statement to the query hooks.
+
+### Performance
+
+- Includes take 50000 keys per statement on Postgres.
+- `updateOne` and `deleteOne` skip the picking subquery on a pinned key.
+- SQLite caches statements by their pg-orm text (`findById` 14.3 to 10.4 µs) and binds a long IN list as one JSON array.
+- A chunked write keeps no rows for after-write hooks nobody registered; transaction modes go on BEGIN.
+
+## v4.5.0
+
+Releases 4.5.1 to 8.1.4 are described in their Forgejo release notes.
 
 ### Ergonomics — object WHERE shorthand, by-id operations, schema introspection
 
