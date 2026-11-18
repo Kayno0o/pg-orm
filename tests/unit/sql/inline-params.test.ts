@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { ValidationError } from '../../../src/errors/index'
 import { inlineParams } from '../../../src/sql/copy'
-import { jsonParam } from '../../../src/sql/json-param'
+import { jsonParam } from '../../../src/utils/json-param'
 
 describe('inlineParams', () => {
   it('writes each value as an E string, doubling quotes and backslashes', () => {

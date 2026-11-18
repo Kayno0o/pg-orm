@@ -1,7 +1,7 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint, IndexDef } from '../../types/index'
 import { DialectError } from '../../errors/index'
 import { isConstantSqliteDefault, sqliteBackfillSql, sqliteDefaultSql } from '../../schema/column-default'
-import { quote, quoteLiteral } from '../../sql/utils'
+import { quote, quoteLiteral } from '../../utils/quote'
 import { columnChecks } from '../checks'
 import { buildIndexName, uniqueName } from '../ddl'
 import { columnEntries } from '../types'

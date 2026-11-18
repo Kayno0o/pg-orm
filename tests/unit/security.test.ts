@@ -13,7 +13,7 @@ import { UniqueError, wrapPgError } from '../../src/errors/index'
 import { compileMapper } from '../../src/mapper/index'
 import { defineTable } from '../../src/schema/table'
 import { sanitizeMigrationName, validateIdentifier, validateRawSqlFragment } from '../../src/schema/validate'
-import { escapeLiteralBody, quote, quoteLiteral, quotePath } from '../../src/sql/utils'
+import { escapeLiteralBody, quote, quoteLiteral, quotePath } from '../../src/utils/quote'
 
 const e = createExprBuilder<any>()
 

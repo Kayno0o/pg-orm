@@ -2,7 +2,7 @@ import type { AnyColumnDef, AnyColumns, AnyRelations, AnyTableDef, RelationDef, 
 import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef, TypedExpr, VectorMetric } from './_tape'
 import { messageValue, ValidationError } from '../errors/index'
 import { validateIdentifier, validateTsLanguage } from '../schema/validate'
-import { qualifyCol, quote } from '../sql/utils'
+import { qualifyCol, quote } from '../utils/quote'
 import { SINGLE_QUOTE_RE } from '../utils/regex'
 import {
   columnRef,

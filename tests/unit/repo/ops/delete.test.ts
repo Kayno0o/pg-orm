@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { ValidationError } from '../../../../src/errors/index'
 import { defineTable, softDelete } from '../../../../src/index'
-import { isJsonParam } from '../../../../src/sql/json-param'
+import { isJsonParam } from '../../../../src/utils/json-param'
 import { setupWritePipeline as setup } from './_helpers'
 
 const users = defineTable('users', t => ({

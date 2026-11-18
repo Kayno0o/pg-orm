@@ -2,7 +2,7 @@ import type { Dialect } from '../dialect'
 import type { MigrationOp } from './types'
 import { ValidationError } from '../errors/index'
 import { validateIdentifier } from '../schema/validate'
-import { quote } from '../sql/utils'
+import { quote } from '../utils/quote'
 import { ADD_CONSTRAINT_RE, QUOTED_IDENT_RE, RENAME_COLUMN_RE } from '../utils/regex'
 import { fkConstraintName } from './ddl'
 

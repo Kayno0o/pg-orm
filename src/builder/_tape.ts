@@ -8,8 +8,8 @@ import type { ExprBuilder } from './expr'
 import { SQLITE_JSON_IN_LIST_MIN } from '../constants'
 import { DialectError, ValidationError } from '../errors/index'
 import { validateTsLanguage } from '../schema/validate'
-import { bigintAsString, jsonParam } from '../sql/json-param'
-import { qualifyCol } from '../sql/utils'
+import { bigintAsString, jsonParam } from '../utils/json-param'
+import { qualifyCol } from '../utils/quote'
 import { bindRawParams } from './_placeholders'
 
 // What a LIKE pattern character becomes in a GLOB pattern, where `*`, `?` and `[` are the wildcards.

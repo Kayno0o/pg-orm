@@ -1,6 +1,6 @@
 import type { AnyColumnDef } from '../types/index'
 import { ValidationError } from '../errors/index'
-import { escapeLiteralBody, quote, quoteLiteral } from '../sql/utils'
+import { escapeLiteralBody, quote, quoteLiteral } from '../utils/quote'
 import { getColumnMeta } from './column-meta'
 
 // The current time as the ISO string a Date binds as on SQLite, so a default and a written value compare alike.

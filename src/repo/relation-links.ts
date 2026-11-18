@@ -5,8 +5,8 @@ import type { Repository } from './index'
 import { DEFAULT_PRIMARY_KEY } from '../constants'
 import { NotFoundError, ValidationError } from '../errors/index'
 import { hasTrait } from '../schema/inspect'
-import { bigintAsString } from '../sql/json-param'
 import { relationKey } from '../utils/collection'
+import { bigintAsString } from '../utils/json-param'
 import { assertKeyValue } from './table-runtime'
 
 /** A target to link: its key, or its key and the pivot columns to set on the link. */

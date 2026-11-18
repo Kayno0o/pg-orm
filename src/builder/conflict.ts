@@ -1,5 +1,5 @@
 import type { AnyColumns, InferSelect, InferUpdate } from '../types/index'
-import { quote } from '../sql/utils'
+import { quote } from '../utils/quote'
 
 // Marks values this module built, so a plain object written to a json column is never read as an expression.
 const CONFLICT_VALUE: unique symbol = Symbol('pg-orm.ConflictValue')

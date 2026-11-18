@@ -1,7 +1,7 @@
 import type { AnyTableDef } from '../../types/index'
 import type { LiveSchema, MigrationOp } from '../types'
 import { getColumnMeta } from '../../schema/column-meta'
-import { quote } from '../../sql/utils'
+import { quote } from '../../utils/quote'
 import { buildIndexName, buildRenameTableSql, uniqueName } from '../ddl'
 import { columnEntries } from '../types'
 

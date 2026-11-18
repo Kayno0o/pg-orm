@@ -1,4 +1,4 @@
-import { DOUBLE_QUOTE_RE, SINGLE_QUOTE_RE } from '../utils/regex'
+import { DOUBLE_QUOTE_RE, SINGLE_QUOTE_RE } from './regex'
 
 /**
  * Safely quote a PostgreSQL identifier (table, column, etc.)

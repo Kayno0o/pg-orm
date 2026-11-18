@@ -1,4 +1,4 @@
-import { quote } from './utils'
+import { quote } from '../utils/quote'
 
 type Unsafe = (sqlStr: string, params: unknown[]) => Promise<unknown[]>
 

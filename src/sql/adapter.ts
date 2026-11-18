@@ -1,9 +1,9 @@
 import type { SQL } from 'bun'
 import type { Dialect } from '../dialect'
 import { AbortError, OrmError, UniqueError, wrapPgError } from '../errors/index'
+import { bigintAsString, byteaHex, isJsonParam } from '../utils/json-param'
 import { BACKSLASH_RE, DOUBLE_QUOTE_RE } from '../utils/regex'
 import { isCancellation, querySignalStorage, throwIfAborted } from './abort'
-import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 import { sqliteUniqueName } from './sqlite-constraint'
 
 /** A statement bun:sql has queued or sent; Postgres ones can be cancelled, SQLite ones run synchronously and cannot. */

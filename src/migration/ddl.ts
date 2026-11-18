@@ -2,7 +2,7 @@ import type { AnyColumnDef, AnyTableDef, ForeignKeyRef, IndexDef, UniqueDef } fr
 import { ValidationError } from '../errors/index'
 import { typeSql } from '../schema/column-default'
 import { getColumnMeta } from '../schema/column-meta'
-import { escapeLiteralBody, quote } from '../sql/utils'
+import { escapeLiteralBody, quote } from '../utils/quote'
 import { columnChecks } from './checks'
 import { collectConstraints } from './constraint-collector'
 import { ARRAY_SUFFIX_RE, DEFAULT_CAST_RE, DEFAULT_LITERAL_RE, HOST_MASK_RE, INTERVAL_PART_RE, LONE_LITERAL_RE, MAC_SEPARATOR_RE, MONEY_NOISE_RE, PLAIN_NUMBER_RE, QUOTED_NUMBER_RE, SHORT_OFFSET_RE, TIME_OF_DAY_RE, TIME_ZONE_RE, TIMESTAMP_SEPARATOR_RE, TYPE_MODIFIER_RE, TYPE_PARTS_RE, TYPE_QUALIFIER_RE, TYPED_LITERAL_PREFIX_RE, WHITESPACE_RE, WHOLE_NUMBER_RE } from './regex'

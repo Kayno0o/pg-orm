@@ -1,3 +1,4 @@
+export { type JsonParam, jsonParam } from '../utils/json-param'
 export {
   type CallbackErrorEvent,
   Database,
@@ -10,4 +11,3 @@ export {
   type TransactionOptions,
 } from './executor'
 export { formatQuery, type FormatQueryOptions } from './format-query'
-export { type JsonParam, jsonParam } from './json-param'

@@ -4,7 +4,7 @@ import type { ExprTape } from './_tape'
 import { ValidationError } from '../errors/index'
 import { typeSql } from '../schema/column-default'
 import { getColumnMeta } from '../schema/column-meta'
-import { quote } from '../sql/utils'
+import { quote } from '../utils/quote'
 import { assembleExpr } from './_tape'
 import { validateValues } from './state'
 

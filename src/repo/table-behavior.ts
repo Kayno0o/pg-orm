@@ -10,7 +10,7 @@ import { SOFT_DELETE_SCOPE } from '../constants'
 import { ValidationError } from '../errors/index'
 import { tableMeta, tableScopes } from '../schema/inspect'
 import { queryContextStorage } from '../sql/base-executor'
-import { quote } from '../sql/utils'
+import { quote } from '../utils/quote'
 
 /** Any UPDATE a trait can add a raw SET to: the single-statement builder or the per-row bulk one. */
 interface RawSettable {

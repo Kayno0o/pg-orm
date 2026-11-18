@@ -1,5 +1,5 @@
 import type { AnyColumnDef, AnyTableDef, ColumnConstraint } from '../types/index'
-import { quote } from '../sql/utils'
+import { quote } from '../utils/quote'
 import { columnEntries } from './types'
 
 export interface CollectedConstraints {

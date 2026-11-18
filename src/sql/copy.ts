@@ -1,8 +1,8 @@
 import { PLACEHOLDER_RE, replaceOutsideQuotes } from '../builder/_placeholders'
 import { ValidationError } from '../errors/index'
+import { bigintAsString, byteaHex, isJsonParam } from '../utils/json-param'
 import { BACKSLASH_RE, SINGLE_QUOTE_RE } from '../utils/regex'
 import { serializePgArray } from './adapter'
-import { bigintAsString, byteaHex, isJsonParam } from './json-param'
 
 // COPY's text format ends a field at a tab and a row at a newline, and reads a backslash as an escape.
 const COPY_SPECIAL_RE = /[\\\n\r\t]/g

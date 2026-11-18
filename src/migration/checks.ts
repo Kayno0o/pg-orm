@@ -2,7 +2,7 @@ import type { Dialect } from '../dialect'
 import type { AnyColumnDef } from '../types/index'
 import { DialectError } from '../errors/index'
 import { getColumnMeta } from '../schema/column-meta'
-import { escapeLiteralBody, quote } from '../sql/utils'
+import { escapeLiteralBody, quote } from '../utils/quote'
 
 // PG truncates longer identifiers, which would make a name never match the one it was created with.
 const MAX_IDENTIFIER_BYTES = 63
