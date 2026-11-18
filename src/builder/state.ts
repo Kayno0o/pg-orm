@@ -194,7 +194,7 @@ interface RelationAggregate {
   withoutScopes: string[]
 }
 
-export function createState(op: QueryOp, table: string): BuilderState {
+function createState(op: QueryOp, table: string): BuilderState {
   return {
     op,
     table,

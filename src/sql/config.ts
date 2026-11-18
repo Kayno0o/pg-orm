@@ -34,8 +34,6 @@ export interface DbConfig {
   } | undefined
   tls?: boolean | object | undefined
   prepare?: boolean | undefined
-  /** @deprecated No-op — bun:sql manages its own prepared statement cache */
-  cacheSize?: number | undefined
   tables?: AnyTableDef[] | undefined
   /** Schema name for introspection queries (default: 'public') */
   schema?: string | undefined
@@ -218,7 +216,6 @@ export function normalizeDbConfig(cfg: DbConfig): Record<string, unknown> {
     pool,
     tables: _tables,
     sqlite: _sqlite,
-    cacheSize: _cacheSize,
     schema: _schema,
     statementTimeout,
     idleInTransactionTimeout,

@@ -442,7 +442,7 @@ export function buildDropDefaultSql(tableName: string, colName: string): string 
 // --- Constraint lifecycle ---
 
 /** `<base><suffix>` cut to Postgres' 63-byte limit, a hash of the full name kept so two long names stay apart and the name reads back as it was created. */
-export function fitIdentifier(base: string, suffix: string): string {
+function fitIdentifier(base: string, suffix: string): string {
   const full = `${base}${suffix}`
 
   // Identifiers are ASCII, validated at definition time, so a character is a byte.

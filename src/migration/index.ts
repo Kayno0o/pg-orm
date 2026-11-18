@@ -15,7 +15,7 @@ export { ensureMigrationTable, getMigrationHistory, recordMigration } from './hi
 export { introspectLiveSchema } from './introspect'
 export { type IgnoreTables, planMigration } from './plan'
 export { rollbackMigrations } from './rollback'
-export { syncSchema } from './sync'
+export { type SyncOptions, syncSchema } from './sync'
 export type { MigrationFile, MigrationOp } from './types'
 
 export interface GenerateMigrationOptions {

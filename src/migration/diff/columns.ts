@@ -225,7 +225,7 @@ function addColumn(tableName: string, colName: string, colDef: AnyColumnDef): Mi
   return [...ops, ...diffComment(tableName, colName, getColumnMeta(colDef).comment, null)]
 }
 
-export function diffColumnType(
+function diffColumnType(
   tableName: string,
   colName: string,
   ctx: { colDef: AnyColumnDef, desiredType: string, liveType: string },

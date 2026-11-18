@@ -37,7 +37,7 @@ export interface RepositoryConfig {
  *   `exists`, `paginate`, `paginateCursor`, and the `select()` builder.
  * - `repo.write` — `insertOne/Many`, `updateOne/Many`, `updateWithLock`,
  *   `deleteOne/Many`, `upsertOne/Many`, `findOrCreate`, `restore`, `forceDelete`,
- *   and the `insert/update/delete/merge/upsert` builders.
+ *   and the `insert/update/delete/merge` builders.
  * - `repo.stream` - `offset` (LIMIT/OFFSET chunked) and `cursor` (keyset).
  *
  * Create via `db.repo(table)` — the repository inherits the database connection

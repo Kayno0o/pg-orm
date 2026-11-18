@@ -37,7 +37,7 @@ export function computeBackoff(attempt: number, baseDelayMs: number, maxDelayMs:
  * Sleeps with `computeBackoff` between attempts, an abort of the signal `Database.withSignal` bound ending the sleep with `AbortError`. Throws the last error if all
  * attempts fail or the error isn't retryable.
  */
-export async function withRetry<T>(
+async function withRetry<T>(
   fn: () => Promise<T>,
   cfg: RetryConfig,
   retryable: (err: unknown) => boolean,

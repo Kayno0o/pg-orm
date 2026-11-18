@@ -105,7 +105,6 @@ describe('normalizeDbConfig', () => {
       batchChunkSize: 100,
       defaultLimit: 25,
       redactParams: p => p,
-      cacheSize: 0,
       url: 'postgres://localhost/test',
     })
 

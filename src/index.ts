@@ -105,6 +105,7 @@ export {
   type MigrationFile,
   type MigrationOp,
   recordMigration,
+  type SyncOptions,
 } from './migration/index'
 
 export { Repository } from './repo/index'

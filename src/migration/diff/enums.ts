@@ -6,7 +6,7 @@ import { getColumnMeta } from '../../schema/column-meta'
 import { buildAlterEnumAddSql, buildCreateEnumSql, buildEnumReplacementSqls, normalizeType } from '../ddl'
 import { columnEntries } from '../types'
 
-export function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
+function extractEnumInfo(colDef: AnyColumnDef): { name: string, values: string[] } | null {
   const { enumName, enumValues } = getColumnMeta(colDef)
 
   return enumName && enumValues ? { name: enumName, values: [...enumValues] } : null

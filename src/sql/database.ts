@@ -228,22 +228,21 @@ export class Database extends BaseExecutor {
     return this._rawRunner.run<T>(sqlOrStrings as TemplateStringsArray, ...rest)
   }
 
+  /** Runs `fn` in a transaction, joining the running one in a savepoint when called from inside its body. */
+  atomic<T>(fn: (exec: TransactionClient) => Promise<T>): Promise<T> {
+    return this.transaction(fn)
+  }
+
   /**
    * Run a callback inside a database transaction. Auto-commits on success, rolls back on error.
    * Called from inside a running transaction body, it joins that transaction in a savepoint: its writes commit or roll back with the outer one, and its onCommit callbacks wait for the outer commit. `independent: true` opens a separate transaction instead.
    * @example
    * ```ts
    * await db.transaction({ isolation: 'serializable' }, async (tx) => {
-   *   const repo = userRepo.using(tx)
-   *   await repo.updateOne({ balance: 0 }, e => e.eq('id', 1))
+   *   await userRepo.using(tx).write.updateById(1, { balance: 0 })
    * })
    * ```
    */
-  /** Runs `fn` in a transaction, joining the running one in a savepoint when called from inside its body. */
-  atomic<T>(fn: (exec: TransactionClient) => Promise<T>): Promise<T> {
-    return this.transaction(fn)
-  }
-
   async transaction<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   async transaction<T>(opts: TransactionOptions, fn: (tx: TransactionClient) => Promise<T>): Promise<T>
   transaction<T>(
