@@ -40,11 +40,9 @@ interface Through {
 
 interface ChildRows {
   rows: Record<string, unknown>[]
-  // The rows each chunk of ids matched, in the callback's order: a target linked to parents of several chunks is one row listed in each.
-  chunks: Record<string, unknown>[][]
   nestedIncludes: IncludeEntry[]
-  // With `through`, the parent key each row of `chunks` was linked to.
-  parents: unknown[][]
+  // With `through`, each pivot link in the callback's order, as [parent key, target key]: a target linked to several parents is one row of `rows`.
+  links: [unknown, unknown][]
 }
 
 const THROUGH_ALIAS = '__pgorm_through'
@@ -52,47 +50,25 @@ const THROUGH_PARENT = '__pgorm_parent'
 
 type Rows = Record<string, unknown>[]
 
-// Without a pivot every row is its own: the chunks laid end to end are the rows.
-function endToEnd(matched: Rows[]): (rows: Rows) => Rows[] {
-  return (rows) => {
-    let at = 0
-
-    return matched.map((chunk) => {
-      at += chunk.length
-
-      return rows.slice(at - chunk.length, at)
-    })
-  }
-}
-
-// Through a pivot a target linked to several parents comes once per link: it is kept once, each chunk listing it where it matched, with the parent key of each link.
-function dedupeThrough(matched: Rows[], column: string): { raw: Rows, parents: unknown[][], chunksOf: (rows: Rows) => Rows[] } {
+// Through a pivot a target linked to several parents comes once per link: it is kept once, and each link is kept by key, so an afterSelect hook dropping or reordering rows cannot shift one onto another parent.
+function dedupeThrough(matched: Rows[], column: string): { raw: Rows, links: [unknown, unknown][] } {
   const raw: Rows = []
-  const seen = new Map<unknown, number>()
-  const parents: unknown[][] = []
-  const positions = matched.map((chunk) => {
-    const linked: unknown[] = []
+  const seen = new Set<unknown>()
+  const links: [unknown, unknown][] = []
 
-    parents.push(linked)
+  for (const row of matched.flat()) {
+    const key = relationKey(row[column])
 
-    return chunk.map((row) => {
-      linked.push(relationKey(row[THROUGH_PARENT]))
-      delete row[THROUGH_PARENT]
+    links.push([relationKey(row[THROUGH_PARENT]), key])
+    delete row[THROUGH_PARENT]
 
-      const key = relationKey(row[column])
-      const at = seen.get(key)
-
-      if (at !== undefined)
-        return at
-
-      seen.set(key, raw.length)
+    if (!seen.has(key)) {
+      seen.add(key)
       raw.push(row)
+    }
+  }
 
-      return raw.length - 1
-    })
-  })
-
-  return { raw, parents, chunksOf: rows => positions.map(chunk => chunk.map(at => rows[at]!)) }
+  return { raw, links }
 }
 
 /**
@@ -239,7 +215,7 @@ export class RelationResolver {
 
       return query.toSQL(dialectOf(this.executor))
     })
-    const { raw, parents, chunksOf } = through ? dedupeThrough(matched, column) : { raw: matched.length === 1 ? matched[0]! : matched.flat(), parents: [], chunksOf: endToEnd(matched) }
+    const { raw, links } = through ? dedupeThrough(matched, column) : { raw: matched.length === 1 ? matched[0]! : matched.flat(), links: [] }
 
     if (state.limitPer) {
       for (const row of raw)
@@ -248,7 +224,7 @@ export class RelationResolver {
 
     const rows = processor && raw.length > 0 ? await processor.processRows(raw, tableName, { builder: filtered }) : raw
 
-    return { rows, chunks: chunksOf(rows), nestedIncludes, parents }
+    return { rows, nestedIncludes, links }
   }
 
   private async _loadBelongsTo(
@@ -342,7 +318,7 @@ export class RelationResolver {
     await this._loadNested(target, rows, nestedIncludes, depth, processor)
   }
 
-  // The targets joined to their pivot rows in one query through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in memory.
+  // The targets joined to their pivot rows in one query through the include's callback, chunked by parent so a parent's targets keep the callback's order; a target linked to several parents is one row shared by them, and a callback limit applies per parent in the query.
   private async _loadHasManyThrough(
     parentRows: Record<string, unknown>[],
     rel: AnyRelationDef,
@@ -361,21 +337,24 @@ export class RelationResolver {
     this._requireParentKey(parentRows, sourcePk, relationName)
 
     const parentIds = collectParentIds(parentRows, sourcePk)
-    const { rows, chunks, parents, nestedIncludes } = parentIds.length > 0
+    const { rows, links, nestedIncludes } = parentIds.length > 0
       ? await this._childQuery(targetTable, targetPk, parentIds, inc, processor, { table: pivot.name, from, to, scopes: resolveScopes(pivot, THROUGH_ALIAS, scopeResolver(pivot, this.tableRegistry)) })
-      : { rows: [], chunks: [], parents: [], nestedIncludes: [] }
+      : { rows: [], links: [], nestedIncludes: [] }
+    const byKey = indexBy(rows, targetPk)
     const grouped = new Map<unknown, Record<string, unknown>[]>()
 
-    for (const [chunk, chunkRows] of chunks.entries()) {
-      for (const [i, row] of chunkRows.entries()) {
-        const parent = parents[chunk]![i]
-        const group = grouped.get(parent)
+    for (const [parent, key] of links) {
+      const row = byKey.get(key)
 
-        if (group)
-          group.push(row)
-        else
-          grouped.set(parent, [row])
-      }
+      if (!row)
+        continue
+
+      const group = grouped.get(parent)
+
+      if (group)
+        group.push(row)
+      else
+        grouped.set(parent, [row])
     }
 
     for (const parent of parentRows) {

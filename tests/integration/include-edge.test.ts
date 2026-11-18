@@ -13,6 +13,11 @@ const groupsDef = defineTable('ie_groups', t => ({
   name: t.text(),
 }))
 
+// A group name the afterSelect hook drops, set by the test that needs a hook changing the row set.
+let hiddenGroup: string | undefined
+
+groupsDef.hook('afterSelect', rows => hiddenGroup ? rows.filter(row => row.name !== hiddenGroup) : rows)
+
 const membershipsDef = defineTable('ie_memberships', t => ({
   id: t.serial().primaryKey(),
   personId: t.bigint(),
@@ -107,6 +112,22 @@ describe.each(dialects)('include() on %s', (_name, open) => {
       .orderBy('name'))
 
     expect(rows.map(r => r.groups.map(g => g.name))).toEqual([['blue', 'red'], ['blue']])
+  })
+
+  it('links hasManyThrough targets by key when an afterSelect hook drops one', async () => {
+    hiddenGroup = 'blue'
+
+    try {
+      const rows = await db.repo(people).read.findMany(q => q
+        .include('groups', groupsDef, g => g.orderBy('name'))
+        .where({ id: [ann, bob] })
+        .orderBy('name'))
+
+      expect(rows.map(r => r.groups.map(g => g.name))).toEqual([['green', 'red'], []])
+    }
+    finally {
+      hiddenGroup = undefined
+    }
   })
 
   it('reads hasManyThrough targets and their links in one query', async () => {
