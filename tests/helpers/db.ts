@@ -32,7 +32,7 @@ export async function useFileDatabase(): Promise<void> {
   })
 }
 
-// A file's database is dropped when the next file asks for its own, or when the process has nothing left to run.
+// A file's database is dropped when the next file asks for its own, or after the last file.
 async function dropFinished(): Promise<void> {
   const drop = finished
 
@@ -40,7 +40,8 @@ async function dropFinished(): Promise<void> {
   await drop?.()
 }
 
-process.once('beforeExit', dropFinished)
+/** Drops the last file's database: a global `afterAll` registered by the test preload, since Bun fires no `beforeExit` under `bun test`. */
+export const dropFileDatabase = dropFinished
 
 // CI's system-installed PG occasionally drops idle sockets between tests.
 // Retry transient ConnectionError so the suite is robust without masking real issues.

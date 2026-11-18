@@ -6,6 +6,7 @@ coverageReporter = [
 coverageDir = "./coverage"
 coverage = true
 root = "./tests"
+preload = ["./tests/helpers/preload.ts"]
 coveragePathIgnorePatterns = [
   "node_modules/**",
   "dist/**",
