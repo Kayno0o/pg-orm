@@ -339,6 +339,11 @@ export class BeforeHookError extends OrmError {
  * unbalanced `e.raw()` placeholders, unknown isolation level, raw-SQL fragment
  * containing `;`/`--`/`/*`.
  */
+/** A caller value as a `ValidationError` message quotes it: `[REDACTED]` wherever values are redacted, like `.value`. */
+export function messageValue(value: unknown): string {
+  return shouldRedact() ? '[REDACTED]' : String(value)
+}
+
 export class ValidationError extends OrmError {
   readonly context: string
   readonly field?: string

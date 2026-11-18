@@ -1,4 +1,4 @@
-import { ValidationError } from '../errors/index'
+import { messageValue, ValidationError } from '../errors/index'
 
 const ITERATIVE_SCANS = new Set(['off', 'strict_order', 'relaxed_order'])
 
@@ -26,7 +26,7 @@ export function vectorSearchSettings(opts: VectorSearchOptions): [string, string
       return
 
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1)
-      throw new ValidationError(`vectorSearch(): ${key} must be a positive integer, got ${String(value)}.`, 'vectorSearch', { field: key, value })
+      throw new ValidationError(`vectorSearch(): ${key} must be a positive integer, got ${messageValue(value)}.`, 'vectorSearch', { field: key, value })
 
     settings.push([name, String(value)])
   }

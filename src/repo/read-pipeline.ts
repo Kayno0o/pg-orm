@@ -16,7 +16,7 @@ import { aggregateMethod, selectedColumns } from '../builder/state'
 import { vectorSearchSettings } from '../builder/vector-search'
 import { DEFAULT_STREAM_CHUNK_SIZE } from '../constants'
 import { dialectOf, requirePostgres } from '../dialect'
-import { NotFoundError, OrmError, ValidationError } from '../errors/index'
+import { messageValue, NotFoundError, OrmError, ValidationError } from '../errors/index'
 import { mapChunk } from '../mapper/index'
 import { columnBaseType, tableMeta } from '../schema/inspect'
 import { quote } from '../sql/utils'
@@ -76,10 +76,10 @@ export interface PageLimits {
 
 function checkPageSize(op: string, name: string, size: number, limits?: PageLimits): void {
   if (!Number.isInteger(size) || size < 1)
-    throw new ValidationError(`${op}() requires ${name} >= 1, got ${size}`, op, { value: size })
+    throw new ValidationError(`${op}() requires ${name} >= 1, got ${messageValue(size)}`, op, { value: size })
 
   if (limits?.maxPageSize !== undefined && size > limits.maxPageSize)
-    throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${size}`, op, { value: size })
+    throw new ValidationError(`${op}() allows ${name} up to ${limits.maxPageSize} (DbConfig.maxPageSize), got ${messageValue(size)}`, op, { value: size })
 }
 
 /** What `nearest()` takes: how many rows, an optional filter and distance cap, the metric, and the vector column when the table has no `embedding()` trait naming it. */
@@ -368,13 +368,13 @@ export class ReadPipeline<
     const { page, perPage, where, withTotal = true } = opts
 
     if (!Number.isInteger(page) || page < 1)
-      throw new ValidationError(`paginate() requires page >= 1, got ${page}`, 'paginate', { value: page })
+      throw new ValidationError(`paginate() requires page >= 1, got ${messageValue(page)}`, 'paginate', { value: page })
 
     checkPageSize('paginate', 'perPage', perPage, limits)
 
     // Past this the offset is no longer an exact integer, which Postgres refuses.
     if (page * perPage > Number.MAX_SAFE_INTEGER)
-      throw new ValidationError(`paginate(): page ${page} of ${perPage} rows reaches past the largest offset`, 'paginate', { value: page })
+      throw new ValidationError(`paginate(): page ${messageValue(page)} of ${perPage} rows reaches past the largest offset`, 'paginate', { value: page })
 
     const base = new SelectBuilderCtor<TColumns, TRelations>(this._runtime.table)
     const rows = (cb ? cb(base) : base).andWhere(where).withoutScope(...liftedScopes(opts))

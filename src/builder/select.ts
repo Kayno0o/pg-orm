@@ -4,7 +4,7 @@ import type { AggResult, ExprBuilder, ExprTape, RelationTarget, RelationWhere, S
 import type { IncludeCallback, OrderDir, OrderEntry, RelationAggregateFn, TableTarget, WindowFrame } from './state'
 import type { VectorSearchOptions } from './vector-search'
 import { SOFT_DELETE_SCOPE } from '../constants'
-import { ValidationError } from '../errors/index'
+import { messageValue, ValidationError } from '../errors/index'
 import { validateIdentifier, validateRawSqlFragment } from '../schema/validate'
 import { capitalize } from '../utils/string'
 import { placeholderNumbers } from './_placeholders'
@@ -258,7 +258,7 @@ export class SelectBuilder<
   /** Limit the number of returned rows. */
   limit(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new ValidationError(`limit() requires a non-negative integer, got ${n}`, 'limit', { value: n })
+      throw new ValidationError(`limit() requires a non-negative integer, got ${messageValue(n)}`, 'limit', { value: n })
     }
 
     this._state.limit = n
@@ -269,7 +269,7 @@ export class SelectBuilder<
   /** Skip the first N rows. */
   offset(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new ValidationError(`offset() requires a non-negative integer, got ${n}`, 'offset', { value: n })
+      throw new ValidationError(`offset() requires a non-negative integer, got ${messageValue(n)}`, 'offset', { value: n })
     }
 
     this._state.offset = n
@@ -570,7 +570,7 @@ export class SelectBuilder<
    */
   withStreamChunk(size: number): this {
     if (!Number.isInteger(size) || size <= 0) {
-      throw new ValidationError(`withStreamChunk() requires a positive integer, got ${size}`, 'withStreamChunk', { value: size })
+      throw new ValidationError(`withStreamChunk() requires a positive integer, got ${messageValue(size)}`, 'withStreamChunk', { value: size })
     }
 
     this._state.streamChunkSize = size

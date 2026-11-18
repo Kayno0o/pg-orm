@@ -511,6 +511,33 @@ describe('Security: Error message sanitization in production', () => {
     }
   })
 
+  it('keeps caller values out of ValidationError messages when redacting', () => {
+    process.env.REDACT_QUERY_LOGS = '1'
+
+    try {
+      const messages = [
+        () => new SelectBuilder('t').limit(-31337),
+        () => new SelectBuilder('t').offset(-31337),
+        () => new SelectBuilder('t').withStreamChunk(-31337),
+        () => createExprBuilder().stringAgg('name', '31337\'--'),
+      ].map((fn) => {
+        try {
+          fn()
+        }
+        catch (error) {
+          return (error as Error).message
+        }
+
+        return 'no error'
+      })
+
+      expect(messages.filter(m => !m.includes('[REDACTED]') || m.includes('31337'))).toEqual([])
+    }
+    finally {
+      process.env.REDACT_QUERY_LOGS = originalRedact
+    }
+  })
+
   it('preserves structured error info even when message is redacted', () => {
     process.env.REDACT_QUERY_LOGS = '1'
 

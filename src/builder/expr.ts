@@ -1,6 +1,6 @@
 import type { AnyColumnDef, AnyColumns, AnyRelations, AnyTableDef, RelationDef, ScopeOptions } from '../types/index'
 import type { AggResult, ColumnRef, ExprTape, SubqueryRef, TsQueryRef, TypedExpr, VectorMetric } from './_tape'
-import { ValidationError } from '../errors/index'
+import { messageValue, ValidationError } from '../errors/index'
 import { validateIdentifier, validateTsLanguage } from '../schema/validate'
 import { qualifyCol, quote } from '../sql/utils'
 import { SINGLE_QUOTE_RE } from '../utils/regex'
@@ -426,7 +426,7 @@ const _singletonExprBuilder: ExprBuilder<any> = {
   arrayAgg: col => `array_agg(${qualifyCol(col)})` as AggResult<unknown[]>,
   stringAgg: (col, delimiter) => {
     if (!STRING_AGG_RE.test(delimiter))
-      throw new ValidationError(`stringAgg: unsafe delimiter characters: "${delimiter}"`, 'stringAgg', { value: delimiter })
+      throw new ValidationError(`stringAgg: unsafe delimiter characters: "${messageValue(delimiter)}"`, 'stringAgg', { value: delimiter })
 
     return `string_agg(${qualifyCol(col)}, '${delimiter.replace(SINGLE_QUOTE_RE, '\'\'')}')` as AggResult<string>
   },

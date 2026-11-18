@@ -1,6 +1,6 @@
 import type { Dialect } from '../dialect'
 import type { BuilderState, OrderDir, OrderEntry } from './state'
-import { ValidationError } from '../errors/index'
+import { messageValue, ValidationError } from '../errors/index'
 import { shiftPlaceholders } from './_placeholders'
 import { formatOrderBy } from './state'
 
@@ -97,7 +97,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
 
   limit(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new ValidationError(`limit() requires a non-negative integer, got ${n}`, 'limit', { value: n })
+      throw new ValidationError(`limit() requires a non-negative integer, got ${messageValue(n)}`, 'limit', { value: n })
     }
 
     this._limit = n
@@ -107,7 +107,7 @@ export class SetOperationBuilder<_TResult = Record<string, unknown>> {
 
   offset(n: number): this {
     if (!Number.isInteger(n) || n < 0) {
-      throw new ValidationError(`offset() requires a non-negative integer, got ${n}`, 'offset', { value: n })
+      throw new ValidationError(`offset() requires a non-negative integer, got ${messageValue(n)}`, 'offset', { value: n })
     }
 
     this._offset = n
