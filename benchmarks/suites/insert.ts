@@ -33,5 +33,16 @@ export function insertSuite(db: Database) {
 
       await repo.write.forceDelete({ id: ids })
     }, { ops: 5 }),
+
+    // COPY is Postgres only, so it sits beside the insertMany runs it replaces for a bulk load.
+    bench('copyFrom.1000', async () => {
+      await repo.write.copyFrom(batch('copy1000', 1000))
+      await repo.write.forceDelete(e => e.like('email', 'bench-copy1000-%'))
+    }, { ops: 5 }),
+
+    bench('copyFrom.5000', async () => {
+      await repo.write.copyFrom(batch('copy5000', 5000))
+      await repo.write.forceDelete(e => e.like('email', 'bench-copy5000-%'))
+    }, { ops: 2 }),
   ])
 }
