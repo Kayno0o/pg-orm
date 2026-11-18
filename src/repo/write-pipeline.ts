@@ -1,16 +1,14 @@
 import type { ExprTape } from '../builder/_tape'
 import type { BulkUpdateRow } from '../builder/bulk-update'
-import type { ConflictSet, ConflictValue } from '../builder/conflict'
-import type { ConflictUpdate } from '../builder/insert'
 import type { WhereInput } from '../builder/query'
 import type { Dialect } from '../dialect'
 import type { Executable } from '../sql/executor'
 import type { TransactionClient } from '../sql/transaction'
 import type { AnyColumns, AnyTableDef, AnyVirtuals, ColumnConstraint, HookContext, InferInsert, InferPrimaryKey, InferUpdate, InsertOptions, ScopedWriteOptions, SingleRowOptions, UpdateOptions, WithVirtuals, WriteReturnOptions } from '../types/index'
 import type { TableRuntime } from './table-runtime'
+import type { FindOrCreateOptions, UpsertOptions } from './upsert'
 import { holdsForEveryRow, OP_AND, OP_EQ, OP_IN_SUBQUERY, OP_NOT, OP_OR, OP_SCALAR } from '../builder/_tape'
 import { BulkUpdateBuilder } from '../builder/bulk-update'
-import { isConflictValue } from '../builder/conflict'
 import { compileWhere, DeleteBuilder as DeleteBuilderCtor, InsertBuilder as InsertBuilderCtor, SelectBuilder as SelectBuilderCtor, UpdateBuilder as UpdateBuilderCtor } from '../builder/query'
 import { columnValue } from '../builder/state'
 import { MAX_BIND_PARAMS, SOFT_DELETE_SCOPE, STATEMENT_PARAM_RESERVE } from '../constants'
@@ -20,52 +18,20 @@ import { hasHooks } from '../hooks/index'
 import { mapChunk } from '../mapper/index'
 import { sqliteInsertDefaults } from '../schema/column-default'
 import { columnOf } from '../schema/inspect'
-import { copyField } from '../sql/copy'
 import { chunks } from '../utils/collection'
 import { quote } from '../utils/quote'
 import { createMapperFactory } from './_mapper'
-import { resolveRelationFilters, scopeResolver } from './relation-filter'
-import { liftedScopes, resolveScopes } from './table-behavior'
+import { copyChunks, copyColumns } from './copy-from'
+import { resolveRelationFilters } from './relation-filter'
+import { liftedScopes } from './table-behavior'
 import { assertKeyValue, isKeyValue } from './table-runtime'
+import { conflictUpdate, insertedClassifier, skipConflicts, updateHookedRows } from './upsert'
 
 type Where<TColumns extends AnyColumns> = WhereInput<TColumns>
 
-const INSERTED_FLAG = '__pgorm_inserted'
-// The size a COPY's rows are batched to before each write to the stream.
-const COPY_CHUNK_CHARS = 64 * 1024
+export type { FindOrCreateOptions, UpsertOptions, UpsertUpdate } from './upsert'
+
 const FIND_OR_CREATE_ATTEMPTS = 3
-// SQLite nests an OR chain one level per term, under its expression depth limit of 1000.
-const SQLITE_OR_TERMS = 500
-
-async function* prepend<T>(first: T, rest: Iterator<T> | AsyncIterator<T>): AsyncGenerator<T> {
-  try {
-    yield first
-
-    for (let next = await rest.next(); !next.done; next = await rest.next())
-      yield next.value
-  }
-  finally {
-    await rest.return?.()
-  }
-}
-
-// A COPY's column list is fixed by its first row, so every later one must set exactly those columns.
-function assertCopyRow(row: Record<string, unknown>, columns: string[], expected: ReadonlySet<string>): void {
-  let set = 0
-
-  for (const key in row) {
-    if (row[key] === undefined)
-      continue
-
-    if (!expected.has(key))
-      throw new ValidationError(`copyFrom rows must all set the columns the first one sets (${columns.join(', ')}): one also sets "${key}"`, 'copyFrom', { field: key })
-
-    set++
-  }
-
-  if (set !== columns.length)
-    throw new ValidationError(`copyFrom rows must all set the columns the first one sets (${columns.join(', ')}): one leaves ${columns.filter(c => row[c] === undefined).join(', ')} unset`, 'copyFrom')
-}
 
 // A single-row write reports whether it changed a row by reading it back, so `returning: false` would make it misreport.
 function requireReturning(op: string, opts?: WriteReturnOptions): void {
@@ -73,25 +39,10 @@ function requireReturning(op: string, opts?: WriteReturnOptions): void {
     throw new ValidationError(`${op}() reads back the row it writes, so it does not take returning: false (the many-row writes do).`, op, { field: 'returning' })
 }
 
-/** What `findOrCreate` takes: the scopes it lifts, by name. It reaches a trashed row anyway, to restore it. */
-export type FindOrCreateOptions = Pick<ScopedWriteOptions, 'withoutScopes'>
-
-/** An upsert's conflict update: the columns to copy from the incoming row, or the full `ConflictUpdate`. */
-export type UpsertUpdate<TColumns extends AnyColumns> = (keyof TColumns & string)[] | ConflictUpdate<TColumns>
-
-/** What an upsert takes after its conflict target: the `update` to run on a conflict, and the options every scoped write takes. */
-export interface UpsertOptions<TColumns extends AnyColumns> extends ScopedWriteOptions {
-  update?: UpsertUpdate<TColumns>
-}
-
 /** Builder surface the pipeline needs to set RETURNING and compile. */
 interface ReturnableBuilder {
   returning: (...cols: string[]) => this
   toSQL: (dialect?: Dialect) => { sql: string, params: unknown[] }
-}
-
-function skipConflicts<TColumns extends AnyColumns>(builder: InsertBuilderCtor<TColumns>, opts?: InsertOptions<TColumns>): InsertBuilderCtor<TColumns> {
-  return opts?.skipConflicts ? builder.onConflict(opts.skipConflicts).doNothing() : builder
 }
 
 /** Frozen dependencies for a single write pipeline. */
@@ -213,51 +164,10 @@ export class WritePipeline<
     if (first.done)
       return 0
 
-    const columns = this._copyColumns(first.value as Record<string, unknown>)
-    const table = this._runtime.table.name
-
-    return this._executor.copyIn(`COPY ${quote(table)} (${columns.map(quote).join(', ')}) FROM STDIN`, this._copyChunks(first.value as Record<string, unknown>, iterator, columns))
-  }
-
-  private _copyColumns(row: Record<string, unknown>): string[] {
     const table = this._runtime.table
-    const columns = Object.keys(row).filter(key => row[key] !== undefined)
+    const columns = copyColumns(table, first.value as Record<string, unknown>)
 
-    if (columns.length === 0)
-      throw new ValidationError(`copyFrom on "${table.name}" got a row setting no column`, 'copyFrom')
-
-    for (const name of columns) {
-      const col = columnOf(table, name, 'copyFrom')
-
-      if (col.constraints.some((c: ColumnConstraint) => c.type === 'generated'))
-        throw new ValidationError(`"${table.name}"."${name}" is a generated column, which COPY cannot write`, 'copyFrom', { field: name })
-    }
-
-    return columns
-  }
-
-  private async* _copyChunks(first: Record<string, unknown>, rest: Iterator<unknown> | AsyncIterator<unknown>, columns: string[]): AsyncGenerator<string> {
-    const table = this._runtime.table
-    const types = columns.map(name => table.columns[name]!.pgType)
-    const json = types.map(type => type === 'json' || type === 'jsonb')
-    const expected = new Set(columns)
-    let buffer = ''
-
-    for await (const value of prepend(first, rest)) {
-      const row = value as Record<string, unknown>
-
-      assertCopyRow(row, columns, expected)
-      // copyField writes a json value's text itself; any other goes through the encoding an INSERT gives it (a vector's `[1,2]`).
-      buffer += `${columns.map((name, i) => copyField(json[i] ? row[name] : columnValue(types[i], row[name]), json[i]!)).join('\t')}\n`
-
-      if (buffer.length >= COPY_CHUNK_CHARS) {
-        yield buffer
-        buffer = ''
-      }
-    }
-
-    if (buffer)
-      yield buffer
+    return this._executor.copyIn(`COPY ${quote(table.name)} (${columns.map(quote).join(', ')}) FROM STDIN`, copyChunks(table, first.value as Record<string, unknown>, iterator, columns))
   }
 
   /**
@@ -604,9 +514,9 @@ export class WritePipeline<
 
     // A row an upsert writes may be inserted, so it goes through the insert hooks first.
     const inserted = await this._runtime.runBeforeMany('beforeUpsert', await this._runtime.runBeforeMany('beforeInsert', values, this._hooks), this._hooks) as Record<string, unknown>[]
-    const { rows: hooked, columns } = await this._updateHookedRows(inserted)
+    const { rows: hooked, columns } = await updateHookedRows(this._runtime, this._hooks, inserted)
     const v = hooked.map(row => this._normalizeValues(row)) as InferInsert<TColumns>[]
-    const conflict = this._conflictUpdate(opts?.update, columns, liftedScopes(opts))
+    const conflict = conflictUpdate<TColumns>(this._runtime, this._tableRegistry, values => this._normalizeValues(values), opts?.update, columns, liftedScopes(opts))
 
     return this._chunked(v as Record<string, unknown>[], async (pipeline, rows) => {
       const builder = pipeline._insertMany(rows as InferInsert<TColumns>[]).onConflict(conflictTarget).doUpdateWith(conflict)
@@ -614,54 +524,11 @@ export class WritePipeline<
       return pipeline._execute({
         builder,
         afterEvent: 'afterInsert',
-        inserted: await pipeline._insertedClassifier(builder, rows, conflictTarget),
+        inserted: await insertedClassifier(pipeline._executor, this._runtime.table, builder, rows, conflictTarget),
         project: written => pipeline._projectMany(written, opts),
         opts,
       })
     })
-  }
-
-  /**
-   * How to tell an upsert's inserted rows from its updated ones, so each fires its own after hook; undefined when no hook listens.
-   * Postgres says it per row (`xmax = 0` on a row the statement inserted). SQLite has no such column, so the keys already present are read first: exact inside a transaction, best effort outside one, where a concurrent insert can land between the two statements.
-   */
-  private async _insertedClassifier(builder: InsertBuilderCtor<TColumns>, rows: Record<string, unknown>[], target: string[]): Promise<((raw: Record<string, unknown>) => boolean) | undefined> {
-    const { table } = this._runtime
-
-    if (!hasHooks(table, 'afterInsert') && !hasHooks(table, 'afterUpdate'))
-      return undefined
-
-    if (dialectOf(this._executor) === 'postgres') {
-      builder.getState().returningExtra = `(xmax = 0) AS ${quote(INSERTED_FLAG)}`
-
-      return (raw) => {
-        const inserted = raw[INSERTED_FLAG] === true
-
-        delete raw[INSERTED_FLAG]
-
-        return inserted
-      }
-    }
-
-    const keyOf = (row: Record<string, unknown>): string => JSON.stringify(target.map(col => String(row[col])))
-    const conflicting = rows.filter(row => target.every(col => row[col] !== undefined && row[col] !== null))
-
-    if (conflicting.length === 0)
-      return () => true
-
-    const existing = new Set<string>()
-
-    for (const chunk of chunks(conflicting, SQLITE_OR_TERMS)) {
-      const present = new SelectBuilderCtor<TColumns>(table)
-        .pick(...target as (keyof TColumns & string)[])
-        .where(e => e.or(...chunk.map(row => compileWhere<TColumns>(Object.fromEntries(target.map(col => [col, row[col]])) as Where<TColumns>))))
-      const { sql, params } = present.toSQL(dialectOf(this._executor))
-
-      for (const row of await this._executor.query(sql, params))
-        existing.add(keyOf(row))
-    }
-
-    return raw => !existing.has(keyOf(raw))
   }
 
   async upsertOne(
@@ -674,63 +541,6 @@ export class WritePipeline<
     const rows = await this.upsertMany([values], conflictTarget, opts)
 
     return rows[0] ?? null
-  }
-
-  /**
-   * Runs `beforeUpdate` on each upsert row, as the update it may become: what a hook sets or changes is written into the row, for the conflict update to take through EXCLUDED, so the inserted row carries it too.
-   * Gives the rows and those columns, which every row must set alike, a row lacking one inserting its default and updating to it.
-   */
-  private async _updateHookedRows(rows: Record<string, unknown>[]): Promise<{ rows: Record<string, unknown>[], columns: string[] }> {
-    if (!hasHooks(this._runtime.table, 'beforeUpdate'))
-      return { rows, columns: [] }
-
-    const hooked = await this._runtime.runBeforeMany('beforeUpdate', rows.map(row => ({ ...row })), this._hooks)
-    const changed = hooked.map((row, i) => Object.keys(row).filter(col => !Object.hasOwn(rows[i]!, col) || row[col] !== rows[i]![col]))
-    const columns = [...new Set(changed.flat())]
-    const uneven = columns.find(col => hooked.some(row => !Object.hasOwn(row, col)))
-
-    if (uneven !== undefined)
-      throw new ValidationError(`upsert on "${this._runtime.table.name}": a beforeUpdate hook set "${uneven}" on some rows only, where the conflict update writes it for every row.`, 'upsert', { field: uneven })
-
-    return { rows: hooked, columns }
-  }
-
-  // The row an upsert updates is updated like any other: the columns `beforeUpdate` hooks set (timestamps), taken from the incoming row, and the version bump apply to it, and only while the scopes not `lifted` hold for it. A trashed row is restored, taking the incoming row's soft-delete column (null unless given), unless `set` says otherwise.
-  private _conflictUpdate(update: UpsertUpdate<TColumns> | undefined, hookedColumns: string[], lifted: string[]): ConflictUpdate<TColumns> {
-    const given: ConflictUpdate<TColumns> = Array.isArray(update) ? { columns: update } : update ?? {}
-    const guards = resolveScopes(this._runtime.table, undefined, scopeResolver(this._runtime.table, this._tableRegistry)).filter(scope => scope.name !== SOFT_DELETE_SCOPE && !lifted.includes(scope.name))
-    const spec: ConflictUpdate<TColumns> = guards.length === 0
-      ? given
-      : { ...given, where: e => e.and(...given.where ? [compileWhere<TColumns>(given.where, this._runtime.table.columns as TColumns)] : [], ...guards.map(scope => scope.tape)) }
-    const lock = this._runtime.behavior.getOptimisticLockColumn()
-    const trashCol = this._runtime.behavior.getSoftDeleteColumn()
-
-    for (const col of spec.columns ?? [])
-      columnOf(this._runtime.table, col, 'upsert')
-
-    if (!spec.set && hookedColumns.length === 0 && !lock && !trashCol && guards.length === 0)
-      return spec
-
-    return {
-      ...spec,
-      set: (u) => {
-        const hooked = Object.fromEntries(hookedColumns.map(col => [col, u.excluded(col as keyof TColumns & string)]))
-        const set: Record<string, unknown> = { ...hooked, ...trashCol && { [trashCol]: u.excluded(trashCol) }, ...spec.set?.(u) }
-
-        if (lock)
-          set[lock] = u.add(u.existing(lock) as ConflictValue<number>, 1)
-
-        // Plain values are bound like any write's, so a json value is marked; an expression is left to render itself.
-        for (const [col, value] of Object.entries(set)) {
-          if (isConflictValue(value))
-            columnOf(this._runtime.table, col, 'upsert')
-          else
-            Object.assign(set, this._normalizeValues({ [col]: value }))
-        }
-
-        return set as ConflictSet<TColumns>
-      },
-    }
   }
 
   /**
